@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/mcp"
 )
 
@@ -329,7 +330,14 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 		// The rig drives the shipped bytes, so it renders them the way an
 		// enrolment does: the path rules are compiled in, and one rendered
 		// without them is not the file anybody installs.
-		Layout: Layout{ConfigDir: "/opt/conf"},
+		//
+		// The SSH names are declared rather than built in, which is where they
+		// went: a credential faramir neither writes nor reads is the operator's
+		// to name, and the case worth covering here is that a declared one
+		// reaches this extension like a compiled-in one does.
+		Layout: Layout{ConfigDir: "/opt/conf", Refused: []config.RefusedPath{
+			{Name: "id_ed25519"}, {Name: "id_rsa"},
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -492,7 +500,7 @@ func TestPiExtensionRefusesKeyMaterial(t *testing.T) {
 		input map[string]any
 		block bool
 	}{
-		{"an SSH private key", "read",
+		{"an SSH private key, declared rather than built in", "read",
 			map[string]any{"path": "/home/op/.ssh/id_ed25519"}, true},
 		{"the age identity sops reads", "read",
 			map[string]any{"path": "/home/op/.config/sops/age/keys.txt"}, true},
@@ -502,7 +510,7 @@ func TestPiExtensionRefusesKeyMaterial(t *testing.T) {
 			map[string]any{"path": "/opt/conf/config.toml"}, true},
 		// A tool this extension has never heard of, taking a list rather than a
 		// path: the walk is over the whole input for exactly this.
-		{"a key named among several paths", "read_many",
+		{"a declared key named among several paths", "read_many",
 			map[string]any{"paths": []any{"/srv/README.md", "/home/op/.ssh/id_rsa"}}, true},
 		// The distinction the list makes on purpose.
 		{"a file of refs, which is meant to be read", "read",

@@ -57,7 +57,12 @@ func TestRefuseLsCarriesTheBuiltInRules(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
 		t.Fatalf("not a JSON array: %v\n%s", err, out)
 	}
-	want := map[string]string{"age.key": "name", ".pem": "suffix", ".env": "prefix"}
+	want := map[string]string{
+		"age.key":          "name",
+		".sops.yml":        "suffix",
+		"sops/age/":        "dir",
+		".config/faramir/": "dir",
+	}
 	for entry, kind := range want {
 		found := false
 		for _, row := range rows {

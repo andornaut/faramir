@@ -125,7 +125,7 @@ func TestAPathAndANameAreNotOneEntry(t *testing.T) {
 // the operator can still narrow it. A wide one is otherwise silent.
 func TestAPatternSaysWhatItMatches(t *testing.T) {
 	for name, want := range map[string]string{
-		"*.pem":        `ends in ".pem"`,
+		"*.sops.yml":   `ends in ".sops.yml"`,
 		".env*":        `starts with ".env"`,
 		"secrets*.yml": `matches "secrets*.yml"`,
 		".storage/":    `under any directory named ".storage"`,
@@ -149,7 +149,7 @@ func TestRemovingABuiltInRuleFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, name := range []string{"*.pem", "age.key", ".env*", "sops/age/"} {
+	for _, name := range []string{"*.sops.yml", "age.key", "sops/age/", ".config/faramir/"} {
 		_, removed, rmErr := RemoveRefusedPath(Options{ConfigDir: dir},
 			config.RefusedPath{Name: name})
 		if rmErr == nil {
@@ -175,14 +175,18 @@ func TestRemovingABuiltInRuleFails(t *testing.T) {
 }
 
 // The pattern is compared as the rule it becomes, not as the string typed:
-// "*.pem" is the built-in suffix written another way, while ".pem" alone is a
+// "*.sops.yml" is the built-in suffix written another way, while ".sops.yml" is a
 // file of that name and is nobody's rule yet.
 func TestABuiltInIsFoundByTheRuleNotTheSpelling(t *testing.T) {
-	if _, ok := BuiltInRefusalFor("*.pem"); !ok {
-		t.Error(`"*.pem" did not find the built-in suffix`)
+	if _, ok := BuiltInRefusalFor("*.sops.yml"); !ok {
+		t.Error(`"*.sops.yml" did not find the built-in suffix`)
 	}
-	if _, ok := BuiltInRefusalFor(".pem"); ok {
-		t.Error(`".pem" as a file name found the suffix rule, which is a different rule`)
+	if _, ok := BuiltInRefusalFor(".sops.yml"); ok {
+		t.Error(`".sops.yml" as a file name found the suffix rule, which is a different rule`)
+	}
+	// One that used to be built in and is now the operator's to declare.
+	if _, ok := BuiltInRefusalFor("*.pem"); ok {
+		t.Error(`"*.pem" was read as a built-in after it was relocated`)
 	}
 	if _, ok := BuiltInRefusalFor("*.htpasswd"); ok {
 		t.Error("a pattern faramir does not carry was read as a built-in")
@@ -190,16 +194,14 @@ func TestABuiltInIsFoundByTheRuleNotTheSpelling(t *testing.T) {
 }
 
 // The same answer for the operator who names the file rather than the pattern.
-// "Stop refusing ~/.ssh/id_rsa" and "stop refusing the id_rsa rule" are one
+// "Stop refusing ~/.config/sops/age/keys.txt" and "stop refusing the sops/age/
 // request, and only one of them names a pattern.
 func TestRemovingAPathABuiltInCoversFails(t *testing.T) {
 	dir := writeRefuseConfig(t, "")
 	var err error
 	for _, path := range []string{
-		"/home/op/.ssh/id_rsa",               // an exact name
-		"/srv/deploy/prod.pem",               // a suffix
-		"/home/op/.env.local",                // a prefix
-		"/srv/ansible/secrets-prod.yml",      // a glob
+		"/home/op/age.key",                   // an exact name
+		"/etc/faramir/secrets/db.sops.yml",   // a suffix
 		"/home/op/.config/sops/age/keys.txt", // a directory
 	} {
 		_, removed, rmErr := RemoveRefusedPath(Options{ConfigDir: dir},
@@ -220,7 +222,7 @@ func TestRemovingAPathABuiltInCoversFails(t *testing.T) {
 	// to the steps, which want root, so what is asserted is that it got past this
 	// check rather than that the run succeeded.
 	_, _, err = RemoveRefusedPath(Options{ConfigDir: dir},
-		config.RefusedPath{Path: "/mnt/vol/luks.key.bin"})
+		config.RefusedPath{Path: "/mnt/vol/luks.key"})
 	if err != nil && strings.Contains(err.Error(), "compiled into faramir") {
 		t.Errorf("a path no built-in covers was refused as one: %v", err)
 	}
@@ -230,12 +232,10 @@ func TestRemovingAPathABuiltInCoversFails(t *testing.T) {
 // wrong one would send the operator to the wrong place.
 func TestABuiltInKnowsWhatItCovers(t *testing.T) {
 	for path, want := range map[string]string{
-		"/home/op/.ssh/id_rsa":       "id_rsa",
-		"/srv/deploy/prod.pem":       ".pem",
-		"/home/op/.env.local":        ".env",
-		"/srv/a/secrets-prod.yml":    "secrets*.yml",
-		"/home/op/.config/faramir/x": ".config/faramir/",
-		"/etc/faramir/x.sops.yml":    ".sops.yml",
+		"/home/op/age.key":                   "age.key",
+		"/home/op/.config/sops/age/keys.txt": "sops/age/",
+		"/home/op/.config/faramir/x":         ".config/faramir/",
+		"/etc/faramir/x.sops.yml":            ".sops.yml",
 	} {
 		rule, ok := BuiltInRefusalCovering(path)
 		if !ok {
@@ -246,8 +246,11 @@ func TestABuiltInKnowsWhatItCovers(t *testing.T) {
 			t.Errorf("%s: covered by %q, want %q", path, rule.Entry, want)
 		}
 	}
-	if rule, ok := BuiltInRefusalCovering("/srv/app/config.yml"); ok {
-		t.Errorf("an ordinary file was read as covered by %q", rule.Entry)
+	// An ordinary file, and one a relocated rule used to cover.
+	for _, path := range []string{"/srv/app/config.yml", "/home/op/.ssh/id_rsa"} {
+		if rule, ok := BuiltInRefusalCovering(path); ok {
+			t.Errorf("%s was read as covered by the built-in %q", path, rule.Entry)
+		}
 	}
 }
 
@@ -259,24 +262,24 @@ func TestADeclaredEntryIsRemovableWhateverElseCoversIt(t *testing.T) {
 	// A path a built-in covers by suffix, which is the case the e2e suite meets:
 	// a key on a volume nobody has mounted is refused by the entry that named it
 	// and by the built-in ".key" alike.
-	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/mnt/vol/luks.key\"\n"+
-		"[[secret.refuse]]\nname = \"*.pem\"\n")
+	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/faramir/secrets/a.sops.yml\"\n"+
+		"[[secret.refuse]]\nname = \"*.sops.yml\"\n")
 
 	for _, asked := range []config.RefusedPath{
-		{Path: "/mnt/vol/luks.key"},
-		{Name: "*.pem"},
+		{Path: "/etc/faramir/secrets/a.sops.yml"},
+		{Name: "*.sops.yml"},
 	} {
 		if err := BuiltInRefusalError(dir, asked); err != nil {
 			t.Errorf("%s: a declared entry was refused: %v", asked.Refuses(), err)
 		}
 	}
 	// One nothing declares is still refused, which is the whole of the check.
-	if err := BuiltInRefusalError(dir, config.RefusedPath{Name: "*.key"}); err == nil {
+	if err := BuiltInRefusalError(dir, config.RefusedPath{Name: "age.key"}); err == nil {
 		t.Error("a built-in nothing declares was not refused")
 	}
 	// A host with no config declares none, so there is no entry to take back and
 	// the built-in is the whole of the answer.
-	if err := BuiltInRefusalError(t.TempDir(), config.RefusedPath{Name: "*.pem"}); err == nil {
+	if err := BuiltInRefusalError(t.TempDir(), config.RefusedPath{Name: "age.key"}); err == nil {
 		t.Error("a built-in was removable on a host that declares nothing")
 	}
 }

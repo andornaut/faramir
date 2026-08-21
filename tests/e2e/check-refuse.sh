@@ -413,7 +413,7 @@ refuse ls --declared | grep -q 'built-in' \
 # and the host goes on refusing it. It fails before root is asked for, a request
 # that can never be granted having no business costing a sudo first.
 before=$(cat $CFG)
-out=$(refuse rm --name '*.pem' 2>&1)
+out=$(refuse rm --name '*.sops.yml' 2>&1)
 rc=$?
 [ $rc -ne 0 ] \
   && ok "refuse rm on a built-in rule fails" \
@@ -421,11 +421,18 @@ rc=$?
 grep -q 'compiled into faramir' <<<"$out" \
   && ok "and says where the rule comes from" \
   || bad "the refusal does not name the source: ${out:0:200}"
-out=$(refuse rm /home/op/.ssh/id_rsa 2>&1)
+out=$(refuse rm /home/op/.config/sops/age/keys.txt 2>&1)
 rc=$?
 [ $rc -ne 0 ] && grep -q 'compiled into faramir' <<<"$out" \
   && ok "and naming a file one covers gets the same answer" \
   || bad "removing a path a built-in covers: ${out:0:200}"
+# The relocated rules are nobody's built-in now, so an entry naming one is an
+# ordinary entry: refusing it here would make what the fleet declares
+# unremovable.
+out=$(refuse rm --name '*.pem' 2>&1)
+grep -q 'compiled into faramir' <<<"$out" \
+  && bad "a relocated rule is still read as a built-in: ${out:0:160}" \
+  || ok "and a rule that was relocated is not read as one"
 [ "$(cat $CFG)" = "$before" ] \
   && ok "and neither wrote to the config" \
   || bad "a refused removal rewrote the config"

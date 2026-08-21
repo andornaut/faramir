@@ -65,6 +65,7 @@ Failure | Why
 **Network egress** | Out of scope. No iptables, namespaces or proxy allowlist
 **Anything at rest** | The uid boundaries hold only while the machine runs; full-disk encryption is the measure. `--allow-sudo` mints no credential, so a stolen disk carries nothing that can sudo here
 **Unenrolled projects.** The value set is global | A command in a project you never enrolled can print a managed value uncaught
+**Credentials faramir does not manage.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials` | The deny rules cover the encrypted store and the keys that open it. Anything faramir neither writes nor reads is yours to declare with [`faramir refuse`](docs/configuration.md#refused-paths), by path or by name, and an install that declares none refuses none
 
 ## How it works
 

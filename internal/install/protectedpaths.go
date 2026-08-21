@@ -48,39 +48,24 @@ type protectedPath struct {
 // alphabetically.
 // What a protected path is, for the paths that share a description. Several
 // patterns describe one kind of file, and the wording is what a refusal says.
-const (
-	descSopsFile = "a managed sops file"
-	descSSHKey   = "an SSH private key"
-)
+const descSopsFile = "a managed sops file"
 
+// The encrypted store and the keys that open it, and nothing else. A
+// credential of the operator's own that faramir neither writes nor reads is
+// theirs to declare: `faramir refuse add`, or a configuration manager naming
+// what a fleet keeps. What that costs a host nobody declares anything on is in
+// installing.md, under the deny rules.
 var protectedPaths = []protectedPath{
 	// The managed store, by the names sops files are given.
-	{kindGlobName, "secrets*.yml", descSopsFile},
-	{kindGlobName, "secrets*.yaml", descSopsFile},
 	{kindSuffix, ".sops.yml", descSopsFile},
 	{kindSuffix, ".sops.yaml", descSopsFile},
 	{kindSuffix, ".sops.json", descSopsFile},
-	{kindSuffix, ".vault", "an ansible-vault file"},
-	{kindName, "vault.yml", "an ansible-vault file"},
 
 	// The keys that decrypt it. An age key replaced is every managed file
 	// unreadable, retroactively.
 	{kindName, "age.key", "an age identity"},
 	{kindDir, "sops/age/", "the age identities sops reads"},
 	{kindDir, ".config/sops/", "sops' own configuration and keys"},
-
-	// The operator's own credentials, which no uid boundary reaches: the agent
-	// runs as the operator.
-	{kindName, "id_rsa", descSSHKey},
-	{kindName, "id_dsa", descSSHKey},
-	{kindName, "id_ecdsa", descSSHKey},
-	{kindName, "id_ed25519", descSSHKey},
-	{kindSuffix, ".key", "a private key"},
-	{kindSuffix, ".pem", "a private key or certificate"},
-	{kindName, "credentials", "a credentials file"},
-	// A dotfile rather than any name ending in those four characters:
-	// faramir.env holds faramir:// refs and is meant to be read.
-	{kindPrefix, ".env", "a dotenv file"},
 
 	// This install's own, wherever --config-dir put it.
 	{kindDir, ".config/faramir/", "faramir's configuration"},
@@ -261,6 +246,22 @@ func (k pathKind) String() string {
 // second path through the renderers.
 func protectedFor(layout Layout) []protectedPath {
 	return append(append([]protectedPath{}, protectedPaths...), refusedNameRules(layout)...)
+}
+
+// retiredRules is what protectedPaths carried before these became the
+// operator's to declare. Nothing renders them and no install refuses them: they
+// are here for the drift check alone, which recognises a rule in an agent's
+// file as faramir's by the value it carries. Without them a host that ran an
+// earlier faramir keeps twelve rules in its agent settings that nothing writes
+// and nothing can name, and `agent rule drift` is the only report that would
+// ever have mentioned them.
+//
+// A rule an install still declares is rendered and so is not drift; this
+// reaches only the ones nobody re-declared.
+var retiredRules = []string{
+	"secrets*.yml", "secrets*.yaml", ".vault", "vault.yml",
+	"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+	".key", ".pem", "credentials", ".env",
 }
 
 // installDirs are the paths this install occupies, known only once it is laid

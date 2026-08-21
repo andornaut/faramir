@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // samples is a path per entry in protectedPaths that the entry must refuse, and
@@ -18,25 +20,28 @@ var samples = []struct {
 	refused string
 	allowed string
 }{
-	{"/srv/app/secrets.yml", "/srv/app/settings.yml"},
-	{"/srv/app/secrets-prod.yaml", "/srv/app/settings.yaml"},
 	{"/etc/faramir/secrets/db.sops.yml", "/srv/app/db.yml"},
 	{"/srv/vars.sops.yaml", "/srv/vars.yaml"},
 	{"/srv/vars.sops.json", "/srv/vars.json"},
-	{"/srv/group_vars/all.vault", "/srv/group_vars/all.yml"},
-	{"/srv/vault.yml", "/srv/revault.yml"},
 	{"/home/op/age.key", "/home/op/age.pub"},
 	{"/home/op/.config/sops/age/keys.txt", "/home/op/notes.txt"},
-	{"/home/op/.ssh/id_ed25519", "/home/op/.ssh/id_ed25519.pub"},
-	{"/home/op/.ssh/id_rsa", "/home/op/.ssh/authorized_keys"},
-	{"/srv/tls/server.key", "/srv/tls/server.crt"},
-	{"/srv/tls/chain.pem", "/srv/tls/chain.txt"},
-	{"/home/op/.aws/credentials", "/home/op/.aws/config"},
-	// The one distinction the list makes on purpose: a dotenv is refused and
-	// faramir.env, which holds faramir:// refs, is meant to be read.
-	{"/srv/app/.env", "/srv/app/faramir.env"},
-	{"/srv/app/.env.production", "/srv/app/env.example"},
 	{"/home/op/.config/faramir/config.toml", "/home/op/.config/other/config.toml"},
+}
+
+// What the list no longer carries, and so what a host nobody declares anything
+// on can read. Asserted rather than left implicit: these were built in, the
+// removal was deliberate, and a rule creeping back would otherwise be invisible
+// until a fleet found itself covered twice.
+var relocated = []string{
+	"/home/op/.ssh/id_rsa",
+	"/home/op/.ssh/id_ed25519",
+	"/srv/tls/server.key",
+	"/srv/tls/chain.pem",
+	"/home/op/.aws/credentials",
+	"/srv/app/.env",
+	"/srv/app/secrets.yml",
+	"/srv/group_vars/all.vault",
+	"/srv/vault.yml",
 }
 
 // The Go list is what every rendering is derived from, so it is what the
@@ -59,6 +64,33 @@ func TestEveryProtectedPathHasASampleThatReachesIt(t *testing.T) {
 		}
 		if matchesAnyPath(res, s.allowed) {
 			t.Errorf("%s is refused, and should not be", s.allowed)
+		}
+	}
+}
+
+// The other half of the same list: a credential faramir neither writes nor
+// reads is the operator's to declare, so the built-in rules do not carry it and
+// a bare install does not refuse it.
+func TestTheRelocatedRulesAreGone(t *testing.T) {
+	res := make([]*regexp.Regexp, 0, len(protectedPaths))
+	for _, fragment := range jsFragments(Layout{}) {
+		res = append(res, regexp.MustCompile(fragment))
+	}
+	for _, path := range relocated {
+		if matchesAnyPath(res, path) {
+			t.Errorf("%s is refused by a built-in rule, which was relocated", path)
+		}
+	}
+	// And they are refusable by declaring them, which is where they went.
+	declared := Layout{ConfigDir: "/etc/faramir", Refused: []config.RefusedPath{
+		{Name: "id_rsa"}, {Name: "*.pem"}, {Name: ".env*"},
+	}}
+	for _, fragment := range jsFragments(declared) {
+		res = append(res, regexp.MustCompile(fragment))
+	}
+	for _, path := range []string{"/home/op/.ssh/id_rsa", "/srv/tls/chain.pem", "/srv/app/.env"} {
+		if !matchesAnyPath(res, path) {
+			t.Errorf("%s is not refused by the entry that declares it", path)
 		}
 	}
 }
@@ -203,9 +235,9 @@ func TestEnrollingATreeWritesTheDenyRules(t *testing.T) {
 		file  string
 		want  string
 	}{
-		{"claude", ".claude/settings.local.json", `"Read(**/id_ed25519)"`},
-		{"opencode", "opencode.json", `"*id_ed25519": "deny"`},
-		{"kilocode", "kilo.json", `"*id_ed25519": "deny"`},
+		{"claude", ".claude/settings.local.json", `"Read(**/age.key)"`},
+		{"opencode", "opencode.json", `"*age.key": "deny"`},
+		{"kilocode", "kilo.json", `"*age.key": "deny"`},
 	} {
 		t.Run(tc.agent, func(t *testing.T) {
 			target := agentTargets[tc.agent]
@@ -223,7 +255,7 @@ func TestEnrollingATreeWritesTheDenyRules(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !strings.Contains(string(body), tc.want) {
-				t.Errorf("%s carries no deny rule for an SSH key:\n%s", tc.file, body)
+				t.Errorf("%s carries no deny rule for the age key:\n%s", tc.file, body)
 			}
 			// This install's own directories with them, which are literal rather
 			// than patterns: a store moved by --config-dir is the one refused.
