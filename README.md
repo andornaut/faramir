@@ -130,6 +130,20 @@ sudo faramir doctor
 
 Reports whether the install is doing its job, and as root what each account can reach. Without root it still runs, reporting what it could not ask as unasked. What it checks, and how every command finds the install: [docs/operating.md](docs/operating.md).
 
+### Naming what this machine should refuse
+
+**A fresh install refuses its own files and nothing else.** Everything under `<config-dir>`, the managed store, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' directories, at the paths this host uses. That is the whole of it: faramir does not guess at what else you keep, so an SSH private key, a `.pem`, a `.env` or an `~/.aws/credentials` is refused to your agent only once you say so.
+
+Say so once, in one command. Delete the lines that do not apply to this machine, and add the ones that do:
+
+```bash
+sudo faramir refuse add     --name id_rsa --name id_ecdsa --name id_ed25519     --name '*.pem' --name '*.key'     --name '.env*' --name credentials     --name 'secrets*.yml' --name 'secrets*.yaml'     --name '*.kdbx' --name '.storage/auth'
+```
+
+A name is matched against the path your agent asks for rather than against this filesystem, which is what reaches a file inside a container. A path is one file on this host: `sudo faramir refuse add /etc/luks/volume.key`. Each entry refuses the agent's file tools and a command reading it alike, and `faramir refuse ls` lists everything in force, including the rules faramir carries itself.
+
+A fleet declares these where it declares everything else: every `refuse` command is idempotent and reports what changed with `--json`, so a configuration manager can name the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#refused-paths).
+
 ## Usage
 
 ### Onboarding a project

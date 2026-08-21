@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/guard"
 	"github.com/andornaut/faramir/internal/install"
 )
 
@@ -268,6 +269,11 @@ type refusalRow struct {
 	Source string `json:"source"`
 	Kind   string `json:"kind"`
 	Entry  string `json:"entry"`
+	// Covers says which entry point the row is enforced at. Both for anything
+	// this install protects, the agents' rules and the command guard's patterns
+	// being rendered from one set; commands alone for a rule about what a
+	// command does rather than what it names.
+	Covers string `json:"covers"`
 	// State is whether the path is there, for a path entry alone. A name is not
 	// asked of this filesystem at all.
 	State string `json:"state,omitempty"`
@@ -285,12 +291,13 @@ func refusalRows(declared []config.RefusedPath, builtIn bool) []refusalRow {
 		if entry.Name != "" {
 			rows = append(rows, refusalRow{
 				Source: "declared", Kind: install.RefusedNameKind(entry.Name),
-				Entry: entry.Name, Detail: install.RefusedNameMatches(entry.Name),
+				Entry: entry.Name, Covers: coversBoth,
+				Detail: install.RefusedNameMatches(entry.Name),
 			})
 			continue
 		}
 		rows = append(rows, refusalRow{
-			Source: "declared", Kind: "path", Entry: entry.Path,
+			Source: "declared", Kind: "path", Entry: entry.Path, Covers: coversBoth,
 			State: refusedPathState(entry.Path),
 		})
 	}
@@ -299,7 +306,16 @@ func refusalRows(declared []config.RefusedPath, builtIn bool) []refusalRow {
 	}
 	for _, rule := range install.BuiltInRefusals() {
 		rows = append(rows, refusalRow{
-			Source: "built-in", Kind: rule.Kind, Entry: rule.Entry, Detail: rule.Why,
+			Source: "built-in", Kind: rule.Kind, Entry: rule.Entry,
+			Covers: coversBoth, Detail: rule.Why,
+		})
+	}
+	// What faramir refuses for what a command does rather than for what it
+	// names. No entry changes these, and nothing else can be asked what they
+	// are.
+	for _, pattern := range guard.ActionPatterns() {
+		rows = append(rows, refusalRow{
+			Source: "built-in", Kind: "command", Entry: pattern, Covers: coversCommands,
 		})
 	}
 	return rows
@@ -326,6 +342,12 @@ func refusedPathState(path string) string {
 	}
 	return "present"
 }
+
+// What a row is enforced at, in the words the column prints.
+const (
+	coversBoth     = "file tools, commands"
+	coversCommands = "commands"
+)
 
 func runRefuseList(f refuseFlags) int {
 	dir := refuseConfigDir(f)
@@ -360,16 +382,34 @@ func runRefuseList(f refuseFlags) int {
 			"without --declared lists the rules compiled in")
 		return 0
 	}
+	// The command rules are printed under the table rather than in it: they are
+	// regular expressions, one of them long enough that a cell holding it would
+	// take the alignment of every other row with it, and they are read as
+	// patterns rather than scanned as a column.
+	var commands []refusalRow
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "SOURCE\tKIND\tENTRY\tNOTES")
+	_, _ = fmt.Fprintln(w, "SOURCE\tKIND\tENTRY\tCOVERS\tNOTES")
 	for _, row := range rows {
+		if row.Kind == "command" {
+			commands = append(commands, row)
+			continue
+		}
 		notes := row.Detail
 		if row.State != "" {
 			notes = row.State
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", row.Source, row.Kind, row.Entry, notes)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			row.Source, row.Kind, row.Entry, row.Covers, notes)
 	}
 	_ = w.Flush()
+	if len(commands) == 0 {
+		return 0
+	}
+	fmt.Printf("\n%d command rule(s), which no entry changes: faramir refuses these "+
+		"for what the command does rather than for what it names.\n", len(commands))
+	for _, row := range commands {
+		fmt.Printf("  %s\n", row.Entry)
+	}
 	return 0
 }
 

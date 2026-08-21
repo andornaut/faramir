@@ -68,6 +68,23 @@ var defaultInstallPaths = []string{
 // running on the fallback is a host running on faramir's own paths alone.
 var fallback = fallbackPatterns()
 
+// ActionPatterns is what the guard refuses for what a command does rather than
+// for what it points at: decryption, another tool's secret store, and the
+// commands that act on faramir's own install.
+//
+// Exported for `faramir refuse ls`, which lists them beside the entries this
+// host declares. Nothing else could be asked what they are: an agent meets one
+// as a refusal naming the rule that matched, never the set, so a rule that
+// covers something reads exactly like one that does not.
+//
+// Not the path rules, which are generated per install from the same set the
+// agents' own deny rules come from, and are already listed as the entries they
+// were generated from.
+func ActionPatterns() []string {
+	out := append([]string{}, fallbackVerbs...)
+	return append(out, fallbackOwn...)
+}
+
 // fallbackPatterns assembles the list in the shipped file's own order, which
 // TestTheFallbackMatchesTheShippedFile compares line by line.
 func fallbackPatterns() []string {

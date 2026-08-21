@@ -434,9 +434,18 @@ guard_says "cat /etc/hostname" | grep -q '"permissionDecision":"deny"' \
   || ok "and an ordinary read is left alone"
 
 out=$(refuse ls)
-grep -q 'built-in' <<<"$out" \
-  && bad "refuse ls lists a built-in rule: ${out:0:200}" \
-  || ok "refuse ls lists what the config declares and nothing else"
+grep -qE '^declared +(path|name|suffix|glob|dir) ' <<<"$out" \
+  && ok "refuse ls lists what the config declares" \
+  || bad "refuse ls carries no declared entry: ${out:0:200}"
+grep -q 'command rule(s), which no entry changes' <<<"$out" \
+  && ok "and the command rules faramir carries itself" \
+  || bad "refuse ls does not list the command rules: ${out: -300}"
+grep -q 'file tools, commands' <<<"$out" \
+  && ok "and says a declared entry covers both entry points" \
+  || bad "refuse ls does not say where an entry is enforced: ${out:0:300}"
+refuse ls --declared | grep -q 'command rule(s)' \
+  && bad "--declared listed the command rules" \
+  || ok "and --declared is the config's own half"
 
 out=$(refuse rm --name "$NAME")
 grep -qF "stopped refusing $NAME" <<<"$out" \

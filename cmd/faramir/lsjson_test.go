@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/guard"
 )
 
 // An install that declares none is the first answer a caller gets, and the one
@@ -42,10 +44,9 @@ func TestListingNothingIsAnEmptyArray(t *testing.T) {
 	}
 }
 
-// There are no built-in rules to list today, so the bare form and --declared
-// agree. The listing keeps the source column because the answer to "what
-// refuses me here" has to say where each rule came from, and an empty built-in
-// half is a fact about this version rather than about the command.
+// No path or name is refused by faramir itself, so every entry in the table is
+// one this host declared. The command rules are the other half and are built
+// in; TestRefuseLsCarriesTheCommandRules covers those.
 func TestRefuseLsCarriesNoBuiltInRules(t *testing.T) {
 	out, code := captureStdout(t, func() int {
 		return runRefuseList(refuseFlags{json: true, configPath: t.TempDir()})
@@ -58,8 +59,50 @@ func TestRefuseLsCarriesNoBuiltInRules(t *testing.T) {
 		t.Fatalf("not a JSON array: %v\n%s", err, out)
 	}
 	for _, row := range rows {
-		if row["source"] == "built-in" {
-			t.Errorf("the listing carries a built-in rule: %v", row)
+		// The command rules are built in and are listed; a path or a name is not,
+		// which is what this is about.
+		if row["source"] == "built-in" && row["kind"] != "command" {
+			t.Errorf("the listing carries a built-in path rule: %v", row)
 		}
+	}
+}
+
+// The command rules are listed too, because nothing else can be asked what they
+// are: an agent meets one as a refusal naming the rule that matched, never the
+// set, which is how a rule that covers something comes to be reported as a gap.
+func TestRefuseLsCarriesTheCommandRules(t *testing.T) {
+	out, code := captureStdout(t, func() int {
+		return runRefuseList(refuseFlags{json: true, configPath: t.TempDir()})
+	})
+	if code != 0 {
+		t.Fatalf("exit %d, want 0: %s", code, out)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
+		t.Fatalf("not a JSON array: %v\n%s", err, out)
+	}
+	var commands int
+	for _, row := range rows {
+		if row["kind"] != "command" {
+			continue
+		}
+		commands++
+		if row["source"] != "built-in" {
+			t.Errorf("a command rule is source %v, want built-in", row["source"])
+		}
+		if row["covers"] != "commands" {
+			t.Errorf("a command rule covers %v, want commands", row["covers"])
+		}
+	}
+	if commands != len(guard.ActionPatterns()) {
+		t.Errorf("listed %d command rule(s), the guard applies %d",
+			commands, len(guard.ActionPatterns()))
+	}
+	// --declared is the config's own half, which no command rule is part of.
+	out, _ = captureStdout(t, func() int {
+		return runRefuseList(refuseFlags{json: true, declared: true, configPath: t.TempDir()})
+	})
+	if strings.Contains(out, `"command"`) {
+		t.Errorf("--declared listed a command rule: %s", out)
 	}
 }
