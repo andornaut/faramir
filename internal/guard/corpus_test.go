@@ -70,7 +70,7 @@ var corpus = []denyCase{
 	// Writes, not reads.
 	{"rm -f /etc/faramir/age.key", true, "deleting the key breaks every value"},
 	{"truncate -s 0 /etc/faramir/age.key", true, "emptying it in place is the same loss"},
-	{"rm -f ~/.config/faramir/secrets/ansible-ctrl.sops.yml", true, "deleting a store"},
+	{"rm -f ~/.config/faramir/secrets/ansible.sops.yml", true, "deleting a store"},
 	{"chmod 0644 /etc/faramir/age.key", true, "widening the key's mode"},
 	{"chown op /etc/faramir/age.key", true, "handing the key to another uid"},
 	{"mv ~/.config/sops/age/keys.txt /tmp/k", true, "moving it somewhere readable"},
@@ -168,7 +168,7 @@ func keyReaderCases() []denyCase {
 	// alternation, which puts it in front of every encoder.
 	for _, tool := range []string{"cat", "base64", "xxd", "strings", "rev", "od"} {
 		out = append(out, denyCase{
-			tool + " /etc/faramir/secrets/ansible-ctrl.sops.yml", true,
+			tool + " /etc/faramir/secrets/ansible.sops.yml", true,
 			"a managed store is covered by its directory, not by its name",
 		})
 	}

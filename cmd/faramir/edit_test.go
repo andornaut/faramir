@@ -14,11 +14,11 @@ import (
 // Only a file the config manages: anything else would write a file the broker
 // never reads, outside the directory the secrets group protects.
 func TestOnlyAManagedFileResolves(t *testing.T) {
-	managed := []string{"/opt/store/ansible-ctrl.sops.yml", "/opt/store/home.sops.yml"}
+	managed := []string{"/opt/store/ansible.sops.yml", "/opt/store/home.sops.yml"}
 
 	for _, arg := range []string{
-		"/opt/store/ansible-ctrl.sops.yml",  // full path
-		"ansible-ctrl.sops.yml",             // base name
+		"/opt/store/ansible.sops.yml",       // full path
+		"ansible.sops.yml",                  // base name
 		"/opt/store/../store/home.sops.yml", // cleaned to a managed path
 	} {
 		if _, err := resolveManaged(managed, arg); err != nil {

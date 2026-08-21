@@ -127,7 +127,7 @@ At the broker these are three ops rather than four, `deny` being `approve` with 
     | sudo tee -a /etc/ssh/ssh_known_hosts
   ```
 
-  The removal first makes it re-runnable. Take every type the host offers, the algorithm being negotiated per connection. [ansible-ctrl's faramir role](https://github.com/andornaut/ansible-ctrl/blob/main/roles/faramir/tasks/ssh.yml) does this across a fleet.
+  The removal first makes it re-runnable. Take every type the host offers, the algorithm being negotiated per connection. A configuration-management role can do the same across a fleet.
 - **Encrypt the disk.** LUKS on the root filesystem covers the age key, the secrets, the audit log and swap in one move.
 
 ## What a record is

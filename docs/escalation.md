@@ -52,7 +52,7 @@ sudo faramir escalations --watch
      id       9f2a1c
      log_id   w5vq7dbf000119
      cmd      ansible-playbook msmtp.yml
-     cwd      /srv/ansible-ctrl
+     cwd      /srv/ansible
      caller   you (uid 1000)
      host     controller
      received 2026-08-20 20:21:44 EDT (expires 120s, waiting 23s)

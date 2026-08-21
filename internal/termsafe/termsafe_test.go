@@ -41,7 +41,7 @@ func TestWhatSurvivesRedactionIsRendered(t *testing.T) {
 func TestOrdinaryTextIsLeftAlone(t *testing.T) {
 	for _, in := range []string{
 		"ansible-playbook",
-		"/srv/ansible-ctrl",
+		"/srv/ansible",
 		"ok: [host.example.com]",
 		"héllo wörld",
 	} {

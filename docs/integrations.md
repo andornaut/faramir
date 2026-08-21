@@ -140,7 +140,7 @@ Setting | Why
 Ansible is the one integration that needs more than a variable name, because a playbook also configures the controller it runs on.
 
 ```text
-/etc/faramir/secrets/ansible-ctrl.sops.yml   the values, outside every checkout
+/etc/faramir/secrets/ansible.sops.yml        the values, outside every checkout
 faramir.env                                  NAME=faramir://ref, one per line,
                                              or a bare NAME for the ref of that name
 group_vars/all/vars.yml                      committed: var -> lookup('env', 'NAME'),
