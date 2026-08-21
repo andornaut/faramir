@@ -114,7 +114,7 @@ make build
 sudo ./bin/faramir init
 ```
 
-`init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. Idempotent, so it is also the upgrade, and it never migrates: it writes this version's layout and leaves an older one's leftovers alone. A re-run with a flag left out keeps what the install already uses rather than reverting to the default.
+`init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. It is idempotent, so it is also the upgrade, and a re-run with a flag left out keeps what the install already uses rather than reverting to the default.
 
 Every flag, what a re-run adopts, and where the config directory may not go: [docs/installing.md](docs/installing.md).
 
@@ -173,7 +173,7 @@ faramir redact -- ./deploy.sh
 
 A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that also configures the controller has to leave it out with `--limit '!controller'`. `sudo faramir init --allow-sudo` closes that split: no password, a PAM service that asks the broker, and one question per run answered by `sudo faramir approve ID`. An approved command gets real root and can make it permanent, so approving is trusting *that command* with permanent root.
 
-**Works with either sudo.** Ubuntu ships two from 25.10 on, and which one is `/usr/bin/sudo` is the `sudo` alternatives group. `init` probes it and writes the arrangement that sudo can read: the original is sent to faramir's PAM service by the grant's `pam_service`, and `sudo-rs`, which has no such setting, by a delimited block in `/etc/pam.d/sudo` and `/etc/pam.d/sudo-i` that carries the same stack behind a branch on the account, leaving every other account's sudo as it was. The grant needs `sudo` 1.9.11 or `sudo-rs` 0.2.9, where `noninteractive_auth` arrived; `init` checks with `visudo` and writes nothing if the host is older. See [escalation.md](docs/escalation.md#the-two-sudos).
+**Works with either sudo.** Ubuntu ships two from 25.10 on, and `init` probes the `sudo` alternatives group and writes the arrangement that sudo can read. It needs `sudo` 1.9.11 or `sudo-rs` 0.2.9, and writes nothing if the host is older. What each arrangement touches: [the two sudos](docs/escalation.md#the-two-sudos).
 
 - How to run it: [docs/escalation.md](docs/escalation.md)
 - Why it is shaped this way: [docs/design.md](docs/design.md#allowing-sudo-on-the-controller)
@@ -238,7 +238,7 @@ Target | Does
 `make install`, `make uninstall` | Copy the binary to `/usr/local/bin` and remove it. Both use sudo
 
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. That decides where a new document goes: operator documentation in `docs/`, which ships, and developer documentation at the root, which does not.
-- Tests live where the logic does. Most of what the broker does is decide, so `internal/server` substitutes the executor; `internal/executor` uses a real child, the PTY and the streaming redactor meaning nothing against synthetic bytes.
+- Tests live where the logic does. Most of what the broker does is decide, so `internal/server` substitutes the executor. `internal/executor` drives a real child where the PTY and the streaming redactor mean nothing against synthetic bytes, and tests the rune and truncation rules directly, those being properties of the bytes: a test that needs a cgroup to run does not run everywhere.
 - The Go suite runs under one uid, so it never covers the uid boundary. That is real only on a host, which is what `sudo faramir doctor` and [tests/e2e](tests/e2e/README.md) are for. Adversarial exfiltration is asserted nowhere, as [Not prevented](#not-prevented) says.
 - The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, every brokered command being confined to its own. `make test` supplies one with `systemd-run --user --scope`; without it a couple of dozen tests skip, so the run ends by naming what it did not check. On a runner with no such scope, delegate a cgroup first, as [the test workflow](.github/workflows/test.yml) does. cgroup v1 is unsupported.
 - The suite needs no `sops` on `PATH`: `internal/sopstest` builds a stand-in from the sops libraries, imported only from `_test.go`. What keeps them out of the shipped binary is `cmd/faramir/nosops_test.go`, which walks `go list -deps` and carries a positive control, so the check cannot pass by matching nothing.
