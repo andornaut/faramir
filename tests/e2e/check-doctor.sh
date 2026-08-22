@@ -158,6 +158,26 @@ cfg_mode=$(stat -c %a /etc/faramir/config.toml)
 probe "the config writable by the agent" "config ownership" failed \
   "chmod 0666 /etc/faramir/config.toml" "chmod $cfg_mode /etc/faramir/config.toml" \
   "executor runs"
+# The other direction, and the one nothing used to ask: whether the account that
+# has to load the config can still reach it. A reload is the only thing that
+# ever found this out, and it finds out by refusing, so an install whose config
+# went out of reach kept serving what it had and read as healthy.
+#
+# The directory rather than the file: config.toml is world-readable and what
+# stops the broker is a parent it cannot enter, which is what the detail has to
+# name or an operator chmods the wrong thing.
+dir_mode=$(stat -c %a /etc/faramir)
+probe "the config directory closed to the broker" "config reach" failed \
+  "chmod 0700 /etc/faramir" "chmod $dir_mode /etc/faramir" \
+  "/etc/faramir"
+# And the finding says what it costs, which is that the daemons carry on with
+# what they loaded rather than stopping.
+chmod 0700 /etc/faramir
+snap
+dt "config reach" | grep -qi "reload" \
+  && ok "  and it says a reload will refuse rather than take the change" \
+  || bad "  the config reach detail does not mention a reload: $(dt "config reach" | head -c 130)"
+chmod "$dir_mode" /etc/faramir
 # The creation rule names the age recipients, so whoever writes it chooses who
 # can decrypt every value written after it. Only checked where one exists: the
 # rule is kept if it is already there, so an install may carry none.

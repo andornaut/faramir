@@ -122,6 +122,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		func() { diagnosePtraceScope(report, cfg) },
 		func() { diagnoseUserns(report, opts, cfg) },
 		func() { diagnoseCgroupDelegation(report, opts, cfg) },
+		func() { diagnoseConfigReadable(report, opts) },
 	}
 	aboutTheOperator := []func(){
 		func() { diagnoseOperatorKeys(report, opts) },
@@ -244,6 +245,107 @@ func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 	}
 	report.addf("config ownership", StatusOK, "%s cannot write the config or the "+
 		"creation rule", opts.AgentUser)
+}
+
+// diagnoseConfigReadable asks the broker's own account whether it can read the
+// config, which is the question a reload turns on and the only one that decides
+// whether this install can ever pick up a change. Every other check here reads
+// a refusal as a boundary holding; this one reads it as the install being
+// stuck, so it is the one boundary check whose failure is a fault rather than a
+// leak.
+//
+// The daemons load the config once and keep serving what they have, so an
+// install whose config went out of reach looks healthy from the outside: the
+// broker answers, the refs resolve, and the next `faramir reload` is the first
+// thing to say otherwise.
+func diagnoseConfigReadable(report *DoctorReport, opts DoctorOptions) {
+	configFile := filepath.Join(opts.ConfigDir, "config.toml")
+	if !exists(configFile) {
+		report.addf("config reach", StatusNA, "%s is not there to be read", configFile)
+		return
+	}
+	if canRead(opts.BrokerUser, configFile) {
+		report.addf("config reach", StatusOK, "%s can read %s", opts.BrokerUser, configFile)
+		return
+	}
+	// Which directory to fix, not only which file could not be opened: the file
+	// is usually world-readable and the refusal is a parent it cannot enter, so
+	// a report naming the file sends an operator to chmod the wrong thing.
+	if blocked := blockingDir(opts.BrokerUser, configFile); blocked != "" {
+		report.addf("config reach", StatusFailed, "%s cannot read %s: it cannot enter "+
+			"%s. The daemons are still serving what they loaded, and a reload will "+
+			"refuse rather than stop them. `faramir init` grants the group execute "+
+			"this needs", opts.BrokerUser, configFile, blocked)
+		return
+	}
+	report.addf("config reach", StatusFailed, "%s cannot read %s, so a reload will "+
+		"refuse and the daemons will go on serving what they already have",
+		opts.BrokerUser, configFile)
+}
+
+// blockingDir returns the first directory on the way to path that account
+// cannot enter, or "" when every one of them is enterable. Answered from the
+// modes rather than by asking the account: doctor is root here, so it can read
+// what an unprivileged probe would only be refused by, and a refusal names no
+// directory of its own.
+func blockingDir(account, path string) string {
+	who, err := user.Lookup(account)
+	if err != nil {
+		return ""
+	}
+	uid, err := strconv.Atoi(who.Uid)
+	if err != nil {
+		return ""
+	}
+	if uid == 0 {
+		return ""
+	}
+	groups := map[int]bool{}
+	if ids, err := who.GroupIds(); err == nil {
+		for _, id := range ids {
+			if gid, err := strconv.Atoi(id); err == nil {
+				groups[gid] = true
+			}
+		}
+	}
+	// Root down to the file's own directory. The file's own mode is not this
+	// check: a directory that cannot be entered refuses it whatever it says.
+	var dirs []string
+	for at := filepath.Dir(path); ; at = filepath.Dir(at) {
+		dirs = append([]string{at}, dirs...)
+		if at == "/" || at == "." {
+			break
+		}
+	}
+	for _, dir := range dirs {
+		info, err := os.Stat(dir)
+		if err != nil {
+			return ""
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return ""
+		}
+		if !enterable(uid, groups, info.Mode().Perm(), int(st.Uid), int(st.Gid)) {
+			return dir
+		}
+	}
+	return ""
+}
+
+// enterable reports whether a uid carrying these groups may enter a directory
+// of this mode and ownership. One class only, the way the kernel decides it:
+// an owner is judged by the owner bit and never falls back to the group's, so
+// a directory owned by the account with mode 0600 refuses it however open the
+// group bits are.
+func enterable(uid int, groups map[int]bool, mode os.FileMode, owner, group int) bool {
+	switch {
+	case owner == uid:
+		return mode&0o100 != 0
+	case groups[group]:
+		return mode&0o010 != 0
+	}
+	return mode&0o001 != 0
 }
 
 // diagnoseInstalledFiles checks what the deny list protects. The binary is the
