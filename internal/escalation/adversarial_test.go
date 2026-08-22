@@ -108,9 +108,15 @@ func TestTheQuestionNamesTheResolvedProgram(t *testing.T) {
 	if question.Program != "/srv/ctrl/bin/ansible-playbook" {
 		t.Errorf("program = %q, want the resolved program named", question.Program)
 	}
-	// And says nothing where the two agree, which is the ordinary case: a field
-	// repeating the command is one more line between the reader and the command.
-	plain := asked(t, Run{Argv: []string{"ansible-playbook"}, Argv0Path: "ansible-playbook"})
+	// And says nothing where the two agree. An absolute argv[0] is how they do:
+	// a bare name is looked up on PATH and comes back as the directory it was
+	// found in joined to the name, which never equals the name, so a fixture
+	// pairing a bare argv[0] with a bare Argv0Path asserts against a value the
+	// resolver does not produce.
+	plain := asked(t, Run{
+		Argv:      []string{"/usr/bin/ansible-playbook", "site.yml"},
+		Argv0Path: "/usr/bin/ansible-playbook",
+	})
 	if plain.Program != "" {
 		t.Errorf("program = %q, want no field where argv[0] is what runs", plain.Program)
 	}
