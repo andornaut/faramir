@@ -16,8 +16,8 @@ import "slices"
 var Operator = []string{
 	"run",
 	"redact",
-	"status",
 	"refs",
+	"status",
 	// version, help and completion answer without reaching the broker.
 	"version",
 	"help",
@@ -58,8 +58,8 @@ var Operator = []string{
 var Agent = []string{
 	"run",
 	"redact",
-	"status",
 	"refs",
+	"status",
 	"version",
 	"help",
 	"completion",

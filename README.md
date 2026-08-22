@@ -251,7 +251,7 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 Group | Commands
 --- | ---
 The install | `init`, `init-project`, `doctor`, `reload`, `uninstall`
-The managed store | `vault add`, `vault ls`, `vault rm`, `vault edit`
+The managed store | `vault add`, `vault edit`, `vault ls`, `vault rm`
 Who can decrypt it | `reader add`, `reader rm`, `reader ls`, `reader reseal`
 A secret another tool owns | `link add`, `link rm`, `link ls`
 A path, name or command blocked from the agent | `block add`, `block rm`, `block ls`

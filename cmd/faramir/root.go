@@ -150,14 +150,16 @@ func newRootCmd() *cobra.Command {
 		newReloadCmd(),
 		newUninstallCmd(),
 	)
+	// Sorted, unlike the two groups above: nothing runs these in an order, and
+	// a reader who is here has a name in mind.
 	root.AddCommand(
-		newBrokerCmd(),
-		newKeeperCmd(),
-		newExecCmd(),
-		newMCPCmd(),
-		newGuardCmd(),
-		newPamEscalateRootCmd(),
 		newAccessCmd(),
+		newBrokerCmd(),
+		newExecCmd(),
+		newGuardCmd(),
+		newKeeperCmd(),
+		newMCPCmd(),
+		newPamEscalateRootCmd(),
 		newReadLinkCmd(),
 	)
 
