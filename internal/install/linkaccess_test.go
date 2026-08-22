@@ -42,12 +42,12 @@ func secondGroup(t *testing.T) int {
 	return -1
 }
 
-// linkRunner is an install run that grants access to the paths given, with the
-// caller's own second group standing in for the broker's.
+// linkRunner is an install run that checks the paths given, with the caller's
+// own second group standing in for the broker's.
 //
 // The paths a test hands it are under t.TempDir, outside every home, which is
-// where sharetree.Reachable stops: the file grant is what these exercise, and
-// the traversal grant has its own tests.
+// where sharetree.Traversable stops: the file's own ownership and mode are what
+// these exercise, and the directories above it have their own tests.
 func linkRunner(t *testing.T, gid int, paths ...string) *runner {
 	t.Helper()
 	current, err := osuser.Current()
@@ -65,57 +65,78 @@ func linkRunner(t *testing.T, gid int, paths ...string) *runner {
 	}
 }
 
-func TestALinkedFileBecomesReadableByTheBrokersGroup(t *testing.T) {
+// The arrangement a link needs is reported and not applied: faramir does not
+// change the ownership or mode of a file it does not own.
+func TestALinkedFileTheBrokerCannotReadIsReported(t *testing.T) {
 	gid := secondGroup(t)
 	path := filepath.Join(t.TempDir(), "hosts.yml")
 	if err := os.WriteFile(path, []byte("token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := linkRunner(t, gid, path).stepLinkAccess(); err != nil {
-		t.Fatal(err)
+	err := linkRunner(t, gid, path).stepLinkAccess()
+	if err == nil {
+		t.Fatal("a linked file the broker cannot read was accepted")
+	}
+	// The command that fixes it, so whoever reads this does not have to work out
+	// which of the two is wrong.
+	for _, want := range []string{"chgrp", "chmod g+r", path} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatal(statErr)
 	}
-	if got := info.Mode().Perm(); got != 0o640 {
-		t.Errorf("mode = %o, want 640", got)
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("mode = %o, want 600: the check altered the file", got)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		t.Fatal("cannot read ownership")
 	}
-	if int(stat.Gid) != gid {
-		t.Errorf("gid = %d, want %d", stat.Gid, gid)
-	}
-	// The owner is left alone: the file is the operator's and their tool
-	// rewrites it.
-	if int(stat.Uid) != os.Getuid() {
-		t.Errorf("uid = %d, want the owner left at %d", stat.Uid, os.Getuid())
+	if int(stat.Gid) != os.Getgid() {
+		t.Errorf("gid = %d, want %d: the check regrouped the file", stat.Gid, os.Getgid())
 	}
 }
 
-// Only what the broker needs. A file the operator keeps unwritable stays that
-// way, and nothing is granted to other.
-func TestALinkedFilesOwnerBitsAreKept(t *testing.T) {
+// A file already arranged the way a link needs passes, and is left alone.
+func TestALinkedFileAlreadyReadableIsAccepted(t *testing.T) {
 	gid := secondGroup(t)
-	path := filepath.Join(t.TempDir(), "keyfile")
-	if err := os.WriteFile(path, []byte("token\n"), 0o400); err != nil {
+	path := filepath.Join(t.TempDir(), "hosts.yml")
+	if err := os.WriteFile(path, []byte("token\n"), 0o640); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.Chown(path, -1, gid); err != nil {
+		t.Skipf("cannot regroup a file into %d: %v", gid, err)
 	}
 
 	if err := linkRunner(t, gid, path).stepLinkAccess(); err != nil {
+		t.Fatalf("a linked file the broker can read was refused: %v", err)
+	}
+}
+
+// Group read for the broker is the whole grant. A file other can read is one
+// every account on the host reads, the executor included, and no mode on the
+// broker's group changes that.
+func TestAWorldReadableLinkedFileIsReported(t *testing.T) {
+	gid := secondGroup(t)
+	path := filepath.Join(t.TempDir(), "hosts.yml")
+	if err := os.WriteFile(path, []byte("token\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.Chown(path, -1, gid); err != nil {
+		t.Skipf("cannot regroup a file into %d: %v", gid, err)
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
+	err := linkRunner(t, gid, path).stepLinkAccess()
+	if err == nil {
+		t.Fatal("a world-readable linked file was accepted")
 	}
-	if got := info.Mode().Perm(); got != 0o440 {
-		t.Errorf("mode = %o, want 440: the owner's bits kept and group read added", got)
+	if !strings.Contains(err.Error(), "chmod o-r") {
+		t.Errorf("the refusal does not name what narrows it: %v", err)
 	}
 }
 
@@ -129,7 +150,8 @@ func TestAnAbsentLinkedFileDoesNotStopTheInstall(t *testing.T) {
 	}
 }
 
-// The grant would land on the target rather than the link.
+// A link names the file that holds the value, and what a symlink says about
+// ownership and mode is the target's.
 func TestALinkedSymlinkIsRefused(t *testing.T) {
 	gid := secondGroup(t)
 	dir := t.TempDir()
@@ -159,10 +181,9 @@ func TestALinkedSymlinkIsRefused(t *testing.T) {
 	}
 }
 
-// The refusal above, with a good link ahead of the bad one. Every file is
-// judged before the first is granted, so one entry the operator cannot use
-// leaves the others as they were rather than half of them regrouped for a run
-// that stopped.
+// The refusal above, with a good link ahead of the bad one. Nothing is altered
+// either way, so what this holds to is that a run which refuses one entry has
+// not touched another.
 func TestARefusedLinkLeavesTheOthersUntouched(t *testing.T) {
 	gid := secondGroup(t)
 	dir := t.TempDir()

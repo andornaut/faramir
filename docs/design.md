@@ -52,16 +52,16 @@ An `~/.npmrc` token and a `gh` OAuth token are the tools' own files, and copying
 
 **The broker reads them, not the keeper.** The keeper holds the age key, which decrypts every managed file retroactively, so it runs with the homes taken away entirely and one `BindReadOnlyPaths` at most. A linked file needs no key, so putting these behind it would widen the one account worth keeping narrow, and would make every link change a unit re-render. The broker already holds every plaintext value, already reads key material at rest for `[ssh] key`, and deliberately has no `ProtectHome=`, having to stat a request's cwd. What bounds it is the file's own mode.
 
-**The grant is modes and ownership, and `init` makes it.** The file becomes the broker's own group and group-readable; the directories above it become the client group, execute only, which is what `sharetree` already grants an enrolled tree. Not an ACL:
+**The arrangement is modes and ownership, and faramir checks it rather than applying it.** The file has to be the broker's own group and group-readable and no more; the directories above it have to be enterable by the client group. Both are the operator's paths, and faramir alters no path it does not own: `link add`, `init` and `doctor` report what is wrong with the command that fixes it, and whoever manages the host's permissions applies it. Modes rather than an ACL:
 
 Rejected | Why
 --- | ---
-An ACL | A stacked filesystem does not carry one. An eCryptfs home takes `setfacl` without error and reads the entry back from its own cache, so the grant looks applied, cannot be removed, and is not what decides the read.
+An ACL | A stacked filesystem does not carry one. An eCryptfs home takes `setfacl` without error and reads the entry back from its own cache, so the entry looks applied, cannot be removed, and is not what decides the read.
 A default ACL, for durability | It does not survive the case it was reached for. A tool that renames a temp file over the original creates it fresh, and the `0600` creation mode masks the inherited entry to nothing. Neither mechanism survives a rename, and both survive an in-place rewrite, so durability does not choose between them.
 The client group on the file | The executor is in it, so every brokered command could read the file directly rather than asking for the ref.
-Leaving it to the operator | A grant nobody re-applies is one a tool silently takes away.
+faramir applying it | A tool that regroups a file it does not own moves a permission change out of the place the host's permissions are decided, and a revert of it is then invisible until something unrelated breaks.
 
-What catches a lost grant is `faramir doctor`, which asks the broker's own account whether it can still read each file, and the executor's whether it can. Asking rather than reading the mode is what makes it answer correctly whatever the filesystem is.
+What catches a lost arrangement is `faramir doctor`, which asks the broker's own account whether it can still read each file, and the executor's whether it can. Asking rather than reading the mode is what makes it answer correctly whatever the filesystem is. `init` and `link add` check it too, off the file's own ownership and mode, which is the form the answer has to be given back in.
 
 **What linking buys is redaction, and it only applies to values the agent could already reach.** The agent runs as the operator, so `~/.npmrc` is one `Read` away; linking puts that value in the redactor and renders the path into the deny rules, closing both halves. Pointed at a file the agent *cannot* read, it inverts: every managed value is reachable through `env_refs` by any brokered command, so the value becomes agent-obtainable and no disclosure path is closed in exchange. A root-owned LUKS keyfile belongs outside the store for that reason, and a [blocked path](configuration.md#blocked-paths) is what covers one: the deny rule without the value, since holding the value is the half that inverts.
 

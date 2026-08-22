@@ -42,11 +42,11 @@ Every path the install creates, what owns it, and what each account can reach th
 
 `sudo-env` is the one file here sudo reads as policy, so it stays out of `<config-dir>`: the grant names one path wherever `--config-dir` points, and an uninstall keeps the config directory and so must never remove it whole. Root-owned and never writable by the executor, or that uid would be choosing root's environment.
 
-`init` also grants access to any file a `[[secret.link]]` entry names, which is a file it does not own and does not create:
+`init` also checks any file a `[[secret.link]]` entry names, which is a file it does not own and does not create. It reports what is wrong and the command that fixes it, and changes nothing:
 
 ```text
-<any file you link>             group-readable by <broker's group>, owner and owner bits kept
-<the directories above it>      <client-group> and execute only, down from the home
+<any file you link>             group-readable by <broker's group>, and by nobody else
+<the directories above it>      enterable by <client-group>, down from the home
 ```
 
 `init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>` and a missing parent `0700`; one already there keeps its own owner, group and mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
@@ -79,11 +79,11 @@ The section is what the deny rules cannot say: why they refuse, and what to do i
 
 ## Sharing a working tree
 
-A tree inside a 0700 home needs traversal for `faramir-exec`, which `faramir init-project` grants by group:
+**The enrolled tree is the one place faramir changes ownership and modes.** Everywhere else it checks and reports. The directories above the tree are not part of it, so the traversal `faramir-exec` needs through a 0700 home is the operator's to grant:
 
-- Every directory from the home down becomes the client group and group-executable, execute only, so those uids pass through without listing what they pass.
+- Every directory from the home down has to be enterable by the client group, execute only, so those uids pass through without listing what they pass. `init-project` refuses to share a tree it cannot reach, naming each directory and the `chgrp` and `chmod` that open it.
 - Never `chmod o+x`, which grants the same to every account on the machine.
 - Everyone in the group gets that traversal, so keep membership to the accounts that need it.
-- A directory already traversable by `other` is left alone. One whose group is something else is taken over, costing that group whatever the group bits gave it, and `init-project` says so.
+- A directory already traversable by `other` is accepted as it is: tightening one the operator left open is not this command's business.
 - Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
-- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings faramir manages are regrouped and deliberately not group-writable.
+- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings faramir manages are regrouped and deliberately not group-writable, and `init-project` reports how many paths it altered, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.

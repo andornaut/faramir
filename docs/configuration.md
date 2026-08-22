@@ -73,11 +73,11 @@ sudo faramir link add gh/token ~/.config/gh/hosts.yml \
 
 That is the whole of it; the [three link commands](operating.md#operator-commands) are the only way these entries are written.
 
-**Each of the three is idempotent**, so a configuration manager may run them on every converge. Adding the entry this install already carries re-applies it: the grant, the deny rules and the config are rendered again, `--json` reports `changed: false`, and the daemons are reloaded only where something did change. Removing a ref it does not carry writes nothing. The one thing refused is the same ref against a different file, type or key, naming both definitions: a ref has one, and answering by replacing the entry would change which credential every caller of that name receives while the file that lost it keeps its grant and leaves the redactor.
+**Each of the three is idempotent**, so a configuration manager may run them on every converge. Adding the entry this install already carries re-applies it: the deny rules and the config are rendered again, the file's access is checked again, `--json` reports `changed: false`, and the daemons are reloaded only where something did change. Removing a ref it does not carry writes nothing. The one thing refused is the same ref against a different file, type or key, naming both definitions: a ref has one, and answering by replacing the entry would change which credential every caller of that name receives.
 
-**The order is the command's own and it matters.** The grant comes first, because the question is whether the *broker* can read the file and it cannot until it has been granted. The probe comes before the entry is written, because a selector that names nothing would otherwise leave the broker refusing every command until somebody noticed. A probe that fails puts the grant back.
+**The order is the command's own and it matters.** Every question is asked before the entry is written, and nothing about the file is altered to make an answer come out right: `link add` checks that the file is arranged the way a link needs, then reads it as the broker's own account to check the selector yields a value, and only then writes the entry. A file that is not arranged that way is reported with the commands that fix it, and no entry is written.
 
-Entries live in `config.toml` beside everything else, and `init` reads them back before rewriting the file, so each grant and each deny rule is re-asserted on every run. That is what heals one a tool took away.
+Entries live in `config.toml` beside everything else, and `init` reads them back before rewriting the file, so each deny rule is re-asserted and each file re-checked on every run. That is what catches an arrangement a tool took away.
 
 The entry it writes:
 
@@ -96,17 +96,17 @@ Key | Rule
 `type` | `text` or `base64` for the whole file, `json`, `yaml`, `toml` or `ini` to select out of it.
 `key` | Required for the four that select, refused for the two that do not. Held to the same bytes as `path`, `faramir link ls` printing it back to a terminal. `a/b/c` walks a tree the way a sops ref does, a number indexing a list; `ini` matches the whole key instead. [Selectors, escaping and the per-tool recipes](integrations.md#linking-a-credential-another-tool-owns).
 
-faramir grants the broker read, so there is nothing to arrange by hand:
+**faramir checks this arrangement and does not apply it.** The file and every directory above it are the operator's, and faramir does not change the ownership or mode of a path it does not own; whoever manages the host's permissions sets them, and `link add`, `init` and `doctor` each report what is wrong with the command that fixes it.
 
-Path | Becomes
+Path | Has to be
 --- | ---
-the linked file | the broker's own group and group-readable, its owner and owner bits left alone. That group holds one account, which is what keeps the executor out
-every directory above it, down from the home | the client group, execute only, the same grant an enrolled tree gets. Traversal is not read
+the linked file | the broker's own group and group-readable, and readable by nobody else. The owner and the owner bits are the operator's business. That group holds one account, which is what keeps the executor out
+every directory above it, down from the home | enterable by the client group. Traversal is not read, and never `chmod o+x`, which grants the same to every account on the machine
 
 Why it is shaped this way (one ref per entry rather than a whole-file flatten, the broker reading these rather than the keeper, and modes rather than an ACL) is in [design.md](design.md#linked-secrets-are-read-by-the-broker). What follows is what it costs you day to day.
 
 - **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi refuses them from its extension instead, having no account-wide rule file for one to be rendered into.
-- **A tool that replaces its own file rather than rewriting it takes the grant with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file; `faramir init` grants it again, and so does adding the same entry a second time. That repair needs the reload it gets: the broker fingerprints a linked file by mtime and size, which a `chgrp` leaves alone, so a store already refusing over that file would go on refusing.
+- **A tool that replaces its own file rather than rewriting it takes the group with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file, and `init` and `link add` check it again on every converge. Putting it back is a `chgrp`, and it needs a reload after it: the broker fingerprints a linked file by mtime and size, which a `chgrp` leaves alone, so a store that already gave up on that file would go on refusing it.
 - **A link that is there and will not read stops the host**, being a value the redactor is missing while the plaintext is still on disk: `run` and `redact` refuse until it is fixed. A link whose *path* is gone is the other case and is not fatal, the credential having left the machine.
 
 ## Blocked paths
@@ -148,7 +148,7 @@ Which of the five a pattern is comes from its shape, and `block add` prints what
 What happens to the file | `[[secret.link]]` | `[[secret.block]]`
 --- | --- | ---
 refused to the agent's file tools | yes | yes
-regrouped to the broker's group, so a brokered command is refused it too | yes | no, the mode is left alone
+held to the broker's group, so a brokered command is refused it too | yes, checked and reported | no, the mode is nobody's business here
 the value in the redactor, tokenised wherever it appears | yes | no, faramir never reads it
 injectable by ref | yes | no
 

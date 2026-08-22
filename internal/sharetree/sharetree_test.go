@@ -5,6 +5,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"syscall"
 	"testing"
 )
@@ -166,41 +167,11 @@ func TestTraversalAction(t *testing.T) {
 	}
 }
 
-// A regrouped directory hands the incoming group execute and nothing else. The
-// group bits on the way in were the previous group's: carrying them over would
-// give the executor read on a 0750 home and write on a 0770 one.
-func TestTraversalMode(t *testing.T) {
-	for _, tc := range []struct {
-		name      string
-		in        os.FileMode
-		regrouped bool
-		want      os.FileMode
-	}{
-		// Same group already: the bits it has are the ones it is meant to have, and
-		// only traversal is missing.
-		{"keeping the group adds execute alone", 0o700, false, 0o710},
-		{"keeping the group leaves its read in place", 0o750, false, 0o750},
-		{"keeping the group leaves its write in place", 0o770, false, 0o770},
-		// Taken over from another group, which loses everything it had.
-		{"a regroup grants execute", 0o700, true, 0o710},
-		{"a regroup drops the group's read", 0o750, true, 0o710},
-		{"a regroup drops the group's read and write", 0o770, true, 0o710},
-		{"a regroup leaves the owner alone", 0o500, true, 0o510},
-		{"a regroup leaves other alone", 0o771, true, 0o711},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := traversalMode(tc.in, tc.regrouped); got != tc.want {
-				t.Errorf("traversalMode(%o, regrouped=%v) = %o, want %o",
-					tc.in, tc.regrouped, got, tc.want)
-			}
-		})
-	}
-}
-
-// Execute only: read would let these uids list the agent account's home rather than
-// pass through it. The group is the tree's own, so nothing is regrouped and no
-// privilege is needed; TestTraversalAction covers that branch.
-func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
+// Every directory on the path that the group cannot enter is named, and none of
+// them is altered: they are the operator's, and opening them is not faramir's
+// to do. The group is the tree's own, so no privilege is needed here;
+// TestTraversalAction covers the regroup branch.
+func TestBlockersNamesThePathAndChangesNothing(t *testing.T) {
 	home := t.TempDir()
 	middle := filepath.Join(home, "src")
 	tree := filepath.Join(middle, "work")
@@ -217,26 +188,28 @@ func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
 		}
 	}
 
-	if _, err := grantTraversal(home, tree, Options{Group: "shared"}, int(st.Gid)); err != nil {
+	blocked, err := blockers(home, tree, int(st.Gid))
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	for _, dir := range []string{home, middle} {
+	got := make([]string, 0, len(blocked))
+	for _, b := range blocked {
+		got = append(got, b.Path)
+	}
+	want := []string{home, middle}
+	if !slices.Equal(got, want) {
+		t.Errorf("blocked %v, want %v", got, want)
+	}
+	// The tree is not on the path to itself, and nothing on the path was opened.
+	for _, dir := range []string{home, middle, tree} {
 		info, err := os.Stat(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := info.Mode().Perm(); got != 0o710 {
-			t.Errorf("%s is %o, want 0710: execute for the group, no read", dir, got)
+		if got := info.Mode().Perm(); got != 0o700 {
+			t.Errorf("%s is %o, want 0700: a check altered it", dir, got)
 		}
-	}
-	// The tree is not on the path to itself: Reachable leaves it as it was.
-	info, err := os.Stat(tree)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o700 {
-		t.Errorf("the tree itself was changed to %o", got)
 	}
 }
 
@@ -504,7 +477,7 @@ func TestGrantTraversalDoesNotFollowASwappedComponent(t *testing.T) {
 	}
 	// It fails rather than following: os.Root refuses a name that resolves
 	// outside the directory it was opened on.
-	if _, err := grantTraversal(home, tree, Options{Group: "shared"}, int(st.Gid)); err == nil {
+	if _, err := blockers(home, tree, int(st.Gid)); err == nil {
 		t.Error("a swapped component was walked into")
 	}
 
@@ -521,7 +494,7 @@ func TestGrantTraversalDoesNotFollowASwappedComponent(t *testing.T) {
 // A tree that is the home has nothing above it to walk. components answers
 // with none, and asking for the tail of that is asking for element one of an
 // empty list.
-func TestGrantTraversalOnTheHomeItselfDoesNothing(t *testing.T) {
+func TestBlockersOnTheHomeItselfReportsNothing(t *testing.T) {
 	home := t.TempDir()
 	if err := os.Chmod(home, 0o700); err != nil {
 		t.Fatal(err)
@@ -531,12 +504,12 @@ func TestGrantTraversalOnTheHomeItselfDoesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	changed, err := grantTraversal(home, home, Options{Group: "shared"}, int(st.Gid))
+	blocked, err := blockers(home, home, int(st.Gid))
 	if err != nil {
-		t.Fatalf("granting traversal on the home itself: %v", err)
+		t.Fatalf("asking about the home itself: %v", err)
 	}
-	if changed != 0 {
-		t.Errorf("granted %d, want 0", changed)
+	if len(blocked) != 0 {
+		t.Errorf("reported %d, want 0", len(blocked))
 	}
 	info, err := os.Stat(home)
 	if err != nil {

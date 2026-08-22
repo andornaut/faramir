@@ -63,6 +63,14 @@ BODY
   echo "wrote $SECRETS"
 fi
 
+step "the traversal the operator owns"
+# faramir changes ownership and modes on the tree it enrols and nowhere else, so
+# a home at 0700 is the operator's to open: without this the enrolment below
+# refuses, the tree being one nothing could reach. On a managed host this is
+# whatever converges the account; here it is two commands.
+chgrp faramir-client /home/op
+chmod g=x /home/op
+
 step "the tree the agent works in"
 install -d -o op -g op "$PROJECT"
 faramir init-project --agent-user op --agent claude "$PROJECT" >/tmp/project.log 2>&1 || {

@@ -3,9 +3,11 @@
 #
 # The managed store is faramir's own, and every account boundary around it is
 # one `init` built. A link is the opposite: the file belongs to somebody else's
-# tool, at a path faramir did not choose, with a mode that tool decides. So what
-# only a real install can show is whether the grant draws the same boundary
-# there that the store gets for free.
+# tool, at a path faramir did not choose, with a mode that tool decides. faramir
+# does not change the ownership or mode of a file it does not own, so what only a
+# real install can show is whether the arrangement it asks for draws the same
+# boundary there that the store gets for free, and whether it says clearly enough
+# what has to be arranged.
 #
 # Three accounts, one file:
 #
@@ -15,8 +17,8 @@
 #     asking for the ref and without the redactor seeing it;
 #   - the operator keeps it, their own tool being what rewrites it.
 #
-# The rest is the lifecycle: what `link add` refuses before it has touched
-# anything, what the value looks like once it is serving, and what `link rm`
+# The rest is the lifecycle: what `link add` refuses, and that it alters nothing
+# in doing so, what the value looks like once it is serving, and what `link rm`
 # does and deliberately does not undo.
 #
 # Run as root in the e2e container.
@@ -84,6 +86,10 @@ printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_VALUE" > $NPMRC
 chown op:op $NPMRC
 chmod 600 $NPMRC
 
+# The broker's own group, which holds one account: naming a value is not
+# permission to read the file it came from.
+brokergroup=$(id -gn faramir-broker)
+
 # --------------------------------------------------------------------------
 head_ "1. what is refused before anything is touched"
 # Each of these found afterwards is a file already regrouped for an entry that
@@ -105,12 +111,28 @@ grep -q 'this file offers' <<<"$out" && grep -q 'github.com/oauth_token' <<<"$ou
 grep -qF "$GH_VALUE" <<<"$out" \
   && bad "the refusal carries the value out of the file" \
   || ok "and carries no value out of the file"
-# The grant is made to run the probe and put back when it fails: a file the
-# broker can read but is not told about is a widening with nothing to show for
-# it.
+# The file is still the way its own tool wrote it: nothing here regroups or
+# chmods a file faramir does not own, so a refused add cannot have left one
+# widened for an entry that was never written.
 [ "$(stat -c %U:%G/%a $GH)" = "op:op/600" ] \
-  && ok "the access granted for the probe was put back" \
+  && ok "the refused add left the file exactly as it was" \
   || bad "the file is left at $(stat -c %U:%G/%a $GH) after a refused add"
+
+# The arrangement a link needs, which faramir asks for and does not apply. A
+# file no one has arranged is refused, and what is refused names the two
+# commands that arrange it.
+out=$(addlink gh/token $GH --type yaml --key github.com/oauth_token)
+if grep -q 'gh/token' $CFG; then
+  bad "a file the broker cannot read was linked anyway: $out"
+else
+  ok "a file the broker cannot read is refused, and no entry is written"
+fi
+grep -q "chgrp $brokergroup" <<<"$out" && grep -q 'chmod g+r' <<<"$out" \
+  && ok "and the refusal carries the commands that arrange it" \
+  || bad "the refusal does not say what to change: $out"
+[ "$(stat -c %U:%G/%a $GH)" = "op:op/600" ] \
+  && ok "and it arranged nothing itself" \
+  || bad "the refused add altered the file: $(stat -c %U:%G/%a $GH)"
 
 out=$(addlink gone/token $GHDIR/nosuchfile --type text)
 grep -q 'mount it first' <<<"$out" \
@@ -130,24 +152,21 @@ rm -f $GHDIR/hosts-link.yml
 
 # --------------------------------------------------------------------------
 head_ "2. adding one"
+# What a configuration manager converges, done here in the two commands the
+# refusal above named. Both files, the second being linked in section 8.
+chgrp "$brokergroup" $GH $NPMRC
+chmod 640 $GH $NPMRC
+
 out=$(addlink gh/token $GH --type yaml --key github.com/oauth_token)
 if grep -q 'gh/token' $CFG; then ok "the entry is written to $CFG"
 else bad "link add did not write the entry: $out"; fi
 
-# The broker's own group, which holds one account: naming a value is not
-# permission to read the file it came from.
-brokergroup=$(id -gn faramir-broker)
-[ "$(stat -c %G $GH)" = "$brokergroup" ] \
-  && ok "the file is in $brokergroup" \
-  || bad "the file is in $(stat -c %G $GH), want $brokergroup"
-# Group read added, the owner's own bits as they were, and nothing for anybody
-# else.
-[ "$(stat -c %a $GH)" = "640" ] \
-  && ok "mode 640: group read added and nothing widened for other" \
-  || bad "mode is $(stat -c %a $GH), want 640"
-[ "$(stat -c %U $GH)" = "op" ] \
-  && ok "the owner is left alone, their tool being what rewrites the file" \
-  || bad "the owner is now $(stat -c %U $GH)"
+# Arranged before the add and unchanged by it: the check is what faramir does
+# here, and a check that altered the file would be indistinguishable from one
+# that passed.
+[ "$(stat -c '%U:%G %a' $GH)" = "op:$brokergroup 640" ] \
+  && ok "the file is as it was arranged: op:$brokergroup 640" \
+  || bad "link add altered the file to $(stat -c '%U:%G %a' $GH)"
 
 # --------------------------------------------------------------------------
 head_ "3. the broker serves it"
@@ -245,10 +264,10 @@ grep -qF "$GH_VALUE" $JSON \
   && bad "doctor's report carries the value" \
   || ok "and its report names files and refs, never values"
 
-# Both faults, put to it. The grant is modes and ownership on a file somebody
-# else's tool rewrites, so neither of these needs anybody to do anything wrong:
-# a tool that replaces its own file rather than rewriting it takes the group
-# with it, and one that writes 0644 hands it to every account on the host.
+# Both faults, put to it. What a link needs is ownership and mode on a file
+# somebody else's tool rewrites, so neither of these needs anybody to do anything
+# wrong: a tool that replaces its own file rather than rewriting it takes the
+# group with it, and one that writes 0644 hands it to every account on the host.
 chmod g-r $GH
 snap
 [ "$(st 'linked file access')" = failed ] && grep -q 'cannot read' <<<"$(dt 'linked file access')" \
@@ -261,14 +280,14 @@ snap
   && ok "a file the executor can read is reported as a failure" \
   || bad "a linked file readable by the executor is $(st 'linked file access'): $(dt 'linked file access')"
 
-# Put back, so the sections after this measure a working grant rather than the
-# one this just broke.
+# Put back, so the sections after this measure a working arrangement rather than
+# the one this just broke.
 chmod 640 $GH
 chgrp "$brokergroup" $GH
 snap
 [ "$(st 'linked file access')" = ok ] \
-  && ok "and the grant restored reads as healthy again" \
-  || bad "the grant was not restored: $(dt 'linked file access')"
+  && ok "and the arrangement restored reads as healthy again" \
+  || bad "it was not restored: $(dt 'linked file access')"
 
 # --------------------------------------------------------------------------
 head_ "7. listing them"
@@ -303,24 +322,33 @@ grep -q '"changed": false' <<<"$out" \
   || bad "a second add of the same entry reported a change: ${out:0:200}"
 
 # What that re-application is for. A tool that replaces its own file rather than
-# rewriting it takes the grant with it: 0600 in the operator's own group is what
-# a temp file renamed over the original leaves behind.
+# rewriting it takes the group with it: 0600 in the operator's own group is what
+# a temp file renamed over the original leaves behind. A converge run naming
+# every link then reports it rather than repairing it.
 chown op:op $GH
 chmod 600 $GH
 out=$(addlink gh/token $GH --type yaml --key github.com/oauth_token)
-[ "$(stat -c '%a %G' $GH)" = "640 $brokergroup" ] \
-  && ok "and adding it again puts back a grant the owning tool took away" \
-  || bad "the grant was not restored: $(stat -c '%a %G' $GH)"
+[ "$(stat -c '%a %G' $GH)" = "600 op" ] \
+  && ok "a re-add of a file its tool reclaimed alters nothing" \
+  || bad "the re-add altered the file: $(stat -c '%a %G' $GH)"
+grep -q "chgrp $brokergroup" <<<"$out" \
+  && ok "and reports what has to be arranged again" \
+  || bad "the re-add does not say what to change: ${out:0:300}"
+
+# Arranged the way the report asked, which is what a configuration manager does
+# on its next converge. The reload is the other half: the broker fingerprints a
+# linked file by mtime and size, which a chgrp leaves alone, so a store that gave
+# up on this file would go on refusing it without one.
+chgrp "$brokergroup" $GH
+chmod 640 $GH
+out=$(addlink gh/token $GH --type yaml --key github.com/oauth_token)
 grep -q 'already reads' <<<"$out" \
-  && ok "saying it added nothing, the entry being the one that is there" \
+  && ok "and adding it again then says the entry is the one that is there" \
   || bad "the re-application does not say the entry was already there: ${out:0:200}"
-# The reload is the other half: the broker fingerprints a linked file by mtime
-# and size, which a chgrp leaves alone, so a store that refused over this file
-# would go on refusing without one.
 waitfor 25 asop refs >/dev/null 2>&1
 asop refs 2>/dev/null | grep -q 'faramir://gh/token' \
   && ok "and the ref is served again" \
-  || bad "the ref is not being served after the grant was restored"
+  || bad "the ref is not being served after the file was arranged again"
 
 # The credential leaves the machine while the entry stands, which is also what a
 # home that is not mounted looks like.
@@ -330,8 +358,8 @@ grep -q 'not there' <<<"$out" \
   && ok "link ls reports a file that is no longer there" \
   || bad "link ls does not report the missing file: $out"
 snap
-[ "$(st 'linked file access')" = warn ] && grep -q 'not there' <<<"$(dt 'linked file access')" \
-  && ok "doctor warns rather than failing: a credential removed is not a fault" \
+[ "$(st 'linked file access')" = failed ] && grep -q 'not there' <<<"$(dt 'linked file access')" \
+  && ok "doctor fails: an entry naming a file that is not there produces no value" \
   || bad "linked file access is $(st 'linked file access'): $(dt 'linked file access')"
 
 # --------------------------------------------------------------------------

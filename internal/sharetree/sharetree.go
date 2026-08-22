@@ -5,6 +5,10 @@
 //	reachable  a home is 0700, so every directory above the tree has to be
 //	           group-executable by a group the executor is in
 //
+// Only the first is applied here. The directories above the tree belong to the
+// operator, so Traversable reports the ones that block the group and alters
+// nothing; whoever manages the host's permissions sets them.
+//
 // Nothing in faramir needs a tree of its own; this is for the operator who
 // wants to run commands somewhere their own uid owns.
 package sharetree
@@ -65,12 +69,20 @@ func Resolve(dir string) (string, error) {
 // of entries, and what a caller reports is whether this run was the one that
 // changed it.
 type Result struct {
-	// Changed is how many paths this run regrouped or rechmodded, entries in the
-	// tree and directories above it granted traversal alike.
+	// Changed is how many paths in the tree this run regrouped or rechmodded.
 	Changed int
+	// Sticky and Kept are what the share held back rather than widened: the
+	// directories restricted to their owner for unlink and rename, and the files
+	// left at the mode their writer chose. Reported because they are the part of
+	// a share that is not "everything became group-writable".
+	Sticky int
+	Kept   int
 }
 
-// Share applies both jobs to one directory.
+// Share regroups and widens one directory and everything under it. Whether the
+// group can reach it is the other half and is not applied here: Traversable
+// answers that, and the directories above the tree are not this command's to
+// alter.
 func Share(opts Options) (Result, error) {
 	var result Result
 	dir, err := Resolve(opts.Dir)
@@ -96,6 +108,7 @@ func Share(opts Options) (Result, error) {
 		keep[filepath.Clean(rel)] = true
 	}
 	sticky := stickyDirs(opts.Keep)
+	result.Sticky, result.Kept = len(sticky), len(keep)
 	// Asked before each operation, and the operation still made unconditionally:
 	// what is counted is whether this run altered the host.
 	const rootMode = 0o2770 | os.ModeSetgid
@@ -121,51 +134,73 @@ func Share(opts Options) (Result, error) {
 		return result, err
 	}
 	opts.logf("shared %s with %s", dir, opts.Group)
-
-	// Only inside the agent account's home; outside, the modes already allow
-	// it.
-	home := resolvedHome(owner)
-	if home == "" || !within(home, dir) {
-		return result, nil
-	}
-	changed, err = grantTraversal(home, dir, opts, gid)
-	result.Changed += changed
-	return result, err
+	return result, nil
 }
 
-// Reachable is Share's second job alone: every directory from the operator's
-// home down to the path named is made enterable by the group, and that path
-// itself is left as it was. For the directories the daemons only read, Share
-// being wrong for those: a config a brokered command can rewrite is the policy
-// rewriting itself.
+// Blocker is one directory above a shared path that the group cannot enter,
+// with the group and mode that stop it.
+type Blocker struct {
+	Path  string
+	Group string
+	Mode  os.FileMode
+}
+
+// Traversable reports which directories from the operator's home down to the
+// path named the group cannot enter, and alters none of them. Empty means the
+// group can already reach it.
 //
-// The last component is left alone whatever it is, because whatever names it
-// grants it: Share sets the tree it is about to share, and a link grants the
-// file it is about to read. So a caller wanting the directories that hold a
-// file names the file, and one naming the directory gets everything above it
-// and not the directory itself.
-func Reachable(opts Options) (Result, error) {
-	var result Result
+// The last component is left out of the question, because whatever names it
+// grants it: Share sets the tree it is about to share, and a link's own file is
+// asked about as a file. So a caller asking about the directories that hold a
+// file names the file, and one naming a directory is answered about everything
+// above it and not about the directory itself.
+func Traversable(opts Options) ([]Blocker, error) {
 	dir, err := Resolve(opts.Dir)
 	if err != nil {
-		return result, err
+		return nil, err
 	}
 	owner, err := user.Lookup(opts.Operator)
 	if err != nil {
-		return result, fmt.Errorf("no such user %q: %w", opts.Operator, err)
+		return nil, fmt.Errorf("no such user %q: %w", opts.Operator, err)
 	}
 	group, err := user.LookupGroup(opts.Group)
 	if err != nil {
-		return result, fmt.Errorf("no such group %q: %w", opts.Group, err)
+		return nil, fmt.Errorf("no such group %q: %w", opts.Group, err)
 	}
 	gid, _ := strconv.Atoi(group.Gid)
 	// Outside the homes the modes already allow it.
 	home := resolvedHome(owner)
 	if home == "" || !within(home, dir) {
-		return result, nil
+		return nil, nil
 	}
-	result.Changed, err = grantTraversal(home, dir, opts, gid)
-	return result, err
+	return blockers(home, dir, gid)
+}
+
+// Fix is what the operator runs to open the reported directories, one command
+// per line. A directory already in the group needs the execute bit alone; one
+// in another group is regrouped first, and "g=x" rather than "g+x" because the
+// read and write bits there belonged to the group being replaced.
+func Fix(blocked []Blocker, group string) string {
+	lines := make([]string, 0, len(blocked))
+	for _, b := range blocked {
+		if b.Group == group {
+			lines = append(lines, "sudo chmod g+x "+b.Path)
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("sudo chgrp %s %s && sudo chmod g=x %s",
+			group, b.Path, b.Path))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// Describe names the reported directories with what is on them now, for a
+// message that has already said what is wrong.
+func Describe(blocked []Blocker) string {
+	out := make([]string, 0, len(blocked))
+	for _, b := range blocked {
+		out = append(out, fmt.Sprintf("%s (%s, %04o)", b.Path, b.Group, b.Mode))
+	}
+	return strings.Join(out, ", ")
 }
 
 func (o Options) logf(format string, args ...any) {
@@ -344,97 +379,67 @@ func components(home, dir string) []string {
 	return out
 }
 
-// grantTraversal makes every directory from the home down to the tree enterable
-// by the shared group. Execute only, never read, so these uids pass through
-// without listing. Not "chmod o+x", which grants the same to every account on
-// the machine.
-func grantTraversal(home, dir string, opts Options, gid int) (int, error) {
-	// Walked through descriptors rather than by path, as shareTree walks the tree:
-	// these directories are the operator's, this runs as root, and os.Chmod and
-	// os.Chown follow a link, so stat-ing a component and then chmodding it by
-	// name resolves the path twice and would let root regroup a directory of the
-	// agent's choosing.
-	//
-	// The home itself is opened O_NOFOLLOW and repaired through the descriptor;
-	// everything under it is named inside an os.Root, which refuses a name
-	// resolving outside the directory it was opened on.
+// blockers is every directory from the home down to the tree that the group
+// cannot enter. Nothing is altered: these directories are the operator's.
+//
+// Walked through descriptors rather than by path, as shareTree walks the tree:
+// this runs as root over paths the agent's uid can replace, so resolving a name
+// once to stat it and again to report it can answer about two different
+// directories.
+func blockers(home, dir string, gid int) ([]Blocker, error) {
 	parts := components(home, dir)
 	if len(parts) == 0 {
 		// The tree is the home, so there is nothing above it to walk.
-		return 0, nil
+		return nil, nil
 	}
 	handle, err := os.OpenFile(home, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY, 0)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer func() { _ = handle.Close() }()
 
-	changed := 0
-	apply := func(name string, info os.FileInfo, chown func() error, chmod func(os.FileMode) error) error {
+	var found []Blocker
+	add := func(name string, info os.FileInfo) error {
 		action, err := traversalAction(info, gid)
 		if err != nil || action == leaveAlone {
 			return err
 		}
-		if action == regroup {
-			// The previous group loses whatever the group bits gave it.
-			opts.logf("%s: group %s -> %s", name, groupName(info), opts.Group)
-			if err := chown(); err != nil {
-				return err
-			}
-		}
-		if err := chmod(traversalMode(info.Mode(), action == regroup)); err != nil {
-			return err
-		}
-		changed++
-		opts.logf("%s: %s may now traverse it", name, opts.Group)
+		found = append(found, Blocker{
+			Path: name, Group: groupName(info), Mode: info.Mode().Perm(),
+		})
 		return nil
 	}
 
 	info, err := handle.Stat()
 	if err != nil {
-		return changed, err
+		return nil, err
 	}
-	if err := apply(home, info,
-		func() error { return handle.Chown(-1, gid) },
-		handle.Chmod); err != nil {
-		return changed, err
+	if err := add(home, info); err != nil {
+		return nil, err
 	}
 
 	root, err := os.OpenRoot(home)
 	if err != nil {
-		return changed, err
+		return nil, err
 	}
 	defer func() { _ = root.Close() }()
 	for _, component := range parts[1:] {
 		name := filepath.Base(component)
 		info, err := root.Stat(name)
 		if err != nil {
-			return changed, err
+			return nil, err
 		}
-		if err := apply(component, info,
-			func() error { return root.Chown(name, -1, gid) },
-			func(mode os.FileMode) error { return root.Chmod(name, mode) }); err != nil {
-			return changed, err
+		if err := add(component, info); err != nil {
+			return nil, err
 		}
 		next, err := root.OpenRoot(name)
 		if err != nil {
-			return changed, err
+			return nil, err
 		}
 		_ = root.Close()
 		root = next
 	}
-	return changed, nil
-}
-
-// traversalMode is what one directory on the path is chmodded to: group execute
-// added, and on a regroup the group's read and write dropped first, those bits
-// having belonged to the previous group. The owner's own bits are never
-// touched.
-func traversalMode(mode os.FileMode, regrouped bool) os.FileMode {
-	if regrouped {
-		mode &^= 0o070
-	}
-	return mode | 0o010
+	return found, nil
 }
 
 type traversal int

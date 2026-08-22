@@ -63,11 +63,11 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 
 ## Linking a credential another tool owns
 
-`link add` reads the file as root to check that the type and the selector yield a value, then grants the broker read on it, then reads it again as the broker's own account to check that the grant landed, and only then writes the entry and reloads. The value joins the redactor, and the path is refused to the agent's file tools.
+`link add` reads the file as root to check that the type and the selector yield a value, then checks that the file is arranged the way a link needs, then reads it again as the broker's own account to check the broker can reach it, and only then writes the entry and reloads. Nothing about the file is altered: a file that is not arranged that way is reported with the `chgrp` and `chmod` that fix it, and no entry is written. The value joins the redactor, and the path is refused to the agent's file tools.
 
 Adding an entry this install already carries runs the same thing again rather than refusing it, so a converge may name every link on every run: [what that re-applies](configuration.md#linked-secrets).
 
-The two reads answer different questions and are in that order for a reason. Root can read what the broker cannot, so the first says the content is ingestible and the second says the broker can reach it. Asking the content first means a wrong `--type` or a `--key` naming nothing costs nothing: the file's mode and group, and the directories above it, are untouched. A selector that names nothing fails the command and lists the selectors the file does offer, names only.
+The two reads answer different questions and are in that order for a reason. Root can read what the broker cannot, so the first says the content is ingestible and the second says the broker can reach it. Asking the content first means a wrong `--type` or a `--key` naming nothing is answered before anybody is asked to change a mode for it. A selector that names nothing fails the command and lists the selectors the file does offer, names only.
 
 ```bash
 sudo faramir link add gh/token ~/.config/gh/hosts.yml --type yaml --key github.com/oauth_token

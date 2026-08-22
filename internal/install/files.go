@@ -360,12 +360,14 @@ func (r *runner) stepLogrotate() error {
 	return nil
 }
 
-// stepReachable makes the config directory the daemons read enterable by them,
-// before the units are written: a home is 0700, so a config kept in one is
-// invisible to all three service uids. The config directory alone, being 0755,
-// which covers the secrets directory and the key inside it. Traversal only,
-// never Share: a config a brokered command could rewrite is the policy
-// rewriting itself.
+// stepReachable checks that the config directory the daemons read is enterable
+// by them, before the units are written: a home is 0700, so a config kept in
+// one is invisible to all three service uids.
+//
+// Reported and not opened. Every directory above the config is the operator's,
+// and faramir does not alter a path it does not own; whoever manages the host's
+// permissions sets them. This one is fatal rather than a warning: a config the
+// daemons cannot read is an install that serves nothing.
 func (r *runner) stepReachable() error {
 	if r.opts.DryRun {
 		r.skip("reachable", "dry run")
@@ -376,15 +378,21 @@ func (r *runner) stepReachable() error {
 		r.skip("reachable", "nothing the daemons read is inside a home")
 		return nil
 	}
-	result, err := sharetree.Reachable(sharetree.Options{
+	blocked, err := sharetree.Traversable(sharetree.Options{
 		Dir: dir, Operator: r.opts.AgentUser, Group: r.layout.ClientGroup,
 	})
 	if err != nil {
 		return fmt.Errorf("%s: %w", dir, err)
 	}
-	// What it granted, not whether it ran: after the first run it re-applies what
-	// is already there.
-	r.step("reachable", result.Changed > 0, detailWithCount(dir, result.Changed))
+	if len(blocked) > 0 {
+		return fmt.Errorf("%s is inside a home and %s cannot enter %s, so the "+
+			"daemons cannot read the config. faramir does not alter a directory it "+
+			"does not own; open them and run this again:\n%s",
+			dir, r.layout.ClientGroup, sharetree.Describe(blocked),
+			sharetree.Fix(blocked, r.layout.ClientGroup))
+	}
+	// Never changed: this step asks a question and alters nothing.
+	r.step("reachable", false, dir)
 	return nil
 }
 

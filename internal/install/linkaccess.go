@@ -1,9 +1,12 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -12,62 +15,92 @@ import (
 	"github.com/andornaut/faramir/internal/sharetree"
 )
 
-// linkFile is one linked file that is there, with the stat the grant reads.
-type linkFile struct {
-	path string
-	info os.FileInfo
-}
-
-// inspectLinks asks of every entry the questions that can refuse this step, and
-// alters nothing: which files are there, and whether any is a symlink, whose
-// grant would land on whatever it points at rather than on the file named.
+// linkFault is why one linked file is not usable as it stands, phrased as what
+// has to change. Empty when it is.
 //
-// Separate from the loop that grants, so a refusal arrives before the first
-// file has been regrouped rather than between two of them. An absent file is
-// not a refusal: a link naming nothing is a credential that has left the
-// machine, or a home not mounted yet, and the broker reports it per request.
-func inspectLinks(links []config.Link) (present []linkFile, absent []string, err error) {
-	for _, link := range links {
-		info, statErr := os.Lstat(link.Path)
-		if statErr != nil {
-			if os.IsNotExist(statErr) {
-				absent = append(absent, link.Path)
-				continue
-			}
-			return nil, nil, fmt.Errorf("%s: %w", link.Path, statErr)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil, nil, fmt.Errorf("%s is a symlink, so the mode and group "+
-				"granted here would land on whatever it points at. Name that file "+
-				"in the link instead", link.Path)
-		}
-		present = append(present, linkFile{path: link.Path, info: info})
+// Read off the file's own ownership and mode rather than by asking the account:
+// this states the arrangement a link needs (the broker's group, group read, and
+// nothing for anybody else) in the terms whoever manages the host's permissions
+// sets it in. `faramir doctor` asks the accounts themselves, which is the check
+// that catches what a mode does not show.
+func (r *runner) linkFault(link config.Link) (string, error) {
+	info, err := os.Lstat(link.Path)
+	if err != nil {
+		return "", err
 	}
-	return present, absent, nil
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Sprintf("%s is a symlink, and a link names the file that holds "+
+			"the value: name what it points at instead", link.Path), nil
+	}
+	// A directory above it answers for the file whatever the file's own bits say,
+	// so it is asked first.
+	blocked, err := sharetree.Traversable(sharetree.Options{
+		Dir: link.Path, Operator: r.opts.AgentUser, Group: r.layout.ClientGroup,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(blocked) > 0 {
+		return fmt.Sprintf("%s cannot reach %s (%s): %s cannot enter %s. Open "+
+			"them:\n%s", r.layout.BrokerUser, link.Path, link.Ref,
+			r.layout.ClientGroup, sharetree.Describe(blocked),
+			sharetree.Fix(blocked, r.layout.ClientGroup)), nil
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf("%s: cannot read ownership", link.Path)
+	}
+	mode := info.Mode().Perm()
+	var fix []string
+	if int(stat.Gid) != r.brokerGID {
+		fix = append(fix, fmt.Sprintf("sudo chgrp %s %s", r.layout.BrokerUser, link.Path))
+	}
+	if mode&0o040 == 0 {
+		fix = append(fix, "sudo chmod g+r "+link.Path)
+	}
+	// Not only the executor: group read for the broker is the whole grant, and
+	// anything other can read every account on the host can read.
+	if mode&0o004 != 0 {
+		fix = append(fix, "sudo chmod o-r "+link.Path)
+	}
+	if len(fix) == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("%s (%s) is %s %04o, and a linked file has to be %s and "+
+		"group-readable, and readable by nobody else: naming a value is not "+
+		"permission to read the file it came from.\n%s",
+		link.Path, link.Ref, fileGroup(info), mode, r.layout.BrokerUser,
+		strings.Join(fix, " && ")), nil
 }
 
-// stepLinkAccess makes each [[secret.link]] file readable by the account that
-// reads it, and by nothing else.
+// fileGroup is the group that owns a file, by name where the group still
+// exists.
+func fileGroup(info os.FileInfo) string {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "?"
+	}
+	gid := strconv.FormatUint(uint64(stat.Gid), 10)
+	if group, err := user.LookupGroupId(gid); err == nil {
+		return group.Name
+	}
+	return gid
+}
+
+// stepLinkAccess checks that every [[secret.link]] file is readable by the
+// account that reads it, and by nothing else. It alters nothing: the file is
+// the operator's, and so is every directory above it, and faramir does not
+// change the ownership or mode of a path it does not own. What the checks find
+// is reported with the command that fixes it, for whoever manages the host's
+// permissions to apply.
 //
-// Modes and ownership, never an ACL: a stacked filesystem does not carry one.
-// An eCryptfs home takes `setfacl` without error and reads the entry back from
-// its own cache, so a grant made that way looks applied, cannot be removed, and
-// is not what decides the read.
+// An absent file is not a fault here: a link naming nothing is a credential
+// that has left the machine, or a home not mounted yet, and the broker reports
+// it per request.
 //
-// Two grants per link:
-//
-//   - The file becomes the broker's own group and group-readable. That group
-//     holds one account, for the reason the secrets directory is in a group
-//     holding only the keeper: naming a value is not permission to read the file
-//     it came from.
-//   - The directories above it become the client group, execute only, which is
-//     what sharetree grants for an enrolled tree. Traversal is not read.
-//
-// The owner is left alone: the file is the operator's and their tool rewrites
-// it. Neither grant survives a tool that writes a temp file and renames over
-// it, the replacement being created 0600; an ACL is lost the same way.
-// `faramir doctor` asks the broker's own account whether it can still read each
-// file.
+// Every link is asked about before any is reported, so one run names everything
+// that has to change rather than one thing per re-run.
 func (r *runner) stepLinkAccess() error {
 	links := r.opts.links
 	if len(links) == 0 {
@@ -79,40 +112,24 @@ func (r *runner) stepLinkAccess() error {
 		return nil
 	}
 
-	// Every file judged before the first one is granted: a refusal raised part
-	// way through the loop leaves the links before it regrouped and the
-	// directories above them opened, for a run that then stopped. One link the
-	// operator cannot use is not a reason to have altered the others.
-	present, absent, err := inspectLinks(links)
-	if err != nil {
-		return err
+	var faults, absent []string
+	for _, link := range links {
+		if !exists(link.Path) {
+			absent = append(absent, link.Path)
+			continue
+		}
+		fault, err := r.linkFault(link)
+		if err != nil {
+			return fmt.Errorf("%s: %w", link.Path, err)
+		}
+		if fault != "" {
+			faults = append(faults, fault)
+		}
 	}
-
-	granted := 0
-	for _, file := range present {
-		path, info := file.path, file.info
-		// The file, not its directory: Reachable leaves the last component of the
-		// path it is given alone, so naming the directory stops one hop short and
-		// leaves the one holding the file unenterable.
-		result, err := sharetree.Reachable(sharetree.Options{
-			Dir: path, Operator: r.opts.AgentUser,
-			Group: r.layout.ClientGroup,
-		})
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		granted += result.Changed
-
-		// The owner's own bits as they are, group read, and nothing for anybody
-		// else: a file the operator keeps at 0400 stays unwritable by them.
-		mode := (info.Mode().Perm() & 0o700) | 0o040
-		changed, err := r.fs.ensureOwnership(path, mode, keep, r.brokerGID)
-		if err != nil {
-			return err
-		}
-		if changed {
-			granted++
-		}
+	if len(faults) > 0 {
+		return fmt.Errorf("%d linked file(s) are not usable as they are, and "+
+			"faramir does not alter a file it does not own:\n\n%s",
+			len(faults), strings.Join(faults, "\n\n"))
 	}
 
 	detail := fmt.Sprintf("%d linked file(s) readable by %s",
@@ -120,10 +137,11 @@ func (r *runner) stepLinkAccess() error {
 	if len(absent) > 0 {
 		// Named rather than counted: which file is missing says whether this is a
 		// credential that has gone or a home that is not mounted.
-		detail += fmt.Sprintf("; %d not there yet: %s",
+		detail += fmt.Sprintf("; %d not there: %s",
 			len(absent), strings.Join(absent, ", "))
 	}
-	r.step("linked files", granted > 0, detail)
+	// Never changed: this step asks questions and alters nothing.
+	r.step("linked files", false, detail)
 	return nil
 }
 
@@ -164,11 +182,11 @@ func keepInstalledGrant(opts *Options, configDir string) error {
 
 // AddLink adds one entry and applies everything that follows from it.
 //
-// The order is the point. The grant comes before the probe, the question being
-// whether the broker can read the file; the probe comes before the entry is
-// written, a selector that names nothing otherwise leaving the broker refusing
-// every command. A probe that fails puts the grant back: a file the broker can
-// read but is not told about is a widening with nothing to show for it.
+// The order is the point. Every question is asked before the entry is written,
+// and nothing about the file is altered to make an answer come out right: an
+// entry naming a file the broker cannot read is a ref that answers nothing, and
+// one naming a file the executor can read hands the plaintext to whatever an
+// agent asks to run.
 //
 // An entry this install already carries, spelled the same way, is not an error:
 // it is re-applied by reassertLink and the bool comes back false. A ref it
@@ -222,20 +240,21 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		return Report{}, false, err
 	}
 
-	restore, err := run.grantOne(link)
+	fault, err := run.linkFault(link)
 	if err != nil {
-		return Report{}, false, err
+		return Report{}, false, fmt.Errorf("%s: %w", link.Path, err)
 	}
-	// Put back on any failure from here on, not only the probe's: the file has
-	// been regrouped and the entry has not been written, so a run that stops in
-	// between leaves a credential file readable by the broker that nothing told
-	// it about.
+	if fault != "" {
+		return Report{}, false, errors.New(fault)
+	}
+	// What the broker itself gets out of the file, which canRead does not ask:
+	// the account can open it and the selector yields a value.
 	if err := run.probeLink(link); err != nil {
-		return Report{}, false, revert(restore, err)
+		return Report{}, false, err
 	}
 	report, err := run.apply(run.LinkSteps())
 	if err != nil {
-		return report, false, revert(restore, err)
+		return report, false, err
 	}
 	return report, true, nil
 }
@@ -270,17 +289,14 @@ func keySuffix(key string) string {
 	return " " + key
 }
 
-// reassertLink re-applies an entry the config already carries: the grant, the
-// deny rules and the config are rendered again, so a grant a tool took away by
-// renaming its own file comes back, and so does a rule an agent's settings
-// dropped. Nothing is written that was not there, so an untouched host reports
-// no change and the caller skips the reload.
+// reassertLink re-applies an entry the config already carries: the deny rules
+// and the config are rendered again, so a rule an agent's settings dropped
+// comes back. Nothing is written that was not there, so an untouched host
+// reports no change and the caller skips the reload.
 //
-// The order AddLink keeps is not this one's to keep. Nothing here can leave a
-// file regrouped for an entry that was never written, the entry being written
-// already, so the steps grant and the probe asks afterwards whether the broker
-// can read what it was granted. There is nothing to put back on a failure
-// either: the grant belongs to an entry that stands whatever this run does.
+// The access the file needs is checked by the steps and not repaired by them.
+// A tool that replaced its own file and took the group with it is reported
+// here, with the command that puts it back.
 func reassertLink(opts Options, existing []config.Link, link config.Link) (Report, error) {
 	opts.links, opts.linksSet = existing, true
 	if err := keepInstalledGrant(&opts, configDirOr(opts.ConfigDir)); err != nil {
@@ -307,19 +323,10 @@ func reassertLink(opts Options, existing []config.Link, link config.Link) (Repor
 	return report, nil
 }
 
-// revert undoes the grant and reports both failures when the undo fails too.
-func revert(restore func() error, cause error) error {
-	if err := restore(); err != nil {
-		return fmt.Errorf("%w\nand the access granted for the probe could not be "+
-			"put back, so %v", cause, err)
-	}
-	return cause
-}
-
-// RemoveLink drops one entry and re-renders what named it. It does not narrow
-// the file again: it does not know the mode that file had before the grant, so
-// the caller is told what the file is now and what would narrow it. Removing
-// the entry is what takes the value out of the redactor.
+// RemoveLink drops one entry and re-renders what named it. The file's own group
+// and mode are left alone, faramir having not set them: the caller is told what
+// the file is now and what would narrow it. Removing the entry is what takes
+// the value out of the redactor.
 //
 // A ref this install does not carry is not an error, for the reason a second
 // add is not: what is asked for is the state the host is already in. The
@@ -366,46 +373,6 @@ func configDirOr(dir string) string {
 	return dir
 }
 
-// grantOne applies the file half of the grant and returns what puts it back.
-// The directories above it are not restored: they are shared with the traversal
-// an enrolled tree needs, and narrowing one could take away access this command
-// never gave.
-func (r *runner) grantOne(link config.Link) (func() error, error) {
-	info, err := os.Lstat(link.Path)
-	if err != nil {
-		return nil, err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("%s is a symlink, so the mode and group granted here "+
-			"would land on whatever it points at. Name that file in the link instead",
-			link.Path)
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return nil, fmt.Errorf("%s: cannot read ownership", link.Path)
-	}
-	was, wasGID := info.Mode().Perm(), int(stat.Gid)
-
-	// The file, not its directory: Reachable grants every directory above the
-	// path it is given and leaves the last component alone, so naming the
-	// directory would stop one hop short and leave the one holding the file
-	// unenterable. The file itself is granted below.
-	if _, err := sharetree.Reachable(sharetree.Options{
-		Dir: link.Path, Operator: r.opts.AgentUser,
-		Group: r.layout.ClientGroup,
-	}); err != nil {
-		return nil, fmt.Errorf("%s: %w", link.Path, err)
-	}
-	mode := (info.Mode().Perm() & 0o700) | 0o040
-	if _, err := r.fs.ensureOwnership(link.Path, mode, keep, r.brokerGID); err != nil {
-		return nil, err
-	}
-	return func() error {
-		_, err := r.fs.ensureOwnership(link.Path, was, keep, wasGID)
-		return err
-	}, nil
-}
-
 // probeLink asks whether the broker's own account can read the file and get a
 // value out of it, by being that account: root can read anything and would
 // answer yes to a file the broker cannot open.
@@ -432,8 +399,10 @@ func (r *runner) probeLink(link config.Link) error {
 // those accounts rather than worked out from the mode, which is what catches a
 // tool having replaced its own file and taken the group with it.
 //
-// A file that is not there is neither answer: the credential has left the
-// machine, or the home holding it is not mounted.
+// A file that is not there answers neither, and fails too: the entry names a
+// value nothing can produce, whether the credential has left the machine or the
+// home holding it is not mounted. Which of the two it is, the operator knows and
+// this cannot.
 func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	const name = "linked file access"
 	if len(cfg.Secret.Links) == 0 {
@@ -473,8 +442,11 @@ func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.
 			"with it; `faramir init` grants it again: %s", opts.BrokerUser,
 			strings.Join(unreadable, ", "))
 	case len(absent) > 0:
-		report.addf(name, StatusWarn, "%d linked file(s) are readable by %s alone; "+
-			"%d not there, which is a credential removed or a home not mounted: %s",
+		report.addf(name, StatusFailed, "%d linked file(s) are readable by %s "+
+			"alone; %d not there, so the ref answers nothing and the value is "+
+			"absent from the redactor. Either the credential has left the machine, "+
+			"and the entry should go with `faramir link rm REF`, or the home "+
+			"holding it is not mounted: %s",
 			len(cfg.Secret.Links)-len(absent), opts.BrokerUser, len(absent),
 			strings.Join(absent, ", "))
 	default:

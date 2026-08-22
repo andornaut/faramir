@@ -155,7 +155,7 @@ func (p *project) preflight() error {
 	}
 	if os.Geteuid() != 0 && !p.opts.DryRun {
 		return errors.New("faramir init-project must run as root: it " +
-			"changes group ownership and modes on directories you do not own")
+			"changes group ownership and modes on the tree it enrols")
 	}
 	if err := refuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {
 		return err
@@ -177,8 +177,39 @@ func (p *project) preflight() error {
 	if err := p.resolveIDs(); err != nil {
 		return err
 	}
+	if err := p.refuseUnreachable(); err != nil {
+		return err
+	}
 	p.warnMissingBinary(filepath.Join(DefaultBinDir, "faramir"))
 	return p.refuseUnwritableFiles()
+}
+
+// refuseUnreachable stops an enrolment that would share a tree nothing can
+// reach. A home is 0700, so every directory between it and the tree has to let
+// the client group through, and group execute on the tree grants nothing while
+// a directory above it refuses the traversal.
+//
+// Reported rather than opened: the enrolled tree is the one place faramir
+// changes ownership and modes, and those directories are outside it. Whoever
+// manages the host's permissions sets them.
+func (p *project) refuseUnreachable() error {
+	if p.opts.DryRun {
+		return nil
+	}
+	blocked, err := sharetree.Traversable(sharetree.Options{
+		Dir: p.opts.Dir, Operator: p.opts.AgentUser, Group: p.report.ClientGroup,
+	})
+	if err != nil {
+		return fmt.Errorf("%s: %w", p.opts.Dir, err)
+	}
+	if len(blocked) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s cannot enter %s, so %s would be shared and unreachable. "+
+		"faramir changes ownership and modes on the tree it enrols and nowhere "+
+		"else; open them and run this again:\n%s",
+		p.report.ClientGroup, sharetree.Describe(blocked), p.opts.Dir,
+		sharetree.Fix(blocked, p.report.ClientGroup))
 }
 
 // refuseUnwritableFiles asks, before the share, the question every write into
@@ -544,8 +575,18 @@ func (p *project) shareTree() error {
 	// What it altered, not whether it ran: the first run rewrites the ownership
 	// and mode of every file in the tree, and reporting that as no change would
 	// tell anything reading Changed that a regrouped tree was left alone.
-	p.step("share tree", result.Changed > 0, detailWithCount(
-		fmt.Sprintf("%s with group %s", p.opts.Dir, p.report.ClientGroup), result.Changed))
+	//
+	// What was held back is named alongside the count, this being the one command
+	// that changes a path it does not own: a bare "1200 paths regrouped" does not
+	// say that the agent's own files kept their mode and their directories were
+	// closed to unlink by anyone but their owner.
+	detail := detailWithCount(fmt.Sprintf("%s with group %s, setgid, "+
+		"owner %s", p.opts.Dir, p.report.ClientGroup, p.opts.AgentUser), result.Changed)
+	if result.Kept > 0 {
+		detail += fmt.Sprintf("; %d agent file(s) left at their own mode, in %d "+
+			"sticky directory(ies)", result.Kept, result.Sticky)
+	}
+	p.step("share tree", result.Changed > 0, detail)
 	return nil
 }
 

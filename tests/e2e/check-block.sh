@@ -285,7 +285,9 @@ github.com:
     oauth_token: $LINK_VALUE
 YAML
 chown op:op $LINKFILE
-chmod 600 $LINKFILE
+# The arrangement a link needs, which faramir checks and does not apply.
+chgrp "$(id -gn faramir-broker)" $LINKFILE
+chmod 640 $LINKFILE
 "$faramir" link add --agent-user op gh/refuse-suite $LINKFILE \
   --type yaml --key github.com/oauth_token >/dev/null 2>&1
 waitfor 25 asop refs >/dev/null 2>&1
