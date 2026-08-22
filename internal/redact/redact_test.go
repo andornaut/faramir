@@ -3,11 +3,20 @@ package redact
 import (
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 )
 
 const secret = "hunter2-correct-horse"
+
+// wrapped is the secret as a formatter that broke the line would leave it, and
+// digity carries a 9 and a character that percent-encodes, so the encoded
+// rendering differs from the value and the digit's own class is exercised.
+var (
+	wrapped = secret[:11] + "\n" + secret[11:]
+	digity  = "secret9 value here"
+)
 
 func newTestRedactor() *Redactor {
 	return New([]Secret{{Ref: "home/router/admin", Value: secret}}, DefaultPolicy())
@@ -110,6 +119,30 @@ func TestRedactTextCoversEveryVariantSpelling(t *testing.T) {
 		{name: "unicode around the value",
 			text: "héllo wörld ← " + secret + " → done",
 			gone: []string{secret}, want: []string{"héllo wörld ←", "→ done"}},
+		// Two wrapped renderings with nothing between them. The second starts
+		// exactly where the first ended, which is adjacent rather than
+		// overlapping: read as overlapping it is skipped as already covered, and
+		// the tail is then written out as it came in.
+		{name: "the same value wrapped and repeated back to back",
+			text: "before\n" + wrapped + wrapped + "after\n",
+			gone: []string{wrapped}, want: []string{routerToken(), "before", "after"}},
+		// And with a gap, which is the ordinary case the one above is bounded by.
+		{name: "the same value wrapped twice with text between",
+			text: "a " + wrapped + " middle " + wrapped + " b",
+			gone: []string{wrapped}, want: []string{routerToken(), "middle"}},
+		// Percent-encoding, where the digits are one of the classes left as they
+		// are. A digit encoded when it should be literal renders a variant that
+		// matches nothing, so the encoded value goes out whole.
+		{name: "percent-encoded with a digit in the value",
+			secrets: []Secret{{Ref: "k", Value: digity}},
+			text:    "url: https://host/?q=" + url.QueryEscape(digity),
+			gone:    []string{url.QueryEscape(digity)},
+			want:    []string{TokenFor("k"), "https://host"}},
+		{name: "path-encoded with a digit in the value",
+			secrets: []Secret{{Ref: "k", Value: digity}},
+			text:    "url: https://host/" + url.PathEscape(digity),
+			gone:    []string{url.PathEscape(digity)},
+			want:    []string{TokenFor("k"), "https://host"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			secrets := tc.secrets
