@@ -131,6 +131,32 @@ var corpus = []denyCase{
 	{"faramir status | cat /etc/faramir/age.key", true, "including a pipe"},
 	{"sudo faramir status; cat /etc/faramir/config.toml", true, "sudo does not extend the sanction either"},
 
+	// -- a path bound to a variable ------------------------------------------
+	//
+	// The reader-first rules only see a command that names the file. Bound to a
+	// variable the file is named once, with nothing near it, and read through
+	// the variable afterwards. The loop is the shape that arrives by accident:
+	// walking directories and reading something in each is ordinary work.
+	{"p=/etc/faramir/age.key; cat $p", true, "the key is named, whatever is done with it after"},
+	{"export KEY=/etc/faramir/age.key", true, "and exporting it is naming it"},
+	{"for d in /etc/faramir; do cat $d/age.key; done", true, "the loop list names the directory"},
+	{"p=/etc/faramir/secrets/db.sops.yml; sops -d $p", true, "the store likewise"},
+	// The bound value ends where the shell ends it, so an ordinary assignment
+	// beside a similar name is left alone.
+	{"greeting=hello /etc/faramirx", false, "the value ends at the space"},
+	{"p=/etc/faramirx/notes.md", false, "a sibling path is still a sibling"},
+	{"for d in /etc/faramirx; do cat $d/notes.md; done", false, "and so is a loop over one"},
+	{"count=42; echo $count", false, "an assignment that names no path"},
+	// How far the binding reaches. An assignment's value is one word and a for
+	// list stops at the separator, so a path further along the line belongs to
+	// whatever command is there rather than to the binding. grep is the case
+	// that shows it: it is in neither vocabulary, so naming a path in a search
+	// stands, and a binding that ran to the end of the line would refuse it.
+	{"note=hello; grep -c faramir /etc/faramir/config.toml", false,
+		"the value ended at the space, and grep reads nothing into the context"},
+	{"for d in /tmp; do grep -c faramir /etc/faramir/config.toml; done", false,
+		"the list ended at the separator"},
+
 	// -- generic credential words, which are nobody's rule until declared -----
 	//
 	// These occur in ordinary projects, and faramir neither writes nor reads

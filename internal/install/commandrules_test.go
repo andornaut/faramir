@@ -55,12 +55,12 @@ func TestADeclaredEntryReachesTheCommandRules(t *testing.T) {
 }
 
 // An install that declares nothing generates rules for its own paths and no
-// others: the set is never empty, so the four rules are always rendered, and
+// others: the set is never empty, so the five rules are always rendered, and
 // an empty alternation matching every command is the failure to avoid.
 func TestAnInstallThatDeclaresNothingRefusesItsOwn(t *testing.T) {
 	rules := commandRules(Layout{ConfigDir: "/etc/faramir"})
-	if len(rules) != 4 {
-		t.Fatalf("rendered %d rules, want four: %v", len(rules), rules)
+	if len(rules) != 5 {
+		t.Fatalf("rendered %d rules, want five: %v", len(rules), rules)
 	}
 	if !matchesAny(t, rules, "cat /etc/faramir/age.key") {
 		t.Error("this install's own directory is not refused")

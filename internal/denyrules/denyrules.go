@@ -31,12 +31,49 @@ const (
 		`setfacl|ln|sops|age|ansible-vault)\b`
 )
 
+// Binding is a path bound to a shell variable, by an assignment or by the list
+// of a for loop. The rules above read left to right, so a command has to appear
+// before the path it reaches: `cat ~/.ssh/id_rsa` is refused and
+// `p=~/.ssh/id_rsa; cat $p` is not, the reader arriving after the only mention
+// of the file. Matching the binding refuses naming the path at all, whatever is
+// done with the variable afterwards.
+//
+// Both forms, because the loop is the one that is written by accident: walking
+// a set of directories and reading something in each is ordinary, and it
+// reaches every file the direct spelling is refused.
+//
+// An assignment's value is one word, ending at the first unquoted space, or a
+// quoted string, which holds spaces and ends at the closing quote. Both, or a
+// path quoted because it has a space in it would be named here and not seen,
+// while the read rules a few lines up cross the same space with "[^|]*".
+// "Local Storage" is such a path, and the reason the bare form is not enough.
+//
+// What keeps the quoted form from reaching prose is PathStartBound rather than
+// anything here: a name may not open after a space, so a sentence that says one
+// is left alone while a path anywhere inside the quotes is not.
+//
+// A for list runs to the end of the command, so it stops at a separator.
+const Binding = `(?:\b[A-Za-z_][A-Za-z0-9_]*=(?:["'][^"']*|\S*)` +
+	`|\bfor\s+[A-Za-z_][A-Za-z0-9_]*\s+in\s+[^;&|]*)`
+
 // PathEnd is what may follow a path in a command line: whitespace, a quote, a
 // separator, or the end of it. A class rather than \b, and shared so the two
 // sides bound a path the same way: "\b" holds beside a hyphen, so a rule for
 // /opt/faramir would match /opt/faramir-notes.md and refuse a sibling that
 // merely starts the same way.
 const PathEnd = `[\s"';&|)]|$`
+
+// PathStart is what may precede a name inside a command line: a separator, a
+// quote, or the start of it. Shared with the renderer, so both sides bound a
+// name the same way.
+const PathStart = `(^|[\s/=:'"])`
+
+// PathStartBound is PathStart without the whitespace, and it exists for the
+// binding rule alone. An assignment's value ends at a space, so a subject that
+// may open with one reaches past the value into the word after it: with
+// PathStart, `msg=hello secrets` is refused for a sentence that names no file.
+// Every other rule spans arguments and wants the whitespace.
+const PathStartBound = `(^|[/=:'"])`
 
 // Dir is a directory as a subject: the directory itself, or anything under it,
 // and nothing that merely begins with its name.
@@ -81,7 +118,7 @@ func DirUnder(home, dir string) string {
 	return `(?:` + strings.Join(spellings, `|`) + `)(?:/|` + PathEnd + `)`
 }
 
-// For is the four rules that refuse a set of subjects: reading one, writing
+// For is the five rules that refuse a set of subjects: reading one, writing
 // one, redirecting output over one, and redirecting one into a command.
 //
 // "[^|]*" stops at the first pipe, so a reader on one side of a pipe and a
@@ -108,10 +145,19 @@ func For(subjects []string) []string {
 		return nil
 	}
 	alternation := `(` + strings.Join(subjects, `|`) + `)`
+	// The binding rule takes the subjects with the whitespace dropped from
+	// what may precede a name; see PathStartBound. A subject that does not
+	// open that way is carried through unchanged.
+	bound := make([]string, 0, len(subjects))
+	for _, subject := range subjects {
+		bound = append(bound, strings.Replace(subject, PathStart, PathStartBound, 1))
+	}
+	boundAlternation := `(` + strings.Join(bound, `|`) + `)`
 	return []string{
 		ReadCommands + `[^|]*` + alternation,
 		`<\s*\S*` + alternation,
 		WriteCommands + `[^|]*` + alternation,
 		`>\s*\S*` + alternation,
+		Binding + boundAlternation,
 	}
 }

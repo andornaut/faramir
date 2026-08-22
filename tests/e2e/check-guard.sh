@@ -50,6 +50,11 @@ delete the age key|rm /etc/faramir/age.key
 redirect over the age key|echo x > /etc/faramir/age.key
 redirect the age key into a loop|while read l; do echo $l; done < /etc/faramir/age.key
 redirect it into a builtin that names no reader|mapfile -t k < /etc/faramir/age.key
+bind the key to a variable and read it through that|p=/etc/faramir/age.key; cat $p
+export the key's path|export KEY=/etc/faramir/age.key
+walk the config dir in a loop and read from it|for d in /etc/faramir; do cat $d/age.key; done
+bind it in single quotes|p='/etc/faramir/age.key'; cat $p
+bind a quoted path that holds a space|p="/etc/faramir/my key.txt"; cat $p
 overwrite the binary|cp /tmp/evil /usr/local/bin/faramir
 rewrite the deny list|sed -i /d/ /usr/local/libexec/faramir/deny-patterns.txt
 run the keeper as root|sudo faramir keeper
@@ -99,6 +104,10 @@ replace the MCP list|rm .mcp.json
 edit the opencode config|sed -i s/a/b/ opencode.json
 a process substitution, which is not an input redirect|diff <(ls) <(ls -a)
 a heredoc marker before a protected path, which redirects nothing|echo <<EOF /etc/faramir/age.key
+an assignment naming a sibling path|p=/etc/faramirx/notes.md; cat $p
+a loop over a directory nothing protects|for d in /tmp; do cat $d/x; done
+an assignment whose value stops at the space|note=hello; grep -c faramir /etc/faramir/config.toml
+a quoted value that is prose, not a path|title="my faramir talk"; echo $title
 CASES
 
 # --------------------------------------------------------------------------

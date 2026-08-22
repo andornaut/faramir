@@ -258,3 +258,74 @@ func TestOneBadEntryWritesNoneOfTheList(t *testing.T) {
 		t.Errorf("a refused list wrote part of itself:\n%s", after)
 	}
 }
+
+// A declared name reached through a variable, in the spellings a shell accepts.
+// The read rules need a command before the path; a binding names it with none
+// near it, so the binding is what refuses it.
+//
+// The quoted forms matter here rather than for the install's own directories:
+// "Local Storage" is a declared name with a space in it, and a rule that ended
+// the value at the first space would never see the half that matters.
+func TestADeclaredNameIsRefusedWhenBoundToAVariable(t *testing.T) {
+	layout := Layout{ConfigDir: "/etc/faramir", Blocked: []config.BlockedPath{
+		{Name: "secrets*"}, {Name: "id_rsa"}, {Name: "Local Storage/"},
+	}}
+	rules := commandRules(layout)
+	res := make([]*regexp.Regexp, 0, len(rules))
+	for _, rule := range rules {
+		res = append(res, regexp.MustCompile("(?i)"+rule))
+	}
+	matches := func(cmd string) bool {
+		for _, re := range res {
+			if re.MatchString(cmd) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, cmd := range []string{
+		`p=/srv/secrets.yml`,
+		`p="/srv/secrets.yml"`,
+		`p='/srv/secrets.yml'`,
+		`p="/my dir/secrets.yml"`,
+		`export KEY="$HOME/.ssh/id_rsa"`,
+		`p='~/.ssh/id_rsa'`,
+		`p="./secrets.yml"`,
+		`p="$HOME/.config/chromium/Default/Local Storage"`,
+		`for d in /srv; do cat $d/secrets.yml; done`,
+		// The directory this repo's own package is named for, which is what
+		// found the rule: a loop over it reaches every file inside.
+		`d=internal/secretstore`,
+		// Anywhere inside the quotes, not only where the value opens: the value
+		// is bounded by the quote rather than by the first space.
+		`p="see /srv/secrets.yml for it"`,
+		// "secrets*" is an open-ended prefix, so it takes every name that starts
+		// with those seven characters and not only the ones that continue with a
+		// dot. Held here because it is the whole of what the entry means.
+		`p=/srv/secretsx.yml`,
+		`p=/srv/secretstore/notes.md`,
+	} {
+		if !matches(cmd) {
+			t.Errorf("%q is allowed, and it names a declared file", cmd)
+		}
+	}
+	// A quoted value that opens with something other than a path character is
+	// prose. A blocked name is often an ordinary word, and refusing a sentence
+	// for containing one costs an operator a refusal they cannot act on.
+	for _, cmd := range []string{
+		`echo "my secrets talk"`,
+		`git commit -m "rotate the secrets"`,
+		`title="my writing about ordinary things"`,
+		// An assignment whose value is a word, followed by a blocked name that
+		// is an ordinary word too. The binding rule takes the subjects with the
+		// whitespace dropped from what may precede a name, or the value would
+		// reach past its own word into this one.
+		`msg=hello secrets`,
+		`title="my secrets talk"`,
+		`msg='the secrets are safe'`,
+	} {
+		if matches(cmd) {
+			t.Errorf("%q is refused, and it reaches no declared file", cmd)
+		}
+	}
+}

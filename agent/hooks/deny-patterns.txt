@@ -55,7 +55,7 @@
 # a path would assume, so the two entry points are spelled from one list.
 #
 # The tool lists are internal/denyrules', and internal/guard builds the same
-# four rules at run time for a config directory a rendered file did not name.
+# five rules at run time for a config directory a rendered file did not name.
 # Readers carry interpreters and copiers as well as pagers. "sed" is a writer
 # only, and "grep" is neither, so naming a file in a search is not refused.
 {{range commandRules .}}{{.}}

@@ -30,7 +30,9 @@ const (
 	// kindPrefix is a name starting this way: ".env" covers ".env.local" but
 	// not "faramir.env", which holds refs and is meant to be read.
 	kindPrefix
-	// kindGlobName is a name with one wildcard inside it: "secrets*.yml".
+	// kindGlobName is a name whose wildcards are not the single leading or
+	// trailing one the two kinds above take: "secrets*.yml", and as many
+	// wildcards as are written.
 	kindGlobName
 	// kindDir is anything below a directory named by the tail of its path:
 	// "sops/age/" covers ~/.config/sops/age/keys.txt.
@@ -540,7 +542,10 @@ func agentHome(layout Layout) string {
 // public half of a key the other three spellings leave alone. RE2 has no
 // lookahead, so what ends a name is stated positively.
 const (
-	pathStart = `(^|[\s/=:'"])`
+	// denyrules', so the guard bounds a name it derives at run time the same way
+	// the rendered rules bound one, and so the binding rule can drop the
+	// whitespace from it.
+	pathStart = denyrules.PathStart
 	pathEnd   = `(` + pathEndClass + `)`
 	// pathEndClass without the group, for a rule that offers it beside another
 	// way for a name to end. internal/denyrules', so the guard bounds a path it

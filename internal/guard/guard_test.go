@@ -238,7 +238,7 @@ func TestAConfigDirIsNotReadAsCoveredByALongerPath(t *testing.T) {
 // A config directory under a home is written into the rendered file as the
 // alternation of the spellings a shell expands to it. named() asks whether the
 // list already covers this install's directory, so it has to ask for the same
-// form: asking for the plain one misses it and appends the same four rules
+// form: asking for the plain one misses it and appends the same five rules
 // again, on every Bash call.
 func TestAConfigDirUnderAHomeIsRecognisedInTheRenderedForm(t *testing.T) {
 	home := guardHome()

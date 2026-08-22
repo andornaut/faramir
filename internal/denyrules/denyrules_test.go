@@ -59,35 +59,36 @@ func TestAPathOutsideAHomeGetsNoExtraSpellings(t *testing.T) {
 	}
 }
 
-// rules is the four rules as the guard compiles them, so a test asks the same
+// rules is the five rules as the guard compiles them, so a test asks the same
 // question the guard does rather than a version of it. Named rather than
 // positional: a case says which rule should hold it.
 type rules struct {
-	read, input, write, redirect *regexp.Regexp
+	read, input, write, redirect, assign *regexp.Regexp
 }
 
 // all is every rule, for a case that must match none of them.
 func (r rules) all() []*regexp.Regexp {
-	return []*regexp.Regexp{r.read, r.input, r.write, r.redirect}
+	return []*regexp.Regexp{r.read, r.input, r.write, r.redirect, r.assign}
 }
 
 func compiled(t *testing.T, subjects ...string) rules {
 	t.Helper()
 	got := For(subjects)
-	if len(got) != 4 {
-		t.Fatalf("For returned %d rules, want the read, input, write and redirect four",
-			len(got))
+	if len(got) != 5 {
+		t.Fatalf("For returned %d rules, want the read, input, write, redirect and "+
+			"binding five", len(got))
 	}
 	compile := func(pattern string) *regexp.Regexp {
 		return regexp.MustCompile("(?i)" + pattern)
 	}
-	return rules{compile(got[0]), compile(got[1]), compile(got[2]), compile(got[3])}
+	return rules{compile(got[0]), compile(got[1]), compile(got[2]), compile(got[3]),
+		compile(got[4])}
 }
 
-// The four rules refuse the four ways a command line reaches a subject. Each
+// The five rules refuse the five ways a command line reaches a subject. Each
 // case names which rule should hold it, so a rule that stops matching is a
 // failure here rather than a gap the other three happen to cover.
-func TestTheFourRulesRefuseEveryWayALineReachesASubject(t *testing.T) {
+func TestTheFiveRulesRefuseEveryWayALineReachesASubject(t *testing.T) {
 	re := compiled(t, Dir("/etc/faramir"))
 	for _, c := range []struct {
 		rule *regexp.Regexp
@@ -114,6 +115,20 @@ func TestTheFourRulesRefuseEveryWayALineReachesASubject(t *testing.T) {
 		{re.redirect, "redirect", "echo x > /etc/faramir/age.key"},
 		{re.redirect, "redirect", "echo x >> /etc/faramir/age.key"},
 		{re.redirect, "redirect", "echo x 2>/etc/faramir/age.key"},
+		// The four rules above read left to right, so a command has to appear
+		// before the path it reaches. An assignment names the path with no
+		// command near it, and the reader that follows names only the variable.
+		{re.assign, "assign", "p=/etc/faramir/age.key; cat $p"},
+		{re.assign, "assign", "export KEY=/etc/faramir/age.key"},
+		{re.assign, "assign", `p="/etc/faramir/age.key"`},
+		{re.assign, "assign", `p='/etc/faramir/age.key'`},
+		// A path quoted because it holds a space. The bare form ends at that
+		// space, so the quoted form is matched to the closing quote instead.
+		{re.assign, "assign", `p="/etc/faramir/my key.txt"`},
+		{re.assign, "assign", `p='/etc/faramir/my key.txt'`},
+		{re.assign, "assign", `for d in "/etc/faramir"; do cat $d/age.key; done`},
+		{re.assign, "assign", `for d in '/etc/faramir'; do cat $d/age.key; done`},
+		{re.assign, "assign", "for d in /etc/faramir; do cat $d/age.key; done"},
 	} {
 		if !c.rule.MatchString(c.cmd) {
 			t.Errorf("the %s rule allows %q", c.name, c.cmd)
@@ -142,6 +157,18 @@ func TestTheRulesLeaveAloneWhatDoesNotReachTheSubject(t *testing.T) {
 		"cat <<'EOF'\nnothing here\nEOF",
 		"diff <(echo a) <(echo b)",
 		"echo 'a < b is true of /etc/faramirx'",
+		// A sibling in an assignment is still a sibling.
+		"p=/etc/faramirx/notes.md",
+		// The value ends where the shell ends it, so a path further along the
+		// line is not read as this assignment's.
+		"greeting=hello /etc/faramirx",
+		// A quoted value that is prose rather than a path: the quoted form is
+		// taken only where it opens with a path character, or a blocked name
+		// that is an ordinary word would refuse a sentence for saying it.
+		`title="my faramir talk"`,
+		`msg='the faramir docs are here'`,
+		// And a loop over a neighbouring directory is left alone too.
+		"for d in /etc/faramirx; do cat $d/notes.md; done",
 	} {
 		for _, rule := range re.all() {
 			if rule.MatchString(cmd) {
