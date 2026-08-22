@@ -447,6 +447,25 @@ block ls --declared | grep -q 'command rule(s)' \
   && bad "--declared listed the command rules" \
   || ok "and --declared is the config's own half"
 
+# A command entry: the third form, which reaches the guard and no rule file.
+out=$(block add --command 'e2e-probe read')
+grep -q 'blocked e2e-probe read' <<<"$out" \
+  && ok "block add --command writes an entry" \
+  || bad "block add --command: ${out:0:200}"
+grep -qF "command = \"e2e-probe read\"" $CFG \
+  && ok "and the config carries it as a command" \
+  || bad "the command entry is not in config.toml"
+guard_says "e2e-probe read thing" | grep -q '"permissionDecision":"deny"' \
+  && ok "and the agent's shell is refused it" \
+  || bad "the guard allows the declared command"
+guard_says "e2e-probe-other read" | grep -q '"permissionDecision":"deny"' \
+  && bad "the guard denies a longer word starting the same way" \
+  || ok "and a neighbouring command is left alone"
+grep -qF 'e2e-probe' $RULES \
+  && bad "a command entry reached the agent's file-tool rules" \
+  || ok "and it reaches no rule file, a command not being a path"
+block rm --command 'e2e-probe read' >/dev/null 2>&1
+
 out=$(block rm --name "$NAME")
 grep -qF "stopped blocking $NAME" <<<"$out" \
   && ok "block rm --name removes it" \

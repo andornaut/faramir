@@ -202,6 +202,11 @@ func diagnoseBlockedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.
 	// answers for a path.
 	paths := make([]string, 0, len(cfg.Secret.Blocked))
 	for _, entry := range cfg.Secret.Blocked {
+		// A command entry reaches the command guard and no agent's rule file, so
+		// it is not something these files could be missing.
+		if entry.Command != "" {
+			continue
+		}
 		paths = append(paths, entry.Blocks())
 	}
 	if len(paths) == 0 {

@@ -18,18 +18,20 @@
 # rather than ".*" wherever a rule spans arguments, so it stops at the first
 # pipe.
 
-# Direct decryption of the secret store
-ansible-vault\s+(view|decrypt|edit|rekey)
-\bsops\s+(decrypt|-d|--decrypt|-i\s+.*-d)
-# Writing the store is the operator's, like reading it.
-\bsops\s+(-e|--encrypt|encrypt|set|unset|rotate|updatekeys)\b
-\bage\s+(-d|--decrypt)
-# Bare age-keygen prints a private key; "-o FILE" writes it 0400 instead.
-\bage-keygen\b(\s+-\S+)*\s*$
-\bop\s+read\b
-\bpass\s+show\b
-\bgopass\s+show\b
-\bvault\s+(read|kv\s+get)\b
+# No rule for a decryption verb, and none for another tool's secret store.
+#
+# `sops -d`, `age -d`, `ansible-vault view`, `op read`, `pass show` and the rest
+# were compiled in here, and each was an opinion about a tool this install may
+# have nothing to do with: sops is how faramir's own keeper decrypts, but a
+# store somewhere else is somebody else's, and the age key an install mints is
+# already refused by the directory holding it.
+#
+# A host that wants one says so, and gets it on the same terms as a path:
+#
+#     sudo faramir block add --command 'op read' --command 'sops -d'
+#
+# The words are literal and the whitespace between them is any run of it, so
+# what an operator declares is what they would type.
 
 # No rule for a wholesale environment dump. In an enrolled tree the command is
 # rewritten before it runs, so `printenv` comes back with every managed value
@@ -58,11 +60,11 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # The broker's own key by path, not left to the config directory: `--ssh-key`
 # may put it anywhere, and one placed outside that directory matches nothing
 # above.
-{{if .SSHKey}}\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|tar|scp|rsync)\b[^|]*{{.SSHKey | regexQuote}}
+{{if .SSHKey}}{{readCommands}}[^|]*{{.SSHKey | regexQuote}}
 {{end}}
 # The binary, named as one path rather than as its directory, or installing any
 # unrelated tool into {{.BinDir}} would be refused.
-\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*{{.BinDir | regexQuote}}/faramir\b
+{{writeCommands}}[^|]*{{.BinDir | regexQuote}}/faramir\b
 >\s*\S*{{.BinDir | regexQuote}}/faramir\b
 
 # The plugin and extension an enrolment installs, which are faramir's own files
@@ -78,7 +80,7 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # registration that went missing, and the rule in the credentials section
 # against removing faramir's own entries from a file you are otherwise free to
 # change.
-\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)
+{{writeCommands}}[^|]*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)
 >\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)
 
 # Reaching the broker's private state. Reading the audit log is covered above;

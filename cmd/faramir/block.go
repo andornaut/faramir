@@ -37,6 +37,7 @@ type blockFlags struct {
 	configPath string
 	agentUser  string
 	names      []string
+	commands   []string
 	declared   bool
 	json       bool
 }
@@ -57,12 +58,16 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 	for _, name := range f.names {
 		out = append(out, config.BlockedPath{Name: name})
 	}
+	for _, command := range f.commands {
+		out = append(out, config.BlockedPath{Command: command})
+	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("faramir block %s: name a path, or a pattern with "+
-			"--name. A path blocks that file on this host; a name blocks every "+
-			"file whose name matches it, wherever it turns up, which is what "+
-			"reaches a path this host does not have. Either may be given more than "+
-			"once", verb)
+			"--name, or a command with --command. A path blocks that file on this "+
+			"host; a name blocks every file whose name matches it, wherever it "+
+			"turns up, which is what reaches a path this host does not have; a "+
+			"command blocks the agent's shell from running it. Each may be given "+
+			"more than once", verb)
 	}
 	return out, nil
 }
@@ -80,6 +85,9 @@ func (f *blockFlags) registerName(c *cobra.Command) {
 	c.Flags().StringArrayVar(&f.names, "name", nil,
 		"a file name, suffix (*.pem), prefix (.env*), name with a wildcard "+
 			"(secrets*.yml) or directory (.storage/) rather than a path; repeatable")
+	c.Flags().StringArrayVar(&f.commands, "command", nil,
+		"a command the agent's shell may not run, as it would be typed "+
+			"(\"op read\"); the words are literal, not a pattern; repeatable")
 }
 
 func newBlockAddCmd() *cobra.Command {
@@ -288,16 +296,24 @@ type blockRow struct {
 func blockRows(declared []config.BlockedPath, builtIn bool) []blockRow {
 	rows := make([]blockRow, 0, len(declared)+len(install.BuiltInRules()))
 	for _, entry := range declared {
+		if entry.Command != "" {
+			rows = append(rows, blockRow{
+				Source: sourceDeclared, Kind: kindCommand, Entry: entry.Command,
+				Covers: coversCommands,
+				Detail: "the agent's shell may not run it",
+			})
+			continue
+		}
 		if entry.Name != "" {
 			rows = append(rows, blockRow{
-				Source: "declared", Kind: install.BlockedNameKind(entry.Name),
+				Source: sourceDeclared, Kind: install.BlockedNameKind(entry.Name),
 				Entry: entry.Name, Covers: coversBoth,
 				Detail: install.BlockedNameMatches(entry.Name),
 			})
 			continue
 		}
 		rows = append(rows, blockRow{
-			Source: "declared", Kind: "path", Entry: entry.Path, Covers: coversBoth,
+			Source: sourceDeclared, Kind: "path", Entry: entry.Path, Covers: coversBoth,
 			State: blockedPathState(entry.Path),
 		})
 	}
@@ -315,7 +331,7 @@ func blockRows(declared []config.BlockedPath, builtIn bool) []blockRow {
 	// are.
 	for _, pattern := range guard.ActionPatterns() {
 		rows = append(rows, blockRow{
-			Source: "built-in", Kind: "command", Entry: pattern, Covers: coversCommands,
+			Source: "built-in", Kind: kindCommand, Entry: pattern, Covers: coversCommands,
 		})
 	}
 	return rows
@@ -345,6 +361,10 @@ func blockedPathState(path string) string {
 
 // What a row is enforced at, in the words the column prints.
 const (
+	// kindCommand is the row kind for a rule about what a command does.
+	kindCommand = "command"
+	// sourceDeclared is a rule this host declared, as against one faramir carries.
+	sourceDeclared = "declared"
 	coversBoth     = "file tools, commands"
 	coversCommands = "commands"
 )
@@ -390,7 +410,7 @@ func runBlockList(f blockFlags) int {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "SOURCE\tKIND\tENTRY\tCOVERS\tNOTES")
 	for _, row := range rows {
-		if row.Kind == "command" {
+		if row.Kind == kindCommand {
 			commands = append(commands, row)
 			continue
 		}

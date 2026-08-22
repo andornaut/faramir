@@ -80,9 +80,8 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		want    string
 	}{
 		// Disclosure: what the command would put in the conversation.
-		{"sops -d secrets.sops.yml", advice},
+		{"sops -d /etc/faramir/secrets/db.sops.yml", advice},
 		{"cat /etc/faramir/secrets/db.sops.yml", advice},
-		{"age-keygen", advice},
 		{"sudo -u faramir-keeper cat /etc/faramir/age.key", advice},
 		// faramir's own. Nothing here is disclosed; something is changed or stopped.
 		{"rm /etc/faramir/age.key", adviceOwn},

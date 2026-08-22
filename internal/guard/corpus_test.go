@@ -13,16 +13,26 @@ type denyCase struct {
 }
 
 var corpus = []denyCase{
-	// -- direct decryption --------------------------------------------------
-	{"ansible-vault view group_vars/all/vault.yml", true, "reads a vault in the clear"},
-	{"sops -d secrets.sops.yml", true, "decrypts a managed store"},
-	{"sops --decrypt secrets.sops.yml", true, "the long spelling decrypts too"},
-	{"age -d < file", true, "age decrypts what sops encrypted"},
-	{"vault kv get secret/foo", true, "a different vault, still a credential store"},
-	{"op read op://vault/item/field", true, "1Password's CLI is a credential store too"},
-	{"pass show personal/router", true, "and so is pass"},
-	{"age-keygen", true, "prints a fresh private key to stdout"},
-	{"age-keygen -o /tmp/throwaway.key", false, "-o writes a key without printing one"},
+	// -- decryption and other tools' stores, which are declared or nothing ----
+	//
+	// faramir ships no rule for a verb. `sops -d` is how its own keeper decrypts,
+	// and a store somewhere else is somebody else's; the key an install mints is
+	// refused by the directory holding it, which is a rule about a path rather
+	// than about a command. A host that wants these says so:
+	//
+	//     faramir block add --command 'sops -d' --command 'op read'
+	//
+	// TestADeclaredCommandReachesTheGuardAlone is the other half.
+	{"ansible-vault view group_vars/all/vault.yml", false, "declared or nothing"},
+	{"sops -d secrets.sops.yml", false, "the verb faramir's own keeper uses"},
+	{"age -d < file", false, "likewise"},
+	{"vault kv get secret/foo", false, "another tool's store"},
+	{"op read op://vault/item/field", false, "and another"},
+	{"pass show personal/router", false, "and another"},
+	{"age-keygen", false, "minting a key is not reading this install's"},
+	// What stays: the store and the key by the paths they are at.
+	{"sops -d /etc/faramir/secrets/db.sops.yml", true, "the path is this install's"},
+	{"cat /etc/faramir/age.key", true, "and so is the key"},
 
 	// -- environment dumps, which are not refused ----------------------------
 	//
@@ -88,8 +98,8 @@ var corpus = []denyCase{
 	{"tee /usr/local/libexec/faramir/deny-patterns.txt < /dev/null", true, "tee writes where echo would"},
 	{"mv /etc/faramir/age.key /tmp/k", true, "so does mv"},
 	{"rm -f /etc/faramir/secrets/x.sops.yml", true, "so does rm"},
-	{"sops set ~/.config/faramir/secrets/x.sops.yml '[\"a\"]' '\"b\"'", true, "editing a store outside faramir vault edit"},
-	{"sops -e -i secrets.yml", true, "re-encrypting in place"},
+	{`sops set /etc/faramir/secrets/x.sops.yml '["a"]' '"b"'`, true, "editing this install's store outside faramir vault edit"},
+	{"sops -e -i secrets.yml", false, "re-encrypting in place"},
 	{"systemctl edit faramir-broker", true, "a drop-in changes what the daemon is"},
 	{"cp /bin/true /usr/local/bin/jq", false, "the binary is named as a path, not as its directory"},
 	{"install -m 0755 yq /usr/local/bin/yq", false, "installing an unrelated tool is ordinary work"},

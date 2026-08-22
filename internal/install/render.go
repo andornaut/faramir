@@ -11,6 +11,7 @@ import (
 	"text/template"
 
 	faramir "github.com/andornaut/faramir"
+	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/mcp"
 )
 
@@ -31,7 +32,12 @@ var renderFuncs = template.FuncMap{
 	// The same protected set in the command guard's spelling, so a rule refuses
 	// a file tool and `cat` alike. See commandRules.
 	"commandRules": commandRules,
-	"installDirs":  installDirs,
+	// The verb alternations, so a rule the file writes by hand for a narrower
+	// subject reads the same list as the generated ones. Written out twice, they
+	// drift the moment a tool is added to one.
+	"readCommands":  func() string { return denyrules.ReadCommands },
+	"writeCommands": func() string { return denyrules.WriteCommands },
+	"installDirs":   installDirs,
 	// The literal paths this install names as linked or refused, for the agent
 	// that carries its rules rather than writing them into a config.
 	"perInstallPaths": perInstallPaths,

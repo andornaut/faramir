@@ -119,6 +119,9 @@ sudo faramir block add --name '*.htpasswd'           # any file of that name, an
 
 # Each argument and each --name is one entry, and one command writes them all
 sudo faramir block add --name id_rsa --name '*.pem' --name '.env*'
+
+# A command, for what a tool does rather than for a file it names
+sudo faramir block add --command 'op read' --command 'pass show'
 ```
 
 **A path and a name are not the same rule, and one entry is one of them.** A path refuses the file at that path. A name is matched against the path the agent names rather than against this host's filesystem, which is what reaches a path the host does not have: a container mounts `/srv/ha/config` as `/config`, the agent names the second, and a rule carrying the first covers nothing it runs. Naming both in one entry is refused rather than answered by picking one.
@@ -151,6 +154,7 @@ So a command the broker runs may still open a blocked path, and print it in the 
 
 Key | Rule
 --- | ---
+`command` | A command the agent's shell may not run, written as it would be typed: `op read`, `sops -d`. The words are literal and the space between them matches any run of whitespace, so there is no pattern to get wrong. It reaches the command guard and no agent's file-tool rules, a command not being a path. A single-character word is refused, matching nearly every command line
 `path` | Absolute, and in its shortest form: a rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules of which one matches nothing. No `~`, which nothing expands here. `/` is refused, being every file on the host
 `name` | A name, suffix, prefix, wildcard name or directory, per the table above. Not absolute, which is a path; no `~` and no `..`, nothing resolving either here; no `**`, a name matching in any directory already. A pattern with nothing left once the wildcards and separators are taken out is refused, being every file on the host
 

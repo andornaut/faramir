@@ -27,6 +27,8 @@ const (
 	// The one key three sections share, named once so the list of keys a section
 	// accepts and the lookup that reads it cannot drift apart.
 	keySocketPath = "socket_path"
+	// keyPath is the TOML key both entry kinds spell a file with.
+	keyPath = "path"
 )
 
 // The limits no config key reaches. Variables rather than constants so a test
@@ -417,13 +419,25 @@ type BlockedPath struct {
 	// rather than against this host's filesystem. The same forms the built-in
 	// rules are written in, and rendered by the same code.
 	Name string `json:"name,omitempty"`
+	// Command is a command the agent's shell may not run, written the way it
+	// would be typed: "op read", "sops -d". Not a path and not a pattern, so it
+	// reaches the command guard alone and no agent's file-tool rules.
+	//
+	// The words, not a regular expression. Everything in it is taken literally
+	// and the spaces between the words match any run of whitespace, so an
+	// operator declares what they mean without a language in between and cannot
+	// write one that matches more than it looks like.
+	Command string `json:"command,omitempty"`
 }
 
 // Blocks is what an entry names, whichever form it took, for a message or a
 // listing that wants one string.
 func (r BlockedPath) Blocks() string {
-	if r.Name != "" {
+	switch {
+	case r.Name != "":
 		return r.Name
+	case r.Command != "":
+		return r.Command
 	}
 	return r.Path
 }
@@ -554,7 +568,7 @@ var (
 	escalationKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
 		"notify_command", "timeout_sec"}
 	secretKeys = []string{"min_length", "min_refresh_sec", "link", "block"}
-	linkKeys   = []string{"ref", "path", "type", "key"}
+	linkKeys   = []string{"ref", keyPath, "type", "key"}
 	blockKeys  = []string{"path", "name"}
 	auditKeys  = []string{"log_path"}
 )
@@ -844,6 +858,9 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		if refused.Name, err = str(entry["name"], at, ""); err != nil {
 			return nil, err
 		}
+		if refused.Command, err = str(entry["command"], at, ""); err != nil {
+			return nil, err
+		}
 		if err := validateBlocked(refused, at); err != nil {
 			return nil, err
 		}
@@ -852,8 +869,11 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		// form as well as the value: a path and a name that read alike are two
 		// different rules.
 		key := "path\x00" + refused.Path
-		if refused.Name != "" {
+		switch {
+		case refused.Name != "":
 			key = "name\x00" + refused.Name
+		case refused.Command != "":
+			key = "command\x00" + refused.Command
 		}
 		if seen[key] {
 			return nil, fmt.Errorf("%s: %q is named by more than one entry",
@@ -875,23 +895,56 @@ func ValidateBlocked(refused BlockedPath) error {
 // one that took both or neither. Neither is an empty entry rendering nothing;
 // both is one entry asking for two rules, and answering it by picking a form
 // would render the one the operator was not looking at.
-func validateBlocked(refused BlockedPath, at string) error {
-	switch {
-	case refused.Path != "" && refused.Name != "":
-		return fmt.Errorf("%s: names both path %q and name %q, and an entry is one "+
-			"or the other: a path refuses that file on this host, a name refuses "+
-			"every file it matches wherever it is. Write two entries",
-			at, refused.Path, refused.Name)
-	case refused.Name != "":
-		return validateBlockedName(refused.Name, at)
+func validateBlocked(blocked BlockedPath, at string) error {
+	var named []string
+	for _, form := range []struct{ key, value string }{
+		{"path", blocked.Path}, {"name", blocked.Name}, {"command", blocked.Command},
+	} {
+		if form.value != "" {
+			named = append(named, fmt.Sprintf("%s %q", form.key, form.value))
+		}
 	}
-	return validateBlockedPath(refused, at)
+	switch {
+	case len(named) > 1:
+		return fmt.Errorf("%s: names %s, and an entry is one of them: a path blocks "+
+			"that file on this host, a name blocks every file it matches wherever it "+
+			"is, and a command blocks a command from the agent's shell. Write an "+
+			"entry each", at, strings.Join(named, " and "))
+	case blocked.Name != "":
+		return validateBlockedName(blocked.Name, at)
+	case blocked.Command != "":
+		return validateBlockedCommand(blocked.Command, at)
+	}
+	return validateBlockedPath(blocked, at)
+}
+
+// validateBlockedCommand holds a command entry to what can be rendered. The
+// words are taken literally, so there is no pattern to get wrong; what is left
+// to check is that there is a command and that it is long enough to mean one.
+//
+// A single letter would match every command carrying it as a word, which is
+// most of them, and is the same failure "/" is as a path.
+func validateBlockedCommand(command, at string) error {
+	switch {
+	case strings.TrimSpace(command) != command:
+		return fmt.Errorf("%s: command %q is padded with whitespace", at, command)
+	case strings.Fields(command) == nil:
+		return fmt.Errorf("%s: command is empty", at)
+	}
+	for word := range strings.FieldsSeq(command) {
+		if len(word) < 2 {
+			return fmt.Errorf("%s: command %q carries the single-character word %q, "+
+				"which matches nearly every command line. Write the command as it "+
+				"would be typed", at, command, word)
+		}
+	}
+	return nil
 }
 
 func validateBlockedPath(refused BlockedPath, at string) error {
 	if refused.Path == "" {
-		return fmt.Errorf("%s: path or name is required; one of them is the whole "+
-			"of the entry", at)
+		return fmt.Errorf("%s: path, name or command is required; one of them is "+
+			"the whole of the entry", at)
 	}
 	if strings.HasPrefix(refused.Path, "~") {
 		return fmt.Errorf("%s: path %q starts with ~, which nothing expands here. "+

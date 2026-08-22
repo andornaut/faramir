@@ -81,32 +81,21 @@ var fallback = fallbackPatterns()
 // agents' own deny rules come from, and are already listed as the entries they
 // were generated from.
 func ActionPatterns() []string {
-	out := append([]string{}, fallbackVerbs...)
-	return append(out, fallbackOwn...)
+	return append([]string{}, fallbackOwn...)
 }
 
 // fallbackPatterns assembles the list in the shipped file's own order, which
 // TestTheFallbackMatchesTheShippedFile compares line by line.
 func fallbackPatterns() []string {
-	out := append([]string{}, fallbackVerbs...)
-	out = append(out, denyrules.For(defaultInstallPaths)...)
+	out := append([]string{}, denyrules.For(defaultInstallPaths)...)
 	return append(out, fallbackOwn...)
 }
 
-// fallbackVerbs is what a command does rather than what it points at: the
-// decryption and secret-manager calls, which name no path of faramir's.
-var fallbackVerbs = []string{
-	`ansible-vault\s+(view|decrypt|edit|rekey)`,
-	`\bsops\s+(decrypt|-d|--decrypt|-i\s+.*-d)`,
-	`\bsops\s+(-e|--encrypt|encrypt|set|unset|rotate|updatekeys)\b`,
-	`\bage\s+(-d|--decrypt)`,
-	// Bare age-keygen prints a private key; "-o FILE" writes it 0400 instead.
-	`\bage-keygen\b(\s+-\S+)*\s*$`,
-	`\bop\s+read\b`,
-	`\bpass\s+show\b`,
-	`\bgopass\s+show\b`,
-	`\bvault\s+(read|kv\s+get)\b`,
-}
+// No compiled-in verb rules. What a command does rather than what it points at
+// is the operator's to declare, `faramir block add --command`, and a declared
+// one is rendered into the shipped file rather than carried here: the fallback
+// is what holds when that file cannot be read, and it can no more carry a
+// declaration than it can carry a [[secret.block]] path.
 
 // fallbackOwn is the rest of faramir's own: its binary, the files an enrolment
 // installs, and the commands that act on the install rather than through it.

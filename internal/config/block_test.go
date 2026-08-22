@@ -51,8 +51,8 @@ func TestBlockedPathValidation(t *testing.T) {
 		body string
 		want string
 	}{
-		"no path":      {`[[secret.block]]`, "path or name is required"},
-		"empty path":   {"[[secret.block]]\npath = \"\"", "path or name is required"},
+		"no path":      {`[[secret.block]]`, "path, name or command is required"},
+		"empty path":   {"[[secret.block]]\npath = \"\"", "path, name or command is required"},
 		"relative":     {"[[secret.block]]\npath = \"etc/luks.key\"", "is relative"},
 		"a home":       {"[[secret.block]]\npath = \"~/.ssh/id_ed25519\"", "starts with ~"},
 		"not cleaned":  {"[[secret.block]]\npath = \"/etc/./luks.key\"", "shortest form"},
@@ -123,7 +123,7 @@ func TestBaseRefusedOnAFileThatIsNotThere(t *testing.T) {
 // name, which is the answer "/" gets as a path.
 func TestBlockedNameValidation(t *testing.T) {
 	for name, tc := range map[string]struct{ body, want string }{
-		"both forms":       {"[[secret.block]]\npath = \"/etc/k\"\nname = \"k\"", "one or the other"},
+		"both forms":       {"[[secret.block]]\npath = \"/etc/k\"\nname = \"k\"", "an entry is one of them"},
 		"everything":       {"[[secret.block]]\nname = \"*\"", "every file on the host"},
 		"every file again": {"[[secret.block]]\nname = \"*/*\"", "every file on the host"},
 		"an absolute path": {"[[secret.block]]\nname = \"/etc/k\"", "absolute path"},

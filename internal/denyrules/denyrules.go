@@ -14,12 +14,18 @@ import "strings"
 // copiers as well as pagers: reading a key with python, or copying it somewhere
 // unmatched and reading it there, is the same disclosure. "sed" is a writer
 // only; "grep" is neither, so naming a .env file in a search is not refused.
+//
+// The decryption tools are readers and writers both, and they are here rather
+// than as verb rules of their own: `sops -d` on this install's store is a read
+// of it, and `sops -d` on somebody else's file is that host's business. Keeping
+// them in the vocabulary refuses the first and leaves the second, where a rule
+// on the verb refused every use of the tool anywhere.
 const (
 	ReadCommands = `\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|` +
 		`hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|` +
-		`tar|scp|rsync)\b`
+		`tar|scp|rsync|sops|age|ansible-vault)\b`
 	WriteCommands = `\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|` +
-		`setfacl|ln)\b`
+		`setfacl|ln|sops|age|ansible-vault)\b`
 )
 
 // For is the three rules that refuse a set of subjects: reading one, writing

@@ -487,7 +487,53 @@ func jsonDenyMap(indent string, items []string) string {
 // The verbs come from internal/denyrules, which internal/guard builds the same
 // rules from for a config directory the rendered file did not name.
 func commandRules(layout Layout) []string {
-	return denyrules.For(commandSubjects(layout))
+	rules := denyrules.For(commandSubjects(layout))
+	// The commands this host declares, which reach here and nowhere else: a
+	// command is not a path, so no agent's file-tool rules can carry one.
+	for _, entry := range layout.Blocked {
+		if entry.Command == "" {
+			continue
+		}
+		if rule := BlockedCommandRule(entry.Command); rule != "" {
+			rules = append(rules, rule)
+		}
+	}
+	return rules
+}
+
+// BlockedCommandRule is a declared command as the guard matches it: the words
+// taken literally, any run of whitespace between them, and a word boundary at
+// each end that has one.
+//
+// The words rather than a regular expression the operator writes. A pattern
+// language here would be a second thing to get wrong in a file that decides
+// what an agent may run, and the failure is silent in both directions: one that
+// matches too much refuses ordinary work, and one that matches too little reads
+// exactly like one that works.
+func BlockedCommandRule(command string) string {
+	words := strings.Fields(command)
+	quoted := make([]string, 0, len(words))
+	for _, word := range words {
+		quoted = append(quoted, regexp.QuoteMeta(word))
+	}
+	rule := strings.Join(quoted, `\s+`)
+	if len(words) > 0 && isWordByte(words[0][0]) {
+		rule = `\b` + rule
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	if last := words[len(words)-1]; isWordByte(last[len(last)-1]) {
+		rule += `\b`
+	}
+	return rule
+}
+
+// isWordByte reports whether \b means anything beside this byte. "\b-d" never
+// matches, a hyphen being a non-word character on both sides.
+func isWordByte(b byte) bool {
+	return b == '_' ||
+		(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
 // commandSubjects is every protected thing as a regex fragment. Literal paths
