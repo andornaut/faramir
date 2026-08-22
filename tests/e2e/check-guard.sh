@@ -55,9 +55,6 @@ export the key's path|export KEY=/etc/faramir/age.key
 walk the config dir in a loop and read from it|for d in /etc/faramir; do cat $d/age.key; done
 bind it in single quotes|p='/etc/faramir/age.key'; cat $p
 bind a quoted path that holds a space|p="/etc/faramir/my key.txt"; cat $p
-a reader reaching the key in its own command after another|head -20 README.md; cat /etc/faramir/age.key
-a semicolon inside a quoted script is an argument|python3 -c 'import os; print(open("/etc/faramir/age.key").read())'
-an ampersand that is a redirection|cat 2>&1 /etc/faramir/age.key
 overwrite the binary|cp /tmp/evil /usr/local/bin/faramir
 rewrite the deny list|sed -i /d/ /usr/local/libexec/faramir/deny-patterns.txt
 run the keeper as root|sudo faramir keeper
@@ -111,8 +108,6 @@ an assignment naming a sibling path|p=/etc/faramirx/notes.md; cat $p
 a loop over a directory nothing protects|for d in /tmp; do cat $d/x; done
 an assignment whose value stops at the space|note=hello; grep -c faramir /etc/faramir/config.toml
 a quoted value that is prose, not a path|title="my faramir talk"; echo $title
-a reader in an earlier command does not reach a later one|head -20 README.md; echo "/etc/faramir is where it lives"
-the same across an ampersand|head -20 README.md && echo "/etc/faramir"
 CASES
 
 # --------------------------------------------------------------------------

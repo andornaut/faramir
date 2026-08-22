@@ -63,32 +63,6 @@ const Binding = `(?:\b[A-Za-z_][A-Za-z0-9_]*=(?:["'][^"']*|\S*)` +
 // merely starts the same way.
 const PathEnd = `[\s"';&|)]|$`
 
-// ArgSpan is what a rule crosses between a command and a path it reaches: the
-// arguments in between, and nothing past the end of that command.
-//
-// A bare pipe, semicolon, ampersand or newline ends the command, so a rule does
-// not reach out of the one it started in: a reader earlier on a compound line
-// says nothing about a path named in a later command.
-//
-// The alternatives are the shapes where one of those characters is not a
-// separator, and each of them has to be crossed or the rule stops in the middle
-// of a single command:
-//
-//   - inside quotes, where `python3 -c 'import os; open("k")'` carries a
-//     semicolon in an argument. The closing quote is optional, or a path inside
-//     the same quoted string as the separator would be skipped over rather than
-//     reached.
-//   - ">&" and "&>", which are redirection rather than backgrounding, so
-//     `cat 2>&1 k` is one command.
-//   - a backslash before the newline, which is one command written over two
-//     lines.
-//
-// Adding an alternative can only lengthen the reach, never shorten it, so a
-// shape left out here costs a refusal that should have happened. What it cannot
-// do is parse a shell: quoting deep enough to fool this is deliberate, and the
-// list refuses what is reached by accident.
-const ArgSpan = `(?:'[^']*'?|"[^"]*"?|>&|&>|\\\n|[^|;&\n])*`
-
 // PathStart is what may precede a name inside a command line: a separator, a
 // quote, or the start of it. Shared with the renderer, so both sides bound a
 // name the same way.
@@ -180,9 +154,9 @@ func For(subjects []string) []string {
 	}
 	boundAlternation := `(` + strings.Join(bound, `|`) + `)`
 	return []string{
-		ReadCommands + ArgSpan + alternation,
+		ReadCommands + `[^|]*` + alternation,
 		`<\s*\S*` + alternation,
-		WriteCommands + ArgSpan + alternation,
+		WriteCommands + `[^|]*` + alternation,
 		`>\s*\S*` + alternation,
 		Binding + boundAlternation,
 	}
