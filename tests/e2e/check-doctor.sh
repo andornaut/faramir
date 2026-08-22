@@ -152,6 +152,24 @@ probe "the ssh key world-readable" "ssh key" failed \
 probe "the deny-patterns file emptied" "deny patterns" failed \
   ": > /usr/local/libexec/faramir/deny-patterns.txt" \
   "faramir init --agent-user $OP"
+# The config is where [command.env] PATH comes from, so an agent that can write
+# it chooses what the executor runs. Nothing else covers this check.
+cfg_mode=$(stat -c %a /etc/faramir/config.toml)
+probe "the config writable by the agent" "config ownership" failed \
+  "chmod 0666 /etc/faramir/config.toml" "chmod $cfg_mode /etc/faramir/config.toml" \
+  "executor runs"
+# The creation rule names the age recipients, so whoever writes it chooses who
+# can decrypt every value written after it.
+sops_mode=$(stat -c %a /etc/faramir/.sops.yaml 2>/dev/null || echo 0644)
+probe "the creation rule writable by the agent" "config ownership" failed \
+  "chmod 0666 /etc/faramir/.sops.yaml" "chmod $sops_mode /etc/faramir/.sops.yaml" \
+  "age recipients"
+# A config.d is not read, so the pass names the config and the creation rule and
+# not a drop-in nothing looked at.
+snap
+dt 'config ownership' | grep -qi 'drop-in' \
+  && bad "the pass claims a drop-in check nothing makes: $(dt 'config ownership')" \
+  || ok "and the pass names only what it looked at"
 
 # --------------------------------------------------------------------------
 head_ "3. the arrangement around them"
