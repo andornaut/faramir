@@ -444,6 +444,8 @@ grep -qE '^[0-9]+ built-in command rule\(s\):' <<<"$out" \
 # The table is the declared half alone, so it is sorted the whole way down. A
 # built-in row in it would sit where its own half sorted it, which reads as a
 # table that lost its order partway.
+head -1 <<<"$out" | grep -q '^KIND' \
+  || bad "block ls printed no table, so the rows below are another section"
 rows=$(sed -n '2,/^$/p' <<<"$out" | sed '/^$/d')
 [ "$rows" = "$(LC_ALL=C sort <<<"$rows")" ] \
   && ok "and the table is sorted from its first row to its last" \
@@ -480,7 +482,9 @@ grep -qE '^  /etc/faramir$' <<<"$out" \
 # the JSON calls declared is a row an operator would try to `block rm`.
 full=$(block ls)
 sections=$(grep -oE '^[0-9]+ built-in' <<<"$full" | awk '{s+=$1} END{print s+0}')
-declared_rows=$(sed -n '2,/^$/p' <<<"$full" | sed '/^$/d' | wc -l)
+# The table only, which the KIND header opens and the first blank line closes.
+declared_rows=$(head -1 <<<"$full" | grep -q '^KIND' \
+  && sed -n '2,/^$/p' <<<"$full" | sed '/^$/d' | wc -l || echo 0)
 json_built=$(block ls --json | jq '[.[]|select(.source=="built-in")]|length')
 json_declared=$(block ls --json | jq '[.[]|select(.source=="declared")]|length')
 [ "$sections" = "$json_built" ] \
