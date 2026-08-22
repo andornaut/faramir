@@ -2,7 +2,7 @@
 
 Functional tests that drive a real `faramir` install: systemd units, three uids, a sops store, and an agent's account working in a project tree. `go test` covers the code; these cover what an operator gets after `faramir init`.
 
-CI runs them on a push to any branch and on a pull request against main: `fetch`, `up`, `run` over every suite, then `down`. It runs that twice, as a matrix over the two sudo implementations, so the jobs are named `E2E arrangement (classic)` and `E2E arrangement (rs)`. A job each rather than `./e2e.sh both` inside one: a GitHub runner is two CPUs, and a stack is a privileged systemd container plus an sshd host, so the two legs take a runner each and run at the same time. Locally `make e2e` runs both at the same time instead. The Lint job beside it reads these scripts with shellcheck.
+CI runs them on a push to any branch and on a pull request against main: `fetch`, `up`, `run` over every suite, then `down`. It runs that twice, as a matrix over the two sudo implementations, so the jobs are named `E2E (classic)` and `E2E (rs)`. A job each rather than `./e2e.sh both` inside one: a GitHub runner is two CPUs, and a stack is a privileged systemd container plus an sshd host, so the two legs take a runner each and run at the same time. Locally `make e2e` runs both at the same time instead. The Lint job beside it reads these scripts with shellcheck.
 
 Run them by hand as well, against a tree you are about to release or while changing a suite, which is what the rest of this page is for.
 
