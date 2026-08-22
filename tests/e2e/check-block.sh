@@ -391,7 +391,7 @@ grep -qF 'Read(**/*.e2e-htpasswd)' $RULES \
   && ok "and the agent's rules carry it in their own spelling" \
   || bad "the rule was not rendered into $RULES"
 out=$(block add --name "$NAME")
-grep -q 'already refused' <<<"$out" \
+grep -q 'already blocked' <<<"$out" \
   && ok "adding the same name again is not an error" \
   || bad "a second add of one name: ${out:0:160}"
 out=$(block add --name '*' 2>&1)
