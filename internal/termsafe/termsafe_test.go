@@ -3,6 +3,7 @@ package termsafe
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // What redact.Feed leaves behind is what this has to catch. The pairs below
@@ -208,6 +209,142 @@ func TestFieldLeavesNothingActionable(t *testing.T) {
 			if Actionable(got) && got != '\t' {
 				t.Errorf("Field(%q) leaves %q", r, out)
 				break
+			}
+		}
+	}
+}
+
+// The range of runes a terminal acts on, at each of its edges. Exported and
+// used by two packages, one to escape and one to refuse, so a bound that moved
+// by one would let a character through in both.
+func TestActionableIsBoundedAtEachEnd(t *testing.T) {
+	for _, tc := range []struct {
+		r    rune
+		want bool
+		what string
+	}{
+		{0x00, true, "NUL"},
+		{0x1f, true, "the last C0 control"},
+		{0x20, false, "space, the first printable"},
+		{'a', false, "an ordinary letter"},
+		{0x7e, false, "tilde, the last printable ASCII"},
+		{0x7f, true, "DEL"},
+		{0x9b, true, "CSI, the single-character introducer"},
+		{0x9f, true, "the last C1 control"},
+		{0xa0, false, "no-break space, just past the C1 range"},
+		{'é', false, "an ordinary letter above ASCII"},
+		{0x1f600, false, "an emoji"},
+	} {
+		if got := Actionable(tc.r); got != tc.want {
+			t.Errorf("Actionable(%#x) = %v, want %v: %s", tc.r, got, tc.want, tc.what)
+		}
+	}
+}
+
+// A line is scanned for anything a terminal acts on before it is rebuilt, and
+// the scan reports where it found one. A rune at the very start is found at
+// index 0, which is a position rather than an absence: read as one, the whole
+// line goes out unescaped because the first character was the dangerous one.
+func TestLineEscapesAControlAtTheVeryStart(t *testing.T) {
+	for _, line := range []string{
+		"\x01abc",
+		"\x1babc",
+		"\x9babc",
+		"\x7f",
+	} {
+		got := Line(line)
+		if got == line {
+			t.Errorf("Line(%q) returned it unchanged", line)
+		}
+		if strings.ContainsFunc(got, Actionable) {
+			t.Errorf("Line(%q) = %q, which still carries something a terminal acts on",
+				line, got)
+		}
+	}
+}
+
+// U+FFFD is a rune somebody may legitimately have written, and it is also what
+// decoding an invalid byte yields. The two are told apart by the width the
+// decoder reports: one byte means nothing decoded, three means the character
+// itself. Confused, a line carrying the character has its bytes escaped one at
+// a time and the character is lost.
+func TestARealReplacementCharacterIsNotAnInvalidByte(t *testing.T) {
+	// A control alongside it, or the whole line takes the untouched path and the
+	// decoder is never reached.
+	got := Line("a�\x01b")
+	if !strings.Contains(got, "�") {
+		t.Errorf("Line = %q, want the replacement character carried through", got)
+	}
+	if strings.Contains(got, `\xef`) {
+		t.Errorf("Line = %q, want its bytes not escaped one at a time", got)
+	}
+	// And a byte that really is invalid is still escaped as a byte.
+	if got := Line("a\xffb"); !strings.Contains(got, `\xff`) {
+		t.Errorf("Line = %q, want the invalid byte escaped", got)
+	}
+}
+
+// The limit is a length, so text of exactly that length fits. Bound says what
+// it dropped, and a value one byte over is the case that says whether the
+// comparison is the right way round.
+func TestBoundKeepsTextOfExactlyTheLimit(t *testing.T) {
+	const limit = 10
+	exact := strings.Repeat("a", limit)
+	if got := Bound(exact, limit); got != exact {
+		t.Errorf("Bound(%d bytes, limit %d) = %q, want it whole", len(exact), limit, got)
+	}
+	over := strings.Repeat("a", limit+1)
+	got := Bound(over, limit)
+	if got == over {
+		t.Errorf("Bound(%d bytes, limit %d) returned it whole", len(over), limit)
+	}
+	if !strings.Contains(got, "more bytes") {
+		t.Errorf("Bound = %q, want it to say what it dropped", got)
+	}
+}
+
+// Truncating on a rune boundary, at every offset through a multi-byte
+// character. A cut inside one leaves a partial rune, which a terminal draws as
+// a replacement character and a reader cannot tell from one that was there.
+func TestBoundCutsOnARuneBoundaryWhereverTheLimitFalls(t *testing.T) {
+	// Four bytes of ASCII then a four-byte rune, so a limit inside the rune has
+	// something valid to back off to.
+	text := "abcd\U0001F600efgh"
+	for limit := 1; limit < len(text); limit++ {
+		got := Bound(text, limit)
+		head, _, found := strings.Cut(got, "... (")
+		if !found {
+			head = got
+		}
+		if !utf8.ValidString(head) {
+			t.Errorf("Bound(limit %d) kept %q, which is not whole", limit, head)
+		}
+		if len(head) > limit {
+			t.Errorf("Bound(limit %d) kept %d bytes", limit, len(head))
+		}
+	}
+}
+
+// Text that begins part-way through a character, which arbitrary recorded bytes
+// can be. Backing off looks at one byte less each time and has to stop at the
+// start of what it was given: a bound that only counted runes would look before
+// it and index outside the string.
+func TestBoundBacksOffWithinTheTextItWasGiven(t *testing.T) {
+	// Continuation bytes with no lead byte, so every offset the backoff tries is
+	// refused and it runs to the end of its own bound.
+	for _, text := range []string{
+		"\x9f\x9fabc",
+		"\x9fabc",
+		"\x80\x80\x80abc",
+	} {
+		for limit := 1; limit <= 4 && limit < len(text); limit++ {
+			got := Bound(text, limit) // must not panic
+			head, _, found := strings.Cut(got, "... (")
+			if !found {
+				head = got
+			}
+			if len(head) > limit {
+				t.Errorf("Bound(%q, %d) kept %d bytes", text, limit, len(head))
 			}
 		}
 	}
