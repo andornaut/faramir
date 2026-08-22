@@ -87,7 +87,11 @@ func ActionPatterns() []string {
 // fallbackPatterns assembles the list in the shipped file's own order, which
 // TestTheFallbackMatchesTheShippedFile compares line by line.
 func fallbackPatterns() []string {
-	out := append([]string{}, denyrules.For(defaultInstallPaths)...)
+	subjects := make([]string, 0, len(defaultInstallPaths))
+	for _, dir := range defaultInstallPaths {
+		subjects = append(subjects, denyrules.Dir(dir))
+	}
+	out := append([]string{}, denyrules.For(subjects)...)
 	return append(out, fallbackOwn...)
 }
 
@@ -165,15 +169,26 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not " +
 	"If this is deliberate, it is the operator's to do. Say what you were trying " +
 	"to achieve and let them decide."
 
-// ownershipMarkers are the substrings that identify a pattern as being about
-// faramir's own things rather than about disclosure. Matched against the
+// ownMarkers identify a pattern that can only be about faramir's own things,
+// whatever command matched it: its units, its binary, and the plugin files an
+// enrolment installs are named in the pattern itself. Matched against the
 // pattern's own text, which is the same string in the compiled fallback and in
-// the shipped file. A prefix of denyrules.WriteCommands rather than the constant, the
+// the shipped file.
+var ownMarkers = []string{
+	`\bsystemctl\b`,              // stopping or masking a unit
+	`/usr/local/bin/faramir\b`,   // the binary
+	`\.opencode/plugins/faramir`, // the plugin and extension an enrolment writes
+}
+
+// writeMarkers identify a generated pattern as being about editing or
+// destroying a path. Not enough on its own to say whose path: one rule carries
+// every subject, this install's own directories alongside the paths the
+// operator declared or linked, so which one matched has to come from the
+// command. A prefix of denyrules.WriteCommands rather than the constant, the
 // shipped file carrying the expansion rather than the name.
-var ownershipMarkers = []string{
+var writeMarkers = []string{
 	`(?-i:rm|shred|truncate`, // denyrules.WriteCommands: editing or destroying
 	`>\s*\S*`,                // a redirect into one of those paths
-	`\bsystemctl\b`,          // stopping or masking a unit
 }
 
 // operatorMarkers are the rules that refuse a command for being the operator's
@@ -188,18 +203,40 @@ var operatorMarkers = []string{
 // adviceFor picks the explanation that matches why the command was refused.
 // Unclassified means disclosure, which is the larger half and the safer
 // default.
-func adviceFor(pattern string) string {
+func adviceFor(pattern, command string) string {
 	for _, marker := range operatorMarkers {
 		if strings.Contains(pattern, marker) {
 			return adviceOperator
 		}
 	}
-	for _, marker := range ownershipMarkers {
+	for _, marker := range ownMarkers {
 		if strings.Contains(pattern, marker) {
 			return adviceOwn
 		}
 	}
+	for _, marker := range writeMarkers {
+		if strings.Contains(pattern, marker) && namesOwn(command) {
+			return adviceOwn
+		}
+	}
 	return advice
+}
+
+// namesOwn reports whether the command names a directory belonging to this
+// install, which is what separates a write faramir refuses to protect itself
+// from a write to a secret the operator declared.
+//
+// The compiled defaults and this host's config directory. A log or libexec
+// directory moved elsewhere reads as the operator's and gets the disclosure
+// message, which is the safer of the two to be wrong about: it offers
+// faramir_run, and a brokered command runs as an account with less reach.
+func namesOwn(command string) bool {
+	for _, dir := range append(append([]string{}, defaultInstallPaths...), configDir()) {
+		if strings.Contains(command, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 type compiled struct {
@@ -227,10 +264,16 @@ func configDirRules(dir string) []string {
 
 // named reports whether the list already carries a rule about this directory,
 // which the rendered file does for the install it was rendered for.
+//
+// The subject as it would be generated, not the quoted path: a path is a
+// substring of every path that starts the same way, so a config at
+// /var/lib/faramir would have been read as already named by a rule about
+// /var/lib/faramir-broker, and skipped. What that skips is the only cover a
+// moved config has.
 func named(raw []string, dir string) bool {
-	quoted := regexp.QuoteMeta(dir)
+	subject := denyrules.Dir(dir)
 	for _, pattern := range raw {
-		if strings.Contains(pattern, quoted) {
+		if strings.Contains(pattern, subject) {
 			return true
 		}
 	}
@@ -383,7 +426,7 @@ func Run(args []string) int {
 	}
 
 	if pattern, denied := decide(command); denied {
-		return emit(activeHost.deny(adviceFor(pattern) + "\n\n(matched deny pattern: " + pattern + ")"))
+		return emit(activeHost.deny(adviceFor(pattern, command) + "\n\n(matched deny pattern: " + pattern + ")"))
 	}
 
 	// A deny list only covers what someone thought to name, so everything else is

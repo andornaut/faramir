@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -220,5 +221,46 @@ func TestDoctorSeesACommandMissingFromTheGuardsFile(t *testing.T) {
 	reportDenyPatterns(&spare, opts, path)
 	if len(spare.Findings) != 1 || spare.Findings[0].Status != StatusWarn {
 		t.Errorf("findings = %+v, want one warning", spare.Findings)
+	}
+}
+
+// Two commands are two entries. They share an empty path and an empty name, so
+// an identity that reads only those two fields folds every command an operator
+// declares into whichever one they declared first, and `block add --command`
+// reports the rest as already blocked while writing none of them.
+func TestTwoCommandsAreTwoEntries(t *testing.T) {
+	asked := []config.BlockedPath{
+		{Command: "op read"},
+		{Command: "pass show"},
+		{Command: "op read"}, // named twice in one call
+		{Command: "vault read"},
+	}
+	entries, added := foldBlocked(nil, asked)
+	if want := []bool{true, true, false, true}; !slices.Equal(added, want) {
+		t.Errorf("added = %v, want %v", added, want)
+	}
+	want := []string{"op read", "pass show", "vault read"}
+	if len(entries) != len(want) {
+		t.Fatalf("the set holds %d entries, want %d: %+v", len(entries), len(want), entries)
+	}
+	for i, blocks := range want {
+		if got := entries[i].Command; got != blocks {
+			t.Errorf("entry %d is %q, want %q", i, got, blocks)
+		}
+	}
+}
+
+// A command and a path are not one entry, the way a path and a name are not.
+func TestACommandAndAPathAreNotOneEntry(t *testing.T) {
+	entries, added := foldBlocked(
+		[]config.BlockedPath{{Path: "/srv/luks.key"}},
+		[]config.BlockedPath{{Command: "op read"}, {Name: "op read"}},
+	)
+	if want := []bool{true, true}; !slices.Equal(added, want) {
+		t.Errorf("added = %v, want %v: a command, a name and a path that read "+
+			"alike render different rules", added, want)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("the set holds %d entries, want 3: %+v", len(entries), entries)
 	}
 }

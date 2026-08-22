@@ -931,7 +931,7 @@ func validateBlockedCommand(command, at string) error {
 	switch {
 	case strings.TrimSpace(command) != command:
 		return fmt.Errorf("%s: command %q is padded with whitespace", at, command)
-	case strings.Fields(command) == nil:
+	case len(strings.Fields(command)) == 0:
 		return fmt.Errorf("%s: command is empty", at)
 	}
 	for word := range strings.FieldsSeq(command) {

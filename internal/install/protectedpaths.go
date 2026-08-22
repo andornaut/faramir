@@ -323,18 +323,16 @@ func linkedPaths(layout Layout) []string {
 // the rules it renders, BlockedPaths being what lists the entries themselves.
 //
 // Each renders the path and the subtree under it, whether or not it is a
-// directory today. What it is, is not asked: these rules have to be a function
+// directory today, so naming ~/.ssh blocks what is under it rather than only
+// the name itself. What it is, is not asked: these rules have to be a function
 // of the config alone. Asking the filesystem writes no subtree rule for a key
 // on a volume that is not mounted, which is the case an entry is most often
 // for, and re-renders a different set once it mounts, which the drift check
 // reports as rules to delete. A subtree rule on a file matches nothing; a
 // missing one on a directory leaves every key in it readable.
 //
-// A directory is rendered as a directory, so naming ~/.ssh refuses what is
-// under it rather than only the name itself. Which it is, is asked of the
-// filesystem: a path that is not there is rendered as a file, that being the
-// narrower of the two, and a rule that turns out to cover one path too few is
-// better than one covering a subtree nobody meant to name.
+// The subject is bounded rather than open, so a sibling whose name merely
+// starts the same way is not covered: ~/.sshrc is not part of ~/.ssh.
 func blockedRulePaths(layout Layout) []string {
 	seen := make(map[string]bool, len(layout.Blocked))
 	out := make([]string, 0, len(layout.Blocked))
@@ -587,12 +585,13 @@ func commandSubjects(layout Layout) []string {
 		out = append(out, commandSubject(p))
 	}
 	// This install's own directories, and the files it names as linked or
-	// refused, at the paths this host uses.
+	// blocked, at the paths this host uses. Bounded, so that a rule about
+	// /etc/faramir is about that directory and not about /etc/faramir-notes.md.
 	for _, dir := range installDirs(layout) {
-		out = append(out, regexp.QuoteMeta(dir))
+		out = append(out, denyrules.Dir(dir))
 	}
 	for _, path := range perInstallPaths(layout) {
-		out = append(out, regexp.QuoteMeta(path))
+		out = append(out, denyrules.Dir(path))
 	}
 	return out
 }

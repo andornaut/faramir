@@ -1,9 +1,11 @@
 package guard
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/install"
 )
 
@@ -109,7 +111,7 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 			if !denied {
 				t.Fatalf("%q was not refused, so this says nothing about its message", tc.command)
 			}
-			if got := adviceFor(pattern); got != tc.want {
+			if got := adviceFor(pattern, tc.command); got != tc.want {
 				t.Errorf("%q was explained with the wrong message (pattern %s): a refusal "+
 					"naming the wrong remedy sends the agent somewhere that cannot help",
 					tc.command, pattern)
@@ -122,10 +124,15 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 // whichever branch it happens to fall into. The counts are the forcing function:
 // changing the list fails here until somebody says which message the new rule
 // carries.
+//
+// Counted against a command naming this install's own directory, which is the
+// half of the generated write and redirect rules that carries the ownership
+// message. The other half is
+// TestAWriteToADeclaredPathIsNotFaramirsOwn.
 func TestEveryPatternIsClassifiedOnPurpose(t *testing.T) {
 	counts := map[string]int{}
 	for _, pattern := range fallback {
-		counts[adviceFor(pattern)]++
+		counts[adviceFor(pattern, "rm /etc/faramir/age.key")]++
 	}
 	for _, tc := range []struct {
 		name  string
@@ -142,6 +149,30 @@ func TestEveryPatternIsClassifiedOnPurpose(t *testing.T) {
 				"added or moved: decide which message it should carry, add it to "+
 				"TestARefusalExplainsWhyItWasRefused, and update this count",
 				counts[tc.which], len(fallback), tc.name, tc.want)
+		}
+	}
+}
+
+// The generated write and redirect rules carry every subject: this install's own
+// directories and the paths the operator declared or linked. Which one matched
+// is in the command rather than in the pattern, and an agent told that
+// /srv/luks.key is "faramir's own file" is told something false about the
+// operator's own secret.
+func TestAWriteToADeclaredPathIsNotFaramirsOwn(t *testing.T) {
+	for _, pattern := range denyrules.For([]string{denyrules.Dir("/srv/luks.key")}) {
+		for _, command := range []string{
+			"rm /srv/luks.key",
+			"cat /srv/luks.key",
+			"echo x > /srv/luks.key",
+		} {
+			if !regexp.MustCompile(pattern).MatchString(command) {
+				continue
+			}
+			if got := adviceFor(pattern, command); got != advice {
+				t.Errorf("%q was explained as faramir's own; it is the operator's, "+
+					"and the remedy for it is faramir_run rather than the operator",
+					command)
+			}
 		}
 	}
 }

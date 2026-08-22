@@ -185,11 +185,12 @@ func foldBlocked(existing,
 	return entries, added
 }
 
-// sameBlock is whether two entries ask for the same rule. The form counts as
-// well as the string: a path and a name that read alike render different rules,
-// so one does not stand in for the other.
+// sameBlock is whether two entries ask for the same rule. Every form, and the
+// form counts as well as the string: a path and a name that read alike render
+// different rules, so one does not stand in for the other, and two commands
+// that share an empty path and an empty name are not the same command.
 func sameBlock(a, b config.BlockedPath) bool {
-	return a.Path == b.Path && a.Name == b.Name
+	return a.Path == b.Path && a.Name == b.Name && a.Command == b.Command
 }
 
 // RemoveBlockedPath drops one entry and re-renders. It does not take the rule

@@ -71,7 +71,7 @@ func TestAnUnsetSSHKeyDoesNotEmptyAnAlternation(t *testing.T) {
 	}
 	for _, rule := range rules {
 		for _, empty := range []string{"(|", "||", "|)"} {
-			if strings.Contains(rule, empty) {
+			if strings.Contains(withoutClasses(rule), empty) {
 				t.Errorf("an empty alternation branch (%q) makes this rule match "+
 					"everything: %s", empty, rule)
 			}
@@ -100,4 +100,32 @@ func matchesAny(t *testing.T, rules []string, cmd string) bool {
 		}
 	}
 	return false
+}
+
+// withoutClasses stands a single character in for each [...] span, where a | or
+// a ) is a literal character rather than alternation syntax. A placeholder
+// rather than nothing: a class is a branch, and deleting it would report the
+// empty branch it left behind.
+func withoutClasses(rule string) string {
+	var out strings.Builder
+	depth := 0
+	for i := 0; i < len(rule); i++ {
+		switch {
+		case rule[i] == '\\' && i+1 < len(rule):
+			if depth == 0 {
+				out.WriteString(rule[i : i+2])
+			}
+			i++
+		case rule[i] == '[':
+			if depth == 0 {
+				out.WriteByte('x')
+			}
+			depth++
+		case rule[i] == ']' && depth > 0:
+			depth--
+		case depth == 0:
+			out.WriteByte(rule[i])
+		}
+	}
+	return out.String()
 }

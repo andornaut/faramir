@@ -294,6 +294,14 @@ type blockRow struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// belowTable is whether a row is printed under the table rather than in it.
+// Only the built-in command rules are: a declared command is a literal the
+// operator wrote, and printing it under the table drops its source, so what
+// this host declared reads as one of the rules faramir carries.
+func (r blockRow) belowTable() bool {
+	return r.Kind == kindCommand && r.Source == sourceBuiltIn
+}
+
 // blockRows is the listing, declared entries first: they are what the
 // operator wrote and what a converge acts on, and the built-in list is long
 // enough to push them off a screen.
@@ -417,15 +425,15 @@ func runBlockList(f blockFlags) int {
 			"without --declared lists the rules compiled in")
 		return 0
 	}
-	// The command rules are printed under the table rather than in it: they are
-	// regular expressions, one of them long enough that a cell holding it would
-	// take the alignment of every other row with it, and they are read as
-	// patterns rather than scanned as a column.
+	// The built-in command rules are printed under the table rather than in it:
+	// they are regular expressions, one of them long enough that a cell holding
+	// it would take the alignment of every other row with it, and they are read
+	// as patterns rather than scanned as a column.
 	var commands []blockRow
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "SOURCE\tKIND\tENTRY\tCOVERS")
 	for _, row := range rows {
-		if row.Kind == kindCommand {
+		if row.belowTable() {
 			commands = append(commands, row)
 			continue
 		}
