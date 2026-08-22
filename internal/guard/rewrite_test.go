@@ -39,13 +39,42 @@ func TestABackgroundedCommandIsWrappedToStreamHoweverItEnds(t *testing.T) {
 		}
 	}
 	// "&&" is an incomplete command, not backgrounding, so it takes the ordinary
-	// capture path.
-	got, rewritten := wrap(hosts["claude"], "make build && make test", bashInput())
-	if !rewritten {
-		t.Fatal("refused to wrap a command containing &&")
+	// capture path. The trailing form is the one that tells the two apart: a
+	// command with "&&" in the middle ends in a word either way.
+	for _, command := range []string{"make build && make test", "make build &&", "make build && "} {
+		got, rewritten := wrap(hosts["claude"], command, bashInput())
+		if !rewritten {
+			t.Fatalf("refused to wrap a command containing &&: %q", command)
+		}
+		if strings.Contains(got, "--stream ") {
+			t.Errorf("&& was read as backgrounding: %q -> %q", command, got)
+		}
 	}
-	if strings.Contains(got, "--stream ") {
-		t.Errorf("&& was read as backgrounding: %q", got)
+}
+
+// Only the last "&" moves out to background the wrapper. An inner one is the
+// caller's own, and stripping it too would run in the foreground what they
+// asked to background.
+func TestOnlyTheTrailingAmpersandIsMovedOut(t *testing.T) {
+	got, rewritten := wrap(hosts["claude"], "a & b &", bashInput())
+	if !rewritten {
+		t.Fatal("refused to wrap a backgrounded command")
+	}
+	if !strings.Contains(got, "'a & b'") {
+		t.Errorf("command = %q, want the inner \"&\" kept inside the quoted word", got)
+	}
+	if !strings.HasSuffix(got, " &") {
+		t.Errorf("command = %q, want it backgrounded", got)
+	}
+}
+
+// Nothing to wrap is nothing to run: a wrapper sourced with an empty word
+// reports the redactor's own exit status for a command that never ran.
+func TestACommandThatIsOnlyWhitespaceIsNotWrapped(t *testing.T) {
+	for _, command := range []string{"", " ", "\t\n "} {
+		if got, rewritten := wrap(hosts["claude"], command, bashInput()); rewritten {
+			t.Errorf("wrapped %q -> %q", command, got)
+		}
 	}
 }
 

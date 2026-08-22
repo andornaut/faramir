@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -138,6 +139,45 @@ func TestTheCommandIsEmbeddedVerbatim(t *testing.T) {
 	unquoted := strings.ReplaceAll(command[i+1:len(command)-1], `'\''`, "'")
 	if unquoted != original {
 		t.Errorf("unquoted = %q, want %q", unquoted, original)
+	}
+}
+
+// And the quoting is put to the thing that will parse it. Undoing it with this
+// test's own inverse passes just as well when nothing was escaped at all: the
+// naive extraction above recovers the original either way. A shell does not.
+// An unescaped quote ends the word early, and what follows is parsed as shell
+// rather than carried as text.
+func TestTheQuotedCommandIsOneWordToARealShell(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("no /bin/sh to parse the quoting with")
+	}
+	for _, original := range []string{
+		`echo "it's" $HOME 'and' a\ space  # trailing comment`,
+		"a'b",
+		"'",
+		// What the escaping is for: unescaped, the quote ends the word and the
+		// rest is a command of its own.
+		"'; echo broken-out; :'",
+	} {
+		got, rewritten := wrap(hosts["claude"], original, bashInput())
+		if !rewritten {
+			t.Fatalf("did not wrap %q", original)
+		}
+		arg, ok := strings.CutPrefix(got, "source "+wrapScript()+" ")
+		if !ok {
+			t.Fatalf("command = %q, want it to source the wrapper", got)
+		}
+		// printf writes its one argument and nothing else, so a word that ended
+		// early comes back as a parse error, as another command's output, or as
+		// the arguments concatenated: none of them is the string that went in.
+		out, err := exec.Command("/bin/sh", "-c", "printf %s "+arg).CombinedOutput()
+		if err != nil {
+			t.Errorf("a shell would not parse %q: %v (%s)", got, err, out)
+			continue
+		}
+		if string(out) != original {
+			t.Errorf("the shell reads the wrapped form of %q as %q", original, out)
+		}
 	}
 }
 

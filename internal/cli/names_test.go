@@ -35,6 +35,9 @@ func TestTheReadmeGroupsEveryOperatorCommand(t *testing.T) {
 	for _, m := range regexp.MustCompile("`([a-z][\\w -]*)`").FindAllStringSubmatch(table, -1) {
 		listed[m[1]] = true
 	}
+	if len(cli.OperatorOnly()) == 0 {
+		t.Fatal("no command is the operator's alone, so this asserts nothing")
+	}
 	var missing []string
 	for _, name := range cli.OperatorOnly() {
 		if !listed[name] {

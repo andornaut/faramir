@@ -122,6 +122,7 @@ var corpus = []denyCase{
 
 	// -- the faramir prefix --------------------------------------------------
 	{"faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW", false, "a ref in faramir's arguments is the point of it"},
+	{"faramir run -- cat /etc/faramir/age.key", false, "the brokered command is the broker's to refuse: scanned here, a sanctioned call refuses itself"},
 	{"sudo faramir status", true, "nothing an agent may run needs root, so a sudo here is the operator's"},
 	{"faramir refs", false, "an operator subcommand"},
 	{"faramir status; faramir run --env A=faramir://a -- printenv A", false, "a chain of sanctioned calls, each stripped in turn"},

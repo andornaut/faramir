@@ -139,6 +139,10 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	}
 	rendered = append(rendered, rendering{"agent/pi/extension.ts.tmpl", string(body)})
 
+	if len(rendered) < 3 {
+		t.Fatalf("rendered %d file(s), want the two config assets and the extension: "+
+			"an agent missing here is one nothing checks", len(rendered))
+	}
 	for _, r := range rendered {
 		// Two of these spellings are regexes, where "." arrives escaped, so the
 		// backslashes come out before the search: what is being asserted is that
