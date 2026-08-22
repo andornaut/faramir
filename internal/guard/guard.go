@@ -62,7 +62,7 @@ var defaultInstallPaths = []string{
 // fails closed. Keep it in step with agent/hooks/deny-patterns.txt.
 //
 // A host whose config was moved by --config-dir is covered by configDirRules
-// instead, which builds the same three rules for the path the config actually
+// instead, which builds the same four rules for the path the config actually
 // has. What this cannot carry either way is what the host declares: a
 // [[secret.block]] entry is in the rendered file and nowhere else, so a host
 // running on the fallback is a host running on faramir's own paths alone.
@@ -274,7 +274,7 @@ func guardHome() string {
 func named(raw []string, dir string) bool {
 	// The subject as the rendered file writes it, which for a directory under a
 	// home is the alternation of the spellings a shell expands to it. Asking for
-	// the plain form would miss it and append the same three rules again, on
+	// the plain form would miss it and append the same four rules again, on
 	// every Bash call.
 	subject := denyrules.DirUnder(guardHome(), dir)
 	for _, pattern := range raw {

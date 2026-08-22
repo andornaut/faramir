@@ -48,6 +48,8 @@ tar the whole config dir|tar cf /tmp/c.tar /etc/faramir
 decrypt a managed store|sops -d /etc/faramir/secrets/app.sops.yml
 delete the age key|rm /etc/faramir/age.key
 redirect over the age key|echo x > /etc/faramir/age.key
+redirect the age key into a loop|while read l; do echo $l; done < /etc/faramir/age.key
+redirect it into a builtin that names no reader|mapfile -t k < /etc/faramir/age.key
 overwrite the binary|cp /tmp/evil /usr/local/bin/faramir
 rewrite the deny list|sed -i /d/ /usr/local/libexec/faramir/deny-patterns.txt
 run the keeper as root|sudo faramir keeper
@@ -95,6 +97,8 @@ a brokered command|faramir run --env P=faramir://db/password -- ./deploy.sh
 edit claude's settings|sed -i s/a/b/ .claude/settings.json
 replace the MCP list|rm .mcp.json
 edit the opencode config|sed -i s/a/b/ opencode.json
+a process substitution, which is not an input redirect|diff <(ls) <(ls -a)
+a heredoc marker before a protected path, which redirects nothing|echo <<EOF /etc/faramir/age.key
 CASES
 
 # --------------------------------------------------------------------------

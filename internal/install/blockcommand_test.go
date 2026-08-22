@@ -267,7 +267,7 @@ func TestACommandAndAPathAreNotOneEntry(t *testing.T) {
 
 // The hook skips a rule it cannot compile rather than failing every command
 // over one typo, which is right there and leaves the loss silent: what should
-// have been three rules is however many of them compiled. A re-render cannot
+// have been four rules is however many of them compiled. A re-render cannot
 // notice, comparing the file against itself, so the check compiles each rule
 // before it compares. Without this, an entry that split a rule across two lines
 // took every path protection with it and doctor reported ok.

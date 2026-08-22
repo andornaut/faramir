@@ -81,13 +81,25 @@ func DirUnder(home, dir string) string {
 	return `(?:` + strings.Join(spellings, `|`) + `)(?:/|` + PathEnd + `)`
 }
 
-// For is the three rules that refuse a set of subjects: reading one, writing
-// one, and redirecting output over one.
+// For is the four rules that refuse a set of subjects: reading one, writing
+// one, redirecting output over one, and redirecting one into a command.
 //
 // "[^|]*" stops at the first pipe, so a reader on one side of a pipe and a
-// protected path on the other is not read as one command reaching it. The
-// redirect rule matches the target word alone, so a heredoc mentioning a path
-// is not a write to it.
+// protected path on the other is not read as one command reaching it. The two
+// redirect rules match the target word alone, so a heredoc whose body names a
+// path is not a redirect over it either way.
+//
+// The input rule is what the reader vocabulary cannot reach: "< path" hands a
+// file to whatever is on the line, and the shell builtins that take it that
+// way are words too common to put in a vocabulary matched against every
+// command. `while read l; do echo $l; done < key` names no reader and prints
+// the file. It is the mirror of the output rule, and disclosure is the
+// direction it covers.
+//
+// A here-string, `<<<"path"`, matches it while passing the text rather than
+// the file. That is the limit the whole list has, a rule matching the command
+// string and not what it would do, and it errs toward refusing: the answer
+// names the rule, and an operator who meant the text writes it another way.
 //
 // No subjects is no rules rather than a rule matching everything, an empty
 // alternation being one that matches the empty string next to any reader.
@@ -98,6 +110,7 @@ func For(subjects []string) []string {
 	alternation := `(` + strings.Join(subjects, `|`) + `)`
 	return []string{
 		ReadCommands + `[^|]*` + alternation,
+		`<\s*\S*` + alternation,
 		WriteCommands + `[^|]*` + alternation,
 		`>\s*\S*` + alternation,
 	}

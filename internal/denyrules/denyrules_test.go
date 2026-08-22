@@ -59,44 +59,61 @@ func TestAPathOutsideAHomeGetsNoExtraSpellings(t *testing.T) {
 	}
 }
 
-// compiled is the three rules as the guard compiles them, so a test asks the
-// same question the guard does rather than a version of it.
-func compiled(t *testing.T, subjects ...string) (read, write, redirect *regexp.Regexp) {
-	t.Helper()
-	rules := For(subjects)
-	if len(rules) != 3 {
-		t.Fatalf("For returned %d rules, want the read, write and redirect three", len(rules))
-	}
-	return regexp.MustCompile("(?i)" + rules[0]),
-		regexp.MustCompile("(?i)" + rules[1]),
-		regexp.MustCompile("(?i)" + rules[2])
+// rules is the four rules as the guard compiles them, so a test asks the same
+// question the guard does rather than a version of it. Named rather than
+// positional: a case says which rule should hold it.
+type rules struct {
+	read, input, write, redirect *regexp.Regexp
 }
 
-// The three rules refuse the three ways a command line reaches a subject. Each
+// all is every rule, for a case that must match none of them.
+func (r rules) all() []*regexp.Regexp {
+	return []*regexp.Regexp{r.read, r.input, r.write, r.redirect}
+}
+
+func compiled(t *testing.T, subjects ...string) rules {
+	t.Helper()
+	got := For(subjects)
+	if len(got) != 4 {
+		t.Fatalf("For returned %d rules, want the read, input, write and redirect four",
+			len(got))
+	}
+	compile := func(pattern string) *regexp.Regexp {
+		return regexp.MustCompile("(?i)" + pattern)
+	}
+	return rules{compile(got[0]), compile(got[1]), compile(got[2]), compile(got[3])}
+}
+
+// The four rules refuse the four ways a command line reaches a subject. Each
 // case names which rule should hold it, so a rule that stops matching is a
-// failure here rather than a gap the other two happen to cover.
-func TestTheThreeRulesRefuseReadingWritingAndRedirectingOverASubject(t *testing.T) {
-	read, write, redirect := compiled(t, Dir("/etc/faramir"))
+// failure here rather than a gap the other three happen to cover.
+func TestTheFourRulesRefuseEveryWayALineReachesASubject(t *testing.T) {
+	re := compiled(t, Dir("/etc/faramir"))
 	for _, c := range []struct {
 		rule *regexp.Regexp
 		name string
 		cmd  string
 	}{
-		{read, "read", "cat /etc/faramir/age.key"},
-		{read, "read", "head -c 32 /etc/faramir/age.key"},
-		{read, "read", "cat < /etc/faramir/age.key"},
-		{read, "read", "sudo cat /etc/faramir/age.key"},
-		{read, "read", "true; cat /etc/faramir/age.key"},
-		{read, "read", `python3 -c "open('/etc/faramir/age.key')"`},
-		{read, "read", "cat '/etc/faramir/age.key'"},
+		{re.read, "read", "cat /etc/faramir/age.key"},
+		{re.read, "read", "head -c 32 /etc/faramir/age.key"},
+		{re.read, "read", "cat < /etc/faramir/age.key"},
+		// The input rule reaches what the reader vocabulary cannot: these name
+		// no reader and print the file anyway.
+		{re.input, "input", "while read l; do echo $l; done < /etc/faramir/age.key"},
+		{re.input, "input", "mapfile -t key < /etc/faramir/age.key"},
+		{re.input, "input", "md5sum </etc/faramir/age.key"},
+		{re.read, "read", "sudo cat /etc/faramir/age.key"},
+		{re.read, "read", "true; cat /etc/faramir/age.key"},
+		{re.read, "read", `python3 -c "open('/etc/faramir/age.key')"`},
+		{re.read, "read", "cat '/etc/faramir/age.key'"},
 		// The directory itself, not only a file under it.
-		{read, "read", "tar cf - /etc/faramir"},
-		{write, "write", "rm -rf /etc/faramir"},
-		{write, "write", "chmod 0644 /etc/faramir/age.key"},
-		{write, "write", "echo hi | tee /etc/faramir/age.key"},
-		{redirect, "redirect", "echo x > /etc/faramir/age.key"},
-		{redirect, "redirect", "echo x >> /etc/faramir/age.key"},
-		{redirect, "redirect", "echo x 2>/etc/faramir/age.key"},
+		{re.read, "read", "tar cf - /etc/faramir"},
+		{re.write, "write", "rm -rf /etc/faramir"},
+		{re.write, "write", "chmod 0644 /etc/faramir/age.key"},
+		{re.write, "write", "echo hi | tee /etc/faramir/age.key"},
+		{re.redirect, "redirect", "echo x > /etc/faramir/age.key"},
+		{re.redirect, "redirect", "echo x >> /etc/faramir/age.key"},
+		{re.redirect, "redirect", "echo x 2>/etc/faramir/age.key"},
 	} {
 		if !c.rule.MatchString(c.cmd) {
 			t.Errorf("the %s rule allows %q", c.name, c.cmd)
@@ -109,7 +126,7 @@ func TestTheThreeRulesRefuseReadingWritingAndRedirectingOverASubject(t *testing.
 // the vocabulary is a list of what reads and what writes, not every command
 // that could be typed near one.
 func TestTheRulesLeaveAloneWhatDoesNotReachTheSubject(t *testing.T) {
-	read, write, redirect := compiled(t, Dir("/etc/faramir"))
+	re := compiled(t, Dir("/etc/faramir"))
 	for _, cmd := range []string{
 		// "grep" is in neither vocabulary, so naming a path in a search stands.
 		"grep secret /etc/faramir/config.toml",
@@ -120,9 +137,14 @@ func TestTheRulesLeaveAloneWhatDoesNotReachTheSubject(t *testing.T) {
 		// The command names are case-sensitive inside a case-insensitive rule:
 		// "CAT" is not a command on this system, and the paths still are not.
 		"CAT /etc/faramir/age.key",
+		// A heredoc is not an input redirect, and neither is a process
+		// substitution or a "<" that is part of what a command prints.
+		"cat <<'EOF'\nnothing here\nEOF",
+		"diff <(echo a) <(echo b)",
+		"echo 'a < b is true of /etc/faramirx'",
 	} {
-		for _, re := range []*regexp.Regexp{read, write, redirect} {
-			if re.MatchString(cmd) {
+		for _, rule := range re.all() {
+			if rule.MatchString(cmd) {
 				t.Errorf("%q is refused, and it does not reach the subject", cmd)
 			}
 		}
@@ -133,7 +155,7 @@ func TestTheRulesLeaveAloneWhatDoesNotReachTheSubject(t *testing.T) {
 // be read as reaching a path named later on it, and the refusal would name a
 // rule the operator cannot connect to what they ran.
 func TestAReaderOnTheOtherSideOfAPipeIsNotReadAsReachingTheSubject(t *testing.T) {
-	read, _, _ := compiled(t, Dir("/etc/faramir"))
+	read := compiled(t, Dir("/etc/faramir")).read
 	if read.MatchString("cat notes.txt | grep /etc/faramir/age.key") {
 		t.Error("a reader before a pipe is read as reaching a path after it")
 	}
@@ -143,6 +165,19 @@ func TestAReaderOnTheOtherSideOfAPipeIsNotReadAsReachingTheSubject(t *testing.T)
 	}
 	if !read.MatchString("echo hi | cat /etc/faramir/age.key") {
 		t.Error("a reader after a pipe is allowed to reach the subject")
+	}
+}
+
+// A here-string passes text rather than the file, and the input rule matches it
+// anyway. Pinned rather than fixed: the rules match the command string and not
+// what it would do, which is the limit the whole list has, and the refusal
+// names the rule so an operator who meant the text can write it another way.
+// RE2 has no lookbehind, and "\S*" steps over the extra "<" regardless.
+func TestAHereStringIsRefusedLikeARedirect(t *testing.T) {
+	input := compiled(t, Dir("/etc/faramir")).input
+	if !input.MatchString(`grep x <<<'/etc/faramir/age.key'`) {
+		t.Error("a here-string naming a protected path is allowed; if this was " +
+			"fixed deliberately, say so here rather than deleting the case")
 	}
 }
 
