@@ -498,4 +498,52 @@ grep -q '^# Credentials' "$D/CLAUDE.md" && ok "CLAUDE.md is written into when th
 absent "$D/AGENTS.md" "a second instructions file"
 
 # --------------------------------------------------------------------------
+head_ "13. a tree nothing in the client group can enter"
+#
+# A home is 0700, so every directory between it and the tree has to let the
+# client group through. Group execute on the tree grants nothing while a
+# directory above it refuses the traversal, and an enrolment that finished
+# anyway would leave a tree that says it is shared and is not.
+#
+# The directories above the tree are outside what enrolment owns, so this is a
+# refusal that names them rather than a chmod. That is the whole of the case:
+# what it must NOT do is open them.
+
+B=/home/op/p-blocked
+rm -rf $B
+install -d -o $OP -g $OP -m 0700 $B
+install -d -o $OP -g $OP -m 0755 $B/tree
+out=$(enrol $B/tree); rc=$?
+[ $rc -ne 0 ] && ok "enrolment is refused (exit $rc)" \
+  || bad "a tree behind a 0700 directory was enrolled anyway"
+grep -q 'cannot enter' <<<"$out" \
+  && ok "and says the group cannot enter it" \
+  || bad "the refusal does not say what blocks it: ${out:0:200}"
+grep -q "$B (op, 0700)" <<<"$out" \
+  && ok "naming the blocking directory and the mode it has" \
+  || bad "the refusal does not name $B and its mode: ${out:0:200}"
+grep -q "chgrp faramir-client $B" <<<"$out" \
+  && ok "and printing the command that opens it" \
+  || bad "the refusal prints no remedy: ${out:0:200}"
+# The refusal is the whole of what happened: nothing above the tree moved.
+[ "$(stat -c '%a %U:%G' $B)" = "700 op:op" ] \
+  && ok "and the blocking directory is left exactly as it was" \
+  || bad "the refusal altered $B: $(stat -c '%a %U:%G' $B)"
+[ -e $B/tree/.claude ] \
+  && bad "the tree was half-enrolled before the refusal" \
+  || ok "and the tree was not half-enrolled"
+
+# Opened as the refusal asked, which is the operator's job and not faramir's,
+# the same command goes through.
+chgrp faramir-client $B
+chmod g=x $B
+out=$(enrol $B/tree); rc=$?
+[ $rc -eq 0 ] && ok "opened as instructed, the enrolment goes through" \
+  || bad "the remedy did not work: ${out:0:200}"
+[ "$(stat -c '%a %U:%G' $B/tree)" = "2770 op:faramir-client" ] \
+  && ok "and the tree is shared" \
+  || bad "the tree is $(stat -c '%a %U:%G' $B/tree), want 2770 op:faramir-client"
+rm -rf $B
+
+# --------------------------------------------------------------------------
 summary
