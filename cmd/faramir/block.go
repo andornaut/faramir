@@ -293,7 +293,7 @@ type blockRow struct {
 // blockRows is the listing, declared entries first: they are what the
 // operator wrote and what a converge acts on, and the built-in list is long
 // enough to push them off a screen.
-func blockRows(declared []config.BlockedPath, builtIn bool) []blockRow {
+func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []blockRow {
 	rows := make([]blockRow, 0, len(declared)+len(install.BuiltInRules()))
 	for _, entry := range declared {
 		if entry.Command != "" {
@@ -320,9 +320,18 @@ func blockRows(declared []config.BlockedPath, builtIn bool) []blockRow {
 	if !builtIn {
 		return rows
 	}
+	// What this install occupies, which is refused without anybody declaring it
+	// and is most of what a bare host blocks. Derived from the layout rather
+	// than compiled in, so these are the paths this host actually uses.
+	for _, dir := range install.InstalledDirs(configDir) {
+		rows = append(rows, blockRow{
+			Source: sourceBuiltIn, Kind: "dir", Entry: dir, Covers: coversBoth,
+			Detail: "this install's own, and everything under it",
+		})
+	}
 	for _, rule := range install.BuiltInRules() {
 		rows = append(rows, blockRow{
-			Source: "built-in", Kind: rule.Kind, Entry: rule.Entry,
+			Source: sourceBuiltIn, Kind: rule.Kind, Entry: rule.Entry,
 			Covers: coversBoth, Detail: rule.Why,
 		})
 	}
@@ -331,7 +340,7 @@ func blockRows(declared []config.BlockedPath, builtIn bool) []blockRow {
 	// are.
 	for _, pattern := range guard.ActionPatterns() {
 		rows = append(rows, blockRow{
-			Source: "built-in", Kind: kindCommand, Entry: pattern, Covers: coversCommands,
+			Source: sourceBuiltIn, Kind: kindCommand, Entry: pattern, Covers: coversCommands,
 		})
 	}
 	return rows
@@ -365,6 +374,8 @@ const (
 	kindCommand = "command"
 	// sourceDeclared is a rule this host declared, as against one faramir carries.
 	sourceDeclared = "declared"
+	// sourceBuiltIn is a rule faramir carries or derives, as against one declared.
+	sourceBuiltIn  = "built-in"
 	coversBoth     = "file tools, commands"
 	coversCommands = "commands"
 )
@@ -383,7 +394,7 @@ func runBlockList(f blockFlags) int {
 		fmt.Fprintf(os.Stderr, "faramir block ls: %v; the built-in rules below are "+
 			"compiled in and hold regardless\n", err)
 	}
-	rows := blockRows(declared, !f.declared)
+	rows := blockRows(dir, declared, !f.declared)
 	if f.json {
 		// [] rather than null, for the reason `link ls` gives.
 		if rows == nil {

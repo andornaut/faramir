@@ -195,6 +195,14 @@ func BuiltInRuleFor(name string) (BuiltInRule, bool) {
 	return BuiltInRule{}, false
 }
 
+// InstalledDirs is what this install occupies, for a caller that has to show an
+// operator what is refused here without being able to say why each path is on
+// the list. The rules are generated from it, so the listing and the rules
+// cannot disagree.
+func InstalledDirs(configDir string) []string {
+	return installDirs(ruleLayout(configDir))
+}
+
 // BlockedNameMatches says in a sentence what a name pattern will match, for the
 // command that writes one and the listing that shows it. A pattern's breadth is
 // the thing about it that goes unnoticed, so it is stated at the moment the

@@ -44,10 +44,11 @@ func TestListingNothingIsAnEmptyArray(t *testing.T) {
 	}
 }
 
-// No path or name is refused by faramir itself, so every entry in the table is
-// one this host declared. The command rules are the other half and are built
-// in; TestRefuseLsCarriesTheCommandRules covers those.
-func TestRefuseLsCarriesNoBuiltInRules(t *testing.T) {
+// The listing is the whole answer to "what is blocked here": what this host
+// declared, this install's own directories, and the command rules. The
+// directories are the part an operator cannot otherwise ask about, being
+// derived from the layout rather than written anywhere they would read.
+func TestBlockLsCarriesTheInstallsOwnDirectories(t *testing.T) {
 	out, code := captureStdout(t, func() int {
 		return runBlockList(blockFlags{json: true, configPath: t.TempDir()})
 	})
@@ -58,11 +59,26 @@ func TestRefuseLsCarriesNoBuiltInRules(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
 		t.Fatalf("not a JSON array: %v\n%s", err, out)
 	}
+	var dirs int
 	for _, row := range rows {
-		// The command rules are built in and are listed; a path or a name is not,
-		// which is what this is about.
-		if row["source"] == "built-in" && row["kind"] != "command" {
-			t.Errorf("the listing carries a built-in path rule: %v", row)
+		if row["source"] != "built-in" || row["kind"] != "dir" {
+			continue
+		}
+		dirs++
+		if row["covers"] != "file tools, commands" {
+			t.Errorf("%v covers %v, want both entry points", row["entry"], row["covers"])
+		}
+	}
+	// The config directory, the store, the log and libexec at least; the three
+	// service accounts' directories need installed units to be named.
+	if dirs < 4 {
+		t.Errorf("the listing carries %d of this install's directories, want at "+
+			"least four: %v", dirs, rows)
+	}
+	// No pattern is compiled in, so nothing built in is a name or a suffix.
+	for _, row := range rows {
+		if row["source"] == "built-in" && row["kind"] != "command" && row["kind"] != "dir" {
+			t.Errorf("the listing carries a built-in pattern: %v", row)
 		}
 	}
 }

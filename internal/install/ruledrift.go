@@ -261,11 +261,20 @@ func ruleLayout(configDir string) Layout {
 	if configDir == "" {
 		configDir = DefaultConfigDir
 	}
-	return Layout{
+	layout := Layout{
 		ConfigDir: configDir,
 		Links:     configuredLinks(configDir),
 		Blocked:   configuredBlocked(configDir),
 	}
+	// The service accounts, read off the installed units the way `doctor` reads
+	// them. Without these, installDirs leaves out the three state directories
+	// and a re-render is compared against fewer rules than the host carries.
+	// A unit that cannot be read leaves the account empty, which installDirs
+	// skips: a rule missing from both sides is not drift.
+	layout.BrokerUser, _ = unitUser(brokerUnit)
+	layout.KeeperUser, _ = unitUser(keeperUnit)
+	layout.ExecUser, _ = unitUser(execUnit)
+	return layout
 }
 
 // configuredLinks is every link the install names, or nothing when the config
