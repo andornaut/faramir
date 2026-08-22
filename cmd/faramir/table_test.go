@@ -174,3 +174,67 @@ func TestTheRemovalPromptCannotBeDressedUp(t *testing.T) {
 		}
 	}
 }
+
+// Every range wide() draws two columns for, at both of its ends and one rune
+// outside each. The test above covers CJK alone, so a range whose bound moved
+// by one, or an emoji block dropped altogether, shifts the padding of every
+// column after it and nothing here would have said so.
+func TestWideCoversEachRangeAtItsBounds(t *testing.T) {
+	for _, tc := range []struct {
+		r    rune
+		want bool
+		what string
+	}{
+		{0x10ff, false, "below Hangul Jamo"},
+		{0x1100, true, "Hangul Jamo, first"},
+		{0x115f, true, "Hangul Jamo, last"},
+		{0x1160, false, "past Hangul Jamo"},
+		{0x2328, false, "below the bracket pair"},
+		{0x2329, true, "left-pointing angle bracket"},
+		{0x232a, true, "right-pointing angle bracket"},
+		{0x232b, false, "past the bracket pair"},
+		{0x2e7f, false, "below the CJK run"},
+		{0x2e80, true, "CJK radicals, first"},
+		{0x303f, false, "the ideographic half-fill space, carved out of the run"},
+		{0x303e, true, "and its neighbour is not"},
+		{0xa4cf, true, "CJK run, last"},
+		{0xa4d0, false, "past the CJK run"},
+		{0xabff, false, "below Hangul syllables"},
+		{0xac00, true, "Hangul syllables, first"},
+		{0xd7a3, true, "Hangul syllables, last"},
+		{0xd7a4, false, "past Hangul syllables"},
+		{0xf8ff, false, "below CJK compatibility ideographs"},
+		{0xf900, true, "CJK compatibility ideographs, first"},
+		{0xfaff, true, "CJK compatibility ideographs, last"},
+		{0xfb00, false, "past them"},
+		{0xfe2f, false, "below CJK compatibility forms"},
+		{0xfe30, true, "CJK compatibility forms, first"},
+		{0xfe6f, true, "CJK compatibility forms, last"},
+		{0xfe70, false, "past them"},
+		{0xfeff, false, "below the fullwidth forms"},
+		{0xff00, true, "fullwidth forms, first"},
+		{0xff60, true, "fullwidth forms, last"},
+		{0xff61, false, "halfwidth forms are one column"},
+		{0xffdf, false, "below the fullwidth signs"},
+		{0xffe0, true, "fullwidth signs, first"},
+		{0xffe6, true, "fullwidth signs, last"},
+		{0xffe7, false, "past them"},
+		{0x1f2ff, false, "below the emoji block"},
+		{0x1f300, true, "emoji, first"},
+		{0x1f64f, true, "emoji, last"},
+		{0x1f650, false, "past the emoji block"},
+		{0x1f8ff, false, "below the supplemental symbols"},
+		{0x1f900, true, "supplemental symbols, first"},
+		{0x1f9ff, true, "supplemental symbols, last"},
+		{0x1fa00, false, "past them"},
+		{0x1ffff, false, "below the CJK extension planes"},
+		{0x20000, true, "CJK extension planes, first"},
+		{0x3fffd, true, "CJK extension planes, last"},
+		{0x3fffe, false, "past them"},
+		{'a', false, "and an ordinary letter is one column"},
+	} {
+		if got := wide(tc.r); got != tc.want {
+			t.Errorf("wide(%#x) = %v, want %v: %s", tc.r, got, tc.want, tc.what)
+		}
+	}
+}
