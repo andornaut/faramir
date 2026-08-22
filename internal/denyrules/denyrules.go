@@ -45,7 +45,7 @@ const (
 // An assignment's value is one word, ending at the first unquoted space, or a
 // quoted string, which holds spaces and ends at the closing quote. Both, or a
 // path quoted because it has a space in it would be named here and not seen,
-// while the read rules a few lines up cross the same space with "[^|]*".
+// while the read rules a few lines up cross the same space with ArgSpan.
 // "Local Storage" is such a path, and the reason the bare form is not enough.
 //
 // What keeps the quoted form from reaching prose is PathStartBound rather than
@@ -62,6 +62,15 @@ const Binding = `(?:\b[A-Za-z_][A-Za-z0-9_]*=(?:["'][^"']*|\S*)` +
 // /opt/faramir would match /opt/faramir-notes.md and refuse a sibling that
 // merely starts the same way.
 const PathEnd = `[\s"';&|)]|$`
+
+// ArgSpan is what a rule crosses between a command and a path it reaches: the
+// arguments in between.
+//
+// Everything, because a rule is matched against one command rather than against
+// a whole line: Segments is what decides where a command ends, and it reads the
+// quoting a pattern cannot. A class that stopped at a pipe would stop at one
+// inside an argument too, so `cat 'a|b' k` reached nothing.
+const ArgSpan = `[\s\S]*`
 
 // PathStart is what may precede a name inside a command line: a separator, a
 // quote, or the start of it. Shared with the renderer, so both sides bound a
@@ -121,8 +130,8 @@ func DirUnder(home, dir string) string {
 // For is the five rules that refuse a set of subjects: reading one, writing
 // one, redirecting output over one, and redirecting one into a command.
 //
-// "[^|]*" stops at the first pipe, so a reader on one side of a pipe and a
-// protected path on the other is not read as one command reaching it. The two
+// Each rule is matched against one command rather than a
+// whole line; see Segments, which is what decides where a command ends. The two
 // redirect rules match the target word alone, so a heredoc whose body names a
 // path is not a redirect over it either way.
 //
@@ -154,9 +163,9 @@ func For(subjects []string) []string {
 	}
 	boundAlternation := `(` + strings.Join(bound, `|`) + `)`
 	return []string{
-		ReadCommands + `[^|]*` + alternation,
+		ReadCommands + ArgSpan + alternation,
 		`<\s*\S*` + alternation,
-		WriteCommands + `[^|]*` + alternation,
+		WriteCommands + ArgSpan + alternation,
 		`>\s*\S*` + alternation,
 		Binding + boundAlternation,
 	}

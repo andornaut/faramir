@@ -13,10 +13,14 @@
 # It names credential disclosure plus writes to the paths that are the broker
 # itself. It is not a general destruction guard.
 #
-# Two limits: a pattern matches the command string, so a grep or a heredoc that
-# only mentions the text is refused like one that would run it; and "[^|]*"
-# rather than ".*" wherever a rule spans arguments, so it stops at the first
-# pipe.
+# One limit: a pattern matches the command string, so a grep or a heredoc that
+# only mentions the text is refused like one that would run it.
+#
+# A rule reaches a path in the command it started in and no further. What ends a
+# command is not the pattern: the guard splits the line first, at a separator
+# that is not inside quotes, so `head a.txt; echo "k"` is two commands and
+# `python3 -c 'import os; open("k")'` is one. A pattern cannot read quoting, so
+# a pattern is never given a whole line.
 
 # No rule for a decryption verb, and none for another tool's secret store.
 #
@@ -63,11 +67,11 @@
 # The broker's own key by path, not left to the config directory: `--ssh-key`
 # may put it anywhere, and one placed outside that directory matches nothing
 # above.
-{{if .SSHKey}}{{readCommands}}[^|]*{{.SSHKey | regexQuote}}
+{{if .SSHKey}}{{readCommands}}{{argSpan}}{{.SSHKey | regexQuote}}
 {{end}}
 # The binary, named as one path rather than as its directory, or installing any
 # unrelated tool into {{.BinDir}} would be refused.
-{{writeCommands}}[^|]*{{.BinDir | regexQuote}}/faramir\b
+{{writeCommands}}{{argSpan}}{{.BinDir | regexQuote}}/faramir\b
 >\s*\S*{{.BinDir | regexQuote}}/faramir\b
 
 # The plugin and extension an enrolment installs, which are faramir's own files
@@ -83,7 +87,7 @@
 # registration that went missing, and the rule in the credentials section
 # against removing faramir's own entries from a file you are otherwise free to
 # change.
-{{writeCommands}}[^|]*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)
+{{writeCommands}}{{argSpan}}(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)
 >\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)
 
 # Reaching the broker's private state. Reading the audit log is covered above;

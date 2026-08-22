@@ -2,6 +2,7 @@ package denyrules
 
 import (
 	"regexp"
+	"slices"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ import (
 func TestAPathUnderAHomeIsRefusedInEverySpellingAShellExpands(t *testing.T) {
 	const home = "/home/op"
 	subject := DirUnder(home, home+"/.private")
-	re := regexp.MustCompile("(?i)" + ReadCommands + `[^|]*(` + subject + `)`)
+	re := regexp.MustCompile("(?i)" + ReadCommands + ArgSpan + `(` + subject + `)`)
 	for _, cmd := range []string{
 		"cat /home/op/.private/x",
 		"cat ~/.private/x",
@@ -30,7 +31,7 @@ func TestAPathUnderAHomeIsRefusedInEverySpellingAShellExpands(t *testing.T) {
 func TestTheHomeSpellingsDoNotWiden(t *testing.T) {
 	const home = "/home/op"
 	subject := DirUnder(home, home+"/.private")
-	re := regexp.MustCompile("(?i)" + ReadCommands + `[^|]*(` + subject + `)`)
+	re := regexp.MustCompile("(?i)" + ReadCommands + ArgSpan + `(` + subject + `)`)
 	for _, cmd := range []string{
 		"cat ~/.privateer/x",
 		"cat /home/op/.private-notes.md",
@@ -178,20 +179,44 @@ func TestTheRulesLeaveAloneWhatDoesNotReachTheSubject(t *testing.T) {
 	}
 }
 
-// A pipe ends a rule's reach. Without that, any reader anywhere on a line would
-// be read as reaching a path named later on it, and the refusal would name a
-// rule the operator cannot connect to what they ran.
-func TestAReaderOnTheOtherSideOfAPipeIsNotReadAsReachingTheSubject(t *testing.T) {
+// A rule reaches a path in the command it started in and no further. What ends
+// a command is Segments, not the rule, so the two are asserted together: a rule
+// on its own spans whatever it is given, and giving it a whole line is the
+// mistake this pairing exists to prevent.
+//
+// Without it, any reader anywhere on a line is read as reaching a path named
+// later on it, and the refusal names a rule the operator cannot connect to what
+// they ran.
+func TestAReaderReachesAPathOnlyInTheCommandItSharesWithIt(t *testing.T) {
 	read := compiled(t, Dir("/etc/faramir")).read
-	if read.MatchString("cat notes.txt | grep /etc/faramir/age.key") {
-		t.Error("a reader before a pipe is read as reaching a path after it")
+	reaches := func(line string) bool {
+		return slices.ContainsFunc(Segments(line), read.MatchString)
 	}
-	// And the reach still holds on the side the reader is on.
-	if !read.MatchString("cat /etc/faramir/age.key | wc -l") {
-		t.Error("a reader is allowed to reach the subject when a pipe follows")
+	for _, line := range []string{
+		"cat notes.txt | grep /etc/faramir/age.key",
+		"head -20 README.md; echo /etc/faramir",
+		`head -20 "README.md"; echo "/etc/faramir"`,
+		`sed 's/a/b/' x | grep '/etc/faramir/age.key'`,
+	} {
+		if reaches(line) {
+			t.Errorf("%q: a reader is read as reaching a path in another command", line)
+		}
 	}
-	if !read.MatchString("echo hi | cat /etc/faramir/age.key") {
-		t.Error("a reader after a pipe is allowed to reach the subject")
+	// And the reach holds on the side the reader is on, and inside one command
+	// however the separator characters appear in it.
+	for _, line := range []string{
+		"cat /etc/faramir/age.key | wc -l",
+		"echo hi | cat /etc/faramir/age.key",
+		"head -20 README.md; cat /etc/faramir/age.key",
+		// A pipe inside an argument is an argument. The rule spans it because
+		// Segments did not treat it as the end of anything.
+		`cat 'a|b' /etc/faramir/age.key`,
+		`python3 -c 'import os; print(open("/etc/faramir/age.key").read())'`,
+		"cat 2>&1 /etc/faramir/age.key",
+	} {
+		if !reaches(line) {
+			t.Errorf("%q: the reader reaches the path in its own command", line)
+		}
 	}
 }
 

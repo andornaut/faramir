@@ -37,6 +37,7 @@ var renderFuncs = template.FuncMap{
 	// drift the moment a tool is added to one.
 	"readCommands":  func() string { return denyrules.ReadCommands },
 	"writeCommands": func() string { return denyrules.WriteCommands },
+	"argSpan":       func() string { return denyrules.ArgSpan },
 	"installDirs":   installDirs,
 	// The literal paths this install names as linked or refused, for the agent
 	// that carries its rules rather than writing them into a config.

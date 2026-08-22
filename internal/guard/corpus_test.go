@@ -147,6 +147,31 @@ var corpus = []denyCase{
 	{"p=/etc/faramirx/notes.md", false, "a sibling path is still a sibling"},
 	{"for d in /etc/faramirx; do cat $d/notes.md; done", false, "and so is a loop over one"},
 	{"count=42; echo $count", false, "an assignment that names no path"},
+
+	// -- one command at a time ------------------------------------------------
+	//
+	// A rule reaches a path in the command it started in. The guard splits the
+	// line first and reads the quoting while it does, so where one command ends
+	// is decided before any pattern sees it.
+	{`head -20 README.md; echo "/etc/faramir is where it lives"`, false,
+		"the echo is its own command and reads nothing"},
+	{`head -20 "README.md"; echo "/etc/faramir"`, false,
+		"the quotes belong to the first command and do not carry into the second"},
+	{`sed 's/a/b/' x | grep '/etc/faramir/age.key'`, false,
+		"a script ending in a slash does not reopen the reach"},
+	{`awk '{print}' x | grep "/etc/faramir"`, false, "nor a brace"},
+	{"head -20 README.md; cat /etc/faramir/age.key", true,
+		"and the second command reaches the key on its own"},
+	{`head -20 "README.md"; cat /etc/faramir/age.key`, true, "quoted or not"},
+	// A separator inside an argument is an argument, so the command carries on
+	// and the rule carries on with it.
+	{`python3 -c 'import os; print(open("/etc/faramir/age.key").read())'`, true,
+		"a semicolon in a quoted script"},
+	{`awk 'BEGIN{a=1;b=2}{print}' /etc/faramir/age.key`, true, "two of them"},
+	{`cat 'a|b' /etc/faramir/age.key`, true, "a pipe in a quoted argument"},
+	{`cat 2>&1 /etc/faramir/age.key`, true, "an ampersand that is a redirection"},
+	{`cat "unterminated /etc/faramir/age.key`, true,
+		"a quote that never closes leaves the line unread and refuses more"},
 	// How far the binding reaches. An assignment's value is one word and a for
 	// list stops at the separator, so a path further along the line belongs to
 	// whatever command is there rather than to the binding. grep is the case

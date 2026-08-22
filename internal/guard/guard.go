@@ -106,14 +106,14 @@ func fallbackPatterns() []string {
 var fallbackOwn = []string{
 	// The binary, named as one path rather than as its directory, or installing
 	// any unrelated tool into /usr/local/bin would be refused.
-	denyrules.WriteCommands + `[^|]*/usr/local/bin/faramir\b`,
+	denyrules.WriteCommands + denyrules.ArgSpan + `/usr/local/bin/faramir\b`,
 	`>\s*\S*/usr/local/bin/faramir\b`,
 	// The plugin and extension an enrolment installs, which are faramir's own
 	// files. The merged files (.claude/settings.json, .mcp.json, opencode.json,
 	// kilo.json, .agents/mcp_config.json) are deliberately absent: they carry the
 	// operator's own settings beside faramir's, so editing them is ordinary work,
 	// and `faramir doctor` reports a registration that went missing.
-	denyrules.WriteCommands + `[^|]*` +
+	denyrules.WriteCommands + denyrules.ArgSpan +
 		`(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
 	`>\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
 	// faramir under sudo, whichever subcommand. Nothing an agent may run needs
@@ -378,8 +378,16 @@ func decide(command string) (string, bool) {
 	// No sudo exemption: every faramir subcommand under sudo is refused below, so
 	// there is nothing whose arguments would need sparing.
 	stripped := faramirCall.ReplaceAllString(command, "$1")
+	// Per command rather than per line. A pattern matched against the whole
+	// string cannot tell one command from the next, so a reader in the first
+	// reached a path named in the second; quoting is what decides where one
+	// ends, and a pattern cannot read quoting.
+	//
+	// Patterns outer, so the rule reported is the first one the file carries
+	// that matches anywhere, as it was when the line was matched whole.
+	segments := denyrules.Segments(stripped)
 	for _, p := range loadPatterns() {
-		if p.re.MatchString(stripped) {
+		if slices.ContainsFunc(segments, p.re.MatchString) {
 			return p.source, true
 		}
 	}
