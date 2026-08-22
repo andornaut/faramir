@@ -8,7 +8,10 @@
 // that agree until one of them is edited.
 package denyrules
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // The command alternations the path rules share. Readers carry interpreters and
 // copiers as well as pagers: reading a key with python, or copying it somewhere
@@ -27,6 +30,19 @@ const (
 	WriteCommands = `\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|` +
 		`setfacl|ln|sops|age|ansible-vault)\b`
 )
+
+// PathEnd is what may follow a path in a command line: whitespace, a quote, a
+// separator, or the end of it. A class rather than \b, and shared so the two
+// sides bound a path the same way: "\b" holds beside a hyphen, so a rule for
+// /opt/faramir would match /opt/faramir-notes.md and refuse a sibling that
+// merely starts the same way.
+const PathEnd = `[\s"';&|)]|$`
+
+// Dir is a directory as a subject: the directory itself, or anything under it,
+// and nothing that merely begins with its name.
+func Dir(dir string) string {
+	return regexp.QuoteMeta(dir) + `(?:/|` + PathEnd + `)`
+}
 
 // For is the three rules that refuse a set of subjects: reading one, writing
 // one, and redirecting output over one.

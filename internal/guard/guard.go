@@ -222,7 +222,7 @@ func configDir() string {
 // called: the same three shapes the literal rules use, so a moved install is
 // covered the way /etc/faramir is.
 func configDirRules(dir string) []string {
-	return denyrules.For([]string{regexp.QuoteMeta(dir)})
+	return denyrules.For([]string{denyrules.Dir(dir)})
 }
 
 // named reports whether the list already carries a rule about this directory,

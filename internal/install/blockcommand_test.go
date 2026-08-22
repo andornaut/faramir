@@ -16,18 +16,63 @@ import (
 // both failures are silent.
 func TestADeclaredCommandIsTheWords(t *testing.T) {
 	for command, want := range map[string]string{
-		"op read":       `\bop\s+read\b`,
-		"sops -d":       `\bsops\s+-d\b`,
-		"pass show":     `\bpass\s+show\b`,
-		"vault kv":      `\bvault\s+kv\b`,
-		"terraform":     `\bterraform\b`,
-		"op  read":      `\bop\s+read\b`,
-		"a.b c":         `\ba\.b\s+c\b`,
-		"gh auth token": `\bgh\s+auth\s+token\b`,
+		"op read":       commandPosition + `op\s+read\b`,
+		"sops -d":       commandPosition + `sops\s+-d\b`,
+		"pass show":     commandPosition + `pass\s+show\b`,
+		"terraform":     commandPosition + `terraform\b`,
+		"op  read":      commandPosition + `op\s+read\b`,
+		"a.b c":         commandPosition + `a\.b\s+c\b`,
+		"gh auth token": commandPosition + `gh\s+auth\s+token\b`,
 	} {
 		if got := BlockedCommandRule(command); got != want {
 			t.Errorf("%q rendered %q, want %q", command, got, want)
 		}
+	}
+}
+
+// Where a declared command is matched: at a command position, not wherever the
+// words happen to appear. The difference is whether an entry is safe to write
+// at all, or safe only if it is long enough that no flag on any host carries
+// it, which is not a question an operator can answer about a fleet.
+func TestADeclaredCommandIsMatchedAtACommandPosition(t *testing.T) {
+	layout := Layout{ConfigDir: "/etc/faramir", Blocked: []config.BlockedPath{
+		{Command: "op read"}, {Command: "pass"},
+	}}
+	rules := commandRules(layout)
+	for _, tc := range []struct {
+		command string
+		denied  bool
+		why     string
+	}{
+		{"op read op://v/i/f", true, "the command itself"},
+		{"  op read x", true, "after leading whitespace"},
+		{"foo; op read x", true, "after a separator"},
+		{"foo && op read x", true, "after a conditional"},
+		{"foo | op read x", true, "after a pipe"},
+		{"(op read x)", true, "in a subshell"},
+		{"sudo op read x", true, "behind sudo"},
+		{"sudo -u me op read x", true, "behind sudo with a flag that takes an argument"},
+		{"sudo -n op read x", true, "and one that does not"},
+		{"sudo nice op read x", true, "two prefixes deep"},
+		{"env FOO=1 op read x", true, "behind env"},
+		{"FOO=1 op read x", true, "behind a bare assignment"},
+		{"sh -c 'op read x'", true, "inside a shell's command string"},
+		{`bash -lc "op read x"`, true, "whichever shell and quote"},
+		{"pass personal/router", true, "a one-word entry at a command position"},
+
+		{"grep -r 'op read' defaults.yml", false, "a search naming it is not running it"},
+		{"echo op read", false, "and nor is echoing it"},
+		{"ansible-playbook --ask-become-pass site.yml", false,
+			"a flag carrying the word: the case a one-word entry could not be written for"},
+		{"vim notes-op-read.md", false, "and a file named after it"},
+		{"opera read", false, "a longer command starting the same way"},
+		{"cat README.md", false, "ordinary work"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			if denied := matchesAny(t, rules, tc.command); denied != tc.denied {
+				t.Errorf("denied = %v, want %v: %s", denied, tc.denied, tc.why)
+			}
+		})
 	}
 }
 
@@ -51,7 +96,7 @@ func TestADeclaredCommandReachesTheGuardAlone(t *testing.T) {
 		{"op read op://vault/item/field", true, "the declared command"},
 		{"sops -d secrets.sops.yml", true, "and the one with a flag in it"},
 		{"sops   -d x.yml", true, "whitespace between the words is any run of it"},
-		{"echo op read", true, "wherever it appears on the line"},
+		{"echo op read", false, "echoing the words is not running the command"},
 		{"opera read", false, "a longer word starting the same way"},
 		{"op readme", false, "and one ending it"},
 		{"sops -e x.yml", false, "a different flag is a different command"},

@@ -128,9 +128,10 @@ func blockedWarnings(report *Report, refused config.BlockedPath, links []config.
 	// it will match is said instead, that being the thing a wide pattern hides.
 	if refused.Command != "" {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s blocks the agent's shell from running it. The words are literal, so "+
-				"a command line carrying them anywhere is refused, this file included "+
-				"while you edit the list", refused.Command))
+			"%s blocks the agent's shell from running it. The words are literal and "+
+				"are matched where a command starts, so a line that names them without "+
+				"running them, a grep or an editor's argument, is left alone",
+			refused.Command))
 		return
 	}
 	if refused.Name != "" {
