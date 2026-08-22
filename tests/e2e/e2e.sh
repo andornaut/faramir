@@ -147,6 +147,17 @@ needs_download() {
 # beside the script is checked against the pin rather than downloaded again, so
 # this is safe to run before every up; delete a file to replace it, which is
 # also how a version bump is applied.
+# fetch_to downloads one file, retrying a connection that fails part way.
+#
+# The digest below is what says the bytes are right, so a retry cannot smuggle
+# anything in: what it buys is a run that survives one reset from a release
+# host, which is not a fault in this tree and used to fail the whole job.
+# --retry-all-errors so a 5xx is retried as well as a dropped connection, and
+# -C - so a partial file resumes rather than starting again.
+fetch_to() {
+  curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors -C - -o "$1" "$2"
+}
+
 cmd_fetch() {
   local missing
   missing=$(needs_download)
@@ -173,7 +184,7 @@ cmd_fetch() {
     check_pinned sops
   else
     echo "== fetching sops $SOPS_VERSION"
-    curl -fsSL -o "$work/sops" \
+    fetch_to "$work/sops" \
       "https://github.com/getsops/sops/releases/download/v$SOPS_VERSION/sops-v$SOPS_VERSION.linux.amd64" \
       || die "could not download sops $SOPS_VERSION"
     verified "$work/sops" "$HERE/sops" "$SOPS_SHA256"
@@ -187,7 +198,7 @@ cmd_fetch() {
   echo "== fetching age $AGE_VERSION"
   # One archive carries both, so both are taken from it rather than one being
   # left at whatever version was already here.
-  curl -fsSL -o "$work/age.tgz" \
+  fetch_to "$work/age.tgz" \
     "https://github.com/FiloSottile/age/releases/download/v$AGE_VERSION/age-v$AGE_VERSION-linux-amd64.tar.gz" \
     || die "could not download age $AGE_VERSION"
   tar -xzf "$work/age.tgz" -C "$work" || die "the age archive would not extract"
