@@ -85,18 +85,25 @@ echo "baseline: $(jq -r '[.findings[]|.status]|group_by(.)|map("\(length) \(.[0]
 
 # --------------------------------------------------------------------------
 head_ "1. a healthy install"
+#
+# "Healthy" here means every fault this host has is one the fixture put there on
+# purpose. bootstrap.sh writes short/pin under [secret] min_length, which doctor
+# fails on: a ref the config names and the redactor cannot cover is a degraded
+# host. So the claim is that the failures are exactly that one, which still
+# fails on any other check breaking and on this one ceasing to fire.
 
 snap
-bad_count=$(jq '[.findings[]|select(.status=="failed")]|length' $JSON)
-if [ "$bad_count" -eq 0 ]; then
-  ok "an install straight from init reports nothing failed"
+failed=$(jq -r '[.findings[]|select(.status=="failed")|.check]|sort|join(",")' $JSON)
+if [ "$failed" = "ref length" ]; then
+  ok "an install straight from init fails on the fixture's short ref and nothing else"
 else
-  bad "$bad_count check(s) failed on an untouched install: $(jq -r '[.findings[]|select(.status=="failed")|"\(.check): \(.detail)"]|join(" | ")' $JSON | head -c 400)"
+  bad "failed checks are [$failed], want [ref length]: $(jq -r '[.findings[]|select(.status=="failed")|"\(.check): \(.detail)"]|join(" | ")' $JSON | head -c 400)"
 fi
+# The exit code follows the report, so it is non-zero for the same one reason.
 if /usr/local/bin/faramir doctor --agent-user "$OP" >/dev/null 2>&1; then
-  ok "and exits 0"
+  bad "doctor exits 0 on a host holding a ref it cannot redact"
 else
-  bad "doctor exits $? on a healthy host"
+  ok "and exits non-zero, the report and the status agreeing"
 fi
 
 # Naming the operator is what lets the boundary checks run at all.
@@ -352,15 +359,26 @@ head_ "5. a value the redactor refused"
 #
 # Under [secret] min_length a value is loaded but never injected and never
 # redacted, so a command that prints it prints it in plaintext. The broker
-# reports this and keeps serving.
+# reports this and keeps serving; doctor fails on it and status exits non-zero,
+# a ref the config names and the broker cannot cover being a host that is not
+# what its config describes.
 
 snap
-short=$(grep -c 'short/pin' <<<"$(dt redaction) $(dt broker) $(dt 'secrets store')")
+short=$(grep -c 'short/pin' <<<"$(dt 'ref length') $(dt broker) $(dt 'secrets store')")
 if [ "$short" -gt 0 ]; then
   ok "doctor surfaces the ref the redactor refused"
 else
-  bad "no check mentions short/pin: $(dt redaction | head -c 160)"
+  bad "no check mentions short/pin: $(dt 'ref length' | head -c 160)"
 fi
+[ "$(st 'ref length')" = failed ] \
+  && ok "and fails on it: a ref that is never covered is a degraded host" \
+  || bad "ref length is $(st 'ref length'), want failed"
+# The same question, asked of the broker rather than of the install. status is
+# what an agent and a converge run read, so a degraded host has to be non-zero
+# there too.
+runuser -u "$OP" -- /usr/local/bin/faramir status >/dev/null 2>&1 \
+  && bad "faramir status exited 0 on a host holding a ref it cannot redact" \
+  || ok "and faramir status exits non-zero over the same state"
 # Whatever it is called, it must not read as an unexplained failure: the reason
 # is known and is the operator's to act on.
 if dt broker | grep -qi 'reason not reported'; then
@@ -368,9 +386,10 @@ if dt broker | grep -qi 'reason not reported'; then
 else
   ok "and not as a failure nothing explains"
 fi
-# The store itself is fine, which is what makes the verdict wrong rather than
-# harsh: the file loaded, the refs are served, and one value is simply not
-# covered by the redactor.
+# The store itself loaded and serves its other refs, which is why init finishes
+# over this while doctor fails on it: an install cannot lengthen a secret, and
+# failing here would also make [secret] min_length impossible to raise, init
+# writing the config before it validates.
 /usr/local/bin/faramir broker --check >/tmp/chk.json 2>/dev/null
 [ "$(jq -r '.secrets.errors|length' /tmp/chk.json)" -eq 0 ] \
   && ok "the store reports no load errors" || bad "the store failed to load"
@@ -550,8 +569,11 @@ grep -q '«SECRET:db/password»' <<<"$out" && ok "and a brokered command still g
   || bad "a brokered command after the round trip: [$out]"
 
 snap
-[ "$(jq '[.findings[]|select(.status=="failed" and .check!="broker")]|length' $JSON)" -eq 0 ] \
-  && ok "and doctor is clean again on the rebuilt host" \
+# Back to the baseline of section 1: the fixture's short ref and nothing else.
+# broker is excluded for the reason it always was, --check exiting non-zero over
+# that same ref.
+[ "$(jq -r '[.findings[]|select(.status=="failed" and .check!="broker" and .check!="ref length")]|length' $JSON)" -eq 0 ] \
+  && ok "and doctor is back to the fixture's one known fault on the rebuilt host" \
   || bad "after the round trip: $(jq -r '[.findings[]|select(.status=="failed")|.check]|join(",")' $JSON)"
 
 # --------------------------------------------------------------------------

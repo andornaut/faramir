@@ -356,10 +356,12 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 	}
 }
 
-// opStatus answers what the broker loaded and what it can reach. Non-zero when
-// a [[secret.link]] entry did not load, the body still printed: that ref answers
-// nothing while every other one is served, and without an exit code to read, the
-// first sign of it is a command failing later.
+// opStatus answers what the broker loaded and what it can reach. Non-zero
+// wherever the store is degraded, the body still printed: a ref the config names
+// and the broker cannot answer is a host that is not what its config describes,
+// and without an exit code to read, the first sign of it is a command failing
+// later. Store.Degraded is the whole of that question; `faramir doctor` answers
+// the same one and says what to do about each.
 func (s *Server) opStatus() protocol.Response {
 	// Whether, not where: any member of the client group can ask, including the
 	// coding agent, so what goes here lands in a model's context. It is also the
@@ -389,7 +391,7 @@ func (s *Server) opStatus() protocol.Response {
 			"rendered: "+err.Error(), "")
 	}
 	code := 0
-	if len(s.Store.DegradedLinks()) > 0 {
+	if s.Store.Degraded() != "" {
 		code = 1
 	}
 	return protocol.Response{

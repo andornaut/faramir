@@ -156,25 +156,33 @@ func (r *runner) stepValidate() error {
 			r.step("validate", false, "no secrets yet")
 			return nil
 		}
-		// Links that did not load, and nothing else wrong. Reported and carried on
-		// from: the broker serves every other ref, and the file a link names
-		// belongs to another tool, so an install cannot produce it.
+		// Links that did not load. Fatal: the ref answers nothing, and an install
+		// that finished over it would leave `status` and `doctor` failing on a host
+		// this command called done. The file belongs to another tool, so the
+		// remedies are the operator's and are named rather than attempted.
 		if report.onlyDegradedLinks() {
-			r.warnf("%s did not load, so those refs answer nothing while every other "+
-				"one is served: %s. `sudo faramir doctor` says what each needs",
+			return fmt.Errorf("%s did not load, so those refs answer nothing: %s\n"+
+				"Restore what each one names, fix its selector, or take the entry out "+
+				"with `sudo faramir link rm REF`, then run this again",
 				linkEntries(len(report.Secrets.DegradedLinks)), report.degradedRefs())
-			r.step("validate", false, "installed; links to fix")
-			return nil
 		}
-		// Refs the redactor refused, and nothing else wrong. Reported and carried
-		// on from: the store loaded and the daemons are serving, the values are
-		// never injected so nothing is exposed by continuing, and an install cannot
-		// lengthen a secret. Failing here ends every future `init` on this host
-		// the same way, including the upgrade that would carry a fix.
+		// Refs the redactor refused. Reported and carried on from, where a link
+		// that did not load above is fatal, and the difference is what each costs
+		// to leave standing.
+		//
+		// This command rewrites config.toml before it validates, and [secret]
+		// min_length is one of the settings it writes. Failing here would make the
+		// bound impossible to raise: `--secret-min-length 12` on a host holding a
+		// shorter value would record the new bound and then fail over the values it
+		// just refused, leaving a run that wrote the config and reported failure.
+		// An install cannot lengthen a secret either. `faramir doctor` fails on
+		// this and `faramir status` exits non-zero over it, so a host in this state
+		// is not one anything calls healthy.
 		if report.onlyNotRedactable() {
-			r.warnf("%d ref(s) are too short for [secret] min_length, so they are "+
-				"never injected and never redacted: %s. Lengthen them with `faramir "+
-				"edit`; everything else on this host is installed and serving",
+			r.warnf("%d ref(s) are shorter than [secret] min_length, so they are "+
+				"never injected and never redacted: %s. Lengthen them with `sudo "+
+				"faramir vault edit`; everything else on this host is installed and "+
+				"serving, and `faramir doctor` fails until they are",
 				len(report.Secrets.NotRedactable), report.refusedRefs())
 			r.step("validate", false, "installed; refs to lengthen")
 			return nil

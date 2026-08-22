@@ -911,13 +911,14 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 
 	// Refs the store read and the redactor refused. Named here rather than left
 	// to the fallback below, which would report a condition --check describes
-	// precisely as one it cannot explain. A warning, not a failure: they are
-	// never injected, so a ref does not work rather than a boundary going
-	// unheld.
+	// precisely as one it cannot explain. A failure: a ref the config names does
+	// not answer, which is the same degraded host `faramir status` exits non-zero
+	// over, and doctor saying warn where status says fail would leave the two
+	// describing different hosts.
 	if len(check.Secrets.NotRedactable) > 0 {
-		report.addf("redaction", StatusWarn, "%d ref(s) are shorter than [secret] "+
+		report.addf("ref length", StatusFailed, "%d ref(s) are shorter than [secret] "+
 			"min_length, so they are never injected and never redacted: %s. Lengthen "+
-			"them with `faramir vault edit`",
+			"them with `sudo faramir vault edit`",
 			len(check.Secrets.NotRedactable), check.refusedRefs())
 		if check.onlyNotRedactable() {
 			explained = true

@@ -413,6 +413,41 @@ func (s *Store) DegradedLinks() map[string]string {
 	return maps.Clone(s.degradedLinks)
 }
 
+// Degraded reports why this store is not doing the whole job the config asks
+// of it, or "" when it is. Every state that leaves a configured ref not working
+// or a configured value uncovered, in one question, for the two commands whose
+// exit code answers it.
+//
+// Wider than Unreadable, which is the gate on serving. A ref too short to cover
+// and a link that did not load both leave the broker serving, and both mean a
+// name the operator configured does not answer; a host in either state is not
+// the host its config describes.
+//
+// Names refs, never values and never the paths behind a link: this reaches the
+// agent through `faramir status`.
+func (s *Store) Degraded() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var why []string
+	if len(s.degradedLinks) > 0 {
+		why = append(why, fmt.Sprintf("%d linked ref(s) did not load: %s",
+			len(s.degradedLinks), strings.Join(sortedKeys(s.degradedLinks), ", ")))
+	}
+	if len(s.refused) > 0 {
+		why = append(why, fmt.Sprintf("%d ref(s) are too short to redact, so they "+
+			"are never injected: %s", len(s.refused), strings.Join(sortedKeys(s.refused), ", ")))
+	}
+	if len(s.loadErrors) > 0 {
+		// Counted, not quoted: a load error carries the path of a managed file.
+		why = append(why, fmt.Sprintf("%d managed file(s) did not load", len(s.loadErrors)))
+	}
+	if len(s.unresolvedPatterns) > 0 {
+		why = append(why, fmt.Sprintf("%d configured entry(ies) named no file",
+			len(s.unresolvedPatterns)))
+	}
+	return strings.Join(why, "; ")
+}
+
 // LoadErrors is every configured file the broker could not load, each one a
 // value the redactor is missing.
 func (s *Store) LoadErrors() []string {

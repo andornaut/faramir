@@ -118,34 +118,8 @@ func (r *runner) stepAccounts() error {
 		}
 	}
 
-	// The secrets group is what makes editing a secret need sudo. Reported rather
-	// than removed, a membership this did not add being somebody else's
-	// decision.
-	for _, who := range []string{r.layout.ExecUser, r.opts.AgentUser} {
-		if who == "" {
-			continue
-		}
-		in, err := inGroup(who, r.layout.SecretsGroup)
-		if err != nil || !in {
-			continue
-		}
-		r.warnf("%s is in group %s, so it can read and replace the managed sops "+
-			"files directly; remove it, or the secrets directory is only as protected as "+
-			"whatever runs as that account", who, r.layout.SecretsGroup)
-	}
-
-	// A command that could read the broker's or the keeper's group holds the audit
-	// log or the age key. Warned rather than fixed.
-	for _, forbidden := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
-		in, err := inGroup(r.layout.ExecUser, forbidden)
-		if err != nil {
-			continue
-		}
-		if in {
-			r.warnf("%s is in group %s; remove it, that is the boundary between "+
-				"a brokered command and the age key or the audit log",
-				r.layout.ExecUser, forbidden)
-		}
+	if err := r.refuseOpenBoundaries(); err != nil {
+		return err
 	}
 
 	joined, err := r.joinOperatorToGroup()
@@ -426,6 +400,50 @@ func (r *runner) resolveIDs() error {
 
 // Where GID_MIN is configured. A variable so a test can point at one it wrote.
 var loginDefs = "/etc/login.defs"
+
+// refuseOpenBoundaries refuses an install whose account memberships defeat the
+// split it is installing. Reported and not corrected: a membership this did not
+// add is somebody else's decision, and removing an account from a group is not
+// faramir's to do.
+//
+// Fatal rather than warned. `faramir doctor` reports these as failures, and an
+// install that finished on a host where they hold would leave the two saying
+// different things about the same boundary. Both are cleared by removing the
+// membership and running this again.
+//
+// Every one that holds is named, not the first: they are cleared with one
+// command each, and a run that named one at a time would cost a re-run apiece.
+func (r *runner) refuseOpenBoundaries() error {
+	var open []string
+	// The secrets group is what makes editing a secret need sudo.
+	for _, who := range []string{r.layout.ExecUser, r.opts.AgentUser} {
+		if who == "" {
+			continue
+		}
+		if in, err := inGroup(who, r.layout.SecretsGroup); err == nil && in {
+			open = append(open, fmt.Sprintf("%s is in %s, so it can read and replace "+
+				"the managed sops files directly, and the secrets directory is only as "+
+				"protected as whatever runs as that account (`gpasswd -d %s %s`)",
+				who, r.layout.SecretsGroup, who, r.layout.SecretsGroup))
+		}
+	}
+	// A command that could read the broker's or the keeper's group holds the
+	// audit log or the age key.
+	for _, forbidden := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
+		if in, err := inGroup(r.layout.ExecUser, forbidden); err == nil && in {
+			open = append(open, fmt.Sprintf("%s is in %s, which is the boundary "+
+				"between a brokered command and the age key or the audit log "+
+				"(`gpasswd -d %s %s`)",
+				r.layout.ExecUser, forbidden, r.layout.ExecUser, forbidden))
+		}
+	}
+	if len(open) == 0 {
+		return nil
+	}
+	return fmt.Errorf("this host's group memberships defeat the split this "+
+		"install draws, and clearing them is not faramir's to do:\n  %s",
+		strings.Join(open, "\n  "))
+}
 
 // firstLoginGID is GID_MIN, the bottom of the login-account range and so one
 // past the top of the system range `groupadd -r` allocates in. Debian and

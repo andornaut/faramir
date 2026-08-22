@@ -403,13 +403,12 @@ grep -q "$NPMRC" <<<"$out" \
   && bad "the refusal names the linked file's path: $out" \
   || ok "and the refusal keeps the file's path out of it"
 
-# The exit code is the whole point of reporting it here: the broker serves, so
-# nothing else on this host says anything is wrong until a command asks.
-asop status >/dev/null 2>&1 \
-  && bad "faramir status exited 0 with a link that did not load" \
-  || ok "faramir status exits non-zero"
+# Named in the body, which is the evidence specific to this fault. status also
+# exits non-zero here, but this host holds a ref under min_length as well, so the
+# exit code alone would not tell the two apart; check-doctor.sh is where that is
+# asked of a host whose only fault is the short ref.
 jq -e '.secrets.degraded_links["npm/token"]' <<<"$(asop status 2>/dev/null)" >/dev/null \
-  && ok "and its body still prints, naming the ref" \
+  && ok "status names the degraded ref, and its body still prints" \
   || bad "status does not name the degraded ref: $(asop status 2>&1 | tr '\n' ' ')"
 
 # --------------------------------------------------------------------------
