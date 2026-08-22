@@ -11,16 +11,6 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// samples is a path per entry in protectedPaths that the entry must refuse, and
-// one nearby that it must not. Written by hand rather than derived from the
-// entry, so a rendering and its test cannot be wrong in the same direction: a
-// generator bug that widens a pattern is caught by the second column, and one
-// that empties it by the first.
-var samples = []struct {
-	refused string
-	allowed string
-}{}
-
 // What the list no longer carries, and so what a host nobody declares anything
 // on can read. Asserted rather than left implicit: these were built in, the
 // removal was deliberate, and a rule creeping back would otherwise be invisible
@@ -44,37 +34,12 @@ var relocated = []string{
 	"/home/op/.config/sops/age/keys.txt",
 }
 
-// The Go list is what every rendering is derived from, so it is what the
-// samples are checked against first: an entry nothing matches is a path the
-// list only appears to cover. The list is empty today, so this asserts nothing
-// until one is added, and the test stays because that is when it is needed.
-func TestEveryProtectedPathHasASampleThatReachesIt(t *testing.T) {
-	// Each refused sample must be matched by the JavaScript spelling, that being
-	// the one form these tests can execute directly.
-	res := make([]*regexp.Regexp, 0, len(protectedPaths))
-	for _, fragment := range jsFragments(Layout{}) {
-		re, err := regexp.Compile(fragment)
-		if err != nil {
-			t.Fatalf("fragment %q does not compile: %v", fragment, err)
-		}
-		res = append(res, re)
-	}
-	for _, s := range samples {
-		if !matchesAnyPath(res, s.refused) {
-			t.Errorf("%s is refused by no pattern", s.refused)
-		}
-		if matchesAnyPath(res, s.allowed) {
-			t.Errorf("%s is refused, and should not be", s.allowed)
-		}
-	}
-}
-
-// The other half of the same list: a credential faramir neither writes nor
-// reads is the operator's to declare, so the built-in rules do not carry it and
-// a bare install does not refuse it.
+// A credential faramir neither writes nor reads is the operator's to declare,
+// so nothing is compiled in and a bare install does not block it.
 func TestTheRelocatedRulesAreGone(t *testing.T) {
-	res := make([]*regexp.Regexp, 0, len(protectedPaths))
-	for _, fragment := range jsFragments(Layout{}) {
+	bare := jsFragments(Layout{})
+	res := make([]*regexp.Regexp, 0, len(bare))
+	for _, fragment := range bare {
 		res = append(res, regexp.MustCompile(fragment))
 	}
 	for _, path := range relocated {
@@ -163,14 +128,6 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 		// backslashes come out before the search: what is being asserted is that
 		// the path is in there at all, not how it had to be written.
 		flat := strings.ReplaceAll(r.body, `\`, "")
-		for _, p := range protectedPaths {
-			// The literal part of the entry, which every spelling keeps: the
-			// wildcard and the anchoring are what they are free to differ about.
-			token := strings.TrimSuffix(strings.SplitN(p.value, "*", 2)[0], "/")
-			if !strings.Contains(flat, token) {
-				t.Errorf("%s covers no path matching %q (%s)", r.asset, p.value, p.why)
-			}
-		}
 		for _, dir := range installDirs(layout) {
 			if !strings.Contains(flat, dir) {
 				t.Errorf("%s does not refuse %s", r.asset, dir)

@@ -161,16 +161,15 @@ probe "the rotation rule removed" "log rotation" failed \
 probe "an outsider in the client group" "client group" warn \
   "useradd -M -N stranger 2>/dev/null; usermod -aG faramir-client stranger" \
   "gpasswd -d stranger faramir-client; userdel stranger"
-# The socket check, put to doctor two ways. Bare, doctor asks the broker where
-# the install is, and that connection socket-activates the units it is about to
-# examine: the fault is repaired by the examination and the finding describes
-# the host doctor made rather than the one it met. FARAMIR_CONFIG is what stops
-# it asking; no command takes the directory as a flag.
+# The whole socket group down. Doctor asks the broker where the install is and
+# that connection activates the chain, so what stops the examination repairing
+# the fault it found is the order: the socket states are sampled before the
+# round trip, and the report names the host doctor met rather than the one it
+# made. Nothing suppresses the asking, and no command takes a directory.
 systemctl stop faramir-broker.service faramir-broker.socket faramir-keeper.socket >/dev/null 2>&1
-FARAMIR_CONFIG=/etc/faramir/config.toml \
-  /usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null
+/usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null
 if [[ "$(st sockets)" == *failed* ]]; then
-  ok "a stopped socket is reported failed when doctor need not ask the broker"
+  ok "a stopped socket is reported failed, sampled before the broker is asked"
 else
   bad "a stopped socket reads [$(st sockets)]: $(dt sockets)"
 fi

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
@@ -124,12 +123,25 @@ func TestTheCandidateEditorsAreRealEditors(t *testing.T) {
 	}
 }
 
-// Left to config.Load, so the fallback cannot override a variable the caller
-// set.
-func TestAnEnvironmentConfigDefersToLoad(t *testing.T) {
+// The variable wins over a running broker, which is what makes it the way out
+// for a host whose install the broker cannot be asked about.
+func TestAnEnvironmentConfigWins(t *testing.T) {
 	t.Setenv("FARAMIR_CONFIG", "/from/env/config.toml")
-	if got := resolveConfig(socketDefault()); got != "" {
-		t.Errorf("resolveConfig returned %q instead of deferring to config.Load", got)
+	got, err := findConfigFile(status{configDir: "/etc/faramir"})
+	if err != nil {
+		t.Fatalf("findConfigFile: %v", err)
+	}
+	if got != "/from/env/config.toml" {
+		t.Errorf("findConfigFile = %q, want the path the variable names", got)
+	}
+}
+
+// It names the config file. A directory is refused rather than read as one, or
+// FARAMIR_CONFIG=/etc/faramir would make the install /etc.
+func TestAnEnvironmentConfigNamingADirectoryIsRefused(t *testing.T) {
+	t.Setenv("FARAMIR_CONFIG", t.TempDir())
+	if got, err := findConfigFile(status{}); err == nil {
+		t.Errorf("a directory resolved to %q instead of being refused", got)
 	}
 }
 
@@ -147,9 +159,6 @@ func withUnit(t *testing.T, body string) {
 	// A socket nothing is listening on, so the unit is what is left and a live
 	// install on the host cannot decide this.
 	t.Setenv("FARAMIR_SOCKET", filepath.Join(t.TempDir(), "absent.sock"))
-	if exists(filepath.Join(install.DefaultConfigDir, "config.toml")) {
-		t.Skip("this host has a config at the compiled default")
-	}
 }
 
 // The path an edit under sudo takes on an install whose config moved out of the
@@ -157,16 +166,22 @@ func withUnit(t *testing.T, body string) {
 func TestTheBrokerUnitNamesTheLiveConfig(t *testing.T) {
 	want := "/home/op/" + ".config/faramir/config.toml"
 	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+want+"\n")
-	if got := resolveConfig(socketDefault()); got != want {
-		t.Errorf("resolveConfig() = %q, want the path the unit names", got)
+	got, err := findConfigFile(askBroker(socketDefault()))
+	if err != nil {
+		t.Fatalf("findConfigFile: %v", err)
+	}
+	if got != want {
+		t.Errorf("findConfigFile = %q, want the path the unit names", got)
 	}
 }
 
-// A unit naming no config leaves the decision to config.Load.
-func TestAUnitWithoutTheVariableFallsThrough(t *testing.T) {
+// A unit naming no config is a host nothing can be asked about: no broker
+// answering and no unit naming a file is not the compiled-in default, it is an
+// install this command cannot find.
+func TestAUnitWithoutTheVariableIsAnError(t *testing.T) {
 	withUnit(t, "[Service]\nUser=faramir-broker\n")
-	if got := resolveConfig(socketDefault()); got != "" {
-		t.Errorf("resolveConfig invented %q from a unit that names no config", got)
+	if got, err := findConfigFile(askBroker(socketDefault())); err == nil {
+		t.Errorf("findConfigFile invented %q from a unit that names no config", got)
 	}
 }
 
@@ -177,12 +192,20 @@ func TestAUnitWithoutTheVariableFallsThrough(t *testing.T) {
 func TestADaemonTakesTheConfigTheUnitNames(t *testing.T) {
 	want := "/home/op/.config/faramir/config.toml"
 	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+want+"\n")
-	if got := resolveDaemonConfig(); got != want {
-		t.Errorf("resolveDaemonConfig() = %q, want the path the unit names", got)
+	got, err := findConfigFile(status{})
+	if err != nil {
+		t.Fatalf("findConfigFile: %v", err)
+	}
+	if got != want {
+		t.Errorf("the daemon ladder = %q, want the path the unit names", got)
 	}
 	t.Setenv("FARAMIR_CONFIG", "/from/env/config.toml")
-	if got := resolveDaemonConfig(); got != "" {
-		t.Errorf("resolveDaemonConfig returned %q instead of deferring to config.Load", got)
+	got, err = findConfigFile(status{})
+	if err != nil {
+		t.Fatalf("findConfigFile: %v", err)
+	}
+	if got != "/from/env/config.toml" {
+		t.Errorf("the daemon ladder = %q, want the path the variable names", got)
 	}
 }
 
@@ -199,11 +222,19 @@ func TestADaemonDoesNotAskTheBroker(t *testing.T) {
 	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+unit+"\n")
 	t.Setenv("FARAMIR_SOCKET", statusBroker(t, []string{live}))
 
-	if got := resolveConfig(socketDefault()); got != live {
-		t.Errorf("resolveConfig() = %q, want the running broker's own answer %q", got, live)
+	got, err := findConfigFile(askBroker(socketDefault()))
+	if err != nil {
+		t.Fatalf("findConfigFile: %v", err)
 	}
-	if got := resolveDaemonConfig(); got != unit {
-		t.Errorf("resolveDaemonConfig() = %q, want the unit's %q: a daemon asked the "+
+	if got != live {
+		t.Errorf("the client ladder = %q, want the running broker's own answer %q", got, live)
+	}
+	got, err = findConfigFile(status{})
+	if err != nil {
+		t.Fatalf("findConfigFile: %v", err)
+	}
+	if got != unit {
+		t.Errorf("the daemon ladder = %q, want the unit's %q: a daemon asked the "+
 			"socket it may be about to bind", got, unit)
 	}
 }

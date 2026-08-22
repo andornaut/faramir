@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/execserver"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
@@ -48,7 +47,7 @@ func runExec(f execFlags) int {
 		return 0
 	}
 
-	cfg, err := config.Load(resolveDaemonConfig())
+	cfg, err := loadDaemonConfig()
 	if err != nil {
 		log.Printf("%v", err)
 		return 2

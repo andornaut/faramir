@@ -169,55 +169,45 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not " +
 	"If this is deliberate, it is the operator's to do. Say what you were trying " +
 	"to achieve and let them decide."
 
-// ownMarkers identify a pattern that can only be about faramir's own things,
-// whatever command matched it: its units, its binary, and the plugin files an
-// enrolment installs are named in the pattern itself. Matched against the
-// pattern's own text, which is the same string in the compiled fallback and in
-// the shipped file.
-var ownMarkers = []string{
-	`\bsystemctl\b`,              // stopping or masking a unit
-	`/usr/local/bin/faramir\b`,   // the binary
-	`\.opencode/plugins/faramir`, // the plugin and extension an enrolment writes
-}
-
-// writeMarkers identify a generated pattern as being about editing or
-// destroying a path. Not enough on its own to say whose path: one rule carries
-// every subject, this install's own directories alongside the paths the
-// operator declared or linked, so which one matched has to come from the
-// command. A prefix of denyrules.WriteCommands rather than the constant, the
-// shipped file carrying the expansion rather than the name.
-var writeMarkers = []string{
-	`(?-i:rm|shred|truncate`, // denyrules.WriteCommands: editing or destroying
-	`>\s*\S*`,                // a redirect into one of those paths
-}
-
-// operatorMarkers are the rules that refuse a command for being the operator's
-// rather than for what it would disclose or change: a refusal offering
-// faramir_run to somebody who ran `faramir doctor` names a remedy for a problem
-// they do not have.
-var operatorMarkers = []string{
-	`\s+faramir\b`,         // any faramir subcommand under sudo
-	`\bfaramir[-\s]+(init`, // the same set unprivileged
+// adviceMarkers map a substring of a pattern to the explanation that pattern
+// carries. Matched against the pattern's own text, which is the same string in
+// the compiled fallback and in the shipped file.
+//
+// Ordered, first match winning: a faramir subcommand is the operator's before
+// it is anything else. A refusal offering faramir_run to somebody who ran
+// `faramir doctor` names a remedy for a problem they do not have.
+var adviceMarkers = []struct {
+	marker string
+	advice string
+	// ownPath is a pattern whose subjects are mixed: one rule carries this
+	// install's own directories alongside the paths the operator declared or
+	// linked, so the pattern cannot say whose path matched and the command has
+	// to. Without this, `rm /srv/luks.key` is explained as faramir's own file.
+	ownPath bool
+}{
+	{`\s+faramir\b`, adviceOperator, false},          // any faramir subcommand under sudo
+	{`\bfaramir[-\s]+(init`, adviceOperator, false},  // the same set unprivileged
+	{`\bsystemctl\b`, adviceOwn, false},              // stopping or masking a unit
+	{`/usr/local/bin/faramir\b`, adviceOwn, false},   // the binary
+	{`\.opencode/plugins/faramir`, adviceOwn, false}, // the plugin an enrolment writes
+	// A prefix of denyrules.WriteCommands rather than the constant, the shipped
+	// file carrying the expansion rather than the name.
+	{`(?-i:rm|shred|truncate`, adviceOwn, true}, // editing or destroying a path
+	{`>\s*\S*`, adviceOwn, true},                // a redirect into one
 }
 
 // adviceFor picks the explanation that matches why the command was refused.
 // Unclassified means disclosure, which is the larger half and the safer
 // default.
 func adviceFor(pattern, command string) string {
-	for _, marker := range operatorMarkers {
-		if strings.Contains(pattern, marker) {
-			return adviceOperator
+	for _, m := range adviceMarkers {
+		if !strings.Contains(pattern, m.marker) {
+			continue
 		}
-	}
-	for _, marker := range ownMarkers {
-		if strings.Contains(pattern, marker) {
-			return adviceOwn
+		if m.ownPath && !namesOwn(command) {
+			continue
 		}
-	}
-	for _, marker := range writeMarkers {
-		if strings.Contains(pattern, marker) && namesOwn(command) {
-			return adviceOwn
-		}
+		return m.advice
 	}
 	return advice
 }

@@ -137,39 +137,51 @@ func TestAPatternSaysWhatItMatches(t *testing.T) {
 	}
 }
 
-// There are no built-in path rules, so nothing is unremovable and nothing is
-// found by the lookups. The machinery stays because the question it answers is
-// still the right one to ask before a removal; what changed is the list it asks
-// against, which is now empty by design rather than by accident.
-func TestNothingIsRefusedByABuiltInRule(t *testing.T) {
-	if len(BuiltInRules()) != 0 {
-		t.Errorf("the built-in list carries %d rule(s): %+v",
-			len(BuiltInRules()), BuiltInRules())
-	}
-	// Every shape, including the two that used to be built in.
-	for _, name := range []string{"age.key", "sops/age/", "*.pem", ".env*", "id_rsa"} {
-		if rule, ok := BuiltInRuleFor(name); ok {
-			t.Errorf("%s was read as the built-in %q", name, rule.Entry)
-		}
-	}
-	for _, path := range []string{
-		"/home/op/age.key",
-		"/home/op/.config/sops/age/keys.txt",
-		"/home/op/.ssh/id_rsa",
-	} {
-		if rule, ok := BuiltInRuleCovering(path); ok {
-			t.Errorf("%s was read as covered by the built-in %q", path, rule.Entry)
-		}
-	}
-	// So a removal is never refused on those grounds, whatever it names.
+// Nothing is compiled in, so a name or a path outside this install's own
+// directories is removable whatever it is: a check that refused one of these
+// would be refusing on grounds that no longer exist.
+func TestOnlyTheLayoutBlocksWithoutAnEntry(t *testing.T) {
 	dir := writeBlockConfig(t, "")
 	for _, asked := range []config.BlockedPath{
-		{Name: "age.key"}, {Path: "/home/op/.config/sops/age/keys.txt"},
+		{Name: "age.key"}, {Name: "*.pem"}, {Name: "id_rsa"},
+		{Path: "/home/op/.config/sops/age/keys.txt"},
+		{Path: "/home/op/.ssh/id_rsa"},
 	} {
 		if err := BuiltInRuleError(dir, asked); err != nil {
-			t.Errorf("%s: removal was refused with no built-in to refuse it: %v",
+			t.Errorf("%s: removal was refused with nothing to refuse it: %v",
 				asked.Blocks(), err)
 		}
+	}
+}
+
+// The install's own directories are the rules an entry cannot take back: they
+// come out of the layout on every render. Reporting "nothing removed" for one
+// would read as the file becoming readable.
+func TestRemovingAPathTheLayoutBlocksIsRefused(t *testing.T) {
+	dir := writeBlockConfig(t, "")
+	for _, asked := range []config.BlockedPath{
+		{Path: dir},
+		{Path: filepath.Join(dir, "age.key")},
+		{Path: filepath.Join(dir, "secrets", "db.sops.yml")},
+		{Path: "/var/log/faramir/audit.log"},
+	} {
+		err := BuiltInRuleError(dir, asked)
+		if err == nil {
+			t.Errorf("%s: removing a path the layout blocks was allowed, which "+
+				"reports it as no longer blocked", asked.Blocks())
+			continue
+		}
+		if !strings.Contains(err.Error(), "block ls") {
+			t.Errorf("%s: the refusal does not say where to look: %v", asked.Blocks(), err)
+		}
+	}
+}
+
+// A neighbour whose name merely starts the same way is not under it.
+func TestASiblingOfAnInstalledDirectoryIsRemovable(t *testing.T) {
+	dir := writeBlockConfig(t, "")
+	if err := BuiltInRuleError(dir, config.BlockedPath{Path: dir + "-notes"}); err != nil {
+		t.Errorf("%s-notes was read as being under %s: %v", dir, dir, err)
 	}
 }
 

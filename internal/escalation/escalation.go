@@ -260,7 +260,7 @@ func (s *Server) owner(ancestors []int) (runID, detail string) {
 		return "", "the request named no processes"
 	}
 	if s.Owner == nil {
-		return "", "this broker cannot ask the executor what it forked"
+		return "", "the executor cannot be asked what it forked"
 	}
 	return s.Owner(ancestors)
 }
@@ -396,7 +396,7 @@ func (s *Server) Release(runID string, outcome Outcome) {
 	s.mu.Unlock()
 	if pending != nil {
 		// Outside the lock: finish takes it.
-		s.finish(pending, false, CodeRunEnded, "the command ended before this was answered")
+		s.finish(pending, false, CodeRunEnded, "the command ended first")
 	}
 }
 
@@ -422,10 +422,10 @@ func (s *Server) Ask(ancestors []int) (approved bool, code, reason string) {
 		s.record(map[string]any{
 			"log_id": audit.NewLogID(), "op": "escalate", "approved": false,
 			"outcome_code": CodeUnownedRun,
-			"outcome":      "no running command owns the process that asked: " + detail,
+			"outcome":      "no running command owns the asking process: " + detail,
 		})
 		return false, CodeUnownedRun,
-			"this request comes from no brokered command, so there is nothing to approve"
+			"no brokered command made this request"
 	}
 
 	approved, prompted, code, reason := s.ask(runID, run)
@@ -534,7 +534,7 @@ func (s *Server) pend(runID string, run Run) (*escalation, bool, string, string)
 	if s.runs[runID].approved {
 		answered := &escalation{done: make(chan struct{}), approved: true,
 			code:   CodeApproved,
-			reason: "covered by the escalation given for this command"}
+			reason: "covered by this command's escalation"}
 		close(answered.done)
 		return answered, false, "", ""
 	}
@@ -543,8 +543,7 @@ func (s *Server) pend(runID string, run Run) (*escalation, bool, string, string)
 		return existing, false, "", ""
 	}
 	if s.stopped {
-		return nil, false, CodeBrokerStopped,
-			"the broker is stopping, so nothing can be approved now"
+		return nil, false, CodeBrokerStopped, "the broker is stopping"
 	}
 	// A question is filed only by a command that is the only one registered:
 	// Answer would refuse to approve alongside another run anyway, so filing it
@@ -552,15 +551,13 @@ func (s *Server) pend(runID string, run Run) (*escalation, bool, string, string)
 	// refusal. Requests from the same run joined their question above, so this
 	// refuses another command rather than another sudo.
 	if other := s.otherRunLocked(runID); other != "" {
-		return nil, false, CodeOtherCommand, fmt.Sprintf("%s is also running, and root is handed to a "+
-			"brokered command only when it is the only one: the two share the "+
-			"executor's uid, so the other could read this one's runID and ride the "+
-			"escalation. Run this again once that one has finished", other)
+		return nil, false, CodeOtherCommand, fmt.Sprintf(
+			"%s is also running; root goes only to a command running alone. "+
+				"Run this again once that one has finished", other)
 	}
 	id := newID()
 	if id == "" {
-		return nil, false, CodeUnnamed,
-			"this question could not be named, so nothing could answer it"
+		return nil, false, CodeUnnamed, "this question could not be named"
 	}
 	pending := &escalation{
 		id: id, runID: runID, run: run, asked: time.Now(),
@@ -667,9 +664,9 @@ func newID() string {
 }
 
 // Prompt is what the human is asked: one line and the command, so the answer
-// means something. The host, the cwd and the program root will run are fields
-// of the Question, printed under it. Exported so a test, the CLI and the
-// notifier agree on it.
+// means something. The host, the cwd and the resolved program are fields of the
+// Question, printed under it. Exported so a test, the CLI and the notifier
+// agree on it.
 func Prompt(run Run) string {
 	return fmt.Sprintf("%s `%s`", PromptPrefix, run.Command())
 }
@@ -710,9 +707,14 @@ type Question struct {
 	// Caller is the account that asked, not the account the command would run as,
 	// which is the executor's and the same on every question.
 	Caller string `json:"caller"`
-	// Program is what argv[0] resolved to, and so what root will run. Shown
-	// separately from Cmd because they can differ: a relative argv[0] resolves
-	// against the request's cwd, which the agent writes.
+	// Program is what the run's argv[0] resolved to. Shown separately from Cmd
+	// because they can differ: a relative argv[0] resolves against the request's
+	// cwd, which the agent writes.
+	//
+	// Not what root will run. The question names the run that owns the sudo, that
+	// being the only thing the helper's pids identify, and the sudo may be several
+	// processes below it: a brokered `make` whose playbook escalates asks under
+	// the make, and a brokered `sudo foo` resolves to sudo rather than to foo.
 	Program string `json:"program"`
 	LogID   string `json:"log_id"`
 	// Received is when sudo asked, as an RFC 3339 string in the broker's own
@@ -841,7 +843,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 		if other := s.otherRunLocked(pending.runID); other != "" {
 			s.mu.Unlock()
 			return s.refuseForNoise(id, "another brokered command is registered ("+
-				other+"), which shares the executor's uid and could ride the escalation")
+				other+") and could ride the escalation")
 		}
 		if run, ok := s.runs[pending.runID]; ok {
 			run.approved = true
@@ -868,7 +870,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 // ErrNotQuiescent is what a yes becomes when the host was not quiet enough to
 // take it. Exported so the broker can give it an error code of its own,
 // distinct from an id that had expired.
-var ErrNotQuiescent = errors.New("the host was not quiet, so this was refused rather than approved")
+var ErrNotQuiescent = errors.New("the host was not quiet, so this was refused")
 
 // refuseForNoise answers a question no, on behalf of an operator who said yes.
 // The question is not held open for another try: that would make the operator
@@ -882,11 +884,9 @@ func (s *Server) refuseForNoise(id, detail string) error {
 		return err
 	}
 	log.Printf("escalation: %s refused rather than approved: %s", id, detail)
-	s.finish(pending, false, CodeNotQuiescent, "refused: the host was not quiet when this was "+
-		"answered ("+detail+")")
-	return fmt.Errorf("%w: %s. The sudo waiting on %s has been refused and the "+
-		"question is closed. Run the command again once the host is quiet",
-		ErrNotQuiescent, detail, id)
+	s.finish(pending, false, CodeNotQuiescent, "the host was not quiet ("+detail+")")
+	return fmt.Errorf("%w: %s. %s is closed; run the command again once the host "+
+		"is quiet", ErrNotQuiescent, detail, id)
 }
 
 // find is findLocked for a caller that does not hold the lock.
@@ -901,8 +901,8 @@ func (s *Server) findLocked(id string) (*escalation, error) {
 	if s.waiting != nil && s.waiting.id == id {
 		return s.waiting, nil
 	}
-	return nil, fmt.Errorf("no question %s is waiting; it may have been answered "+
-		"already, or its command may have given up", id)
+	return nil, fmt.Errorf("no question %s is waiting: already answered, or its "+
+		"command gave up", id)
 }
 
 // Stop releases everything waiting and refuses anything later: a question
@@ -916,6 +916,6 @@ func (s *Server) Stop() {
 	s.mu.Unlock()
 	if pending != nil {
 		// Outside the lock: finish takes it.
-		s.finish(pending, false, CodeBrokerStopped, "the broker stopped before this was answered")
+		s.finish(pending, false, CodeBrokerStopped, "the broker stopped first")
 	}
 }

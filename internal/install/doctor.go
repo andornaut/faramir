@@ -45,6 +45,10 @@ type DoctorOptions struct {
 	// answer.
 	BrokerVersion string
 
+	// BrokerBuild is which build of that version the broker is, empty from a
+	// release and from a broker that predates the field.
+	BrokerBuild string
+
 	// SocketStates maps each socket unit to what `systemctl is-active` said
 	// before the broker was asked anything. The caller samples it because
 	// opening the broker socket activates the service, which Requires= the keeper
@@ -849,6 +853,21 @@ func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 			"is %s, so the daemons were never restarted onto what is installed and "+
 			"every finding below describes the wrong build. Run `sudo faramir init`",
 			opts.BrokerVersion, version.Version)
+	// Same version, different build. Every unstamped binary reports "dev", so
+	// the comparison above passes between two of them and this is what catches
+	// a daemon left on the binary it was started from. Both sides have to name
+	// a build for the difference to mean anything: a release names none, and
+	// neither does a broker older than the field.
+	case version.Build != "" && opts.BrokerBuild != "" &&
+		opts.BrokerBuild != version.Build:
+		report.addf("version", StatusFailed, "the broker and this binary are both %s "+
+			"but they are different builds, %s against %s, so the daemons were never "+
+			"restarted onto what is installed and every finding below describes the "+
+			"wrong build. Run `sudo faramir init`",
+			version.Version, opts.BrokerBuild, version.Build)
+	case version.Build != "":
+		report.addf("version", StatusOK, "broker and binary are both %s (%s)",
+			version.Version, version.Build)
 	default:
 		report.addf("version", StatusOK, "broker and binary are both %s", version.Version)
 	}

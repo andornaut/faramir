@@ -923,16 +923,17 @@ func validateBlocked(blocked BlockedPath, at string) error {
 
 // validateBlockedCommand holds a command entry to what can be rendered. The
 // words are taken literally, so there is no pattern to get wrong; what is left
-// to check is that there is a command and that it is long enough to mean one.
+// to check is that each word is long enough to mean one.
+//
+// An empty command is not checked here: validateBlocked reaches this only for a
+// non-empty one, and an entry naming nothing at all is refused there as naming
+// no form.
 //
 // A single letter would match every command carrying it as a word, which is
 // most of them, and is the same failure "/" is as a path.
 func validateBlockedCommand(command, at string) error {
-	switch {
-	case strings.TrimSpace(command) != command:
+	if strings.TrimSpace(command) != command {
 		return fmt.Errorf("%s: command %q is padded with whitespace", at, command)
-	case len(strings.Fields(command)) == 0:
-		return fmt.Errorf("%s: command is empty", at)
 	}
 	for word := range strings.FieldsSeq(command) {
 		if len(word) < 2 {

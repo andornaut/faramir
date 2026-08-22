@@ -41,39 +41,28 @@ type protectedPath struct {
 	kind pathKind
 	// value is the name, suffix, prefix, glob or directory tail.
 	value string
-	// why is what this covers, for the comment each rendering carries. Every
-	// entry has one: a list of bare globs is a list nobody dares delete from.
-	why string
 }
 
-// protectedPaths is the list itself, ordered by what it protects rather than
-// alphabetically.
-// What a protected path is, for the paths that share a description. Several
-// patterns describe one kind of file, and the wording is what a refusal says.
-// Empty, and that is the design rather than a list waiting to be filled.
+// Nothing is compiled in, and that is the design rather than a list waiting to
+// be filled.
 //
-// Everything an install writes is refused by installDirs, which renders the
-// real paths out of the layout: the config directory wherever --config-dir put
-// it, the store, the log and libexec. Those cover the age key, the broker's SSH
-// key, the managed sops files and the audit log where they actually are, and a
-// mode refuses each of them to the agent's uid as well.
+// Everything an install writes is covered by installDirs, which renders the real
+// paths out of the layout: the config directory wherever --config-dir put it,
+// the store, the log and libexec. Those cover the age key, the broker's SSH key,
+// the managed sops files and the audit log where they actually are, and a mode
+// refuses each of them to the agent's uid as well.
 //
-// A pattern here would have to be about a file faramir does not write. It
-// minted one age key, at <config-dir>/age.key, and the operator has a copy or
-// an identity of their own only if they made one: `recipient add` takes a
-// public key and never learns where the private half sits. So a rule for
+// A compiled-in pattern would have to be about a file faramir does not write. It
+// minted one age key, at <config-dir>/age.key, and the operator has a copy or an
+// identity of their own only if they made one: `recipient add` takes a public
+// key and never learns where the private half sits. So a rule for
 // ~/.config/sops/age or for "age.key" anywhere else guards a file that usually
 // is not there, at a path this install did not choose, and makes the default
 // look more protective than it is.
 //
-// What a host should refuse beyond its own install is the operator's to name:
-// `faramir block add`, or a configuration manager declaring what a fleet
-// keeps. What that costs a host nobody declares anything on is in
-// installing.md.
-//
-// The type and the renderers stay because declared entries use them: a name
-// entry becomes one of these and is spelled for each agent by the same code.
-var protectedPaths []protectedPath
+// What a host blocks beyond its own install is the operator's to name: `faramir
+// block add`, or a configuration manager declaring what a fleet keeps. What that
+// costs a host nobody declares anything on is in installing.md.
 
 // blockedNameRules is the [[secret.block]] entries that named a pattern rather
 // than a path, in the same form the built-in rules take, so the renderers below
@@ -104,103 +93,45 @@ func blockedNameRules(layout Layout) []protectedPath {
 // else it holds, and a wildcard at one end is an open end rather than a name
 // with a hole in it.
 func blockedNameRule(name string) protectedPath {
-	const why = "a path this install refuses"
 	switch {
 	case strings.HasSuffix(name, "/"):
-		return protectedPath{kindDir, name, why}
+		return protectedPath{kindDir, name}
 	case strings.Count(name, "*") == 1 && strings.HasPrefix(name, "*"):
-		return protectedPath{kindSuffix, strings.TrimPrefix(name, "*"), why}
+		return protectedPath{kindSuffix, strings.TrimPrefix(name, "*")}
 	case strings.Count(name, "*") == 1 && strings.HasSuffix(name, "*"):
-		return protectedPath{kindPrefix, strings.TrimSuffix(name, "*"), why}
+		return protectedPath{kindPrefix, strings.TrimSuffix(name, "*")}
 	case strings.Contains(name, "*"):
-		return protectedPath{kindGlobName, name, why}
+		return protectedPath{kindGlobName, name}
 	}
-	return protectedPath{kindName, name, why}
-}
-
-// BuiltInRule is one compiled-in rule, for `faramir block ls`. The list is
-// otherwise invisible: an agent meets it as a file tool refusing a path, and an
-// operator had no way to ask what it covers short of tripping it, which reports
-// the one rule that matched and not the set. A rule nobody can enumerate is one
-// that gets declared a second time or reported as a gap.
-type BuiltInRule struct {
-	Kind  string `json:"kind"`
-	Entry string `json:"entry"`
-	Why   string `json:"why"`
-}
-
-// BuiltInRules is the compiled-in list, in the order it is written, which
-// groups it by what it protects.
-func BuiltInRules() []BuiltInRule {
-	out := make([]BuiltInRule, 0, len(protectedPaths))
-	for _, p := range protectedPaths {
-		out = append(out, BuiltInRule{p.kind.String(), p.value, p.why})
-	}
-	return out
-}
-
-// BuiltInRuleCovering is the compiled-in rule that already refuses a path,
-// and whether there is one. For the operator who names the file rather than the
-// pattern: "stop refusing ~/.ssh/id_rsa" is the same request as naming the
-// built-in, and answering it with "that was not refused" would be false twice
-// over.
-func BuiltInRuleCovering(path string) (BuiltInRule, bool) {
-	for _, p := range protectedPaths {
-		if p.covers(path) {
-			return BuiltInRule{p.kind.String(), p.value, p.why}, true
-		}
-	}
-	return BuiltInRule{}, false
-}
-
-// covers is whether this rule matches a path, in the terms each kind is written
-// in. An approximation of what an agent's own matcher will do with the rendered
-// spelling, and it is used to explain a refusal rather than to enforce one: the
-// enforcement is the agent host's, on a rule this never sees applied.
-func (p protectedPath) covers(path string) bool {
-	base := filepath.Base(path)
-	switch p.kind {
-	case kindName:
-		// A name may carry separators, so it is the tail of the path that answers
-		// rather than the last segment alone.
-		return path == p.value || strings.HasSuffix(path, "/"+p.value)
-	case kindSuffix:
-		return strings.HasSuffix(base, p.value)
-	case kindPrefix:
-		return strings.HasPrefix(base, p.value)
-	case kindGlobName:
-		matched, err := filepath.Match(p.value, base)
-		return err == nil && matched
-	case kindDir:
-		dir := strings.TrimSuffix(p.value, "/")
-		return strings.Contains(path, "/"+dir+"/") || strings.HasPrefix(path, dir+"/")
-	}
-	return false
-}
-
-// BuiltInRuleFor is the compiled-in rule a pattern names, and whether there
-// is one.
-//
-// Compared as the rule each becomes rather than as the string typed: "*.pem"
-// and the built-in suffix ".pem" are one rule written two ways, while ".pem" on
-// its own is a file of that name and a different rule. A comparison on the
-// text would answer no to the first and yes to the second, both wrong.
-func BuiltInRuleFor(name string) (BuiltInRule, bool) {
-	asked := blockedNameRule(name)
-	for _, p := range protectedPaths {
-		if p.kind == asked.kind && p.value == asked.value {
-			return BuiltInRule{p.kind.String(), p.value, p.why}, true
-		}
-	}
-	return BuiltInRule{}, false
+	return protectedPath{kindName, name}
 }
 
 // InstalledDirs is what this install occupies, for a caller that has to show an
-// operator what is refused here without being able to say why each path is on
+// operator what is blocked here without being able to say why each path is on
 // the list. The rules are generated from it, so the listing and the rules
 // cannot disagree.
 func InstalledDirs(configDir string) []string {
 	return installDirs(ruleLayout(configDir))
+}
+
+// InstalledDirCovering is the install's own directory that already blocks a
+// path, and whether there is one. These are the only rules an entry cannot take
+// back: they come out of the layout on every render, so removing an entry that
+// named one leaves the path blocked and reporting "nothing removed" would read
+// as the file becoming readable.
+//
+// For the operator who names a file rather than the directory, "stop blocking
+// /etc/faramir/age.key" being the same request as naming /etc/faramir.
+func InstalledDirCovering(configDir, path string) (string, bool) {
+	if path == "" {
+		return "", false
+	}
+	for _, dir := range InstalledDirs(configDir) {
+		if path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, "/")+"/") {
+			return dir, true
+		}
+	}
+	return "", false
 }
 
 // BlockedNameMatches says in a sentence what a name pattern will match, for the
@@ -250,14 +181,6 @@ func (k pathKind) String() string {
 		return "name"
 	}
 	return "name"
-}
-
-// protectedFor is every rule an install renders by name: the built-in list and
-// the patterns this install declares. One list, so a declared pattern is spelled
-// for each agent by the same code that spells a built-in, rather than by a
-// second path through the renderers.
-func protectedFor(layout Layout) []protectedPath {
-	return append(append([]protectedPath{}, protectedPaths...), blockedNameRules(layout)...)
 }
 
 // installDirs are the paths this install occupies, known only once it is laid
@@ -373,7 +296,7 @@ func perInstallPaths(layout Layout) []string {
 // means "in any directory" and a plain "*" does not cross a separator, so a
 // suffix needs one of each.
 func claudePatterns(layout Layout) []string {
-	rules := protectedFor(layout)
+	rules := blockedNameRules(layout)
 	out := make([]string, 0, len(rules))
 	for _, p := range rules {
 		switch p.kind {
@@ -394,7 +317,7 @@ func claudePatterns(layout Layout) []string {
 // run of characters including separators, so one leading wildcard does the work
 // of both "in any directory" and "any name ending this way".
 func pluginGlobs(layout Layout) []string {
-	rules := protectedFor(layout)
+	rules := blockedNameRules(layout)
 	out := make([]string, 0, len(rules)+1)
 	for _, p := range rules {
 		switch p.kind {
@@ -580,8 +503,8 @@ func isWordByte(b byte) bool {
 // path anchors: a command line carries a path inside other text, so what
 // anchors it is the reader in front of it rather than the start of a string.
 func commandSubjects(layout Layout) []string {
-	out := make([]string, 0, len(protectedPaths)+8)
-	for _, p := range protectedFor(layout) {
+	out := make([]string, 0, len(layout.Blocked)+8)
+	for _, p := range blockedNameRules(layout) {
 		out = append(out, commandSubject(p))
 	}
 	// This install's own directories, and the files it names as linked or
@@ -648,7 +571,7 @@ func RenderDenyPatterns(layout Layout) ([]byte, error) {
 // jsFragments renders the list for an agent whose rules are applied by a plugin
 // this installs, as JavaScript regex source.
 func jsFragments(layout Layout) []string {
-	rules := protectedFor(layout)
+	rules := blockedNameRules(layout)
 	out := make([]string, 0, len(rules))
 	for _, p := range rules {
 		q := regexp.QuoteMeta(p.value)

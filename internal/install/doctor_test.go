@@ -862,3 +862,42 @@ func TestLogrotateStateLogsNamesEveryLogItHasProcessed(t *testing.T) {
 		t.Errorf("logs = %q, want %q", logs, want)
 	}
 }
+
+// Every unstamped binary reports "dev", so the version comparison passes
+// between two different local builds and the check reports OK on the skew it
+// exists to catch. The build is what carries the difference.
+func TestTheVersionCheckSeesTwoBuildsOfOneVersion(t *testing.T) {
+	// Set rather than read: a test binary records no VCS stamps, so the ambient
+	// Build is empty here and every case below would be the one that cannot
+	// compare. A var because the linker stamps it, which is what makes this
+	// possible.
+	original := version.Build
+	version.Build = "aaaaaaaaaaaa"
+	t.Cleanup(func() { version.Build = original })
+
+	for _, tc := range []struct {
+		name  string
+		build string
+		want  Status
+	}{
+		{"the broker runs the build that is installed", "aaaaaaaaaaaa", StatusOK},
+		{"the daemons are on the build they were started from", "0123456789ab", StatusFailed},
+		// A release names no build, and neither does a broker older than the
+		// field. Neither is evidence of skew, so neither invents one.
+		{"a broker naming no build", "", StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var report DoctorReport
+			diagnoseVersion(&report, DoctorOptions{
+				BrokerVersion: version.Version, BrokerBuild: tc.build,
+			})
+			if len(report.Findings) != 1 {
+				t.Fatalf("got %d findings, want 1", len(report.Findings))
+			}
+			if got := report.Findings[0].Status; got != tc.want {
+				t.Errorf("status = %q, want %q (detail: %s)",
+					got, tc.want, report.Findings[0].Detail)
+			}
+		})
+	}
+}

@@ -26,7 +26,6 @@ import (
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
@@ -70,7 +69,7 @@ func runEdit(f editFlags, args []string) int {
 		return 1
 	}
 
-	cfg, err := config.Load(resolveConfig(socketDefault()))
+	cfg, err := loadResolved(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir vault edit: %v\n", err)
 		return 1
@@ -139,44 +138,36 @@ func runEdit(f editFlags, args []string) int {
 	return 0
 }
 
-// resolveConfig finds the config a client command has to agree with:
-// $FARAMIR_CONFIG, then whatever discoverConfigFile finds, then the compiled
-// default if it is there. No command takes a path: a caller cannot be expected
-// to know where the config lives, and every one of them can ask the broker.
-// An explicit $FARAMIR_CONFIG returns empty, the variable being config.Load's
-// to read.
-func resolveConfig(socketPath string) string {
-	if os.Getenv("FARAMIR_CONFIG") != "" {
-		return ""
+// loadResolved finds this host's config and loads it. The resolution failure is
+// returned as the load failure: both say this command has no install to act on,
+// and every caller prints them the same way.
+//
+// The same ladder the commands that act on the install climb, ending the same
+// way, or a host whose config moved and whose unit is gone would have `faramir
+// logs` read one install while `faramir block ls` refused to guess at another.
+func loadResolved(socketPath string) (*config.Config, error) {
+	path, err := findConfigFile(askBroker(socketPath))
+	if err != nil {
+		return nil, err
 	}
-	return installedConfig(discoverConfigFile(askBroker(socketPath)))
+	return config.Load(path)
 }
 
-// resolveDaemonConfig is resolveConfig for the three daemon entry points, which
+// loadDaemonConfig is loadResolved for the three daemon entry points, which
 // under systemd are pointed at their config by FARAMIR_CONFIG in the unit.
 //
-// The running broker is not a step here, unlike resolveConfig: this process may
+// The running broker is not a step here, unlike loadResolved: this process may
 // be about to bind the broker's own socket, and connecting to it would
 // socket-activate the installed daemon and leave the two contending for the
 // path. The unit answers the same question without the round trip.
-func resolveDaemonConfig() string {
-	if os.Getenv("FARAMIR_CONFIG") != "" {
-		return ""
+func loadDaemonConfig() (*config.Config, error) {
+	// A zero status rather than one asked for, which is what skips the broker:
+	// there is no separate ladder here, only one with its first rung unclimbed.
+	path, err := findConfigFile(status{})
+	if err != nil {
+		return nil, err
 	}
-	return installedConfig(unitConfigFile())
-}
-
-// installedConfig takes what discovery found, and falls back to the compiled-in
-// default only when that file is there. An empty result is left to
-// config.Load, whose error for a host with no install is the one to print.
-func installedConfig(found string) string {
-	if found != "" {
-		return found
-	}
-	if path := filepath.Join(install.DefaultConfigDir, "config.toml"); exists(path) {
-		return path
-	}
-	return ""
+	return config.Load(path)
 }
 
 func exists(path string) bool {

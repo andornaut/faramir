@@ -111,7 +111,7 @@ Why it is shaped this way (one ref per entry rather than a whole-file flatten, t
 
 ## Blocked paths
 
-A `[[secret.block]]` entry refuses one thing to the agent's file tools, for a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity. [When to reach for one](integrations.md#where-the-value-lives).
+A `[[secret.block]]` entry blocks one thing from the agent, for a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity. A `path` or a `name` is kept from its file tools and its shell alike; a `command` is kept from the shell alone, a command being nothing a file tool can name. [When to reach for one](integrations.md#where-the-value-lives).
 
 ```sh
 sudo faramir block add /etc/luks/volume.key          # this file, on this host
@@ -163,8 +163,8 @@ Key | Rule
 - **A path that is not there is still recorded**, and you are told. The rule costs nothing while the file is absent and holds once the volume mounts, which is the case these exist for. A path spelled wrong looks the same, so the message says both.
 - **A name is not asked of the filesystem at all**, having nothing on this host to be asked about. What it will match is printed instead.
 - **`faramir block ls` is the answer to "what is blocked here".** The declared entries and this install's own directories in a table, each marked as covering the file tools and the commands together, and under it the command rules faramir carries itself, which are about its binary, the files an enrolment installs, and the commands that act on the install rather than through it. Neither half can be asked any other way, a refusal naming the rule that matched rather than the set. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges.
-- **A directory refuses what is under it.** Which it is, is asked of the filesystem as the rules are rendered, and a path that is not there renders as a file: the narrower of the two.
-- **A built-in rule cannot be removed, and asking fails.** `block rm --name '*.pem'` names a rule compiled into faramir rather than an entry this install carries, so there is nothing to remove and the host goes on refusing it; reporting that as "not refused, nothing removed" would read as the file becoming readable. Naming the file rather than the pattern gets the same answer, `block rm ~/.ssh/id_rsa` being the same request. Removing one means changing faramir. Where an install declared the same rule as well, its own entry is removed and the built-in is named as what still refuses it.
+- **An entry covers the path and everything under it**, whether or not it is a directory today. The filesystem is not asked: these rules are a function of the config alone, or a key on an unmounted volume would render no subtree rule and gain one when it mounts. The subject is bounded, so `~/.sshrc` is not part of `~/.ssh`.
+- **A path this install occupies cannot be unblocked, and asking fails.** `block rm /etc/faramir/age.key` names a rule the layout renders on every run rather than an entry this install carries, so there is nothing to remove and the host goes on blocking it; reporting that as "nothing removed" would read as the file becoming readable. Where an install declared the same path as well, its entry is removed and the directory is named as what still blocks it. Nothing else is unremovable: no rule is compiled in.
 - **Nothing is reloaded.** No daemon reads these entries, so `block add` does not restart the broker under a running command.
 - **Both commands are idempotent.** A path already refused is not an error: the entry stands, the rules are rendered again and `--json` reports `changed: false`. Removing a path this install does not refuse writes nothing.
 - **Pi is the exception**, as it is for linked paths: its rules are compiled into the extension, so there is no account-wide file to render one into.

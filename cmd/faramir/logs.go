@@ -9,7 +9,7 @@ package main
 //
 // [audit] log_path says which file, and there is no flag naming another: a
 // reader pointed at a path by hand is a typo away from reporting a host as
-// quiet. --config and FARAMIR_CONFIG move it. Rotated files are not read;
+// quiet. FARAMIR_CONFIG moves it. Rotated files are not read;
 // name one to zless. --watch is the one place rotation is followed: a watcher
 // left running across a logrotate run reopens the path and carries on.
 
@@ -31,7 +31,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/termsafe"
 )
@@ -89,7 +88,7 @@ func runLogs(f logsFlags, args []string) int {
 		return 1
 	}
 
-	cfg, err := config.Load(resolveConfig(socketDefault()))
+	cfg, err := loadResolved(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 		return 1

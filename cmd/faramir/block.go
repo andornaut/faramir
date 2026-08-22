@@ -257,9 +257,10 @@ func newBlockListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   useLs,
 		Short: "List what the agent's file tools are blocked",
-		Long: "Lists both halves of what an agent's file tools are refused: the rules\n" +
-			"compiled into faramir, and the [[secret.block]] entries this install\n" +
-			"declares. The SOURCE column says which is which.\n\n" +
+		Long: "Lists both halves of what an agent's file tools are refused: the\n" +
+			"directories this install occupies, and the [[secret.block]] entries it\n" +
+			"declares. The declared entries come first, and --json says which is\n" +
+			"which in a `source` field.\n\n" +
 			"The built-in rules are shown because there is otherwise no way to ask\n" +
 			"what they cover: the agent meets one as a file tool refusing a path, and\n" +
 			"a refusal names the rule that matched rather than the set. A rule nobody\n" +
@@ -313,7 +314,7 @@ func (r blockRow) belowTable() bool {
 // operator wrote and what a converge acts on, and the built-in list is long
 // enough to push them off a screen.
 func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []blockRow {
-	rows := make([]blockRow, 0, len(declared)+len(install.BuiltInRules()))
+	rows := make([]blockRow, 0, len(declared)+8)
 	for _, entry := range declared {
 		if entry.Command != "" {
 			rows = append(rows, blockRow{
@@ -346,12 +347,6 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 		rows = append(rows, blockRow{
 			Source: sourceBuiltIn, Kind: "dir", Entry: dir, Covers: coversBoth,
 			Detail: "this install's own, and everything under it",
-		})
-	}
-	for _, rule := range install.BuiltInRules() {
-		rows = append(rows, blockRow{
-			Source: sourceBuiltIn, Kind: rule.Kind, Entry: rule.Entry,
-			Covers: coversBoth, Detail: rule.Why,
 		})
 	}
 	// What faramir blocks for what a command does rather than for what it
@@ -442,14 +437,13 @@ func runBlockList(f blockFlags) int {
 	// as patterns rather than scanned as a column.
 	var commands []blockRow
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "SOURCE\tKIND\tENTRY\tCOVERS")
+	_, _ = fmt.Fprintln(w, "KIND\tENTRY\tCOVERS")
 	for _, row := range rows {
 		if row.belowTable() {
 			commands = append(commands, row)
 			continue
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
-			row.Source, row.Kind, row.Entry, row.Covers)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", row.Kind, row.Entry, row.Covers)
 	}
 	_ = w.Flush()
 	if len(commands) == 0 {

@@ -436,11 +436,6 @@ func looksManaged(entry, configDir string) bool {
 	if strings.Contains(entry, "faramir") {
 		return true
 	}
-	for _, p := range protectedPaths {
-		if strings.Contains(entry, strings.TrimSuffix(p.value, "/")) {
-			return true
-		}
-	}
 	for _, dir := range installDirs(Layout{ConfigDir: configDir}) {
 		if strings.Contains(entry, dir) {
 			return true

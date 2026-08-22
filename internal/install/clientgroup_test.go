@@ -69,7 +69,7 @@ func TestAnEnrolmentWithNoConfigToReadSaysWhatToDo(t *testing.T) {
 	if err == nil {
 		t.Fatal("an enrolment with no config to read was accepted")
 	}
-	for _, want := range []string{"faramir init", "--config-dir"} {
+	for _, want := range []string{"faramir init", "FARAMIR_CONFIG"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to name %q", err, want)
 		}

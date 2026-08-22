@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/cli"
+	"github.com/andornaut/faramir/internal/denyrules"
 )
 
 // Point every test at the repo's own patterns rather than at whatever is
@@ -201,5 +202,31 @@ func TestAConfigDirectoryThisInstallDoesNotHaveIsNotRefused(t *testing.T) {
 	// This install's own, at the same defaults, still is.
 	if _, denied := decide("cat /etc/faramir/config.toml"); !denied {
 		t.Error("this install's own config directory is allowed")
+	}
+}
+
+// A config moved to a directory whose name starts like one the rendered file
+// already names still gets its own rules. named() asks whether the list covers
+// this install's config directory, and a bare path is a substring of every path
+// that starts the same way: /var/lib/faramir would read as already covered by
+// the rule about /var/lib/faramir-broker, and the rules that are the only cover
+// a moved config has would be skipped.
+func TestAConfigDirIsNotReadAsCoveredByALongerPath(t *testing.T) {
+	rules := make([]string, 0, len(defaultInstallPaths)*3)
+	for _, dir := range defaultInstallPaths {
+		rules = append(rules, denyrules.For([]string{denyrules.Dir(dir)})...)
+	}
+	for _, dir := range []string{"/var/lib/faramir", "/etc/faramir-alt", "/var/log"} {
+		if named(rules, dir) {
+			t.Errorf("%s was read as already covered, so it would get no rules of "+
+				"its own", dir)
+		}
+	}
+	// And the install's own directories are covered, which is what stops the
+	// rules being rendered twice.
+	for _, dir := range defaultInstallPaths {
+		if !named(rules, dir) {
+			t.Errorf("%s is in the rendered list and was not recognised", dir)
+		}
 	}
 }

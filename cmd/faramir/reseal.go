@@ -53,7 +53,7 @@ func loadStore(label, socket string, named []string,
 	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
 		return nil, 1
 	}
-	cfg, err := config.Load(resolveConfig(socket))
+	cfg, err := loadResolved(socket)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return nil, 1
@@ -100,7 +100,7 @@ func loadStore(label, socket string, named []string,
 	// This install's own rule, and no flag naming another: these commands make
 	// the ciphertext agree with <config-dir>/.sops.yaml, so a run sealing the
 	// secrets directory to another file's recipients produces the state they
-	// exist to remove. --config moves the whole install.
+	// exist to remove. FARAMIR_CONFIG moves the whole install.
 	return &storeContext{
 		cfg:      cfg,
 		keyPath:  keyPath,

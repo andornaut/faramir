@@ -93,11 +93,14 @@ func TestTheQuestionsFieldsDoNotObeyTheCaller(t *testing.T) {
 	}
 }
 
-// The question names the program root will run, not only the one the caller
-// asked for. A relative argv[0] resolves against the request's cwd, which is
-// the agent's working tree, so `bin/ansible-playbook` can be a file the agent
+// The question names the program the executor resolved, not only the string the
+// caller asked for. A relative argv[0] resolves against the request's cwd, which
+// is the agent's working tree, so `bin/ansible-playbook` can be a file the agent
 // wrote.
-func TestTheQuestionNamesWhatWillActuallyRun(t *testing.T) {
+//
+// Not the program that becomes root: the sudo may be several processes below the
+// run, and what the helper identifies is the run rather than the sudo.
+func TestTheQuestionNamesTheResolvedProgram(t *testing.T) {
 	question := asked(t, Run{
 		Argv: []string{"bin/ansible-playbook", "site.yml"}, Cwd: "/srv/ctrl",
 		Argv0Path: "/srv/ctrl/bin/ansible-playbook",

@@ -62,7 +62,7 @@ func runAdd(f addFlags, name string) int {
 	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
 		return 1
 	}
-	cfg, err := config.Load(resolveConfig(socketDefault()))
+	cfg, err := loadResolved(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1

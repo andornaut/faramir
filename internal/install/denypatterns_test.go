@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // renderDenyPatterns is the file as an install would write it.
@@ -128,4 +130,39 @@ func withoutClasses(rule string) string {
 		}
 	}
 	return out.String()
+}
+
+// A rule about a directory is about that directory. The subjects are
+// interpolated into a command-line matcher, so an unbounded one makes the rule
+// for /etc/faramir also cover /etc/faramir-notes.md: an agent is refused a file
+// nobody blocked, and the refusal names a rule that has nothing to do with it.
+func TestACommandRuleDoesNotReachASiblingPath(t *testing.T) {
+	layout := Layout{
+		ConfigDir: "/etc/faramir", BinDir: "/usr/local/bin",
+		LibexecDir: "/usr/local/libexec/faramir", LogDir: "/var/log/faramir",
+		Blocked: []config.BlockedPath{{Path: "/srv/luks.key"}},
+	}
+	rules := denyRules(renderDenyPatterns(t, layout))
+	if len(rules) == 0 {
+		t.Fatal("no rules rendered")
+	}
+	for _, blocked := range []string{
+		"cat /etc/faramir/age.key",
+		"rm /var/log/faramir/audit.log",
+		"cat /srv/luks.key",
+	} {
+		if !matchesAny(t, rules, blocked) {
+			t.Errorf("%q is not refused; the rules cover less than they claim", blocked)
+		}
+	}
+	for _, allowed := range []string{
+		"cat /etc/faramir-notes.md",
+		"cat /var/log/faramir-other/x",
+		"cat /srv/luks.key.md",
+		"rm /usr/local/libexec/faramir-tools/x",
+	} {
+		if matchesAny(t, rules, allowed) {
+			t.Errorf("%q is refused by a rule about a neighbouring path", allowed)
+		}
+	}
 }

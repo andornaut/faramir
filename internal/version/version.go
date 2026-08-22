@@ -15,6 +15,19 @@ import (
 // tagged build, and init below decides what an unstamped one reports.
 var Version = "dev"
 
+// Build is which build of an unstamped binary this is, and "" for one whose
+// version already names it. Every build that reports "dev" reports the same
+// "dev", so two of them compare equal and the version check that exists to
+// catch daemons left on the binary they were started from never fires. The
+// revision is what separates them: the dev release is a moving tag repointed
+// per commit, so two dev builds are two commits.
+//
+// Not folded into Version, which would be a different and worse change:
+// Mismatch refuses a caller whose version is not this binary's, so a Version
+// that changed per build would refuse every running MCP server and agent on
+// every rebuild rather than at a release.
+var Build = ""
+
 // A binary the linker did not stamp can still know what it was built from:
 // `go install <module>@v1.2.3` records the version and records no VCS settings,
 // having built from the module cache rather than from a checkout. A build made
@@ -30,12 +43,38 @@ func init() {
 	}
 	for _, setting := range info.Settings {
 		if strings.HasPrefix(setting.Key, "vcs") {
+			Build = buildID(info.Settings)
 			return
 		}
 	}
 	if v := releaseVersion(info.Main.Version); v != "" {
 		Version = v
 	}
+}
+
+// buildID is the revision, short enough to read in a report, with a marker for
+// a tree that carried edits. Two builds off one commit with different edits are
+// still one id: what the toolchain records cannot tell them apart, and this
+// says "modified" rather than implying it can.
+func buildID(settings []debug.BuildSetting) string {
+	var revision, modified string
+	for _, setting := range settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			if setting.Value == "true" {
+				modified = "-modified"
+			}
+		}
+	}
+	if revision == "" {
+		return ""
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	return revision + modified
 }
 
 // releaseVersion returns what to report for a version the module system

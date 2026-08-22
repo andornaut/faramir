@@ -224,7 +224,7 @@ func TestAskBrokerTakesTheVersionFromARefusal(t *testing.T) {
 			got.version, version.Version)
 	}
 	// There is no status body in a refusal, so nothing may be claimed about
-	// where that broker's config sits: discoverConfigFile reads the unit.
+	// where that broker's config sits: configFileFrom reads the unit instead.
 	if got.configDir != "" {
 		t.Errorf("askBroker configDir = %q, want empty: a refusal carries no body",
 			got.configDir)

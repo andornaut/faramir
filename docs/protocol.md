@@ -28,6 +28,8 @@ There is one binary: the three daemons are it under three units, and the CLI and
 
 Every error response from the broker carries `version`, the build that answered. A request refused for naming another version is the one case where the caller cannot read that out of an op, the refusal coming before the op is read, and it is what [`doctor`](operating.md#checking-an-install) reports skew from.
 
+`status` also carries `build`, which is what separates two binaries reporting the same version: every unstamped build reports `dev`, so the version alone cannot tell one from another. It is the commit, plus `-modified` for a tree that carried edits, and empty for a release whose version already names the build. `doctor` compares it when the versions match. Not part of `version` itself, which would make the refusal above fire on every rebuild rather than on every release.
+
 A caller that sends no `version` is refused the same way and told it named none. The alternative is failing later on whichever op or field changed in between: an op the daemon no longer has is refused as unknown, which reads as a caller asking for something that never existed, and a field it no longer reads is ignored, so a setting the caller sent goes silently unapplied.
 
 The MCP server is the process this is for: a long-lived child of the coding agent, and so the one client that survives an install.
@@ -41,7 +43,7 @@ Op | Does | Notes
 `run` | run a command | The default: an absent `op` is read as this. An `op` this broker does not know is refused rather than defaulted, so a caller naming one is told.
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
 `refs` | ref names only | Adds `refs`.
-`status` | version, `configs`, loaded files, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
+`status` | version, `build`, `configs`, loaded files, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
 `escalations` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
 `approve` | answer by `id` | Root only.
 `escalate` | the PAM helper's half | Root only. Adds `approved`, `outcome_code`, `reason`.

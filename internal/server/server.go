@@ -368,6 +368,9 @@ func (s *Server) opStatus() protocol.Response {
 	}
 	body, err := json.MarshalIndent(map[string]any{
 		"version": version.Version,
+		// Which build, for the versions that do not name one. Empty for a
+		// release, where the version is the answer.
+		"build": version.Build,
 		// Every file that contributed, which is one.
 		"configs": s.Config.Sources,
 		"secrets": s.Store.Describe(),
@@ -831,11 +834,10 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	// a caller poll the one window in which the host must be quiet, landing its
 	// retries against the exact interval the serialisation protects.
 	if heldBy != "" {
-		return s.refuse("escalation_in_progress", "an escalation is being decided or held "+
-			"on the executor's uid ("+heldBy+"), and no other brokered command runs "+
-			"while one is: they share that uid, so a second could ride the escalation. "+
-			"This command was not run and was not queued. Run it again once that one "+
-			"has finished", logID, peer, cmd, cwd)
+		return s.refuse("escalation_in_progress", "an escalation is being decided or "+
+			"held for "+heldBy+", and no other brokered command runs while one is: "+
+			"a second could ride it. Not run and not queued; run it again once that "+
+			"one has finished", logID, peer, cmd, cwd)
 	}
 	// How this run ended, read by the defer below and published to the terminal
 	// that approved it. The zero value is a run the broker never got a status

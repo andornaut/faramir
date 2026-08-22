@@ -248,9 +248,9 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 		kept = rest
 		// Asked before anything is written, and only where no entry matched: an
 		// install that declared the same rule as well may take its own entry back,
-		// and what it is left with is the built-in, which the warning below says.
+		// and what it is left with is the layout's, which the warning below says.
 		if removed[i].Blocks() == "" {
-			if err := builtInRuleError(asked); err != nil {
+			if err := builtInRuleError(configDir, asked); err != nil {
 				return Report{}, nil, err
 			}
 		}
@@ -274,16 +274,12 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 			if entry.Blocks() == "" {
 				continue
 			}
-			rule, ok := BuiltInRuleFor(entry.Name)
-			if !ok && entry.Path != "" {
-				rule, ok = BuiltInRuleCovering(entry.Path)
-			}
-			if ok {
+			if dir, ok := InstalledDirCovering(configDir, entry.Path); ok {
 				report.Warnings = append(report.Warnings, fmt.Sprintf(
-					"%s is still refused by a rule compiled into faramir (%s, the built-in "+
-						"%s rule %q). What was removed is this install's own entry, which was "+
-						"asking for what faramir already refuses",
-					entry.Blocks(), rule.Why, rule.Kind, rule.Entry))
+					"%s is still blocked: it is under %s, which this install occupies and "+
+						"renders a rule for on every run. What was removed is this install's "+
+						"own entry, which was asking for what the layout already blocks",
+					entry.Blocks(), dir))
 			}
 		}
 	}
@@ -320,7 +316,7 @@ func BuiltInRuleError(configDir string, refused config.BlockedPath) error {
 			return nil
 		}
 	}
-	return builtInRuleError(refused)
+	return builtInRuleError(configDir, refused)
 }
 
 // builtInRuleError is the rule half of the question, with no config in it.
@@ -328,20 +324,16 @@ func BuiltInRuleError(configDir string, refused config.BlockedPath) error {
 // A path is answered as well as a pattern: "stop refusing ~/.ssh/id_rsa" and
 // "stop refusing the id_rsa rule" are one request, and only one of them names
 // a rule.
-func builtInRuleError(refused config.BlockedPath) error {
-	rule, ok := BuiltInRuleFor(refused.Name)
-	if !ok && refused.Path != "" {
-		rule, ok = BuiltInRuleCovering(refused.Path)
-	}
+func builtInRuleError(configDir string, refused config.BlockedPath) error {
+	dir, ok := InstalledDirCovering(configDir, refused.Path)
 	if !ok {
 		return nil
 	}
-	return fmt.Errorf("%s is refused by a rule compiled into faramir (%s, the "+
-		"built-in %s rule %q), not by a [[secret.block]] entry, so there is "+
-		"nothing here to remove and this host does not stop refusing it. The "+
-		"built-in rules are the same on every install and change only with "+
-		"faramir itself; `faramir block ls` shows which rules are which",
-		refused.Blocks(), rule.Why, rule.Kind, rule.Entry)
+	return fmt.Errorf("%s is under %s, which this install occupies, so it is "+
+		"blocked by the layout rather than by a [[secret.block]] entry: there is "+
+		"nothing here to remove and the host goes on blocking it. Those rules are "+
+		"rendered on every run and change only with the install; `faramir block "+
+		"ls` shows which rules are which", refused.Blocks(), dir)
 }
 
 // BlockedPaths is what the install declares, for `faramir block ls`.

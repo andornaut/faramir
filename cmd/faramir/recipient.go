@@ -22,7 +22,6 @@ import (
 
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/audit"
-	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
@@ -289,7 +288,7 @@ func listedOrNot(adding bool) string {
 // keys and a rule and no value. It reads that file rather than asking the
 // broker.
 func runRecipientList(f recipientFlags) int {
-	cfg, err := config.Load(resolveConfig(socketDefault()))
+	cfg, err := loadResolved(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
 		return 1

@@ -2,6 +2,7 @@ package version
 
 import (
 	"os"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -102,5 +103,55 @@ func TestMismatchNamesBothVersionsAndTheRemedy(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Every unstamped binary reports "dev", so the version alone cannot tell two
+// local builds apart, and the check that exists to catch a daemon left on the
+// binary it was started from would never fire. The revision is what separates
+// them.
+func TestBuildIsTheRevisionOfAnUnstampedBinary(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings []debug.BuildSetting
+		want     string
+	}{
+		{"a clean tree", []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "0123456789abcdef0123"},
+			{Key: "vcs.modified", Value: "false"},
+		}, "0123456789ab"},
+		{"a tree carrying edits", []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "0123456789abcdef0123"},
+			{Key: "vcs.modified", Value: "true"},
+		}, "0123456789ab-modified"},
+		{"a short revision is not padded", []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "abc123"},
+		}, "abc123"},
+		// Nothing to name the build with is empty rather than a partial id: a
+		// caller reads empty as "cannot compare" and acts on it.
+		{"no revision recorded", []debug.BuildSetting{
+			{Key: "vcs.modified", Value: "true"},
+		}, ""},
+		{"no settings at all", nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := buildID(tc.settings); got != tc.want {
+				t.Errorf("buildID = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Folding the build into Version would refuse every running MCP server and
+// agent on every rebuild: Mismatch turns a difference into a refusal on all
+// three sockets, and it is meant to fire at a release rather than at a build.
+func TestTheBuildIsNotPartOfTheVersion(t *testing.T) {
+	if Build != "" && strings.Contains(Version, Build) {
+		t.Errorf("Version %q carries the build %q, which makes Mismatch refuse "+
+			"a caller from the previous build rather than the previous release",
+			Version, Build)
+	}
+	if Mismatch(Version) != "" {
+		t.Error("this binary's own version is a mismatch with itself")
 	}
 }

@@ -406,7 +406,7 @@ func (p *project) resolveGroup() error {
 			"An enrolment writes this install's deny rules into the tree, and the "+
 			"linked and blocked paths among them are in that file, so a tree enrolled "+
 			"without it would carry a rule list missing the paths this install added. "+
-			"Run `faramir init` first, or pass --config-dir if the config is "+
+			"Run `faramir init` first, or set FARAMIR_CONFIG if the config is "+
 			"elsewhere", configFile, err)
 	}
 	// The grant is this host's, and says nothing about a tree shared with a group

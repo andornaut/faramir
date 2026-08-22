@@ -68,7 +68,7 @@ func TestAMissingConfigStopsTheEnrolment(t *testing.T) {
 	if err == nil {
 		t.Fatal("an enrolment with no config to read was allowed to proceed")
 	}
-	for _, want := range []string{"faramir init", "--config-dir"} {
+	for _, want := range []string{"faramir init", "FARAMIR_CONFIG"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the error does not name %s as a way out: %v", want, err)
 		}

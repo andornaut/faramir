@@ -35,6 +35,9 @@ var brokerUnit = install.UnitPath("faramir-broker.service")
 type status struct {
 	configDir string
 	version   string
+	// build is which build of that version, for the versions that do not name
+	// one. Empty from a release, and from a broker of a build that predates it.
+	build string
 }
 
 // askBroker asks a running broker about itself in one round trip, and returns a
@@ -80,11 +83,12 @@ func askBroker(socketPath string) status {
 	var body struct {
 		Configs []string `json:"configs"`
 		Version string   `json:"version"`
+		Build   string   `json:"build"`
 	}
 	if err := json.Unmarshal([]byte(response.Output), &body); err != nil {
 		return status{}
 	}
-	out := status{version: body.Version}
+	out := status{version: body.Version, build: body.Build}
 	if len(body.Configs) > 0 {
 		// The base config is first by construction.
 		out.configDir = filepath.Dir(body.Configs[0])
@@ -100,44 +104,46 @@ func unitConfigFile() string {
 	return install.UnitConfigFile(brokerUnit)
 }
 
-// discoverConfigFile finds the config.toml this host's install uses: the
-// running broker's own answer, then the path its unit names. Empty when
-// neither answers. The compiled-in default is not a step here, being a guess
-// each caller decides for itself.
-func discoverConfigFile(st status) string {
-	if st.configDir != "" {
-		if path := filepath.Join(st.configDir, "config.toml"); exists(path) {
-			return path
-		}
-	}
-	return unitConfigFile()
-}
-
-// configDirFrom picks the install to act on, given an answer already asked for:
-// $FARAMIR_CONFIG, then the running broker, then the path its unit names. No
-// flag and no compiled-in default. A caller cannot be expected to know where
-// the config lives, and the default is a guess: acting on the wrong install is
-// worse than saying which install could not be found.
+// configFileFrom is the config.toml a running install loads, given an answer
+// already asked for: the broker's own, then the path the broker's unit names.
+// The broker answers with its base config first, so its directory and that name
+// reconstruct the file it loaded.
 //
-// The broker's answer is taken as it stands rather than required to hold a
-// file, unlike discoverConfigFile: the caller is about to report on the
-// directory or remove it, and one that is not there is the finding.
-func configDirFrom(st status) (string, error) {
-	// $FARAMIR_CONFIG first, the same variable the daemons are given by their
-	// units and the one config.Load reads. Not a way for a caller to name an
-	// install it happens to know about, but the way out of the case below: a
-	// host whose broker is down and whose unit is gone still has an operator who
-	// can say where the config is, without every command carrying a flag for it.
-	if path := os.Getenv("FARAMIR_CONFIG"); path != "" {
-		return filepath.Dir(path), nil
-	}
+// Neither answering is an error rather than the compiled-in default. A caller
+// cannot be expected to know where the config lives, and the default is a
+// guess: acting on the wrong install is worse than saying which install could
+// not be found.
+func configFileFrom(st status) (string, error) {
 	if st.configDir != "" {
-		return st.configDir, nil
+		return filepath.Join(st.configDir, "config.toml"), nil
 	}
 	if path := unitConfigFile(); path != "" {
-		return filepath.Dir(path), nil
+		return path, nil
 	}
 	return "", errNoInstall
+}
+
+// findConfigFile is configFileFrom with $FARAMIR_CONFIG in front of it, which
+// is the whole ladder every command but init climbs. The same variable the
+// daemons are given by their units and the one config.Load reads: not a way for
+// a caller to name an install it happens to know about, but the way out of the
+// case configFileFrom ends in, a host whose broker is down and whose unit is
+// gone still having an operator who can say where the config is.
+func findConfigFile(st status) (string, error) {
+	path := os.Getenv("FARAMIR_CONFIG")
+	if path == "" {
+		return configFileFrom(st)
+	}
+	// The file, not the directory it is in. The flag this replaced took a
+	// directory, so an operator migrating writes FARAMIR_CONFIG=/etc/faramir by
+	// hand, and reading it as a file would make the install /etc: `block add`
+	// would then write a new /etc/config.toml, which is the wrong install this
+	// whole ladder exists to refuse.
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		return "", fmt.Errorf("FARAMIR_CONFIG=%s is a directory; it names the "+
+			"config file, so this wants %s", path, filepath.Join(path, "config.toml"))
+	}
+	return path, nil
 }
 
 // errNoInstall names both places that were asked, so the operator knows which
@@ -147,10 +153,14 @@ var errNoInstall = fmt.Errorf("no install found: the broker did not answer on "+
 	"FARAMIR_CONFIG to the config file, or run `faramir init` if this host has "+
 	"no install", brokerUnit)
 
-// resolveConfigDir is configDirFrom for a caller with no other use for the
-// broker's answer.
+// resolveConfigDir is the directory holding this host's config, for the
+// commands that act on the install rather than read it.
 func resolveConfigDir(socketPath string) (string, error) {
-	return configDirFrom(askBroker(socketPath))
+	path, err := findConfigFile(askBroker(socketPath))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(path), nil
 }
 
 // initConfigDir is where init provisions to. Unlike every other command this
@@ -158,12 +168,17 @@ func resolveConfigDir(socketPath string) (string, error) {
 // install has no broker to ask and no unit to read, which is the case init is
 // for, and it is the one command whose caller does decide where the config
 // goes.
+//
+// configFileFrom rather than findConfigFile, so $FARAMIR_CONFIG is not a step.
+// It is a variable an operator exports for a shell and `sudo -E` carries
+// through, and a leftover from an earlier command must not be what decides
+// where a host is provisioned.
 func initConfigDir(explicit, socketPath string) string {
 	if explicit != "" {
 		return explicit
 	}
-	if dir, err := configDirFrom(askBroker(socketPath)); err == nil {
-		return dir
+	if path, err := configFileFrom(askBroker(socketPath)); err == nil {
+		return filepath.Dir(path)
 	}
 	return install.DefaultConfigDir
 }
@@ -454,10 +469,16 @@ func newInitProjectCmd() *cobra.Command {
 }
 
 func runInitProject(f initProjectFlags, args []string) int {
+	// A dry run writes nothing, so it has no wrong install to act on: asking
+	// about a tree from a host that has not been provisioned yet is what it is
+	// for, and Project takes the same latitude with a config it cannot read.
 	dir, err := resolveConfigDir(socketDefault())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
-		return 1
+		if !f.dryRun {
+			fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
+			return 1
+		}
+		dir = install.DefaultConfigDir
 	}
 
 	opts := install.ProjectOptions{
@@ -555,23 +576,24 @@ func runDoctor(f doctorFlags) int {
 	// One round trip: the same answer decides which install this is and whether
 	// the daemons are running the code that was installed.
 	//
-	// Skipped when $FARAMIR_CONFIG already says which install, because the round
-	// trip is not free: opening the socket activates the service, and a report on
-	// a stopped daemon would then describe the host doctor made rather than the
-	// one it met. The version goes unknown, which is what a host with no answer
-	// from its broker has anyway.
-	var broker status
-	if os.Getenv("FARAMIR_CONFIG") == "" {
-		broker = askBroker(socketDefault())
-	}
-	dir, err := configDirFrom(broker)
+	// Always asked, including when $FARAMIR_CONFIG already says which install.
+	// The variable answers "which install" and nothing else: skipping the round
+	// trip on it would make every check that needs the broker's version report
+	// that the broker did not answer, when it was never asked. That opening the
+	// socket activates the service is a real cost -- a stopped daemon is started
+	// by the diagnosis -- but a report that is quietly wrong about what it asked
+	// is worse than one that names a broker the asking started.
+	broker := askBroker(socketDefault())
+	configFile, err := findConfigFile(broker)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir doctor: %v\n", err)
 		return 1
 	}
+	dir := filepath.Dir(configFile)
 	report := install.Diagnose(install.DoctorOptions{
 		ConfigDir:     dir,
 		BrokerVersion: broker.version,
+		BrokerBuild:   broker.build,
 		SocketStates:  sockets,
 		AgentUser:     operatorName(f.agentUser),
 		ClientGroup:   f.clientGroup,
@@ -760,16 +782,19 @@ func runUninstall(f uninstallFlags) int {
 	if !requireRoot("uninstall", "it removes the units and the installed files") {
 		return 1
 	}
-	// Nothing to find is nothing to remove, which is what this command is for:
-	// the postcondition already holds. Every other command errors here, because
-	// acting on the wrong install is the danger; removing nothing carries none of
-	// it, and an uninstall that failed the second time would break the converge
-	// loop that runs it after an interrupted first.
+	// Nothing answering is not a reason to stop here, unlike every other command.
+	// A first run removes the units before the sudoers grant, the PAM service and
+	// the binaries, so a run that failed partway leaves exactly the host that
+	// answers nothing, and that is the host the re-run is for. Uninstall removes
+	// at fixed paths and wants the directory only to name what it left in place,
+	// where the compiled-in default is a guess about wording rather than about
+	// what gets deleted.
 	dir, err := resolveConfigDir(socketDefault())
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "faramir uninstall: nothing installed: the broker "+
-			"did not answer on its socket and "+brokerUnit+" names no config file")
-		return 0
+		fmt.Fprintln(os.Stderr, "faramir uninstall: no install answers, so this "+
+			"removes what is at the usual paths and names what it leaves against "+
+			install.DefaultConfigDir)
+		dir = ""
 	}
 	left, err := install.Uninstall(dir)
 	if err != nil {

@@ -435,7 +435,7 @@ guard_says "cat /etc/hostname" | grep -q '"permissionDecision":"deny"' \
   || ok "and an ordinary read is left alone"
 
 out=$(block ls)
-grep -qE '^declared +(path|name|suffix|glob|dir) ' <<<"$out" \
+grep -qE '^(path|name|suffix|glob|dir) ' <<<"$out" \
   && ok "block ls lists what the config declares" \
   || bad "block ls carries no declared entry: ${out:0:200}"
 grep -q 'command rule(s), which no entry changes' <<<"$out" \
@@ -479,6 +479,22 @@ grep -qF 'e2e-probe' $RULES \
   && bad "a command entry reached the agent's file-tool rules" \
   || ok "and it reaches no rule file, a command not being a path"
 block rm --command 'e2e-probe read' >/dev/null 2>&1
+
+# A path the install's own layout also covers. Taking the entry back leaves the
+# path blocked, and saying nothing would read as the file becoming readable.
+INSIDE=/etc/faramir/secrets/e2e-inside.sops.yml
+block add "$INSIDE" >/dev/null 2>&1
+out=$(block rm "$INSIDE")
+grep -q "$INSIDE" <<<"$out" \
+  && ok "block rm removes an entry the layout also covers" \
+  || bad "block rm of a covered path: ${out:0:200}"
+grep -q '/etc/faramir' <<<"$out" \
+  && ok "and names the directory that still blocks it" \
+  || bad "the removal says nothing about what still blocks it: ${out:0:300}"
+out=$(block rm /etc/faramir/age.key 2>&1); code=$?
+[ $code -eq 1 ] && grep -q 'block ls' <<<"$out" \
+  && ok "and a path only the layout blocks cannot be removed at all" \
+  || bad "block rm of an undeclared covered path: exit $code [${out:0:200}]"
 
 out=$(block rm --name "$NAME")
 grep -qF "stopped blocking $NAME" <<<"$out" \

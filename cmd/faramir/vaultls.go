@@ -20,7 +20,6 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 
 	"github.com/andornaut/faramir/internal/audit"
-	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
@@ -76,7 +75,7 @@ func runVaultList(f vaultListFlags) int {
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
 	}
-	cfg, err := config.Load(resolveConfig(socketDefault()))
+	cfg, err := loadResolved(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
@@ -211,7 +210,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
 	}
-	cfg, err := config.Load(resolveConfig(socketDefault()))
+	cfg, err := loadResolved(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
