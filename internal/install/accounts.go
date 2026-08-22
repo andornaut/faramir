@@ -413,28 +413,40 @@ var loginDefs = "/etc/login.defs"
 //
 // Every one that holds is named, not the first: they are cleared with one
 // command each, and a run that named one at a time would cost a re-run apiece.
+//
+// One membership is named once, whichever reasons it breaks. The secrets group
+// defaults to the keeper's own group, so on a default install one membership
+// answers both checks below, and what an operator counts is commands to run
+// rather than reasons a group is wrong.
 func (r *runner) refuseOpenBoundaries() error {
 	var open []string
+	named := map[string]bool{}
+	add := func(who, group, why string) {
+		key := who + " " + group
+		if named[key] {
+			return
+		}
+		named[key] = true
+		open = append(open, fmt.Sprintf("%s is in %s, %s (`gpasswd -d %s %s`)",
+			who, group, why, who, group))
+	}
 	// The secrets group is what makes editing a secret need sudo.
 	for _, who := range []string{r.layout.ExecUser, r.opts.AgentUser} {
 		if who == "" {
 			continue
 		}
 		if in, err := inGroup(who, r.layout.SecretsGroup); err == nil && in {
-			open = append(open, fmt.Sprintf("%s is in %s, so it can read and replace "+
-				"the managed sops files directly, and the secrets directory is only as "+
-				"protected as whatever runs as that account (`gpasswd -d %s %s`)",
-				who, r.layout.SecretsGroup, who, r.layout.SecretsGroup))
+			add(who, r.layout.SecretsGroup, "so it can read and replace the managed "+
+				"sops files directly, and the secrets directory is only as protected "+
+				"as whatever runs as that account")
 		}
 	}
 	// A command that could read the broker's or the keeper's group holds the
 	// audit log or the age key.
 	for _, forbidden := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
 		if in, err := inGroup(r.layout.ExecUser, forbidden); err == nil && in {
-			open = append(open, fmt.Sprintf("%s is in %s, which is the boundary "+
-				"between a brokered command and the age key or the audit log "+
-				"(`gpasswd -d %s %s`)",
-				r.layout.ExecUser, forbidden, r.layout.ExecUser, forbidden))
+			add(r.layout.ExecUser, forbidden, "which is the boundary between a "+
+				"brokered command and the age key or the audit log")
 		}
 	}
 	if len(open) == 0 {

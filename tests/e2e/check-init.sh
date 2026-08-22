@@ -163,4 +163,56 @@ before=$(find /home/op -maxdepth 2 -name 'settings.json' -o -maxdepth 2 -name 'f
   && ok "and a dry run wrote nothing into the home while answering" \
   || bad "a dry run wrote into the operator's home"
 
+# --------------------------------------------------------------------------
+head_ "the memberships that defeat the split init draws"
+#
+# The install is a set of accounts that cannot reach each other's files, so a
+# membership that crosses one of those lines makes the install a description of
+# a boundary that is not there. `faramir doctor` fails on these, so `init` does
+# too: a host where one holds is one the two commands would otherwise disagree
+# about.
+#
+# Reported and not corrected. A membership faramir did not add is somebody
+# else's decision, and every one is cleared with one command.
+
+reinit() { /usr/local/bin/faramir init --agent-user op 2>&1; }
+
+for pair in "faramir-exec faramir-keeper" "op faramir-keeper" "faramir-exec faramir-broker"; do
+  who=${pair%% *}; group=${pair##* }
+  gpasswd -a "$who" "$group" >/dev/null 2>&1
+  out=$(reinit); rc=$?
+  gpasswd -d "$who" "$group" >/dev/null 2>&1
+  [ $rc -ne 0 ] && ok "$who in $group is refused (exit $rc)" \
+    || bad "$who in $group was accepted: init exited 0"
+  grep -q "gpasswd -d $who $group" <<<"$out" \
+    && ok "  and the refusal names the command that clears it" \
+    || bad "  the refusal does not name gpasswd -d $who $group: ${out##*$'\n'}"
+done
+
+# Every one that holds, in one run: they are cleared with one command each, and
+# naming them one at a time would cost a re-run apiece. Counted by the distinct
+# commands printed rather than the lines, one membership being named once
+# whichever of the reasons above it breaks.
+gpasswd -a faramir-exec faramir-keeper >/dev/null 2>&1
+gpasswd -a faramir-exec faramir-broker >/dev/null 2>&1
+out=$(reinit)
+gpasswd -d faramir-exec faramir-keeper >/dev/null 2>&1
+gpasswd -d faramir-exec faramir-broker >/dev/null 2>&1
+lines=$(grep -c 'gpasswd -d' <<<"$out")
+distinct=$(grep -o 'gpasswd -d [a-z-]* [a-z-]*' <<<"$out" | sort -u | wc -l)
+[ "$distinct" -eq 2 ] && ok "both memberships are named in one run" \
+  || bad "one run named $distinct distinct memberships, want 2"
+[ "$lines" -eq "$distinct" ] && ok "and each membership is named once" \
+  || bad "a membership is named $lines times over $distinct commands: the operator counts commands"
+
+# The refusal comes before anything is applied, so clearing them and running
+# again is the whole of the way out.
+out=$(reinit); rc=$?
+[ $rc -eq 0 ] && ok "with the memberships cleared, init runs" \
+  || bad "init still refuses after the memberships were cleared: ${out##*$'\n'}"
+waitfor 25 runuser -u op -- /usr/local/bin/faramir refs \
+  && ok "and the broker serves" \
+  || bad "the broker is not serving after the refused runs"
+
+# --------------------------------------------------------------------------
 summary
