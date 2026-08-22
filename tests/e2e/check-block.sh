@@ -441,6 +441,13 @@ grep -qE '^(path|name|command) ' <<<"$out" \
 grep -qE '^[0-9]+ built-in command rule\(s\):' <<<"$out" \
   && ok "and the command rules faramir carries itself" \
   || bad "block ls does not list the command rules: ${out: -300}"
+# The table is the declared half alone, so it is sorted the whole way down. A
+# built-in row in it would sit where its own half sorted it, which reads as a
+# table that lost its order partway.
+rows=$(sed -n '2,/^$/p' <<<"$out" | sed '/^$/d')
+[ "$rows" = "$(LC_ALL=C sort <<<"$rows")" ] \
+  && ok "and the table is sorted from its first row to its last" \
+  || bad "block ls is out of order: $(diff <(echo "$rows") <(LC_ALL=C sort <<<"$rows") | head -c 200)"
 # A row is one of three kinds and nothing else: a suffix and a prefix are
 # spellings of a name, and the entry shows which. Where a rule is enforced
 # follows from the kind rather than being carried in a column beside it.
@@ -458,9 +465,17 @@ out=$(block ls --built-in)
 grep -q "$KEY" <<<"$out" \
   && bad "--built-in listed a declared entry: ${out:0:200}" \
   || ok "and --built-in is the half faramir renders itself"
-grep -qE '^path +/etc/faramir' <<<"$out" \
+# Under a heading of their own rather than as table rows: the declared half and
+# this one are sorted separately, so one table holding both reads as unsorted.
+grep -qE '^[0-9]+ built-in path rule\(s\):' <<<"$out" \
+  && ok "under a heading saying they are faramir's own" \
+  || bad "--built-in heads its paths with nothing: ${out:0:200}"
+grep -qE '^  /etc/faramir$' <<<"$out" \
   && ok "which names this install's own directories" \
   || bad "--built-in names no install directory: ${out:0:200}"
+[ -n "$(head -1 <<<"$out")" ] \
+  && ok "and opens on the heading rather than a blank line" \
+  || bad "--built-in opens on a blank line: [${out:0:80}]"
 out=$(block ls --declared --built-in 2>&1); code=$?
 [ $code -eq 2 ] \
   && ok "and naming both halves is refused, being the default" \

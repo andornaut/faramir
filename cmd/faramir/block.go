@@ -280,10 +280,10 @@ func newBlockListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   useLs,
 		Short: "List what this host blocks from the agent",
-		Long: "Lists both halves of what this host blocks: the directories the install\n" +
-			"occupies, and the [[secret.block]] entries it declares. The declared\n" +
-			"entries come first, and --json says which half a row came from in a\n" +
-			"`source` field.\n\n" +
+		Long: "Lists both halves of what this host blocks: the [[secret.block]] entries\n" +
+			"it declares, and the rules faramir carries itself. The table is the\n" +
+			"declared half; the built-in rules are under it, a section per kind.\n" +
+			"--json is one list, with a `source` field saying which half a row is.\n\n" +
 			"Two columns, kind and entry. The kind is one of three, `name`, `path` or\n" +
 			"`command`, and where a rule is enforced follows from it: a name and a\n" +
 			"path reach the agent's file tools and its shell alike, a command reaches\n" +
@@ -342,11 +342,13 @@ type blockRow struct {
 }
 
 // belowTable is whether a row is printed under the table rather than in it.
-// Only the built-in command rules are: a declared command is a literal the
-// operator wrote, and printing it under the table drops its source, so what
-// this host declared reads as one of the rules faramir carries.
+// Every built-in is: the table is what this host declared, and the two halves
+// are sorted separately, so printing them in one table puts a seam in the
+// middle of a sorted column with nothing to say it is there. It also leaves
+// the operator no way to see which rows `block rm` will refuse, those being
+// faramir's own rather than an entry.
 func (r blockRow) belowTable() bool {
-	return r.Kind == kindCommand && r.Source == sourceBuiltIn
+	return r.Source == sourceBuiltIn
 }
 
 // blockRows is the listing, declared entries first: they are what the
@@ -507,16 +509,17 @@ func runBlockList(f blockFlags) int {
 		fmt.Fprintln(os.Stderr, "no [[secret.block]] entries")
 		return 0
 	}
-	// Under the table rather than in it: they are regular expressions, one long
-	// enough that a cell holding it would take the alignment of every other row
-	// with it.
-	var commands []blockRow
+	// The table is what this host declared. The built-ins go under it, by kind:
+	// the command rules are regular expressions, one long enough that a cell
+	// holding it would take the alignment of every other row with it, and the
+	// paths are faramir's own rather than an entry anybody can remove.
+	var builtIn []blockRow
 	table := [][]cell{{
 		painted("KIND", paint.key), painted("ENTRY", paint.key),
 	}}
 	for _, row := range rows {
 		if row.belowTable() {
-			commands = append(commands, row)
+			builtIn = append(builtIn, row)
 			continue
 		}
 		// The entry is unpainted: it is what the operator wrote, and the colour
@@ -525,15 +528,42 @@ func runBlockList(f blockFlags) int {
 			painted(row.Kind, paint.bold), value(row.Entry),
 		})
 	}
-	printTable(os.Stdout, table)
-	if len(commands) == 0 {
-		return 0
+	declaredTable := len(table) > 1
+	if declaredTable {
+		printTable(os.Stdout, table)
 	}
-	fmt.Printf("\n%d built-in command rule(s):\n", len(commands))
-	for _, row := range commands {
-		fmt.Printf("  %s\n", paint.dim(row.Entry))
-	}
+	printBuiltIn(paint, builtIn, declaredTable)
 	return 0
+}
+
+// printBuiltIn writes the built-in rules under the table, a section per kind
+// and each headed by what it holds. Named as rules rather than as entries:
+// nothing declared them and `block rm` refuses them, so calling them entries
+// would offer the operator a removal that fails.
+//
+// above is whether anything was printed already, which is what the blank line
+// before a section separates it from: --built-in prints no table, and a
+// listing that opens on an empty line reads as one missing its first row.
+func printBuiltIn(paint palette, rows []blockRow, above bool) {
+	for _, kind := range []string{kindPath, kindCommand} {
+		var of []blockRow
+		for _, row := range rows {
+			if row.Kind == kind {
+				of = append(of, row)
+			}
+		}
+		if len(of) == 0 {
+			continue
+		}
+		if above {
+			fmt.Println()
+		}
+		above = true
+		fmt.Printf("%d built-in %s rule(s):\n", len(of), kind)
+		for _, row := range of {
+			fmt.Printf("  %s\n", paint.dim(row.Entry))
+		}
+	}
 }
 
 // errReason is why a stat failed, in the few words a table cell has room for.

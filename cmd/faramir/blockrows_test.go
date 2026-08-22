@@ -24,26 +24,30 @@ func TestADeclaredCommandStaysInTheTable(t *testing.T) {
 	}
 }
 
-// The built-in command rules are regular expressions, one long enough that a
-// cell holding it would take the alignment of every other row with it.
-func TestTheBuiltInCommandRulesGoUnderTheTable(t *testing.T) {
-	rows := blockRows(t.TempDir(), nil, true)
-	var commands, table int
+// Every built-in goes under the table, whatever its kind. The two halves are
+// sorted separately, so one table holding both puts a seam in the middle of a
+// sorted column with nothing to say it is there, and leaves no way to see
+// which rows `block rm` will refuse.
+func TestEveryBuiltInRuleGoesUnderTheTable(t *testing.T) {
+	rows := blockRows(t.TempDir(), []config.BlockedPath{{Path: "/srv/luks.key"}}, true)
+	kinds := map[string]int{}
 	for _, row := range rows {
-		if row.Kind != kindCommand {
-			table++
+		if row.Source == sourceBuiltIn {
+			if !row.belowTable() {
+				t.Errorf("built-in %s rule %q was put in the table", row.Kind, row.Entry)
+			}
+			kinds[row.Kind]++
 			continue
 		}
-		if !row.belowTable() {
-			t.Errorf("built-in command rule %q was put in the table", row.Entry)
+		if row.belowTable() {
+			t.Errorf("declared entry %q was printed under the table", row.Entry)
 		}
-		commands++
 	}
-	if commands == 0 {
-		t.Error("no built-in command rules listed, so this test asserts nothing")
-	}
-	if table == 0 {
-		t.Error("no table rows listed; the built-in directories should be there")
+	// Both kinds of built-in, each of which is printed as its own section.
+	for _, kind := range []string{kindPath, kindCommand} {
+		if kinds[kind] == 0 {
+			t.Errorf("no built-in %s rules listed, so this test asserts nothing", kind)
+		}
 	}
 }
 
