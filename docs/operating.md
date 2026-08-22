@@ -111,6 +111,10 @@ Command | Does
 
 At the broker these are three ops rather than four, `deny` being `approve` with a no: `escalations`, `approve` and `escalate` are root-only there too, checked with `SO_PEERCRED`, so the account the coding agent runs as cannot answer what the agent asked for. `escalate` is the one sudo's PAM helper asks, and so the one that decides whether a brokered command becomes root.
 
+**`init` refuses to run inside a brokered command.** It asks the broker what the agent holds on its way out, and a brokered command already holds the escalation that got it to root, so no second one runs while it is held: nested, `init` would do every step and then fail at its own verification. `doctor` reports the same nesting as a check it could not ask rather than as a broken install. So the route this repo documents for reaching a controller, `faramir run -- sudo make <playbook>`, works for every playbook except the one that installs faramir; run that from a shell of your own.
+
+**Colour** is on where stdout is a terminal, off under `$NO_COLOR` whatever its value, and forced either way by `--color=always|never`. Every listing and report takes the flag: `block ls`, `link ls`, `vault ls`, `recipient ls`, `logs`, `doctor`, `escalations` and the two answers. What is painted is faramir's own vocabulary, the column headings and the kinds and states; a path, a ref or a filename is left alone, so a value cannot dress itself as one of faramir's words. `--json` is never painted.
+
 ## Rules a command does not state
 
 - **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.

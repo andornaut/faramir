@@ -194,6 +194,10 @@ func (r *runner) stepValidate() error {
 		// The error carries stderr, where the reason is; dropping it reports every
 		// failure as "holds no usable key ()".
 		if agentErr != nil {
+			if why := NestedRun(); why != "" {
+				return fmt.Errorf("could not ask the broker what its agent holds: %s",
+					why)
+			}
 			return fmt.Errorf("could not ask the broker what its agent holds: %w\n"+
 				"A brokered command runs where its caller was, so this also fails "+
 				"when init is run from a directory %s cannot enter",

@@ -1172,6 +1172,12 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 	}
 	out, err := brokered("id", "-un")
 	if err != nil {
+		// Not a broken install: doctor is itself inside a brokered command, and
+		// the check it wants to make is the one thing that cannot run there.
+		if why := NestedRun(); why != "" {
+			report.unaskedf("brokered command", 1, "not asked: %s", why)
+			return
+		}
 		report.addf("brokered command", StatusFailed, "%s could not run one: %v",
 			opts.AgentUser, err)
 		return

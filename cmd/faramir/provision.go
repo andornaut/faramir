@@ -350,6 +350,17 @@ func namedValues(pairs []string) (map[string]string, error) {
 }
 
 func runInit(f initFlags) int {
+	// Before the first step. init asks the broker what the agent holds on its way
+	// out, so nested it would do every other step and then fail at its own
+	// verification: a converge that changed nothing and reports failure, with
+	// nothing in the ending to point at the cause.
+	if why := install.NestedRun(); why != "" {
+		fmt.Fprintf(os.Stderr, "faramir init: %s, so init cannot finish here: it "+
+			"asks the broker what the agent holds and that question would be "+
+			"refused. Run it from a shell of your own rather than through "+
+			"`faramir run`\n", why)
+		return 1
+	}
 
 	env, err := namedValues(f.commandEnv)
 	if err != nil {

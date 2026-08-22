@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -39,6 +38,7 @@ type blockFlags struct {
 	commands  []string
 	declared  bool
 	json      bool
+	when      string
 }
 
 // entries is the refusals a command was asked for: every path given as an
@@ -275,6 +275,7 @@ func newBlockListCmd() *cobra.Command {
 	c.Flags().BoolVar(&f.declared, "declared", false,
 		"only the [[secret.block]] entries this install declares")
 	c.Flags().BoolVar(&f.json, "json", false, "print the entries as JSON")
+	addColorFlag(c, &f.when)
 	return c
 }
 
@@ -395,6 +396,11 @@ const (
 )
 
 func runBlockList(f blockFlags) int {
+	paint, err := newPalette(f.when)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", err)
+		return 2
+	}
 	dir, err := resolveConfigDir(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", err)
@@ -436,23 +442,30 @@ func runBlockList(f blockFlags) int {
 	// it would take the alignment of every other row with it, and they are read
 	// as patterns rather than scanned as a column.
 	var commands []blockRow
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "KIND\tENTRY\tCOVERS")
+	table := [][]cell{{
+		painted("KIND", paint.key), painted("ENTRY", paint.key),
+		painted("COVERS", paint.key),
+	}}
 	for _, row := range rows {
 		if row.belowTable() {
 			commands = append(commands, row)
 			continue
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", row.Kind, row.Entry, row.Covers)
+		// The entry is unpainted: it is what the operator wrote, and the colour
+		// stops where faramir's own words stop.
+		table = append(table, []cell{
+			painted(row.Kind, paint.bold), value(row.Entry),
+			painted(row.Covers, paint.dim),
+		})
 	}
-	_ = w.Flush()
+	printTable(os.Stdout, table)
 	if len(commands) == 0 {
 		return 0
 	}
 	fmt.Printf("\n%d command rule(s), which no entry changes: faramir blocks these "+
 		"for what the command does rather than for what it names.\n", len(commands))
 	for _, row := range commands {
-		fmt.Printf("  %s\n", row.Entry)
+		fmt.Printf("  %s\n", paint.dim(row.Entry))
 	}
 	return 0
 }

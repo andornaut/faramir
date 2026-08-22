@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -36,6 +35,7 @@ type linkFlags struct {
 	kind      string
 	key       string
 	json      bool
+	when      string
 }
 
 func (f *linkFlags) register(c *cobra.Command) {
@@ -202,10 +202,16 @@ func newLinkListCmd() *cobra.Command {
 	}
 	f.register(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the entries as JSON")
+	addColorFlag(c, &f.when)
 	return c
 }
 
 func runLinkList(f linkFlags) int {
+	paint, err := newPalette(f.when)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)
+		return 2
+	}
 	dir, err := resolveConfigDir(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)
@@ -239,20 +245,29 @@ func runLinkList(f linkFlags) int {
 	// touching the config: a credential removed, or a home not mounted. Whether
 	// the broker can read it is doctor's question, that one needing to be asked as
 	// the broker.
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "REF\tTYPE\tKEY\tFILE\tSTATE")
+	table := [][]cell{{
+		painted("REF", paint.key), painted("TYPE", paint.key),
+		painted("KEY", paint.key), painted("FILE", paint.key),
+		painted("STATE", paint.key),
+	}}
 	for _, link := range links {
-		state := "present"
+		state, colour := "present", paint.ok
 		if _, err := os.Stat(link.Path); err != nil {
-			state = "not there"
+			state, colour = "not there", paint.bad
 		}
 		key := link.Key
 		if key == "" {
 			key = "-"
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", link.Ref, link.Type, key, link.Path, state)
+		// The ref takes the colour `faramir logs` gives one, the two listings
+		// being read by the same operator. The path and the key are the
+		// operator's own and stay unpainted.
+		table = append(table, []cell{
+			painted(link.Ref, paint.ref), painted(link.Type, paint.dim),
+			value(key), value(link.Path), painted(state, colour),
+		})
 	}
-	_ = w.Flush()
+	printTable(os.Stdout, table)
 	return 0
 }
 

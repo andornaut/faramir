@@ -13,8 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	yaml "go.yaml.in/yaml/v3"
@@ -48,6 +48,7 @@ type managedFile struct {
 
 type vaultListFlags struct {
 	json bool
+	when string
 }
 
 func newVaultListCmd() *cobra.Command {
@@ -64,11 +65,17 @@ func newVaultListCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runVaultList(f)) },
 	}
 	c.Flags().BoolVar(&f.json, "json", false, "print the listing as JSON")
+	addColorFlag(c, &f.when)
 	return c
 }
 
 func runVaultList(f vaultListFlags) int {
 	const label = "vault ls"
+	paint, err := newPalette(f.when)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return 2
+	}
 	// The secrets directory is 2750 and the group is the keeper's, so the operator
 	// cannot list it. Blocked with the reason rather than reported as an empty
 	// store.
@@ -105,14 +112,26 @@ func runVaultList(f vaultListFlags) int {
 	} else {
 		// The directory once, above the rows, so the names are the ones the other
 		// commands take and a full path is still readable.
-		fmt.Println(filepath.Dir(cfg.Secret.Patterns[0]))
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "NAME\tREFS\tREADERS\tSTATE")
+		fmt.Println(paint.dim(filepath.Dir(cfg.Secret.Patterns[0])))
+		table := [][]cell{{
+			painted("NAME", paint.key), painted("REFS", paint.key),
+			painted("READERS", paint.key), painted("STATE", paint.key),
+		}}
 		for _, file := range files {
-			_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%s\n", file.Name, len(file.Refs),
-				len(file.Recipients), stateOf(file))
+			state, colour := stateOf(file), paint.ok
+			switch {
+			case file.Problem != "":
+				colour = paint.bad
+			case file.Drifted:
+				colour = paint.warn
+			}
+			table = append(table, []cell{
+				value(file.Name), painted(strconv.Itoa(len(file.Refs)), paint.ref),
+				painted(strconv.Itoa(len(file.Recipients)), paint.dim),
+				painted(state, colour),
+			})
 		}
-		_ = w.Flush()
+		printTable(os.Stdout, table)
 	}
 	// Named after the listing rather than mixed into it: a pattern that matched
 	// nothing is not a file.

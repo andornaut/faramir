@@ -49,12 +49,14 @@ func newRecipientCmd() *cobra.Command {
 type recipientFlags struct {
 	dryRun bool
 	json   bool
+	when   string
 }
 
 func (f *recipientFlags) register(c *cobra.Command, writes bool) {
 	fl := c.Flags()
 	if !writes {
 		fl.BoolVar(&f.json, "json", false, "print the recipients as JSON")
+		addColorFlag(c, &f.when)
 		return
 	}
 	fl.BoolVar(&f.dryRun, "dry-run", false,
@@ -288,6 +290,11 @@ func listedOrNot(adding bool) string {
 // keys and a rule and no value. It reads that file rather than asking the
 // broker.
 func runRecipientList(f recipientFlags) int {
+	paint, err := newPalette(f.when)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
+		return 2
+	}
 	cfg, err := loadResolved(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
@@ -318,7 +325,8 @@ func runRecipientList(f recipientFlags) int {
 	}
 	for _, recipient := range recipients {
 		if recipient != "" && recipient == keeper {
-			fmt.Printf("%s  (this host's keeper)\n", recipient)
+			// The note is faramir's word about the key, not part of it.
+			fmt.Printf("%s  %s\n", recipient, paint.dim("(this host's keeper)"))
 			continue
 		}
 		fmt.Println(recipient)

@@ -18,7 +18,7 @@ type palette struct {
 }
 
 // addColorFlag registers --color on a command that prints a report to a human.
-// Declared once rather than once per command: three commands paint, and the
+// Declared once rather than once per command: several commands paint, and the
 // flag an operator types at one of them has to be the flag the others take.
 // Not persistent on the root command, which would advertise it on `run`,
 // `exec` and the daemons, where it decides nothing.
