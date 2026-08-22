@@ -63,6 +63,15 @@ func canWrite(account, path string) bool {
 	return err == nil
 }
 
+// canTraverse asks the question a directory answers with its execute bit:
+// whether paths under it can be reached at all. Separate from canRead because
+// the two are independent, a directory being listable without being passable
+// and passable without being listable.
+func canTraverse(account, path string) bool {
+	_, err := asUser(account, selfPath(), "access", "--execute", path)
+	return err == nil
+}
+
 // selfPath is the binary to re-run as another account: this process's own, so a
 // doctor run from a build that is not the installed one asks itself. The
 // target account has to be able to execute it, which a build in an operator's
@@ -616,6 +625,17 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 		report.addf("agent keys", StatusFailed, "%s can list %s: the home was enrolled "+
 			"rather than a project inside it, so every credential in it is group-shared. "+
 			"init-project grants traversal, not read", opts.ExecUser, home)
+		return
+	}
+	// Asked rather than assumed, the OK below claiming traversal: a home is
+	// listable without being passable and passable without being listable, so the
+	// check above answers neither way. An enrolment grants this and a home whose
+	// mode or group has moved since takes it away, leaving nothing under it
+	// reachable while every check that only asks about reading still passes.
+	if !canTraverse(opts.ExecUser, home) {
+		report.addf("agent keys", StatusFailed, "%s cannot traverse %s, so no brokered "+
+			"command reaches an enrolled tree under it. `faramir init-project` grants "+
+			"it back", opts.ExecUser, home)
 		return
 	}
 	// Named individually: traversal makes the home passable while its own mode

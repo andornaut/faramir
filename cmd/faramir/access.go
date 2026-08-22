@@ -26,8 +26,9 @@ import (
 // doctor runs as another account.
 func newAccessCmd() *cobra.Command {
 	var (
-		read  bool
-		write bool
+		read    bool
+		write   bool
+		execute bool
 	)
 	c := &cobra.Command{
 		Use:     "access [options] PATH",
@@ -40,20 +41,25 @@ func newAccessCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runAccess(args[0], read, write))
+			return codeErr(runAccess(args[0], read, write, execute))
 		},
 	}
 	c.Flags().BoolVarP(&read, "read", "r", false, "may this account read it")
 	c.Flags().BoolVarP(&write, "write", "w", false, "may this account write it")
+	// On a directory this is traversal: passing through without being able to
+	// list it, which is what an enrolment grants and what every path under a home
+	// depends on.
+	c.Flags().BoolVarP(&execute, "execute", "x", false,
+		"may this account execute it, or traverse it where it is a directory")
 	return c
 }
 
 // runAccess exits 0 where the access is permitted and 1 where it is not.
 //
-// Deny by default: neither flag is a question nobody asked, and answering it
-// yes would report a boundary as open on the strength of an empty command line.
-// Both together is the conjunction, as access(2)'s own mask is.
-func runAccess(path string, read, write bool) int {
+// Deny by default: no flag is a question nobody asked, and answering it yes
+// would report a boundary as open on the strength of an empty command line.
+// Several together is the conjunction, as access(2)'s own mask is.
+func runAccess(path string, read, write, execute bool) int {
 	var mode uint32
 	if read {
 		mode |= unix.R_OK
@@ -61,9 +67,12 @@ func runAccess(path string, read, write bool) int {
 	if write {
 		mode |= unix.W_OK
 	}
+	if execute {
+		mode |= unix.X_OK
+	}
 	if mode == 0 {
-		fmt.Fprintln(os.Stderr, "faramir access: name --read or --write; "+
-			"with neither there is no question to answer")
+		fmt.Fprintln(os.Stderr, "faramir access: name --read, --write or --execute; "+
+			"with none of them there is no question to answer")
 		return 2
 	}
 	// Faccessat with a zero flags argument asks about the real uid and gid and
