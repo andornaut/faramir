@@ -3,6 +3,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -216,4 +217,133 @@ func TestChangingOneKindOfEntryKeepsTheOther(t *testing.T) {
 			t.Errorf("links = %+v, want the list the caller set", opts.links)
 		}
 	})
+}
+
+// A list is what a first run pastes and what a converge hands over, so one bad
+// entry in it has to leave the host as it was rather than writing the entries
+// that came before it. Every entry is held to the loader's rules before
+// anything is written, which is the only reason that holds.
+func TestABatchCarryingOneBadEntryWritesNoneOfIt(t *testing.T) {
+	good := config.BlockedPath{Path: "/etc/luks/volume.key"}
+	for _, tc := range []struct {
+		name string
+		bad  config.BlockedPath
+	}{
+		{"a name carrying a newline", config.BlockedPath{Name: "aaa\nbbb"}},
+		{"a relative path", config.BlockedPath{Path: "etc/luks.key"}},
+		{"the whole filesystem", config.BlockedPath{Path: "/"}},
+		{"an entry naming nothing", config.BlockedPath{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := writeBlockConfig(t, "")
+			before := readConfigFile(t, dir)
+
+			_, added, err := AddBlockedPaths(Options{ConfigDir: dir},
+				[]config.BlockedPath{good, tc.bad})
+			if err == nil {
+				t.Fatal("the batch was accepted")
+			}
+			if len(added) != 0 {
+				t.Errorf("added = %v, want nothing reported added", added)
+			}
+			if got := readConfigFile(t, dir); got != before {
+				t.Errorf("the good entry was written by a batch that failed:\n%s", got)
+			}
+		})
+	}
+}
+
+// Folding one entry at a time against what the last one left is what makes a
+// list behave like the same commands run in that order: the second naming of
+// an entry is already there rather than a second rule saying the same thing.
+func TestABatchNamingOneEntryTwiceAddsItOnce(t *testing.T) {
+	luks := config.BlockedPath{Path: "/etc/luks/volume.key"}
+	ssh := config.BlockedPath{Path: "/home/op/.ssh"}
+
+	entries, added := foldBlocked(nil, []config.BlockedPath{luks, ssh, luks})
+	if len(entries) != 2 {
+		t.Errorf("entries = %+v, want the two distinct ones", entries)
+	}
+	if want := []bool{true, true, false}; !slices.Equal(added, want) {
+		t.Errorf("added = %v, want %v", added, want)
+	}
+
+	// And against what the install already carries, not only within the list.
+	entries, added = foldBlocked([]config.BlockedPath{luks}, []config.BlockedPath{luks, ssh})
+	if len(entries) != 2 {
+		t.Errorf("entries = %+v, want the existing one and the new one", entries)
+	}
+	if want := []bool{false, true}; !slices.Equal(added, want) {
+		t.Errorf("added = %v, want %v", added, want)
+	}
+}
+
+// The form is part of what an entry says. A path and a name spelled the same
+// render different rules, so neither stands in for the other and an add of the
+// second is not an add of what is already there.
+func TestAnEntryIsTheSameOnlyWhenItsFormIsTheSame(t *testing.T) {
+	const spelling = "/etc/luks/volume.key"
+	path := config.BlockedPath{Path: spelling}
+	name := config.BlockedPath{Name: spelling}
+	if sameBlock(path, name) {
+		t.Error("a path and a name spelled alike are read as one entry")
+	}
+	entries, added := blockedWith([]config.BlockedPath{path}, name)
+	if !added || len(entries) != 2 {
+		t.Errorf("added = %v, entries = %+v, want the name added beside the path",
+			added, entries)
+	}
+}
+
+// What an add says about the entry it wrote, one warning per form. A path is
+// the only form asked of the filesystem: a name and a command are matched
+// against what an agent writes, so neither reaches a file to be missing.
+func TestEachFormOfEntryIsWarnedAboutOnItsOwnTerms(t *testing.T) {
+	const linked = "/etc/linked.key"
+	links := []config.Link{{Path: linked, Ref: "some/ref"}}
+	for _, tc := range []struct {
+		name  string
+		entry config.BlockedPath
+		want  []string
+		gone  []string
+	}{
+		{
+			name:  "a command names what it will and will not catch",
+			entry: config.BlockedPath{Command: "sops"},
+			want:  []string{"sops", "literal", "where a command starts", "is left alone"},
+			gone:  []string{"is not there"},
+		},
+		{
+			name:  "a name says what it matches, that being what a pattern hides",
+			entry: config.BlockedPath{Name: "*.key"},
+			want:  []string{"*.key"},
+			gone:  []string{"is not there"},
+		},
+		{
+			name:  "a path that is not there is said, an unmounted volume looking so",
+			entry: config.BlockedPath{Path: "/nowhere/absent.key"},
+			want:  []string{"/nowhere/absent.key", "is not there"},
+		},
+		{
+			name:  "a path a link already refuses adds nothing to it",
+			entry: config.BlockedPath{Path: linked},
+			want:  []string{linked, "some/ref", "adds nothing"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var report Report
+			blockedWarnings(&report, tc.entry, links)
+			joined := strings.Join(report.Warnings, "\n")
+			for _, want := range tc.want {
+				if !strings.Contains(joined, want) {
+					t.Errorf("the warnings do not say %q:\n%s", want, joined)
+				}
+			}
+			for _, gone := range tc.gone {
+				if strings.Contains(joined, gone) {
+					t.Errorf("the warnings say %q, which is about a path:\n%s", gone, joined)
+				}
+			}
+		})
+	}
 }
