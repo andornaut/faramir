@@ -553,11 +553,6 @@ out=$(FARAMIR_CONFIG=/tmp/nosuch.toml logs); code=$?
 [ $code -eq 1 ] && grep -q 'config' <<<"$out" && ok "a config that is not there is named as such" \
   || bad "missing config: exit $code [$out]"
 
-out=$(logs --color pink); code=$?
-[ $code -eq 2 ] && ok "an unknown --color is a usage error" || bad "--color pink: exit $code"
-out=$(logs one two); code=$?
-[ $code -eq 2 ] && ok "two log-ids is a usage error" || bad "two args: exit $code"
-
 # --color always is what a pipe into less needs; auto into a pipe must not.
 raw=$(/usr/local/bin/faramir logs --color always -n 1 | cat)
 printf '%s' "$raw" | grep -qP '\x1b\[' && ok "--color always paints into a pipe" || bad "--color always painted nothing"
@@ -680,12 +675,6 @@ rows=$(grep -cE '^[0-9a-z]{14} ' "$OUT")
 [ "$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2} ' "$OUT")" -eq 1 ] \
   && ok "with one date header across the whole run" \
   || bad "the date header repeated: [$(cat "$OUT")]"
-
-# A log-id is one record that is already written, so there is nothing to wait
-# for. Refused rather than printed-and-then-hung.
-out=$(logsAt "$WATCHCFG" --watch w5vqeeee000004); code=$?
-[ $code -eq 2 ] && grep -q 'takes no log-id' <<<"$out" \
-  && ok "--watch with a log-id is refused as usage, exit 2" || bad "--watch with an id: exit $code [$out]"
 
 # --json cannot close an array it has no last record for, so it streams values.
 synth streamed 5 >> "$WATCH"

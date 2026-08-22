@@ -137,6 +137,9 @@ link = "gh/token"
 // Every selecting kind has to survive the loader, not only the reader: a type
 // secretlink can extract and the config refuses is one no operator can declare.
 func TestEverySelectingKindLoads(t *testing.T) {
+	if len(secretlink.Kinds()) == 0 {
+		t.Fatal("secretlink extracts no kind, so this asserts nothing")
+	}
 	for _, kind := range secretlink.Kinds() {
 		body := "\nref = \"a/b\"\npath = \"/x\"\ntype = \"" + kind + "\"\n"
 		if secretlink.NeedsKey(kind) {

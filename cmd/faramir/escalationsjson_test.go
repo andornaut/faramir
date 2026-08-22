@@ -100,12 +100,26 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 // captureStdout runs fn with stdout on a pipe and returns what it wrote.
 func captureStdout(t *testing.T, fn func() int) (string, int) {
 	t.Helper()
+	return captureFile(t, &os.Stdout, fn)
+}
+
+// captureStderr is the same for the stream a refusal is written to.
+func captureStderr(t *testing.T, fn func() int) (string, int) {
+	t.Helper()
+	return captureFile(t, &os.Stderr, fn)
+}
+
+// captureFile points one of the process's own streams at a pipe for the length
+// of the call. Both are package variables, so the stream is named by pointer
+// rather than by a flag saying which of the two was meant.
+func captureFile(t *testing.T, stream **os.File, fn func() int) (string, int) {
+	t.Helper()
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	saved := os.Stdout
-	os.Stdout = writer
+	saved := *stream
+	*stream = writer
 	done := make(chan []byte, 1)
 	go func() {
 		var buf []byte
@@ -120,7 +134,7 @@ func captureStdout(t *testing.T, fn func() int) (string, int) {
 		done <- buf
 	}()
 	code := fn()
-	os.Stdout = saved
+	*stream = saved
 	_ = writer.Close()
 	out := <-done
 	_ = reader.Close()

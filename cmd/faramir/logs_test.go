@@ -466,8 +466,29 @@ func TestFollowerSurvivesAReopenThatFindsNothing(t *testing.T) {
 // and then told this.
 func TestLogsRefusesAWatchWithALogID(t *testing.T) {
 	f := logsFlags{when: "never", watch: true, count: 20}
-	if code := runLogs(f, []string{"a"}); code != 2 {
+	said, code := captureStderr(t, func() int { return runLogs(f, []string{"a"}) })
+	if code != 2 {
 		t.Errorf("faramir logs --watch w5vq7dbg000002 = %d, want 2 (usage)", code)
+	}
+	// Which of the two to drop: a refusal that only says the pair is wrong
+	// leaves the caller to guess, and the guess costs another run as root.
+	if !strings.Contains(said, "takes no log-id") {
+		t.Errorf("the refusal does not say which half is wrong: %q", said)
+	}
+}
+
+// An unknown --color is refused before anything is read, so it is a usage error
+// rather than the exit 1 that says the log could not be reached. Decided in
+// runLogs and not only in newPalette: the status the shell sees is what tells a
+// script it was invoked wrongly.
+func TestLogsRefusesAnUnknownColour(t *testing.T) {
+	f := logsFlags{when: "pink", count: 20}
+	said, code := captureStderr(t, func() int { return runLogs(f, nil) })
+	if code != 2 {
+		t.Errorf("faramir logs --color pink = %d, want 2 (usage)", code)
+	}
+	if !strings.Contains(said, "pink") {
+		t.Errorf("the refusal does not name what was passed: %q", said)
 	}
 }
 

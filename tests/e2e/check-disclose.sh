@@ -97,11 +97,13 @@ for ref in $refused; do
   grep -q 'unknown_secret' <<<"$out" && ok "a refused ref is not injectable ($ref)" \
     || bad "a refused ref was injected: ${out:0:90}"
   carries "the refusal for $ref" "$out"
-  # What it discloses: that this ref exists and why it was refused.
+  # What it discloses: that this ref exists and why it was refused. Either
+  # answer is allowed, so this records which one was given rather than
+  # asserting it.
   if grep -qi 'refused at load\|cannot be redacted' <<<"$out"; then
-    ok "  and the refusal says why, which also confirms the ref exists"
+    note "  the refusal says why, which also confirms the ref exists"
   else
-    ok "  and the refusal is indistinguishable from a ref that does not exist"
+    note "  the refusal is indistinguishable from a ref that does not exist"
   fi
 done
 # A ref nobody has: the two answers are worth comparing, one being an oracle.

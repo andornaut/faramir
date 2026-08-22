@@ -11,14 +11,12 @@ import (
 	"github.com/andornaut/faramir/internal/denyrules"
 )
 
-// Point every test at the repo's own patterns rather than at whatever is
-// installed under /usr/local/libexec. Rendered first, because the shipped file
-// is a template whose path rules match nothing unexpanded.
-// The whole package runs against the shipped file as an install would render
-// it. Fatal rather than best-effort on every step: a render that failed used to
-// leave the variable unset, which sends the guard to whatever file this machine
-// has installed, and the suite then reports on that host's build instead of
-// this tree's.
+// The whole package runs against this tree's patterns file, rendered as an
+// install would render it: the shipped copy is a template whose path rules
+// match nothing unexpanded. Every step exits rather than carrying on, because
+// an unset variable sends the guard to whatever is installed under
+// /usr/local/libexec, and the suite then reports on that build instead of this
+// one.
 func TestMain(m *testing.M) {
 	data, err := renderShippedBytes()
 	if err != nil {
@@ -98,6 +96,9 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 // left out has its arguments scanned, and `run`'s arguments are somebody else's
 // command.
 func TestEveryAgentSubcommandIsSanctioned(t *testing.T) {
+	if len(cli.Agent) == 0 {
+		t.Fatal("no subcommand is sanctioned, so this asserts nothing")
+	}
 	for _, name := range cli.Agent {
 		// A ref in the arguments is the thing an unsanctioned call trips on.
 		cmd := "faramir " + name + " --env A=faramir://a"
@@ -112,6 +113,9 @@ func TestEveryAgentSubcommandIsSanctioned(t *testing.T) {
 // agent runs as could not carry them out, so what the refusal saves is the
 // detour of learning that from a permission error and trying to get around it.
 func TestEveryOperatorSubcommandIsRefused(t *testing.T) {
+	if len(cli.OperatorOnly()) == 0 {
+		t.Fatal("every subcommand is sanctioned to the agent, so this asserts nothing")
+	}
 	for _, name := range cli.OperatorOnly() {
 		for _, cmd := range []string{"faramir " + name, "sudo faramir " + name} {
 			if _, denied := decide(cmd); !denied {

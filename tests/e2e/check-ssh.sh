@@ -200,10 +200,12 @@ head_ "8. agent forwarding relocates the signing capability"
 
 out=$(brokered /usr/bin/ssh -A -o BatchMode=yes -o ConnectTimeout=8 deploy@$HOST \
   'ssh-add -l 2>&1 | head -1')
+# Recorded rather than asserted: -A is the command's own choice, so neither
+# answer is a failure. The assertion is the one below it.
 if grep -q SHA256 <<<"$out"; then
-  ok "with -A the managed host can use the key too, for the life of the connection"
+  note "with -A the managed host can use the key too, for the life of the connection"
 else
-  ok "with -A the managed host got no usable agent: $(head -1 <<<"$out" | cut -c1-60)"
+  note "with -A the managed host got no usable agent: $(head -1 <<<"$out" | cut -c1-60)"
 fi
 # What it must not get either way is the key itself.
 grep -qi 'PRIVATE KEY' <<<"$out" && bad "the key crossed to the managed host" \

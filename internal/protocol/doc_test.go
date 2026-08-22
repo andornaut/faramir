@@ -17,7 +17,7 @@ func docTable(t *testing.T) []string {
 	t.Helper()
 	body, err := faramir.Assets.ReadFile("docs/protocol.md")
 	if err != nil {
-		t.Skipf("the protocol doc is not embedded here: %v", err)
+		t.Fatalf("the protocol doc is not embedded: %v", err)
 	}
 	text := string(body)
 	start := strings.Index(text, "Op | Does | Notes")

@@ -20,7 +20,7 @@ import (
 func TestTheReadmeGroupsEveryOperatorCommand(t *testing.T) {
 	body, err := faramir.Assets.ReadFile("README.md")
 	if err != nil {
-		t.Skipf("the README is not embedded here: %v", err)
+		t.Fatalf("the README is not embedded: %v", err)
 	}
 	text := string(body)
 	start := strings.Index(text, "Group | Commands")

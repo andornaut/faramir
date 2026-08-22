@@ -61,24 +61,40 @@ func TestTheRelocatedRulesAreGone(t *testing.T) {
 	}
 }
 
-// What the two rules do not carry is carried by the layout instead: every path
-// this install writes is rendered as a literal, so it is refused where it
-// actually is rather than where a default would have put it. That is the reason
-// the list is two rules and not seven, so it is asserted rather than assumed.
+// Nothing about this install is compiled into the rules: every path it writes
+// is rendered as a literal out of the layout, so a host that moved one is
+// refused where the file actually is rather than where the default would have
+// put it. An install that took --config-dir is the case this covers, and the
+// defaults are asserted absent as well as the literals present: a rule holding
+// both refuses the right path and somebody else's at the same time.
 func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
+	// Every directory moved off its default, so a rule carrying a default is a
+	// rule that was compiled in rather than rendered.
 	layout := Layout{
 		ConfigDir:  "/opt/faramir",
-		LogDir:     "/var/log/faramir",
-		LibexecDir: "/usr/local/libexec/faramir",
+		LogDir:     "/srv/log/faramir",
+		LibexecDir: "/opt/faramir/libexec",
 	}
 	rules := claudeRules(layout)
 	for _, want := range []string{
 		"Read(/opt/faramir/**)",         // the age key, the SSH key, config.toml
 		"Read(/opt/faramir/secrets/**)", // the managed sops files
-		"Read(/var/log/faramir/**)",     // the audit log
+		"Read(/srv/log/faramir/**)",     // the audit log
+		"Read(/opt/faramir/libexec/**)", // wrap.sh and the guard
 	} {
 		if !slices.Contains(rules, want) {
 			t.Errorf("the rules do not carry %q", want)
+		}
+	}
+	// And not the defaults beside them: a rule naming where the file would have
+	// been refuses a path on somebody else's host and leaves this one open.
+	for _, unwanted := range []string{
+		"Read(" + DefaultConfigDir + "/**)",
+		"Read(" + DefaultLogDir + "/**)",
+		"Read(" + DefaultLibexecDir + "/**)",
+	} {
+		if slices.Contains(rules, unwanted) {
+			t.Errorf("the rules carry %q, which this layout moved", unwanted)
 		}
 	}
 }
@@ -197,7 +213,12 @@ func TestInstallDirsAreNeverEmpty(t *testing.T) {
 		{LogDir: "/var/log/x"},
 		testLayout(),
 	} {
-		for _, dir := range installDirs(layout) {
+		dirs := installDirs(layout)
+		if len(dirs) == 0 {
+			t.Errorf("installDirs(%+v) yielded nothing, so every rule built from it "+
+				"covers no path and the tests over it assert nothing", layout)
+		}
+		for _, dir := range dirs {
 			if strings.TrimSpace(dir) == "" || dir == "/" {
 				t.Errorf("installDirs(%+v) yielded %q, which refuses everything", layout, dir)
 			}

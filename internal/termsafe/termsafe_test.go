@@ -127,10 +127,10 @@ func TestC1ControlsAreEscaped(t *testing.T) {
 
 // A byte that is not valid UTF-8 is not the rune it would have encoded. Ranging
 // a string by rune yields U+FFFD for it, which unsafeRune calls safe, so a lone
-// 0x9b used to be written straight through: on a terminal honouring 8-bit
-// controls that is the CSI introducer, and "\x9b2J" clears the screen. Output
-// arrives here through the redactor, which replaces an invalid byte already,
-// but a recorded path or a detail string does not.
+// 0x9b passes a rune-wise check: on a terminal honouring 8-bit controls that is
+// the CSI introducer, and "\x9b2J" clears the screen. This walks the bytes
+// instead. Output arrives here through the redactor, which replaces an invalid
+// byte already, but a recorded path or a detail string does not.
 func TestLineEscapesEveryByteATerminalWouldActOn(t *testing.T) {
 	actionable := func(s string) []byte {
 		var out []byte

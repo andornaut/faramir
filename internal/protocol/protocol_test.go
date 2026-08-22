@@ -94,7 +94,8 @@ func TestReservedEnvNamesAreRefused(t *testing.T) {
 	}
 }
 
-// status and refs carry no cmd.
+// An op that runs nothing takes no argv, so the parser must not require one:
+// a cmd demanded here is a client that cannot ask what the broker holds.
 func TestStatusAndRefsCarryNoCmd(t *testing.T) {
 	for _, op := range []string{"status", "refs"} {
 		req, err := parse(t, `{"op":"`+op+`"}`)

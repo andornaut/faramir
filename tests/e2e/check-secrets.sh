@@ -694,12 +694,16 @@ grep -q 'faramir://inventory/one' /tmp/refs.log \
   && ok "and the broker is serving what ls found" || bad "the broker is not serving it"
 
 # THE REFUSAL: anything but the file's own name leaves it alone.
+kept=1
 for answer in "no" "" "y" "yes" "inventor" "inventory.sops"; do
   printf '%s\n' "$answer" | faramir vault rm inventory.sops.yml >/dev/null 2>&1
+  # Stop at the first one that removed it: every answer after that is asked of
+  # a file that is already gone, and would report a refusal that never happened.
   [ -e /etc/faramir/secrets/inventory.sops.yml ] \
-    || bad "answering '$answer' removed the file"
+    || { bad "answering '$answer' removed the file"; kept=0; break; }
 done
-ok "only the file's own name removes it; no, an empty line, y, yes and a near miss do not"
+[ "$kept" -eq 1 ] \
+  && ok "only the file's own name removes it; no, an empty line, y, yes and a near miss do not"
 # A closed stdin is a refusal too, not a prompt nobody answered.
 faramir vault rm inventory.sops.yml </dev/null >/dev/null 2>&1
 [ -e /etc/faramir/secrets/inventory.sops.yml ] && ok "and a closed stdin refuses" \

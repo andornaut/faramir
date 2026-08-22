@@ -226,6 +226,9 @@ func TestBuiltInLeavesTheDeclaredEntriesOut(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
 		t.Fatal(err)
 	}
+	if len(rows) == 0 {
+		t.Fatal("--built-in listed nothing, so this asserts nothing")
+	}
 	for _, row := range rows {
 		if row["source"] != "built-in" {
 			t.Errorf("--built-in listed a %v row: %v", row["source"], row)
