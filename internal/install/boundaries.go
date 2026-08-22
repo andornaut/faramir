@@ -633,6 +633,18 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	// mode or group has moved since takes it away, leaving nothing under it
 	// reachable while every check that only asks about reading still passes.
 	if !canTraverse(opts.ExecUser, home) {
+		// Which directory refuses it, not only that one does: an ancestor closes the
+		// home as surely as the home's own mode, and an operator sent to the wrong
+		// one changes a mode that was never the problem. Asked about a path under the
+		// home rather than the home, blockingDir walking the way to a path and
+		// leaving that path's own mode to whoever opens it.
+		if blocked := blockingDir(opts.ExecUser, filepath.Join(home, "tree")); blocked != "" {
+			report.addf("agent keys", StatusFailed, "%s cannot traverse %s: it cannot "+
+				"enter %s. No brokered command reaches an enrolled tree under it; "+
+				"`faramir init-project` grants the group execute this needs",
+				opts.ExecUser, home, blocked)
+			return
+		}
 		report.addf("agent keys", StatusFailed, "%s cannot traverse %s, so no brokered "+
 			"command reaches an enrolled tree under it. `faramir init-project` grants "+
 			"it back", opts.ExecUser, home)
