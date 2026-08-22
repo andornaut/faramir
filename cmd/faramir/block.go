@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -545,7 +546,7 @@ func runBlockList(f blockFlags) int {
 // before a section separates it from: --built-in prints no table, and a
 // listing that opens on an empty line reads as one missing its first row.
 func printBuiltIn(paint palette, rows []blockRow, above bool) {
-	for _, kind := range []string{kindPath, kindCommand} {
+	for _, kind := range builtInKinds(rows) {
 		var of []blockRow
 		for _, row := range rows {
 			if row.Kind == kind {
@@ -564,6 +565,30 @@ func printBuiltIn(paint palette, rows []blockRow, above bool) {
 			fmt.Printf("  %s\n", paint.dim(row.Entry))
 		}
 	}
+}
+
+// builtInKinds is the kinds to print sections for, in print order: the ones
+// named here first and in that order, then anything else in sorted order.
+//
+// Taken from the rows rather than written out, so a kind added later gets a
+// section of its own instead of being dropped from the listing while --json
+// goes on carrying it. A rule nobody can enumerate is the thing this command
+// exists to prevent.
+func builtInKinds(rows []blockRow) []string {
+	rest := map[string]bool{}
+	for _, row := range rows {
+		rest[row.Kind] = true
+	}
+	var kinds []string
+	for _, kind := range []string{kindPath, kindCommand} {
+		if rest[kind] {
+			kinds = append(kinds, kind)
+			delete(rest, kind)
+		}
+	}
+	leftover := slices.Collect(maps.Keys(rest))
+	slices.Sort(leftover)
+	return append(kinds, leftover...)
 }
 
 // errReason is why a stat failed, in the few words a table cell has room for.

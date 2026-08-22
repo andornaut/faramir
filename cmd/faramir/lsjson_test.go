@@ -382,3 +382,62 @@ path = "/zzz/last.key"
 		}
 	}
 }
+
+// Every built-in row reaches the text listing. The sections are per kind, so a
+// kind with no section of its own would be dropped from what an operator reads
+// while --json went on carrying it: a rule nobody can enumerate is the thing
+// this command exists to prevent, and it would go missing silently.
+func TestNoBuiltInRuleIsDroppedFromTheTextListing(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"),
+		[]byte("[secret]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_CONFIG", filepath.Join(dir, "config.toml"))
+
+	raw, code := captureStdout(t, func() int { return runBlockList(blockFlags{json: true}) })
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, raw)
+	}
+	var rows []blockRow
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &rows); err != nil {
+		t.Fatal(err)
+	}
+	text, code := captureStdout(t, func() int { return runBlockList(blockFlags{when: "never"}) })
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, text)
+	}
+
+	var builtIn int
+	for _, row := range rows {
+		if row.Source != sourceBuiltIn {
+			continue
+		}
+		builtIn++
+		if !strings.Contains(text, row.Entry) {
+			t.Errorf("the %s rule %q is in --json and not in the listing", row.Kind, row.Entry)
+		}
+	}
+	if builtIn == 0 {
+		t.Fatal("no built-in rules listed, so this test asserts nothing")
+	}
+}
+
+// A kind with no section written out for it still gets one, so the listing
+// does not quietly narrow to the kinds that existed when it was written.
+func TestAKindWithNoSectionWrittenOutStillGetsOne(t *testing.T) {
+	rows := []blockRow{
+		{Source: sourceBuiltIn, Kind: kindCommand, Entry: `\bfaramir\b`},
+		{Source: sourceBuiltIn, Kind: kindPath, Entry: "/etc/faramir"},
+		{Source: sourceBuiltIn, Kind: kindName, Entry: "*.key"},
+	}
+	got := builtInKinds(rows)
+	want := []string{kindPath, kindCommand, kindName}
+	if !slices.Equal(got, want) {
+		t.Errorf("kinds = %v, want the named ones first then the rest: %v", got, want)
+	}
+	// And a listing carrying only the kinds it knows names no empty section.
+	if got := builtInKinds(rows[:2]); !slices.Equal(got, []string{kindPath, kindCommand}) {
+		t.Errorf("kinds = %v, want only the two present", got)
+	}
+}
