@@ -231,6 +231,23 @@ func TestStatusDoesNotNameARefusedRef(t *testing.T) {
 	}
 }
 
+// One file is loaded, so status names it rather than reporting a list of one.
+// The client reconstructs the config directory from this, so an install whose
+// config was moved is found by what the broker answers rather than by the
+// compiled-in default.
+func TestStatusNamesTheOneConfigItLoaded(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	var body struct {
+		Config string `json:"config"`
+	}
+	if err := json.Unmarshal([]byte(output(t, s.opStatus())), &body); err != nil {
+		t.Fatalf("status is not JSON: %v", err)
+	}
+	if body.Config != s.Config.Path {
+		t.Errorf("config = %q, want the loaded file %q", body.Config, s.Config.Path)
+	}
+}
+
 func TestStatusNeverCarriesAValue(t *testing.T) {
 	const secret = "hunter2-correct-horse"
 	s := newServer(t, map[string]string{"a/b": secret})

@@ -371,8 +371,8 @@ func (s *Server) opStatus() protocol.Response {
 		// Which build, for the versions that do not name one. Empty for a
 		// release, where the version is the answer.
 		"build": version.Build,
-		// Every file that contributed, which is one.
-		"configs": s.Config.Sources,
+		// The config file this broker loaded.
+		"config":  s.Config.Path,
 		"secrets": s.Store.Describe(),
 		"ssh":     map[string]any{"configured": configured, "usable": usable},
 		// Whether a brokered command may ask to sudo, which the agent needs to
@@ -977,7 +977,7 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	escalationInfo, escalationProblems := s.describeEscalation()
 	policy := s.policyProblems()
 	body, err := json.MarshalIndent(map[string]any{
-		"configs": s.Config.Sources,
+		"config":  s.Config.Path,
 		"secrets": secrets, "ssh": sshInfo, "sudo": escalationInfo, "policy": policy,
 	}, "", "  ")
 	if err != nil {

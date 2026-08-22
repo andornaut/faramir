@@ -220,7 +220,7 @@ func TestADaemonDoesNotAskTheBroker(t *testing.T) {
 	}
 	unit := "/home/op/.config/faramir/config.toml"
 	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+unit+"\n")
-	t.Setenv("FARAMIR_SOCKET", statusBroker(t, []string{live}))
+	t.Setenv("FARAMIR_SOCKET", statusBroker(t, live))
 
 	got, err := findConfigFile(askBroker(socketDefault()))
 	if err != nil {

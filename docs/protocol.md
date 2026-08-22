@@ -43,7 +43,7 @@ Op | Does | Notes
 `run` | run a command | The default: an absent `op` is read as this. An `op` this broker does not know is refused rather than defaulted, so a caller naming one is told.
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
 `refs` | ref names only | Adds `refs`.
-`status` | version, `build`, `configs`, loaded files, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
+`status` | version, `build`, `config`, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
 `escalations` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
 `answer` | answer a question by `id`, carrying `approved` | Root only.
 `escalate` | the PAM helper's half | Root only. Adds `approved`, `outcome_code`, `reason`.

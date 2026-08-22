@@ -453,10 +453,8 @@ type AuditConfig struct {
 }
 
 type Config struct {
-	Path string
-	// Every file that contributed, which is one. Reported by status and
-	// --check.
-	Sources    []string
+	// The file that was loaded, which is one. Reported by status and --check.
+	Path       string
 	Server     ServerConfig
 	Keeper     KeeperConfig
 	Executor   ExecutorConfig
@@ -483,9 +481,6 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	cfg.Path = path
-	// One file, so one source. A list because that is the shape `status` and
-	// `--check` report it in.
-	cfg.Sources = []string{path}
 	return cfg, nil
 }
 

@@ -13,9 +13,9 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// statusBroker answers the status op with the given config list, the body being
-// JSON carried as a string in output.
-func statusBroker(t *testing.T, configs []string) string {
+// statusBroker answers the status op naming the given config file, the body
+// being JSON carried as a string in output.
+func statusBroker(t *testing.T, configFile string) string {
 	t.Helper()
 	socketPath := filepath.Join(t.TempDir(), "b.sock")
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socketPath)
@@ -24,7 +24,7 @@ func statusBroker(t *testing.T, configs []string) string {
 	}
 	t.Cleanup(func() { _ = listener.Close(); _ = os.Remove(socketPath) })
 
-	body, err := json.Marshal(map[string]any{"configs": configs})
+	body, err := json.Marshal(map[string]any{"config": configFile})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,10 +51,7 @@ func statusBroker(t *testing.T, configs []string) string {
 // The compiled-in default is only right for a host that took it, so the broker
 // is asked instead.
 func TestResolveConfigDirAsksTheBroker(t *testing.T) {
-	socket := statusBroker(t, []string{
-		"/home/op/.config/faramir/config.toml",
-		"/home/op/.config/faramir/config.d/a.toml",
-	})
+	socket := statusBroker(t, "/home/op/.config/faramir/config.toml")
 	t.Setenv("FARAMIR_CONFIG", "")
 	got, err := resolveConfigDir(socket)
 	if err != nil {
@@ -69,7 +66,7 @@ func TestResolveConfigDirAsksTheBroker(t *testing.T) {
 // command takes a directory, so this is the only thing an operator can say,
 // and it is the same variable the units give the daemons.
 func TestResolveConfigDirPrefersTheEnvironment(t *testing.T) {
-	socket := statusBroker(t, []string{"/home/op/.config/faramir/config.toml"})
+	socket := statusBroker(t, "/home/op/.config/faramir/config.toml")
 	t.Setenv("FARAMIR_CONFIG", "/etc/elsewhere/config.toml")
 	got, err := resolveConfigDir(socket)
 	if err != nil {
@@ -125,12 +122,12 @@ func TestResolveConfigDirFailsWhenNothingAnswers(t *testing.T) {
 }
 
 // A broker that answers with something else is the same as one that does not.
-func TestResolveConfigDirFailsOnAnEmptyConfigList(t *testing.T) {
+func TestResolveConfigDirFailsWhenTheBrokerNamesNoConfig(t *testing.T) {
 	pointBrokerUnit(t, "")
 	t.Setenv("FARAMIR_CONFIG", "")
-	socket := statusBroker(t, []string{})
+	socket := statusBroker(t, "")
 	if _, err := resolveConfigDir(socket); err == nil {
-		t.Error("an empty config list resolved a directory")
+		t.Error("a status naming no config resolved a directory")
 	}
 }
 

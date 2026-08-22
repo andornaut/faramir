@@ -82,17 +82,16 @@ func askBroker(socketPath string) status {
 		return status{version: response.Version}
 	}
 	var body struct {
-		Configs []string `json:"configs"`
-		Version string   `json:"version"`
-		Build   string   `json:"build"`
+		Config  string `json:"config"`
+		Version string `json:"version"`
+		Build   string `json:"build"`
 	}
 	if err := json.Unmarshal([]byte(response.Output), &body); err != nil {
 		return status{}
 	}
 	out := status{version: body.Version, build: body.Build}
-	if len(body.Configs) > 0 {
-		// The base config is first by construction.
-		out.configDir = filepath.Dir(body.Configs[0])
+	if body.Config != "" {
+		out.configDir = filepath.Dir(body.Config)
 	}
 	return out
 }
@@ -107,8 +106,8 @@ func unitConfigFile() string {
 
 // configFileFrom is the config.toml a running install loads, given an answer
 // already asked for: the broker's own, then the path the broker's unit names.
-// The broker answers with its base config first, so its directory and that name
-// reconstruct the file it loaded.
+// The broker answers with the file it loaded, so its directory and that name
+// reconstruct it.
 //
 // Neither answering is an error rather than the compiled-in default. A caller
 // cannot be expected to know where the config lives, and the default is a

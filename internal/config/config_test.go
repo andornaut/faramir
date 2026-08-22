@@ -343,9 +343,6 @@ func TestTheLoadedFileIsReported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Sources) != 1 || cfg.Sources[0] != path {
-		t.Errorf("sources = %v, want [%s]", cfg.Sources, path)
-	}
 	if cfg.Path != path {
 		t.Errorf("path = %q, want %q", cfg.Path, path)
 	}
