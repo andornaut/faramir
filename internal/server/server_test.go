@@ -97,7 +97,12 @@ func output(t *testing.T, r protocol.Response) string {
 // whoever is reading the failure.
 func TestARequestOverTheLimitIsRefusedAsTooLarge(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	// Restored, this being a package variable rather than a field on the server:
+	// left at 64 it is every later test's limit too, and the ones that send a
+	// stream are refused as too_large.
+	was := config.MaxRequestBytes
 	config.MaxRequestBytes = 64
+	t.Cleanup(func() { config.MaxRequestBytes = was })
 	if _, err := s.Listen(); err != nil {
 		t.Fatal(err)
 	}
