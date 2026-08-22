@@ -329,8 +329,98 @@ func reportDenyPatterns(report *DoctorReport, opts DoctorOptions, path string) {
 			"again", path, len(missing), strings.Join(missing, ", "))
 		return
 	}
-	report.addf("deny patterns", StatusOK, "%s names this install's directories "+
-		"and every command it declares", path)
+	// And the rest of it, against a re-render from this install's own layout.
+	// The file is generated, so what it should hold is computable, and the
+	// alternative is a check that asks only whether one path appears in it: the
+	// render-on-add hole survived exactly that far.
+	//
+	// Rule lines alone, comments and blanks dropped, so a reflowed comment is not
+	// reported as drift. A rule the host is missing refuses less than this
+	// install asks for and fails; one it has spare refuses more, which is untidy
+	// rather than unguarded, and warns.
+	want := ruleLines(renderedDenyPatterns(opts.ConfigDir))
+	if len(want) == 0 {
+		report.addf("deny patterns", StatusOK, "%s names this install's directories "+
+			"and every command it declares; what else it should hold could not be "+
+			"rendered to compare", path)
+		return
+	}
+	have := ruleLines(string(body))
+	absent, spare := diffRuleLines(want, have)
+	switch {
+	case len(absent) > 0:
+		report.addf("deny patterns", StatusFailed, "%s is missing %d of the %d rule(s) "+
+			"this install renders, so the hook refuses less than the config asks "+
+			"for: %s. `faramir init` renders it again",
+			path, len(absent), len(want), firstFew(absent))
+	case len(spare) > 0:
+		report.addf("deny patterns", StatusWarn, "%s carries %d rule(s) this install "+
+			"does not render, left by an earlier version or added by hand: %s. Extra "+
+			"refusals, so untidy rather than unguarded; `faramir init` rewrites the "+
+			"file whole", path, len(spare), firstFew(spare))
+	default:
+		report.addf("deny patterns", StatusOK, "%s is what this install renders: %d "+
+			"rule(s), naming its own directories and every command it declares",
+			path, len(want))
+	}
+}
+
+// renderedDenyPatterns is what this install would write, or "" where it cannot
+// be rendered. Empty rather than an error: the checks above have already said
+// whether the file is there, and a re-render that fails is this command's
+// problem rather than the host's.
+func renderedDenyPatterns(configDir string) string {
+	body, err := RenderDenyPatterns(ruleLayout(configDir))
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
+// ruleLines is the patterns in a rendered file: what the guard compiles, which
+// is every line that is neither blank nor a comment.
+func ruleLines(body string) []string {
+	var out []string
+	for line := range strings.SplitSeq(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// diffRuleLines is what one list holds that the other does not, both ways.
+func diffRuleLines(want, have []string) (absent, spare []string) {
+	inHave := make(map[string]bool, len(have))
+	for _, rule := range have {
+		inHave[rule] = true
+	}
+	inWant := make(map[string]bool, len(want))
+	for _, rule := range want {
+		inWant[rule] = true
+		if !inHave[rule] {
+			absent = append(absent, rule)
+		}
+	}
+	for _, rule := range have {
+		if !inWant[rule] {
+			spare = append(spare, rule)
+		}
+	}
+	return absent, spare
+}
+
+// firstFew names a few rules and says how many were left out. A rule is a
+// regular expression and some are long, so a finding that printed every one
+// would be a finding nobody reads.
+func firstFew(rules []string) string {
+	const show = 2
+	if len(rules) <= show {
+		return strings.Join(rules, "; ")
+	}
+	return fmt.Sprintf("%s; and %d more", strings.Join(rules[:show], "; "),
+		len(rules)-show)
 }
 
 // holds is inGroup with the error folded in: an unknown account is in no group.

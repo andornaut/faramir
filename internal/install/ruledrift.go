@@ -274,6 +274,21 @@ func ruleLayout(configDir string) Layout {
 	layout.BrokerUser, _ = unitUser(brokerUnit)
 	layout.KeeperUser, _ = unitUser(keeperUnit)
 	layout.ExecUser, _ = unitUser(execUnit)
+
+	// The rest of what the shipped pattern file names, so a re-render of it can
+	// be compared with the installed one. Taken from the config where the config
+	// has it and from the compiled defaults where nothing does: the log
+	// directory is where the broker is told to append, the SSH key is what the
+	// broker lends, and the binary and libexec directories are fixed at build
+	// time and have no key of their own.
+	layout.BinDir, layout.LibexecDir = DefaultBinDir, DefaultLibexecDir
+	layout.LogDir = DefaultLogDir
+	if cfg, err := config.Load(filepath.Join(configDir, "config.toml")); err == nil {
+		if cfg.Audit.LogPath != "" {
+			layout.LogDir = filepath.Dir(cfg.Audit.LogPath)
+		}
+		layout.SSHKey = cfg.Ssh.Key
+	}
 	return layout
 }
 

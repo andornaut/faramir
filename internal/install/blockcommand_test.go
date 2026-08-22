@@ -149,14 +149,31 @@ func TestDoctorSeesACommandMissingFromTheGuardsFile(t *testing.T) {
 		t.Errorf("the finding does not name the command: %s", missing.Findings[0].Detail)
 	}
 
-	// And the same file with the rule in it.
-	body := regexp.QuoteMeta(dir) + "\n" + BlockedCommandRule("op read") + "\n"
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	// And the file this install would actually write, which carries the command
+	// among everything else it renders.
+	rendered, err := RenderDenyPatterns(ruleLayout(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rendered), BlockedCommandRule("op read")) {
+		t.Fatal("the render does not carry the declared command")
+	}
+	if err := os.WriteFile(path, rendered, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var present DoctorReport
 	reportDenyPatterns(&present, opts, path)
 	if len(present.Findings) != 1 || present.Findings[0].Status != StatusOK {
 		t.Errorf("findings = %+v, want one ok", present.Findings)
+	}
+
+	// A rule nobody renders is untidy rather than unguarded, so it warns.
+	if err := os.WriteFile(path, append(rendered, []byte("\n\\bleftover\\b\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var spare DoctorReport
+	reportDenyPatterns(&spare, opts, path)
+	if len(spare.Findings) != 1 || spare.Findings[0].Status != StatusWarn {
+		t.Errorf("findings = %+v, want one warning", spare.Findings)
 	}
 }

@@ -208,3 +208,69 @@ path = "/etc/luks/volume.key"
 		t.Errorf("the other forms did not load: %+v", cfg.Secret.Blocked)
 	}
 }
+
+// Every entry form, written into a config.toml and read back out of it.
+//
+// The boundary the rest of the suite does not cross. Tests that build a
+// BlockedPath in Go exercise everything downstream of the loader and nothing
+// in it, so a key missing from blockKeys, a loader that drops a field, or a
+// template writing the wrong key name is invisible to all of them. "command"
+// was absent from blockKeys for as long as the form existed, and every test
+// covering it was green.
+func TestEveryBlockedFormRoundTrips(t *testing.T) {
+	for _, tc := range []struct {
+		form  string
+		entry string
+		want  BlockedPath
+	}{
+		{"path", `path = "/etc/luks/volume.key"`, BlockedPath{Path: "/etc/luks/volume.key"}},
+		{"name", `name = "*.pem"`, BlockedPath{Name: "*.pem"}},
+		{"suffix name", `name = "id_rsa"`, BlockedPath{Name: "id_rsa"}},
+		{"directory name", `name = ".storage/"`, BlockedPath{Name: ".storage/"}},
+		{"command", `command = "op read"`, BlockedPath{Command: "op read"}},
+		{"command with a flag", `command = "sops -d"`, BlockedPath{Command: "sops -d"}},
+	} {
+		t.Run(tc.form, func(t *testing.T) {
+			cfg, err := load(t, minimal+"\n[[secret.block]]\n"+tc.entry+"\n")
+			if err != nil {
+				t.Fatalf("a %s entry did not load: %v", tc.form, err)
+			}
+			if len(cfg.Secret.Blocked) != 1 {
+				t.Fatalf("loaded %d entries, want one", len(cfg.Secret.Blocked))
+			}
+			if got := cfg.Secret.Blocked[0]; got != tc.want {
+				t.Errorf("loaded %+v, want %+v", got, tc.want)
+			}
+			// And what a message or a listing shows for it.
+			if got := cfg.Secret.Blocked[0].Blocks(); got == "" {
+				t.Error("Blocks() is empty, so nothing that names an entry can name this one")
+			}
+		})
+	}
+}
+
+// The same for a link, which has four keys and the same exposure.
+func TestEveryLinkFieldRoundTrips(t *testing.T) {
+	cfg, err := load(t, minimal+`
+[[secret.link]]
+ref = "gh/token"
+path = "/home/op/.config/gh/hosts.yml"
+type = "yaml"
+key = "github.com/oauth_token"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Secret.Links) != 1 {
+		t.Fatalf("loaded %d links, want one", len(cfg.Secret.Links))
+	}
+	want := Link{
+		Ref:  "gh/token",
+		Path: "/home/op/.config/gh/hosts.yml",
+		Type: "yaml",
+		Key:  "github.com/oauth_token",
+	}
+	if got := cfg.Secret.Links[0]; got != want {
+		t.Errorf("loaded %+v, want %+v", got, want)
+	}
+}
