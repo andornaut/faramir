@@ -2,7 +2,7 @@
 
 Functional tests that drive a real `faramir` install: systemd units, three uids, a sops store, and an agent's account working in a project tree. `go test` covers the code; these cover what an operator gets after `faramir init`.
 
-CI runs them on a push to any branch and on a pull request against main: `fetch`, `up`, `run` over every suite, then `down`. It runs that twice, as a matrix over the two sudo implementations, so the jobs are named `E2E (classic)` and `E2E (rs)`. A job each rather than `./e2e.sh both` inside one: a GitHub runner is two CPUs, and a stack is a privileged systemd container plus an sshd host, so the two legs take a runner each and run at the same time. Locally `make e2e` runs both at the same time instead. The Lint job beside it reads these scripts with shellcheck.
+CI runs them on a push to any branch and on a pull request against main: `fetch`, `up`, `run` over every suite, then `down`. It runs that twice, as a matrix over the two sudo implementations, so the jobs are named `E2E (sudo)` and `E2E (sudo-rs)`. A job each rather than `./e2e.sh both` inside one: a GitHub runner is two CPUs, and a stack is a privileged systemd container plus an sshd host, so the two legs take a runner each and run at the same time. Locally `make e2e` runs both at the same time instead. The Lint job beside it reads these scripts with shellcheck.
 
 Run them by hand as well, against a tree you are about to release or while changing a suite, which is what the rest of this page is for.
 
@@ -44,12 +44,12 @@ All five are gitignored. `up` refuses to build without the three you supply, rat
 Ubuntu ships two behind one `sudo` alternatives group, and `faramir init --allow-sudo` writes a different arrangement for each: see [escalation.md](../../docs/escalation.md#the-two-sudos). The image installs both and pins the original; `SUDO` picks which one a stack's host runs.
 
 ```sh
-SUDO=rs ./e2e.sh up && SUDO=rs ./e2e.sh run   # the same suites under sudo-rs
+SUDO=sudo-rs ./e2e.sh up && SUDO=sudo-rs ./e2e.sh run   # under sudo-rs
 ```
 
 Every container, image and network name takes a suffix from `SUDO`, so the two stacks share nothing and can be up together. `./e2e.sh both` is that pair run concurrently, one log per arrangement and per uid under `$TMPDIR`. Each container's systemd roots under its own `docker-<id>.scope`, so the cgroup trees do not meet even though both run `--cgroupns=host`.
 
-`SUDO` unset is the original sudo and the names this harness has always used, so a command that does not ask for an arrangement behaves as it did.
+`SUDO` is `sudo` or `sudo-rs`, the implementations' own names rather than labels for them, so what a CI job is called, what you type and what the docs say are one word. Unset is `sudo`, which is what the image pins, and it takes the unsuffixed names.
 
 `make e2e` from the repository root is `fetch` and `both` in one command, and `make test` is that plus the Go suite. The linters are `make lint`, which CI runs as a job of its own.
 

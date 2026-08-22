@@ -154,7 +154,7 @@ shellcheck:
 ## `both` rather than `up && run`: the two sudo implementations take different
 ## settings out of the same /etc/sudoers.d, so `--allow-sudo` installs a
 ## different arrangement for each and a run that does not say which covers one of
-## them. They run at the same time, on stacks that share nothing. `SUDO=rs
+## them. They run at the same time, on stacks that share nothing. `SUDO=sudo-rs
 ## ./e2e.sh up` is one of them alone.
 e2e:
 	cd tests/e2e && ./e2e.sh fetch && ./e2e.sh both

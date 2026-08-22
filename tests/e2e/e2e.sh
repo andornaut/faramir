@@ -9,7 +9,7 @@
 #   ./e2e.sh down          remove the container and image
 #   ./e2e.sh both          a stack per sudo implementation, at the same time
 #
-# SUDO=classic (the default) or SUDO=rs picks which sudo the stack's host runs,
+# SUDO=sudo (the default) or SUDO=sudo-rs picks which sudo the stack's host runs,
 # and so which arrangement `--allow-sudo` installs. Every container, image and
 # network name takes a suffix from it, so the two stacks are separate and can be
 # up together; `both` is that pair run concurrently.
@@ -38,14 +38,19 @@ set -eu
 # /etc/sudoers.d, and the one most Ubuntu hosts now have is sudo-rs. Both are in
 # the image; this picks the `sudo` alternatives group inside the container.
 #
-# Every name below takes a suffix from it, so `SUDO=rs ./e2e.sh up` builds a
-# stack of its own and the two run side by side. Unset is the original sudo and
-# the names it has always had, so nothing that does not ask for this changes.
-SUDO=${SUDO:-classic}
+# Every name below takes a suffix from it, so `SUDO=sudo-rs ./e2e.sh up` builds
+# a stack of its own and the two run side by side. Unset is the original sudo
+# and the unsuffixed names, so a command that does not ask for an arrangement
+# uses the one the image pins.
+#
+# The values are the two implementations' own names rather than labels for
+# them, so what a CI job is called, what an operator types and what the docs
+# say are one word.
+SUDO=${SUDO:-sudo}
 case $SUDO in
-  classic) SUFFIX= ;;
-  rs)      SUFFIX=-rs ;;
-  *) echo "e2e: SUDO is '$SUDO', want 'classic' or 'rs'" >&2; exit 2 ;;
+  sudo)    SUFFIX= ;;
+  sudo-rs) SUFFIX=-rs ;;
+  *) echo "e2e: SUDO is '$SUDO', want 'sudo' or 'sudo-rs'" >&2; exit 2 ;;
 esac
 NAME=${NAME:-faramir-e2e$SUFFIX}
 IMAGE=${IMAGE:-faramir-e2e$SUFFIX}
@@ -243,8 +248,8 @@ cmd_up() {
   # reading it to decide which arrangement the grant gets. The image installs
   # both and pins the original, so this is the only thing that moves it.
   case $SUDO in
-    classic) docker exec "$NAME" update-alternatives --set sudo /usr/bin/sudo.ws >/dev/null ;;
-    rs)      docker exec "$NAME" update-alternatives --set sudo /usr/lib/cargo/bin/sudo >/dev/null ;;
+    sudo)    docker exec "$NAME" update-alternatives --set sudo /usr/bin/sudo.ws >/dev/null ;;
+    sudo-rs) docker exec "$NAME" update-alternatives --set sudo /usr/lib/cargo/bin/sudo >/dev/null ;;
   esac
   echo "== sudo is $(docker exec "$NAME" sudo -V 2>/dev/null | head -1)"
   docker cp "$HERE/bootstrap.sh" "$NAME":/root/
@@ -286,22 +291,23 @@ wire_managed_host() {
 # separate containers, images and network, and each container's systemd roots
 # under its own docker-<id>.scope, so the cgroup trees do not meet.
 cmd_both() {
-  local status=0 pids=() sudo
+  local status=0 pids=() arrangement
   # Under the invoking uid, /tmp being shared: another account's log of the same
   # name is one this cannot write and would report as an empty run.
   local logs
   logs="${TMPDIR:-/tmp}/faramir-e2e-$(id -u)"
-  for sudo in classic rs; do
-    ( SUDO=$sudo "$0" fetch >/dev/null 2>&1
-      SUDO=$sudo "$0" up  >"$logs-$sudo-up.log"  2>&1 &&
-      SUDO=$sudo "$0" run >"$logs-$sudo-run.log" 2>&1 ) &
+  for arrangement in sudo sudo-rs; do
+    ( SUDO=$arrangement "$0" fetch >/dev/null 2>&1
+      SUDO=$arrangement "$0" up  >"$logs-$arrangement-up.log"  2>&1 &&
+      SUDO=$arrangement "$0" run >"$logs-$arrangement-run.log" 2>&1 ) &
     pids+=($!)
   done
   for pid in "${pids[@]}"; do wait "$pid" || status=1; done
-  for sudo in classic rs; do
-    printf '\n######## %s (%s-%s-run.log)\n' "$sudo" "$logs" "$sudo"
-    grep -E "^(==|####|e2e:)" "$logs-$sudo-run.log" 2>/dev/null ||
-      { echo "  no run log; the stack did not come up"; tail -5 "$logs-$sudo-up.log" 2>/dev/null; }
+  for arrangement in sudo sudo-rs; do
+    printf '\n######## %s (%s-%s-run.log)\n' "$arrangement" "$logs" "$arrangement"
+    grep -E "^(==|####|e2e:)" "$logs-$arrangement-run.log" 2>/dev/null ||
+      { echo "  no run log; the stack did not come up"
+        tail -5 "$logs-$arrangement-up.log" 2>/dev/null; }
   done
   [ $status -eq 0 ] && echo "e2e: both arrangements passed" || echo "e2e: an arrangement failed"
   return $status

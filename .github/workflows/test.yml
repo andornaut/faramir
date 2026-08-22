@@ -227,7 +227,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        sudo: [classic, rs]
+        sudo: [sudo, sudo-rs]
     env:
       SUDO: ${{ matrix.sudo }}
     steps:
@@ -269,7 +269,7 @@ jobs:
         run: ./e2e.sh down
 
   # The check the require-ci ruleset names. A matrix reports one check per leg,
-  # "E2E (classic)" and "E2E (rs)", and neither answers to a rule naming "E2E":
+  # "E2E (sudo)" and "E2E (sudo-rs)", and neither answers to a rule naming "E2E":
   # the suffix is part of the name. This job is that name, and it passes only if
   # every arrangement did.
   e2e-result:

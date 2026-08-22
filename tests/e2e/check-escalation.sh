@@ -806,8 +806,8 @@ SUDORS=/usr/lib/cargo/bin/sudo
 SUDOWS=/usr/bin/sudo.ws
 # Where this stack started, and where it is going. FARAMIR_E2E_SUDO is set by
 # e2e.sh from its own SUDO.
-case "${FARAMIR_E2E_SUDO:-classic}" in
-  rs) HOME_SUDO=$SUDORS; OTHER_SUDO=$SUDOWS; OTHER_NAME="the original sudo"; OTHER_IS_RS=no ;;
+case "${FARAMIR_E2E_SUDO:-sudo}" in
+  sudo-rs) HOME_SUDO=$SUDORS; OTHER_SUDO=$SUDOWS; OTHER_NAME="the original sudo"; OTHER_IS_RS=no ;;
   *)  HOME_SUDO=$SUDOWS; OTHER_SUDO=$SUDORS; OTHER_NAME="sudo-rs"; OTHER_IS_RS=yes ;;
 esac
 # The `sudo grant` check's status, or "missing". Defined here rather than inside
