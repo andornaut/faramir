@@ -453,7 +453,7 @@ type AuditConfig struct {
 }
 
 type Config struct {
-	// The file that was loaded, which is one. Reported by status and --check.
+	// The file this config was loaded from. Reported by status and --check.
 	Path       string
 	Server     ServerConfig
 	Keeper     KeeperConfig

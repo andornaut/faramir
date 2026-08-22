@@ -225,18 +225,12 @@ func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config)
 // programs the executor resolves. One file: a config.d left over from an older
 // install is not read, so it decides nothing.
 func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
-	for _, path := range []string{
-		filepath.Join(opts.ConfigDir, "config.toml"),
-	} {
-		if !exists(path) {
-			continue
-		}
-		if canWrite(opts.AgentUser, path) {
-			report.addf("config ownership", StatusFailed, "%s can write %s, which is "+
-				"where [command.env] PATH comes from: an edit there chooses what the "+
-				"executor runs", opts.AgentUser, path)
-			return
-		}
+	configFile := filepath.Join(opts.ConfigDir, "config.toml")
+	if exists(configFile) && canWrite(opts.AgentUser, configFile) {
+		report.addf("config ownership", StatusFailed, "%s can write %s, which is "+
+			"where [command.env] PATH comes from: an edit there chooses what the "+
+			"executor runs", opts.AgentUser, configFile)
+		return
 	}
 	// The creation rule is kept if it already exists, so an operator-created one
 	// never went through the install's own writeFile. Whoever can write it
@@ -248,8 +242,8 @@ func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 			"after it", opts.AgentUser, sopsConfig)
 		return
 	}
-	report.addf("config ownership", StatusOK, "%s cannot write the config, its drop-ins "+
-		"or the creation rule", opts.AgentUser)
+	report.addf("config ownership", StatusOK, "%s cannot write the config or the "+
+		"creation rule", opts.AgentUser)
 }
 
 // diagnoseInstalledFiles checks what the deny list protects. The binary is the
