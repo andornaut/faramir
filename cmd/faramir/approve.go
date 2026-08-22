@@ -697,6 +697,18 @@ func printQuestion(question escalation.Question, paint palette) {
 		promptField(paint, "log_id", paint.dim(question.LogID))
 	}
 	promptField(paint, "cmd", question.Cmd)
+	// Directly under the command, being what that command turned out to be: the
+	// first thing a reader asks of a question is what is about to run, and the
+	// answer is these two lines rather than one of them.
+	//
+	// Set only when it says something the command does not, which the broker
+	// decides: a relative argv[0] resolves against the cwd, and that is a tree
+	// the coding agent writes. The resolved path is absolute, so it reads
+	// without the cwd beside it; the cwd below explains how it resolved rather
+	// than what it is.
+	if question.Program != "" {
+		promptField(paint, "program", question.Program)
+	}
 	// The cwd above the host: it is what the command was typed against, and the
 	// host is the same on every question a given terminal shows.
 	if question.Cwd != "" {
@@ -708,12 +720,6 @@ func printQuestion(question escalation.Question, paint palette) {
 	}
 	if question.Host != "" {
 		promptField(paint, "host", question.Host)
-	}
-	// Set only when it says something the command does not, which the broker
-	// decides: a relative argv[0] resolves against the cwd, and that is a tree the
-	// coding agent writes. Printed under the cwd it resolved against.
-	if question.Program != "" {
-		promptField(paint, "program", question.Program)
 	}
 	// When sudo asked, then what is left of the clock. The wall clock is what
 	// puts the question beside everything else stamped in this terminal: a

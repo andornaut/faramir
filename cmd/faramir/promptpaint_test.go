@@ -7,6 +7,7 @@ package main
 
 import (
 	"bufio"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -185,5 +186,71 @@ func TestOnlyThePaintingCommandsTakeColor(t *testing.T) {
 		if tc.command().Flags().Lookup("color") != nil {
 			t.Errorf("faramir %s prints no report and takes --color anyway", tc.name)
 		}
+	}
+}
+
+// The order the question is read in, which is what a reader scanning a terminal
+// relies on and nothing else pins. The command and what it resolved to come
+// first and adjacent: the question a reader asks first is what is about to run,
+// and it is answered by those two lines together. Where and who follow, being a
+// different question, and the clock last.
+func TestTheQuestionReadsInTheOrderItIsJudgedIn(t *testing.T) {
+	question := askedQuestion()
+	question.Program = "/srv/ansible/bin/ansible-playbook"
+	out, _ := captureStdout(t, func() int { printQuestion(question, plain(t)); return 0 })
+
+	printed := questionLabels(out)
+	want := []string{"id", "log_id", "cmd", "program", "cwd", "caller", "host", "received"}
+	if len(printed) < len(want) {
+		t.Fatalf("printed %d labelled lines, want at least %d: %q", len(printed), len(want), out)
+	}
+	for i, label := range want {
+		if printed[i] != label {
+			t.Errorf("line %d is %q, want %q. The whole question reads:\n%s",
+				i+1, printed[i], label, out)
+		}
+	}
+}
+
+// questionLabels is the label of each field the question printed, in order. The
+// labels rather than the rendered text: a value is the caller's and may say
+// anything, "cwd /srv/programs" among it, so a test reading the whole output
+// decides on a word the agent chose.
+func questionLabels(out string) []string {
+	var labels []string
+	for line := range strings.Lines(out) {
+		// A field is indented; the sentence above them is not.
+		if !strings.HasPrefix(line, "  ") {
+			continue
+		}
+		if fields := strings.Fields(line); len(fields) > 0 {
+			labels = append(labels, fields[0])
+		}
+	}
+	return labels
+}
+
+// And the resolved program is dropped rather than left as a gap when the broker
+// has nothing to say about it: the command is followed by the cwd, with nothing
+// between the two.
+func TestTheQuestionLeavesNoRoomForAProgramItWasNotGiven(t *testing.T) {
+	question := askedQuestion()
+	// A cwd that says "program" without a program row being printed, which is
+	// what a test reading the rendered text rather than the labels would trip on.
+	question.Cwd = "/srv/programs"
+	out, _ := captureStdout(t, func() int { printQuestion(question, plain(t)); return 0 })
+	labels := questionLabels(out)
+	if slices.Contains(labels, "program") {
+		t.Errorf("a program row was printed for a question carrying none:\n%s", out)
+	}
+	// Adjacency, not order: a field inserted between the two would pass a test
+	// that only asked which came first.
+	cmd := slices.Index(labels, "cmd")
+	if cmd < 0 || cmd+1 >= len(labels) {
+		t.Fatalf("no cmd row, or nothing after it: %v", labels)
+	}
+	if labels[cmd+1] != "cwd" {
+		t.Errorf("cmd is followed by %q, want cwd with no row between:\n%s",
+			labels[cmd+1], out)
 	}
 }
