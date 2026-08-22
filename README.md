@@ -158,15 +158,21 @@ Reports whether the install is doing its job, and as root what each account can 
 
 ### Naming what this machine should block
 
-**A fresh install refuses its own files and nothing else.** Everything under `<config-dir>`, the managed store, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' directories, at the paths this host uses. That is the whole of it: faramir does not guess at what else you keep, so an SSH private key, a `.pem`, a `.env` or an `~/.aws/credentials` is refused to your agent only once you say so.
+**A fresh install blocks its own files and nothing else.** Everything under `<config-dir>`, the managed store, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' directories, at the paths this host uses. That is the whole of it: faramir does not guess at what else you keep, so an SSH private key, a `.pem`, a `.env` or an `~/.aws/credentials` is refused to your agent only once you say so.
 
 Say so once, in one command. Delete the lines that do not apply to this machine, and add the ones that do:
 
 ```bash
-sudo faramir block add     --name id_rsa --name id_ecdsa --name id_ed25519     --name '*.pem' --name '*.key'     --name '.env*' --name credentials     --name 'secrets*.yml' --name 'secrets*.yaml'     --name '*.kdbx' --name '.storage/auth'
+sudo faramir block add \
+    --name id_rsa --name id_ecdsa --name id_ed25519 \
+    --name '*.pem' --name '*.key' \
+    --name '.env*' --name credentials \
+    --name 'secrets*.yml' --name 'secrets*.yaml' \
+    --name '*.kdbx' --name '.storage/auth' \
+    --command 'op read' --command 'pass show'
 ```
 
-A name is matched against the path your agent asks for rather than against this filesystem, which is what reaches a file inside a container. A path is one file on this host: `sudo faramir block add /etc/luks/volume.key`. Each entry refuses the agent's file tools and a command reading it alike, and `faramir block ls` lists everything in force, including the rules faramir carries itself.
+Three forms, and they mix in one command. A **name** is matched against the path your agent asks for rather than against this filesystem, which is what reaches a file inside a container. A **path** is one file on this host: `sudo faramir block add /etc/luks/volume.key`. A **command** is what the agent's shell may not run, written as it would be typed. A path or a name blocks the agent's file tools and a command reading it alike; `faramir block ls` lists everything in force, including the rules faramir carries itself.
 
 A fleet declares these where it declares everything else: every `block` command is idempotent and reports what changed with `--json`, so a configuration manager can name the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
 

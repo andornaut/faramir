@@ -59,7 +59,7 @@ Every container, image and network name takes a suffix from `SUDO`, so the two s
 
 **Naming suites is the same hazard from the other side.** Each leaves what the later ones examine (`check-project` runs `init --agent claude`, which writes the account-wide settings `check-doctor` then reports missing), so a set that is not a prefix of the run order is measured against a box its predecessors never set up. `run` warns about that too, and `./e2e.sh run logs doctor` above is one: useful while changing those two suites, and not a verdict on the build.
 
-`check-secrets.sh`, `check-link.sh` and `check-refuse.sh` are the exceptions. The first rotates the shared `db/password` that five other suites redact against; the second adds refs to the running install and regroups two files in the operator's home; the third writes entries into the config and renders rules into the operator's settings. Each snapshots what it changes on the way in and restores it on the way out.
+`check-secrets.sh`, `check-link.sh` and `check-block.sh` are the exceptions. The first rotates the shared `db/password` that five other suites redact against; the second adds refs to the running install and regroups two files in the operator's home; the third writes entries into the config and renders rules into the operator's settings. Each snapshots what it changes on the way in and restores it on the way out.
 
 Each suite prints one line per check and exits non-zero if any failed.
 
