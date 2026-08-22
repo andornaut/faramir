@@ -347,3 +347,54 @@ func TestTheLoadedFileIsReported(t *testing.T) {
 		t.Errorf("path = %q, want %q", cfg.Path, path)
 	}
 }
+
+// Every key the loader accepts refuses a value of the wrong type, and names the
+// section it was in. A key whose coercion goes unchecked takes whatever TOML
+// parsed: a socket path that is a boolean reaches a daemon as an empty string,
+// which is a broker listening nowhere reported as a config that loaded.
+//
+// A boolean is wrong for all of them, whatever each one wants, so one document
+// per key asks the question without a table of expected types to keep in step.
+func TestEveryKeyRefusesAValueOfTheWrongType(t *testing.T) {
+	byName := map[string][]string{
+		"server": serverKeys, "keeper": keeperKeys, "executor": executorKeys,
+		keyCommand: commandKeys, "ssh": sshKeys, "escalation": escalationKeys,
+		"secret": secretKeys, "audit": auditKeys,
+	}
+	checked := 0
+	for _, section := range sections {
+		keys := byName[section]
+		if len(keys) == 0 {
+			t.Errorf("[%s] is a section the loader accepts and this test has no keys for",
+				section)
+			continue
+		}
+		for _, key := range keys {
+			// minimal already carries [command], and a second header for it is a
+			// TOML error rather than the refusal being asked about.
+			doc := "[" + section + "]\n" + key + " = true\n"
+			if section != keyCommand {
+				doc = minimal + "\n" + doc
+			}
+			checked++
+			_, err := load(t, doc)
+			if err == nil {
+				t.Errorf("[%s] %s accepted a boolean", section, key)
+				continue
+			}
+			// The refusal has to say what was wrong and where: an operator reads it
+			// beside a file with one line changed.
+			if !strings.Contains(err.Error(), "expected") {
+				t.Errorf("[%s] %s was refused without saying what was wanted: %v",
+					section, key, err)
+			}
+			if !strings.Contains(err.Error(), "["+section+"]") {
+				t.Errorf("[%s] %s was refused without naming the section: %v",
+					section, key, err)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no key was put to the loader, so this asserts nothing")
+	}
+}
