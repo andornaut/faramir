@@ -172,7 +172,7 @@ sudo faramir block add \
     --command 'op read' --command 'pass show'
 ```
 
-Three forms, and they mix in one command. A **name** is matched against the path your agent asks for rather than against this filesystem, which is what reaches a file inside a container. A **path** is one file on this host: `sudo faramir block add /etc/luks/volume.key`. A **command** is what the agent's shell may not run, written as it would be typed. A path or a name blocks the agent's file tools and a command reading it alike; `faramir block ls` lists everything in force, including the rules faramir carries itself.
+Three forms, each named by its own flag, and they mix in one command. None of them is the default, so a bare argument is refused rather than read as a path. A **name** is matched against the path your agent asks for rather than against this filesystem, which is what reaches a file inside a container. A **path** is one file on this host: `sudo faramir block add --path /etc/luks/volume.key`. A **command** is what the agent's shell may not run, written as it would be typed. A path or a name blocks the agent's file tools and a command reading it alike; `faramir block ls` lists everything in force, including the rules faramir carries itself.
 
 A fleet declares these where it declares everything else: every `block` command is idempotent and reports what changed with `--json`, so a configuration manager can name the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
 
@@ -221,7 +221,7 @@ faramir redact -- ./deploy.sh
 
 ### Allowing sudo on the controller
 
-A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that also configures the controller has to leave it out with `--limit '!controller'`. `sudo faramir init --allow-sudo` closes that split: no password, a PAM service that asks the broker, and one question per run answered by `sudo faramir approve ID`. An approved command gets real root and can make it permanent, so approving is trusting *that command* with permanent root.
+A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that also configures the controller has to leave it out with `--limit '!controller'`. `sudo faramir init --allow-sudo` closes that split: no password, a PAM service that asks the broker, and one question per run answered by `sudo faramir sudo approve ID`. An approved command gets real root and can make it permanent, so approving is trusting *that command* with permanent root.
 
 **Works with either sudo.** Ubuntu ships two from 25.10 on, and `init` probes the `sudo` alternatives group and writes the arrangement that sudo can read. It needs `sudo` 1.9.11 or `sudo-rs` 0.2.9, and writes nothing if the host is older. What each arrangement touches: [the two sudos](docs/escalation.md#the-two-sudos).
 
@@ -237,12 +237,12 @@ Group | Commands
 --- | ---
 The install | `init`, `init-project`, `doctor`, `reload`, `uninstall`
 The managed store | `vault add`, `vault ls`, `vault rm`, `vault edit`
-Who can decrypt it | `recipient add`, `recipient rm`, `recipient ls`, `recipient reseal`
+Who can decrypt it | `reader add`, `reader rm`, `reader ls`, `reader reseal`
 A secret another tool owns | `link add`, `link rm`, `link ls`
 A path blocked from the agent | `block add`, `block rm`, `block ls`
-The record, and sudo | `logs`, `escalations`, `approve`, `deny`
+The record, and sudo | `logs`, `sudo ls`, `sudo watch`, `sudo approve`, `sudo deny`
 
-All need root except `doctor`, which degrades, and the three that only read: `recipient ls`, `link ls` and `block ls`. `init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
+All need root except `doctor`, which degrades, and the three that only read: `reader ls`, `link ls` and `block ls`. `init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
 
 ### MCP tools
 

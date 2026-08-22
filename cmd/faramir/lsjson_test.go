@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,12 +65,8 @@ func TestBlockLsCarriesTheInstallsOwnDirectories(t *testing.T) {
 	}
 	var dirs int
 	for _, row := range rows {
-		if row["source"] != "built-in" || row["kind"] != "dir" {
-			continue
-		}
-		dirs++
-		if row["covers"] != "file tools, commands" {
-			t.Errorf("%v covers %v, want both entry points", row["entry"], row["covers"])
+		if row["source"] == "built-in" && row["kind"] == "path" {
+			dirs++
 		}
 	}
 	// The config directory, the store, the log and libexec at least; the three
@@ -78,10 +75,21 @@ func TestBlockLsCarriesTheInstallsOwnDirectories(t *testing.T) {
 		t.Errorf("the listing carries %d of this install's directories, want at "+
 			"least four: %v", dirs, rows)
 	}
-	// No pattern is compiled in, so nothing built in is a name or a suffix.
+	// No pattern is compiled in, so nothing built in is a name: the built-in half
+	// is this host's own paths and the commands faramir carries, and a name would
+	// be a guess at a file it does not write.
 	for _, row := range rows {
-		if row["source"] == "built-in" && row["kind"] != "command" && row["kind"] != "dir" {
-			t.Errorf("the listing carries a built-in pattern: %v", row)
+		if row["source"] == "built-in" && row["kind"] == "name" {
+			t.Errorf("the listing carries a built-in name pattern: %v", row)
+		}
+	}
+	// And a row is one of three kinds, whatever half it came from: a suffix and a
+	// prefix are spellings of a name, and the entry shows which.
+	for _, row := range rows {
+		switch row["kind"] {
+		case "name", "path", "command":
+		default:
+			t.Errorf("%v is kind %v, want one of name, path or command", row["entry"], row["kind"])
 		}
 	}
 }
@@ -110,9 +118,6 @@ func TestRefuseLsCarriesTheCommandRules(t *testing.T) {
 		if row["source"] != "built-in" {
 			t.Errorf("a command rule is source %v, want built-in", row["source"])
 		}
-		if row["covers"] != "commands" {
-			t.Errorf("a command rule covers %v, want commands", row["covers"])
-		}
 	}
 	if commands != len(guard.ActionPatterns()) {
 		t.Errorf("listed %d command rule(s), the guard applies %d",
@@ -130,7 +135,98 @@ func TestRefuseLsCarriesTheCommandRules(t *testing.T) {
 // atConfigDir points discovery at a directory for the length of one test. The
 // commands no longer take one: they ask the broker and read its unit, and a
 // test that did neither would report on whatever install this machine has.
+// atConfigDir points the discovery ladder at an install in dir, writing the
+// config file it names: a listing reports on an install, so it establishes
+// there is one before saying what it holds, and a directory with no config in
+// it is a host to fail on rather than one declaring nothing.
 func atConfigDir(t *testing.T, dir string) {
 	t.Helper()
-	t.Setenv("FARAMIR_CONFIG", filepath.Join(dir, "config.toml"))
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("[secret]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_CONFIG", path)
+}
+
+// And a config file that is not there is a refusal rather than an empty list.
+// The path came from $FARAMIR_CONFIG, from the running broker or from the unit,
+// so each of them asserted an install: nothing there is the wrong install or a
+// broken one, and "declares nothing" is the one answer that reads as neither.
+func TestAListingRefusesAnInstallThatIsNotThere(t *testing.T) {
+	for name, run := range map[string]func() int{
+		"link ls":             func() int { return runLinkList(linkFlags{json: true}) },
+		"block ls":            func() int { return runBlockList(blockFlags{json: true}) },
+		"block ls --declared": func() int { return runBlockList(blockFlags{json: true, declared: true}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("FARAMIR_CONFIG", filepath.Join(t.TempDir(), "config.toml"))
+			out, code := captureStdout(t, run)
+			if code == 0 {
+				t.Errorf("exit 0 against a config that is not there: %s", out)
+			}
+		})
+	}
+}
+
+// The two halves of the listing, each on its own, and together making the whole
+// of it. A caller converging the config reads --declared; one asking what this
+// install refuses without being told to reads --built-in, which is the half no
+// entry names and no `block rm` removes.
+func TestTheTwoHalvesOfBlockLsPartitionIt(t *testing.T) {
+	atConfigDir(t, t.TempDir())
+	count := func(f blockFlags) int {
+		t.Helper()
+		f.json = true
+		out, code := captureStdout(t, func() int { return runBlockList(f) })
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, out)
+		}
+		var rows []map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
+			t.Fatalf("not a JSON array: %v\n%s", err, out)
+		}
+		return len(rows)
+	}
+	both := count(blockFlags{})
+	declared := count(blockFlags{declared: true})
+	builtIn := count(blockFlags{builtIn: true})
+	if declared+builtIn != both {
+		t.Errorf("%d declared + %d built-in = %d, but the whole listing is %d",
+			declared, builtIn, declared+builtIn, both)
+	}
+	if builtIn == 0 {
+		t.Error("--built-in listed nothing; the layout always renders some")
+	}
+}
+
+// Naming both narrows to everything, which is the default, so a caller that
+// wrote both meant one of them.
+func TestNamingBothHalvesIsRefused(t *testing.T) {
+	atConfigDir(t, t.TempDir())
+	out, code := captureStdout(t, func() int {
+		return runBlockList(blockFlags{declared: true, builtIn: true})
+	})
+	if code != 2 {
+		t.Errorf("exit %d, want 2: %s", code, out)
+	}
+}
+
+// --built-in reports only rows nothing declared, whatever the config carries.
+func TestBuiltInLeavesTheDeclaredEntriesOut(t *testing.T) {
+	atConfigDir(t, t.TempDir())
+	out, code := captureStdout(t, func() int {
+		return runBlockList(blockFlags{json: true, builtIn: true})
+	})
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row["source"] != "built-in" {
+			t.Errorf("--built-in listed a %v row: %v", row["source"], row)
+		}
+	}
 }

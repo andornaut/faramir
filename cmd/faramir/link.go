@@ -212,7 +212,7 @@ func runLinkList(f linkFlags) int {
 		fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)
 		return 2
 	}
-	dir, err := resolveConfigDir(socketDefault())
+	dir, err := installedConfigDir(socketDefault())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)
 		return 1

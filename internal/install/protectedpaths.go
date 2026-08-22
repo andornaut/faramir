@@ -2,6 +2,7 @@ package install
 
 import (
 	"fmt"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -161,10 +162,6 @@ func BlockedNameMatches(name string) string {
 	}
 	return fmt.Sprintf("any file named %q, in any directory", rule.value)
 }
-
-// BlockedNameKind is the shape a pattern was read as, for a listing that shows
-// the built-in rules and the declared ones side by side.
-func BlockedNameKind(name string) string { return blockedNameRule(name).kind.String() }
 
 // String names a kind the way the listing and the messages spell it.
 func (k pathKind) String() string {
@@ -510,13 +507,29 @@ func commandSubjects(layout Layout) []string {
 	// This install's own directories, and the files it names as linked or
 	// blocked, at the paths this host uses. Bounded, so that a rule about
 	// /etc/faramir is about that directory and not about /etc/faramir-notes.md.
+	home := agentHome(layout)
 	for _, dir := range installDirs(layout) {
-		out = append(out, denyrules.Dir(dir))
+		out = append(out, denyrules.DirUnder(home, dir))
 	}
 	for _, path := range perInstallPaths(layout) {
-		out = append(out, denyrules.Dir(path))
+		out = append(out, denyrules.DirUnder(home, path))
 	}
 	return out
+}
+
+// agentHome is the home the tilde in a command line stands for, and "" where
+// this install does not know it. The rules are matched against a command the
+// agent typed, and the agent runs as the operator, so it is that account's home
+// rather than a daemon's.
+func agentHome(layout Layout) string {
+	if layout.AgentUser == "" {
+		return ""
+	}
+	u, err := user.Lookup(layout.AgentUser)
+	if err != nil || u.HomeDir == "" || u.HomeDir == "/" {
+		return ""
+	}
+	return u.HomeDir
 }
 
 // pathStart and pathEnd bound a name inside a command line, where a path sits

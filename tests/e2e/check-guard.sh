@@ -52,13 +52,13 @@ overwrite the binary|cp /tmp/evil /usr/local/bin/faramir
 rewrite the deny list|sed -i /d/ /usr/local/libexec/faramir/deny-patterns.txt
 run the keeper as root|sudo faramir keeper
 run as the broker's uid|sudo -u faramir-broker id
-answer its own escalation|sudo faramir approve abc123
-refuse whatever is waiting|sudo faramir deny
-read what is waiting|sudo faramir escalations
+answer its own escalation|sudo faramir sudo approve abc123
+refuse whatever is waiting|sudo faramir sudo deny
+read what is waiting|sudo faramir sudo ls
 an operator command under sudo|sudo faramir doctor
 an operator command without it|faramir doctor
 read the audit log through the CLI|faramir logs
-change who can read the store|faramir recipient add age1abc
+change who can read the store|faramir reader add age1abc
 open a managed file|faramir vault edit app
 stop the broker|systemctl stop faramir-broker.socket
 read the audit log|cat /var/log/faramir/audit.log

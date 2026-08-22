@@ -382,7 +382,7 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 		return
 	}
 	// The file is 0644, so root can edit it directly, and nothing on that path
-	// looks at what was typed: `faramir recipient add` validates a key and a hand
+	// looks at what was typed: `faramir reader add` validates a key and a hand
 	// edit does not. A private half pasted here is the key to the secrets
 	// directory, readable by every account. Asked first, the rest assuming
 	// entries that at least parse as recipients.
@@ -405,7 +405,7 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 		report.addf("sops config", StatusWarn, "%s lists %s, none of which is the "+
 			"recipient of %s (%s). Every value encrypted into the secrets directory "+
 			"from now on is one %s cannot decrypt, and a broker that loads nothing "+
-			"still starts. Put it back with `sudo faramir recipient add %s`, which "+
+			"still starts. Put it back with `sudo faramir reader add %s`, which "+
 			"writes the rule and re-seals the store to it",
 			path, strings.Join(listed, ", "), keyPath, keeper, opts.KeeperUser, keeper)
 		return
@@ -434,7 +434,7 @@ func recipientsAreWellFormed(report *DoctorReport, listed []string, path string)
 }
 
 // diagnoseSopsRuleCoverage asks whether the creation rules reach every managed
-// file, which decides whether `faramir vault edit` and `faramir recipient
+// file, which decides whether `faramir vault edit` and `faramir reader
 // reseal` can write one back: sops refuses a file no rule covers.
 //
 // Each file is put to sops as an encryption of a throwaway document under its
@@ -492,7 +492,7 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 			covered++
 		default:
 			report.addf("rule coverage", StatusFailed, "%s has no creation rule "+
-				"matching %s, so `faramir vault edit` and `faramir recipient reseal` cannot write it back: "+
+				"matching %s, so `faramir vault edit` and `faramir reader reseal` cannot write it back: "+
 				"sops refuses a file no rule covers. Widen path_regex to reach it, or keep "+
 				"the store where the rule already looks", rulePath, target)
 		}
@@ -554,7 +554,7 @@ func diagnoseRecipientDrift(report *DoctorReport, opts DoctorOptions, rulePath s
 		drifted++
 		report.addf("recipient drift", StatusFailed, "%s is sealed to %s while %s "+
 			"names %s, so a key the rule grants may not open it and one it no longer "+
-			"grants may. Run: sudo faramir recipient reseal",
+			"grants may. Run: sudo faramir reader reseal",
 			target, strings.Join(was, ", "), rulePath, strings.Join(wanted, ", "))
 	}
 	// Only where every file sealed to anything was reached and agreed. With none

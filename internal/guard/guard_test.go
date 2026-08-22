@@ -72,20 +72,20 @@ func TestTheDaemonsAreNotSanctionedByThePrefix(t *testing.T) {
 // the subcommand a human types are denied here, privileged or not.
 func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 	for _, cmd := range []string{
-		"sudo faramir approve",
-		"sudo faramir approve a1b2c3",
-		"sudo faramir approve --watch",
-		"sudo -n faramir approve a1b2c3",
+		"sudo faramir sudo ls",
+		"sudo faramir sudo watch",
+		"sudo faramir sudo approve",
+		"sudo faramir sudo approve a1b2c3",
+		"sudo -n faramir sudo approve a1b2c3",
+		"sudo faramir sudo deny",
+		"sudo faramir sudo deny a1b2c3",
 		"sudo faramir pam-approve",
-		"sudo faramir escalations",
-		"sudo faramir escalations --watch",
-		"sudo faramir deny",
-		"sudo faramir deny a1b2c3",
 		// Unprivileged too. It would reach a broker that refuses it, but a
 		// refusal here says why, where SO_PEERCRED says only that it failed.
-		"faramir approve --watch",
-		"faramir escalations",
-		"faramir deny a1b2c3",
+		"faramir sudo ls",
+		"faramir sudo watch",
+		"faramir sudo approve a1b2c3",
+		"faramir sudo deny a1b2c3",
 	} {
 		if _, denied := decide(cmd); !denied {
 			t.Errorf("the agent may answer an escalation: %q", cmd)
@@ -228,5 +228,33 @@ func TestAConfigDirIsNotReadAsCoveredByALongerPath(t *testing.T) {
 		if !named(rules, dir) {
 			t.Errorf("%s is in the rendered list and was not recognised", dir)
 		}
+	}
+}
+
+// A config directory under a home is written into the rendered file as the
+// alternation of the spellings a shell expands to it. named() asks whether the
+// list already covers this install's directory, so it has to ask for the same
+// form: asking for the plain one misses it and appends the same three rules
+// again, on every Bash call.
+func TestAConfigDirUnderAHomeIsRecognisedInTheRenderedForm(t *testing.T) {
+	home := guardHome()
+	if home == "" {
+		t.Skip("no home for this account")
+	}
+	for _, dir := range []string{
+		home + "/.config/faramir", "/etc/faramir", "/var/lib/faramir-broker",
+	} {
+		rendered := denyrules.For([]string{denyrules.DirUnder(home, dir)})
+		if !named(rendered, dir) {
+			t.Errorf("%s is in the rendered list and was not recognised, so its rules "+
+				"are compiled twice on every call", dir)
+		}
+	}
+	// And the bound still holds, which is what stops a moved config being read as
+	// already covered by a rule about a longer path.
+	rendered := denyrules.For([]string{denyrules.DirUnder(home, "/var/lib/faramir-broker")})
+	if named(rendered, "/var/lib/faramir") {
+		t.Error("/var/lib/faramir was read as covered by the rule about " +
+			"/var/lib/faramir-broker, so it would get no rules of its own")
 	}
 }

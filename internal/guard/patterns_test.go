@@ -95,9 +95,12 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		// escalation channel among them: an agent has no root to run one with, and
 		// a refusal saying so is more use than one about disclosure.
 		{"sudo faramir keeper", adviceOperator},
-		{"sudo faramir approve abc123", adviceOperator},
-		{"sudo faramir escalations", adviceOperator},
-		{"sudo faramir deny abc123", adviceOperator},
+		{"sudo faramir sudo approve abc123", adviceOperator},
+		{"sudo faramir sudo ls", adviceOperator},
+		{"sudo faramir sudo watch", adviceOperator},
+		{"sudo faramir sudo deny abc123", adviceOperator},
+		{"sudo faramir reader add age1abc", adviceOperator},
+		{"sudo faramir reader reseal", adviceOperator},
 		{"sudo faramir access --read /etc/faramir/age.key", adviceOperator},
 		{"sudo faramir doctor", adviceOperator},
 		// And the same set unprivileged, which is where an agent meets it.

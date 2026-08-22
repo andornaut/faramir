@@ -124,3 +124,39 @@ func TestC1ControlsAreEscaped(t *testing.T) {
 		})
 	}
 }
+
+// A byte that is not valid UTF-8 is not the rune it would have encoded. Ranging
+// a string by rune yields U+FFFD for it, which unsafeRune calls safe, so a lone
+// 0x9b used to be written straight through: on a terminal honouring 8-bit
+// controls that is the CSI introducer, and "\x9b2J" clears the screen. Output
+// arrives here through the redactor, which replaces an invalid byte already,
+// but a recorded path or a detail string does not.
+func TestLineEscapesEveryByteATerminalWouldActOn(t *testing.T) {
+	actionable := func(s string) []byte {
+		var out []byte
+		for i := range len(s) {
+			if b := s[i]; (b < 0x20 && b != '\t' && b != '\n') || (b >= 0x7f && b <= 0x9f) {
+				out = append(out, b)
+			}
+		}
+		return out
+	}
+	for b := range 256 {
+		got := Line("a" + string([]byte{byte(b)}) + "b")
+		if left := actionable(got); len(left) > 0 {
+			t.Errorf("byte %#02x survives as % x in %q", b, left, got)
+		}
+	}
+}
+
+// And ordinary text is returned as it was written, tabs and multi-byte runes
+// included: this is what an operator came to read.
+func TestLineLeavesOrdinaryTextAlone(t *testing.T) {
+	for _, s := range []string{
+		"ordinary text", "with\ttabs", "\u65e5\u672c\u8a9e caf\u00e9", "a/b/c.sops.yml", "",
+	} {
+		if got := Line(s); got != s {
+			t.Errorf("Line(%q) = %q, want it unchanged", s, got)
+		}
+	}
+}

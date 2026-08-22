@@ -152,3 +152,40 @@ func TestEverySelectingKindLoads(t *testing.T) {
 		}
 	}
 }
+
+// A link's path is rendered into the agents' deny rules and into the guard's,
+// so it carries the hazard a blocked entry does: one rule per line, and a
+// newline in the subject splits the rule into fragments that will not compile
+// and are skipped, taking the rules that protect the install with them. The key
+// never reaches a rule and is held to the same bytes because `faramir link ls`
+// prints it back to a terminal.
+func TestALinkCarryingAControlCharacterIsRefused(t *testing.T) {
+	for _, link := range []Link{
+		{Ref: "a", Path: "/etc/x\ny", Type: "text"},
+		{Ref: "a", Path: "/etc/x\ry", Type: "text"},
+		{Ref: "a", Path: "/etc/x\x1bcy", Type: "text"},
+		{Ref: "a", Path: "/etc/x", Type: "yaml", Key: "a\nb"},
+		{Ref: "a", Path: "/etc/x", Type: "yaml", Key: "a\x1bcb"},
+	} {
+		if err := ValidateLink(link); err == nil {
+			t.Errorf("%+v was accepted, so its rule renders across two lines", link)
+		}
+	}
+}
+
+// And the selectors the per-tool recipes use still load, slashes and colons
+// included: the check is about the bytes a rule cannot carry.
+func TestTheDocumentedSelectorsStillLoad(t *testing.T) {
+	for _, link := range []Link{
+		{Ref: "gh/token", Path: "/home/op/.config/gh/hosts.yml", Type: "yaml",
+			Key: "github.com/oauth_token"},
+		{Ref: "npm", Path: "/home/op/.npmrc", Type: "ini",
+			Key: "//registry.npmjs.org/:_authToken"},
+		{Ref: "hub/auth", Path: "/home/op/.docker/config.json", Type: "json",
+			Key: `auths/https:\/\/index.docker.io\/v1\//auth`},
+	} {
+		if err := ValidateLink(link); err != nil {
+			t.Errorf("%+v was refused: %v", link, err)
+		}
+	}
+}

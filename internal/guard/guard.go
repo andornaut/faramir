@@ -127,7 +127,7 @@ var fallbackOwn = []string{
 	// it, so they are the operator's whether or not sudo is in front: refused here
 	// so the agent is told that rather than meeting a permission error it will try
 	// to work around. Held to cli.OperatorOnly by a test.
-	`\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|recipient[ \t]+add|recipient[ \t]+rm|recipient[ \t]+ls|recipient[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|block[ \t]+add|block[ \t]+rm|block[ \t]+ls|logs|escalations|approve|deny|doctor|reload|uninstall)\b`,
+	`\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|reader[ \t]+add|reader[ \t]+rm|reader[ \t]+ls|reader[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|block[ \t]+add|block[ \t]+rm|block[ \t]+ls|logs|sudo[ \t]+ls|sudo[ \t]+watch|sudo[ \t]+approve|sudo[ \t]+deny|doctor|reload|uninstall)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Blocked for what it costs, not because it hides anything: the wrapper fails
 	// closed, so a stopped broker withholds every command's output in every
@@ -249,7 +249,18 @@ func configDir() string {
 // called: the same three shapes the literal rules use, so a moved install is
 // covered the way /etc/faramir is.
 func configDirRules(dir string) []string {
-	return denyrules.For([]string{denyrules.Dir(dir)})
+	return denyrules.For([]string{denyrules.DirUnder(guardHome(), dir)})
+}
+
+// guardHome is what a tilde in the command being judged stands for. This runs
+// as the account the coding agent runs as, so $HOME is that account's own and
+// is the home the command would have been expanded against.
+func guardHome() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "/" {
+		return ""
+	}
+	return home
 }
 
 // named reports whether the list already carries a rule about this directory,
@@ -261,7 +272,11 @@ func configDirRules(dir string) []string {
 // /var/lib/faramir-broker, and skipped. What that skips is the only cover a
 // moved config has.
 func named(raw []string, dir string) bool {
-	subject := denyrules.Dir(dir)
+	// The subject as the rendered file writes it, which for a directory under a
+	// home is the alternation of the spellings a shell expands to it. Asking for
+	// the plain form would miss it and append the same three rules again, on
+	// every Bash call.
+	subject := denyrules.DirUnder(guardHome(), dir)
 	for _, pattern := range raw {
 		if strings.Contains(pattern, subject) {
 			return true

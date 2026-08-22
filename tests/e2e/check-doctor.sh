@@ -200,7 +200,7 @@ probe "the sops config removed" "sops config" warn \
   "mv /tmp/sops.bak /etc/faramir/.sops.yaml"
 
 # .sops.yaml is 0644, so root can edit it directly, and nothing on that path
-# looks at what was typed: `faramir recipient add` validates a key and a hand
+# looks at what was typed: `faramir reader add` validates a key and a hand
 # edit does not. An identity written where a recipient belongs is the key that
 # opens the store, readable by every account on this host.
 cp /etc/faramir/.sops.yaml /tmp/sops-baseline.yaml
@@ -210,7 +210,7 @@ probe "an age identity pasted where a recipient belongs" "sops config" failed \
   'world-readable|will not take'
 
 # A rule reaching none of the managed files leaves a store neither `faramir
-# edit` nor `faramir recipient reseal` can write back, and nothing else on the host says
+# edit` nor `faramir reader reseal` can write back, and nothing else on the host says
 # so: the values still decrypt and the broker still serves them, so the failure
 # waits until somebody edits one.
 probe "a rule that reaches no managed file" "rule coverage" failed \

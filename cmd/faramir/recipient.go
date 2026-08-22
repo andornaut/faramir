@@ -1,6 +1,6 @@
 package main
 
-// `faramir recipient` manages who can decrypt the managed store: the rule and
+// `faramir reader` manages who can decrypt the managed store: the rule and
 // the ciphertext together, in one command. Editing `.sops.yaml` on its own
 // leaves a state nothing reports -- a rule naming a reader the existing files
 // are not sealed to -- which surfaces whenever somebody reaches for a value
@@ -25,17 +25,17 @@ import (
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
-// opRecipient is the audit record a rule change writes, one per command: the
+// opReader is the audit record a rule change writes, one per command: the
 // per-file records are the reseal's own, and what this adds is who the store is
 // now readable by and who asked for that.
-const opRecipient = "recipient"
+const opReader = "reader"
 
 // newRecipientCmd is a group spelled like `link add|rm|ls`. The guard names a
 // subcommand by every token a person types, so the three here are three lines
 // in cli.Operator, held against the command tree by a test.
 func newRecipientCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:     "recipient",
+		Use:     "reader",
 		Short:   "Who can decrypt the managed store",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
@@ -66,11 +66,11 @@ func (f *recipientFlags) register(c *cobra.Command, writes bool) {
 func newRecipientAddCmd() *cobra.Command {
 	var f recipientFlags
 	c := &cobra.Command{
-		Use:   "add [options] RECIPIENT",
+		Use:   "add [options] KEY",
 		Short: "Let one more key decrypt the managed store",
 		Long: "Adds an age recipient to .sops.yaml and re-encrypts every managed file to\n" +
 			"it, so the rule and the ciphertext never disagree.\n\n" +
-			"RECIPIENT is a PUBLIC key: an age1... recipient or an ssh public key. The\n" +
+			"KEY is a PUBLIC key: an age1... recipient or an ssh public key. The\n" +
 			"private half is refused, .sops.yaml being world-readable. Mint one with\n" +
 			"'age-keygen -o FILE' on the machine that will hold it.",
 		Args: exactlyArgs(1, "one age recipient"),
@@ -85,7 +85,7 @@ func newRecipientAddCmd() *cobra.Command {
 func newRecipientRemoveCmd() *cobra.Command {
 	var f recipientFlags
 	c := &cobra.Command{
-		Use:     "rm [options] RECIPIENT",
+		Use:     "rm [options] KEY",
 		Aliases: []string{opRemove},
 		Short:   "Stop one key from decrypting the managed store",
 		Long: "Removes an age recipient from .sops.yaml and re-encrypts every managed\n" +
@@ -134,7 +134,7 @@ func newRecipientResealCmd() *cobra.Command {
 // runReseal is a recipient change with no recipient: the rule is taken as it
 // stands and the store is brought to it.
 func runReseal(f recipientFlags, args []string) int {
-	const label = "recipient reseal"
+	const label = "reader reseal"
 	store, code := loadStore(label, socketDefault(), args, false)
 	if store == nil {
 		return code
@@ -159,9 +159,9 @@ func runReseal(f recipientFlags, args []string) int {
 // then write, so a rule that would leave the keeper out is one the file never
 // comes to hold.
 func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
-	label := "recipient rm"
+	label := "reader rm"
 	if adding {
-		label = "recipient add"
+		label = "reader add"
 		// Before root and before the config: a typo in a public key should not need
 		// sudo to find out about.
 		if err := agekey.ValidateRecipient(recipient); err != nil {
@@ -244,7 +244,7 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 	// One record for the rule, before the per-file records the reseal writes, so
 	// the log reads in the order it happened. Public keys only.
 	audit.NewLog(store.cfg.Audit).Write(map[string]any{
-		"op": opRecipient, "log_id": audit.NewLogID(), "file": store.rulePath,
+		"op": opReader, "log_id": audit.NewLogID(), "file": store.rulePath,
 		"change": addedOrRemoved(adding), "recipient": recipient, "to": wanted,
 		"uid": os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
 	}, audit.Output{})
@@ -292,24 +292,24 @@ func listedOrNot(adding bool) string {
 func runRecipientList(f recipientFlags) int {
 	paint, err := newPalette(f.when)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir reader ls: %v\n", err)
 		return 2
 	}
 	cfg, err := loadResolved(socketDefault())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir reader ls: %v\n", err)
 		return 1
 	}
 	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
 	recipients, err := ruleRecipients(rulePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir reader ls: %v\n", err)
 		return 1
 	}
 	if f.json {
 		out, err := json.Marshal(recipients)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir reader ls: %v\n", err)
 			return 1
 		}
 		fmt.Println(string(out))
@@ -326,10 +326,10 @@ func runRecipientList(f recipientFlags) int {
 	for _, recipient := range recipients {
 		if recipient != "" && recipient == keeper {
 			// The note is faramir's word about the key, not part of it.
-			fmt.Printf("%s  %s\n", recipient, paint.dim("(this host's keeper)"))
+			fmt.Printf("%s  %s\n", safe(recipient), paint.dim("(this host's keeper)"))
 			continue
 		}
-		fmt.Println(recipient)
+		fmt.Println(safe(recipient))
 	}
 	return 0
 }

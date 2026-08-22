@@ -44,6 +44,43 @@ func Dir(dir string) string {
 	return regexp.QuoteMeta(dir) + `(?:/|` + PathEnd + `)`
 }
 
+// HomeSpellings is the ways a command line names a file under a home: the
+// absolute path, and the three prefixes a shell expands to it. A path rule is a
+// literal, so `cat ~/.private/x` reaches a file that `cat /home/op/.private/x`
+// is refused, and the tilde is how a person and a model both write a home path.
+//
+// Deliberately not the bare relative spelling. `.private/x` names this file
+// only from one directory and names somebody else's from anywhere else, and the
+// rule cannot tell which: that breadth is what a name entry is for, where it is
+// asked for rather than inferred.
+//
+// The list is what a shell expands, not every string that could reach the same
+// file: a command may build a path a way no rule can enumerate, and this is the
+// list that catches an accident rather than the boundary.
+func HomeSpellings(home, path string) []string {
+	rest, under := strings.CutPrefix(path, strings.TrimSuffix(home, "/")+"/")
+	if home == "" || home == "/" || !under || rest == "" {
+		return []string{regexp.QuoteMeta(path)}
+	}
+	tail := regexp.QuoteMeta("/" + rest)
+	return []string{
+		regexp.QuoteMeta(path),
+		regexp.QuoteMeta("~") + tail,
+		regexp.QuoteMeta("$HOME") + tail,
+		regexp.QuoteMeta("${HOME}") + tail,
+	}
+}
+
+// DirUnder is Dir for a path that may sit under a home, bounded the same way
+// and matching each spelling of it.
+func DirUnder(home, dir string) string {
+	spellings := HomeSpellings(home, dir)
+	if len(spellings) == 1 {
+		return spellings[0] + `(?:/|` + PathEnd + `)`
+	}
+	return `(?:` + strings.Join(spellings, `|`) + `)(?:/|` + PathEnd + `)`
+}
+
 // For is the three rules that refuse a set of subjects: reading one, writing
 // one, and redirecting output over one.
 //

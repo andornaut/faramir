@@ -7,7 +7,7 @@ import "slices"
 
 // Operator is every subcommand a person runs. One missing from both lists has
 // its arguments scanned, which is a false denial rather than a hole.
-// `escalations`, `approve` and `deny` are denied to the agent's shell: the
+// The `sudo` group is denied to the agent's shell, every verb of it: the
 // account it runs as must not read or answer the question it raised.
 //
 // A grouped command is named in full, every token, rather than by its parent:
@@ -28,10 +28,10 @@ var Operator = []string{
 	"vault edit",
 	"vault ls",
 	"vault rm",
-	"recipient add",
-	"recipient rm",
-	"recipient ls",
-	"recipient reseal",
+	"reader add",
+	"reader rm",
+	"reader ls",
+	"reader reseal",
 	"link add",
 	"link rm",
 	"link ls",
@@ -39,9 +39,10 @@ var Operator = []string{
 	"block rm",
 	"block ls",
 	"logs",
-	"escalations",
-	"approve",
-	"deny",
+	"sudo ls",
+	"sudo watch",
+	"sudo approve",
+	"sudo deny",
 	"doctor",
 	"reload",
 	"uninstall",

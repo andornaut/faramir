@@ -87,7 +87,7 @@ func mustRegister(s *Server, r Run) string {
 	return token
 }
 
-// human stands in for somebody at `faramir approve --watch`: it answers each
+// human stands in for somebody at `faramir sudo watch`: it answers each
 // question as it appears and keeps them, so a test can assert how many were put
 // rather than how many sudos ran.
 type human struct {
@@ -774,7 +774,7 @@ func TestTheQuestionIsPutOnceTheOtherCommandEnds(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// What became of the run (`faramir escalations --watch` reports the ending)
+// What became of the run (`faramir sudo watch` reports the ending)
 // --------------------------------------------------------------------------
 
 // approved is a run taken all the way to a yes, and the token it is held by.

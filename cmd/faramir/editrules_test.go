@@ -1,6 +1,6 @@
 package main
 
-// Which creation rules `faramir edit` and `faramir recipient reseal` encrypt under.
+// Which creation rules `faramir edit` and `faramir reader reseal` encrypt under.
 //
 // Against the host's sops, and skipped without one: what is asserted here is
 // how sops resolves .sops.yaml and matches path_regex, which the stand-in does

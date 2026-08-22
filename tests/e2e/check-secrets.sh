@@ -154,14 +154,14 @@ creation_rules:
           - $SECOND
 YAML
 before=$(sum)
-faramir recipient reseal --dry-run >/tmp/dry.log 2>&1
+faramir reader reseal --dry-run >/tmp/dry.log 2>&1
 [ "$(sum)" = "$before" ] && ok "the file is byte-identical after a dry run" \
   || bad "a dry run rewrote the file"
 grep -qiE "would|dry" /tmp/dry.log && ok "it reported what it would do: $(grep -iE 'would|dry' /tmp/dry.log | head -1 | cut -c1-70)" \
   || bad "a dry run said nothing useful: $(head -2 /tmp/dry.log)"
 
 head_ "5. reseal to a second recipient, and the keeper can still read"
-faramir recipient reseal >/tmp/reseal.log 2>&1 && ok "reseal completed" || bad "reseal failed: $(tail -2 /tmp/reseal.log)"
+faramir reader reseal >/tmp/reseal.log 2>&1 && ok "reseal completed" || bad "reseal failed: $(tail -2 /tmp/reseal.log)"
 [ "$(sum)" != "$before" ] && ok "the file was re-encrypted" || bad "the file did not change"
 if grep -q "$SECOND" "$MANAGED"; then ok "the second recipient is now in the file's metadata"; else
   bad "the new recipient is not in the file"; fi
@@ -179,7 +179,7 @@ creation_rules:
           - $SECOND
 YAML
 before=$(sum)
-if faramir recipient reseal >/tmp/bad-reseal.log 2>&1; then
+if faramir reader reseal >/tmp/bad-reseal.log 2>&1; then
   bad "re-encrypting to a set without the keeper's key SUCCEEDED, which is unrecoverable"
 else
   ok "refused: $(grep -oE 'does not list|would leave' /tmp/bad-reseal.log | head -1)"
@@ -289,7 +289,7 @@ rule <<YAML
       - age:
           - $KEEPER
 YAML
-faramir recipient reseal >/tmp/narrow.log 2>&1 || bad "narrowing to the keeper alone failed: $(tail -2 /tmp/narrow.log)"
+faramir reader reseal >/tmp/narrow.log 2>&1 || bad "narrowing to the keeper alone failed: $(tail -2 /tmp/narrow.log)"
 [ "$(recipients)" -eq 1 ] && ok "narrowed to the keeper alone, so the merged rule has something to add" \
   || note "the store already had $(recipients) recipients before the merge case"
 rule <<YAML
@@ -301,7 +301,7 @@ rule <<YAML
           - age:
               - $SECOND
 YAML
-faramir recipient reseal >/tmp/merge.log 2>&1 && ok "reseal completed under a merged key group" \
+faramir reader reseal >/tmp/merge.log 2>&1 && ok "reseal completed under a merged key group" \
   || bad "reseal failed: $(tail -2 /tmp/merge.log)"
 grep -q "$SECOND" "$MANAGED" \
   && ok "the recipient named only under merge: is in the file, so it can still read the store" \
@@ -319,7 +319,7 @@ rule <<YAML
       - age:
           - $KEEPER
 YAML
-faramir recipient reseal >/tmp/shorthand.log 2>&1 && ok "reseal completed" \
+faramir reader reseal >/tmp/shorthand.log 2>&1 && ok "reseal completed" \
   || bad "reseal failed: $(tail -2 /tmp/shorthand.log)"
 [ "$(recipients)" -eq 1 ] && ok "the file names one recipient, which is what sops would have sealed it to" \
   || bad "the file names $(recipients) recipients, so the ignored shorthand was applied"
@@ -342,7 +342,7 @@ rule <<YAML
     path_regex: \.sops\.ya?ml\$
 YAML
 before=$(sum)
-if faramir recipient reseal >/tmp/tworule.log 2>&1; then
+if faramir reader reseal >/tmp/tworule.log 2>&1; then
   bad "a two-rule .sops.yaml was accepted, so the store can be sealed to a set no rule names"
 else
   ok "refused: $(grep -oE 'creation rules|updatekeys' /tmp/tworule.log | head -1)"
@@ -363,7 +363,7 @@ rule <<YAML
           - $SECOND
 YAML
 before=$(sum)
-if faramir recipient reseal >/tmp/shamir.log 2>&1; then
+if faramir reader reseal >/tmp/shamir.log 2>&1; then
   bad "reseal flattened a split data key, so any single key now opens what took two"
 else
   ok "reseal refused: $(grep -oE 'shamir_threshold' /tmp/shamir.log | head -1)"
@@ -405,7 +405,7 @@ cover=$(jq -r '[.findings[]|select(.check=="rule coverage")|.status]|join(",")' 
 [ "$cover" = failed ] && ok "doctor reports it under rule coverage before anybody edits" \
   || bad "doctor says rule coverage is [$cover] for a rule that reaches no managed file"
 
-head_ "14. recipient add and rm move the rule and the ciphertext together"
+head_ "14. reader add and rm move the rule and the ciphertext together"
 # What the two-step path left open: a rule naming a reader the existing files are
 # not sealed to. Nothing fails there, so the test is that the state never exists
 # rather than that a command reports it.
@@ -418,18 +418,18 @@ creation_rules:
       - age:
           - $KEEPER
 YAML
-faramir recipient reseal >/dev/null 2>&1 || bad "could not seal the store to the keeper alone"
+faramir reader reseal >/dev/null 2>&1 || bad "could not seal the store to the keeper alone"
 grep -q "$SECOND" "$MANAGED" && bad "the store still names the second recipient" \
   || ok "the store starts sealed to the keeper alone"
 
 before=$(sum)
-faramir recipient add --dry-run "$SECOND" >/tmp/add-dry.log 2>&1
+faramir reader add --dry-run "$SECOND" >/tmp/add-dry.log 2>&1
 [ "$(sum)" = "$before" ] && ok "a dry run leaves the ciphertext byte-identical" \
   || bad "a dry run re-encrypted the store"
 grep -q "$SECOND" /etc/faramir/.sops.yaml && bad "a dry run wrote the rule" \
   || ok "and leaves the rule alone too"
 
-faramir recipient add "$SECOND" >/tmp/add.log 2>&1 \
+faramir reader add "$SECOND" >/tmp/add.log 2>&1 \
   && ok "recipient add completed" || bad "recipient add failed: $(tail -2 /tmp/add.log)"
 grep -q "$SECOND" /etc/faramir/.sops.yaml && ok "the rule names the new recipient" \
   || bad "the rule was not written"
@@ -443,7 +443,7 @@ grep -q '# Which files sops encrypts' /etc/faramir/.sops.yaml \
 # Twice is not an error and rewrites nothing: an operator who is unsure whether
 # it took should be able to run it again.
 before=$(sum)
-faramir recipient add "$SECOND" >/tmp/add2.log 2>&1 \
+faramir reader add "$SECOND" >/tmp/add2.log 2>&1 \
   && ok "adding one already there exits 0" || bad "a repeat add failed"
 [ "$(sum)" = "$before" ] && ok "and re-encrypts nothing" || bad "a repeat add rewrote the store"
 
@@ -459,7 +459,7 @@ creation_rules:
       - age:
           - $KEEPER
 YAML
-faramir recipient reseal >/dev/null 2>&1 || bad "could not stage the divergence"
+faramir reader reseal >/dev/null 2>&1 || bad "could not stage the divergence"
 printf '%s' "$rule_now" > /etc/faramir/.sops.yaml
 grep -q "$SECOND" /etc/faramir/.sops.yaml || bad "staging lost the rule's second recipient"
 grep -q "$SECOND" "$MANAGED" && bad "staging did not put the store back" \
@@ -470,7 +470,7 @@ drift=$(jq -r '[.findings[]|select(.check=="recipient drift")|.status]|join(",")
 [ "$drift" = failed ] && ok "doctor reports it under recipient drift" \
   || bad "doctor says recipient drift is [$drift] for a store that lags its rule"
 
-faramir recipient add "$SECOND" >/tmp/resume.log 2>&1 \
+faramir reader add "$SECOND" >/tmp/resume.log 2>&1 \
   && ok "re-running the add over an unchanged rule exits 0" \
   || bad "the resume failed: $(tail -2 /tmp/resume.log)"
 grep -q "$SECOND" "$MANAGED" \
@@ -482,7 +482,7 @@ faramir doctor --agent-user op --json >/tmp/doc-drift2.json 2>/dev/null
 
 # THE REFUSAL: the private half, where .sops.yaml is world-readable.
 identity=$(grep -o 'AGE-SECRET-KEY-[A-Z0-9]*' /tmp/second.key | head -1)
-if faramir recipient add "$identity" >/tmp/identity.log 2>&1; then
+if faramir reader add "$identity" >/tmp/identity.log 2>&1; then
   bad "an age IDENTITY was written into a 0644 rule file"
 else
   ok "refused an identity where a recipient belongs: $(grep -oE 'private half' /tmp/identity.log | head -1)"
@@ -492,7 +492,7 @@ grep -q 'AGE-SECRET-KEY' /etc/faramir/.sops.yaml && bad "the identity reached th
 
 # THE REFUSAL: the keeper's own key, checked before the file is touched.
 before=$(sum)
-if faramir recipient rm "$KEEPER" >/tmp/rm-keeper.log 2>&1; then
+if faramir reader rm "$KEEPER" >/tmp/rm-keeper.log 2>&1; then
   bad "removed the key the keeper decrypts with, which is unrecoverable"
 else
   ok "refused: $(grep -oE 'does not list|would leave' /tmp/rm-keeper.log | head -1)"
@@ -502,20 +502,20 @@ grep -q "$KEEPER" /etc/faramir/.sops.yaml \
   || bad "the refused removal edited the rule anyway"
 [ "$(sum)" = "$before" ] && ok "and the ciphertext is untouched" || bad "the refused removal rewrote the store"
 
-faramir recipient rm "$SECOND" >/tmp/rm.log 2>&1 \
+faramir reader rm "$SECOND" >/tmp/rm.log 2>&1 \
   && ok "recipient rm completed" || bad "recipient rm failed: $(tail -2 /tmp/rm.log)"
 grep -q "$SECOND" "$MANAGED" && bad "the removed recipient is still in the ciphertext" \
   || ok "the ciphertext no longer names the removed recipient"
 
 # The listing, and the one command here that needs no root.
-runuser -u op -- faramir recipient ls >/tmp/ls.log 2>&1 \
+runuser -u op -- faramir reader ls >/tmp/ls.log 2>&1 \
   && ok "recipients lists without root" || bad "recipients needed root: $(tail -2 /tmp/ls.log)"
 grep -q "$KEEPER" /tmp/ls.log && ok "and names the keeper" || bad "the listing is missing the keeper"
 # Which of two keys is this host's own is the question a listing raises, and
 # answering it means reading the age key, which the agent's account cannot.
 grep -q "keeper)" /tmp/ls.log && bad "the unprivileged listing claimed to know which key is the host's" \
   || ok "and does not claim to know which one is the host's"
-faramir recipient ls > /tmp/ls-root.log 2>&1
+faramir reader ls > /tmp/ls-root.log 2>&1
 grep -qE "$KEEPER +\(this host" /tmp/ls-root.log \
   && ok "as root it marks the keeper's own key" \
   || bad "root's listing does not mark the keeper: $(cat /tmp/ls-root.log)"
@@ -525,27 +525,27 @@ grep -q "$SECOND" /tmp/ls.log && bad "the listing still names the removed recipi
 # A host whose first secret has not been written yet. The rule governs what
 # sops writes from then on, so a store with no files is not a reason to refuse.
 mkdir -p /tmp/emptystore && mv /etc/faramir/secrets/*.sops.yml /tmp/emptystore/
-if faramir recipient add "$SECOND" >/tmp/empty.log 2>&1; then
+if faramir reader add "$SECOND" >/tmp/empty.log 2>&1; then
   ok "recipient add works before the first secret exists"
 else
   bad "recipient add refused a store with no files: $(tail -2 /tmp/empty.log)"
 fi
-faramir recipient ls 2>/dev/null | grep -q "$SECOND" \
+faramir reader ls 2>/dev/null | grep -q "$SECOND" \
   && ok "and the rule was written" || bad "the rule was not written"
 grep -q 'not reached' /tmp/empty.log \
   && bad "it reported each glob that matched nothing, which reads as three faults" \
   || ok "and said so once rather than once per pattern"
 # reseal is the one whose job really is files, so it still refuses.
-faramir recipient reseal >/tmp/empty-reseal.log 2>&1 \
+faramir reader reseal >/tmp/empty-reseal.log 2>&1 \
   && bad "reseal claimed success with no file to reseal" \
   || ok "reseal still refuses a store with no files"
 mv /tmp/emptystore/*.sops.yml /etc/faramir/secrets/
-faramir recipient rm "$SECOND" >/dev/null 2>&1
-faramir recipient reseal >/dev/null 2>&1
+faramir reader rm "$SECOND" >/dev/null 2>&1
+faramir reader reseal >/dev/null 2>&1
 
 # A dead end otherwise: this command edits the rule and cannot invent one.
 mv /etc/faramir/.sops.yaml /tmp/rule.bak
-faramir recipient add "$SECOND" >/tmp/norule.log 2>&1 \
+faramir reader add "$SECOND" >/tmp/norule.log 2>&1 \
   && bad "added a recipient to a rule file that is not there" \
   || ok "refused with no .sops.yaml: $(grep -oE 'no such file' /tmp/norule.log | head -1)"
 grep -q 'faramir init' /tmp/norule.log \

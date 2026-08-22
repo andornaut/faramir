@@ -5,14 +5,18 @@ package main
 // text/tabwriter measures the bytes it is handed, so a painted cell widens its
 // column by the length of the escape codes and every column after it slides.
 // tabwriter.StripEscape removes the markers from the output but still measures
-// what they bracket, so it does not help. These widths come from the visible
-// text and the paint is applied afterwards, which is what logs.go does with its
-// fixed widths; this is the same thing for widths that come from the data.
+// what they bracket, so it does not help. These widths come from how many
+// columns a terminal spends on the text, counted after the text is escaped and
+// before any paint is applied, which is what logs.go does with its fixed
+// widths; this is the same thing for widths that come from the data.
 
 import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
+
+	"github.com/andornaut/faramir/internal/termsafe"
 )
 
 // cell is one column of one row: the text a reader sees, and how to paint it.
@@ -31,24 +35,89 @@ func painted(text string, paint func(string) string) cell {
 	return cell{text: text, paint: paint}
 }
 
+// safe is one cell's text as it may be printed: escaped so a terminal draws it
+// rather than acting on it, tabs included.
+//
+// The values in these tables are not faramir's own words. A path, a ref, a
+// filename or a blocked entry is text somebody else chose, and a terminal obeys
+// what it is sent: a bare carriage return returns the cursor so the rest of the
+// row overwrites what came before it, and ESC c resets the terminal, which on
+// many emulators takes the scrollback with it. So a row could read as an entry
+// other than the one stored, which is the whole of what a listing is for.
+// [internal/termsafe] holds the same rule for faramir logs and for an
+// escalation prompt.
+//
+// Tab on top of what termsafe escapes: it is layout an operator wants in
+// recorded output and is a column that moves in a table.
+func safe(text string) string {
+	return strings.ReplaceAll(termsafe.Line(text), "\t", `\t`)
+}
+
+// width is how many columns a terminal spends drawing this text. Not the rune
+// count: a CJK ideograph and most emoji are drawn two columns wide, and a
+// combining mark is drawn over the rune before it and takes none. Counting
+// runes leaves every column after the widest of those out by the difference.
+func width(text string) int {
+	n := 0
+	for _, r := range text {
+		switch {
+		case unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r) || r == 0x200d:
+			// A combining mark or a zero-width joiner draws over what precedes it.
+		case wide(r):
+			n += 2
+		default:
+			n++
+		}
+	}
+	return n
+}
+
+// wide is the East Asian Wide and Fullwidth ranges, plus the emoji blocks a
+// terminal draws double. Enumerated here rather than taken from a dependency:
+// this decides column alignment and nothing else, so being approximate at the
+// edges costs a ragged column rather than a wrong answer.
+func wide(r rune) bool {
+	switch {
+	case r < 0x1100:
+		return false
+	case r <= 0x115f, // Hangul Jamo
+		r == 0x2329, r == 0x232a,
+		r >= 0x2e80 && r <= 0xa4cf && r != 0x303f, // CJK, Kangxi, Hiragana, Katakana
+		r >= 0xac00 && r <= 0xd7a3,                // Hangul syllables
+		r >= 0xf900 && r <= 0xfaff,                // CJK compatibility ideographs
+		r >= 0xfe30 && r <= 0xfe6f,                // CJK compatibility forms
+		r >= 0xff00 && r <= 0xff60,                // fullwidth forms
+		r >= 0xffe0 && r <= 0xffe6,
+		r >= 0x1f300 && r <= 0x1f64f, // emoji
+		r >= 0x1f900 && r <= 0x1f9ff,
+		r >= 0x20000 && r <= 0x3fffd: // CJK extension planes
+		return true
+	}
+	return false
+}
+
 // printTable writes rows in aligned columns, two spaces between them, with no
 // trailing space on the last column of a line.
 func printTable(w io.Writer, rows [][]cell) {
+	texts := make([][]string, len(rows))
 	widths := make([]int, 0, 8)
-	for _, row := range rows {
+	for r, row := range rows {
+		texts[r] = make([]string, len(row))
 		for i, c := range row {
+			texts[r][i] = safe(c.text)
 			for len(widths) <= i {
 				widths = append(widths, 0)
 			}
-			if n := len([]rune(c.text)); n > widths[i] {
+			if n := width(texts[r][i]); n > widths[i] {
 				widths[i] = n
 			}
 		}
 	}
-	for _, row := range rows {
+	for r, row := range rows {
 		var b strings.Builder
 		for i, c := range row {
-			text := c.text
+			text := texts[r][i]
+			pad := widths[i] - width(text) + 2
 			if c.paint != nil {
 				text = c.paint(text)
 			}
@@ -56,7 +125,7 @@ func printTable(w io.Writer, rows [][]cell) {
 			if i == len(row)-1 {
 				break
 			}
-			b.WriteString(strings.Repeat(" ", widths[i]-len([]rune(c.text))+2))
+			b.WriteString(strings.Repeat(" ", pad))
 		}
 		_, _ = fmt.Fprintln(w, b.String())
 	}

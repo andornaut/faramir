@@ -274,6 +274,12 @@ func ruleLayout(configDir string) Layout {
 	layout.BrokerUser, _ = unitUser(brokerUnit)
 	layout.KeeperUser, _ = unitUser(keeperUnit)
 	layout.ExecUser, _ = unitUser(execUnit)
+	// And the agent's own account, for the same reason: a path under its home is
+	// rendered in the spellings a shell expands to it, so a re-render that does
+	// not know the home writes fewer rules than the host carries and reports the
+	// difference as drift. Read from the config the install rendered from rather
+	// than from the caller, so the comparison is against what that file says.
+	layout.AgentUser = configuredAgentUser(configDir)
 
 	// The rest of what the shipped pattern file names, so a re-render of it can
 	// be compared with the installed one. Taken from the config where the config
@@ -305,6 +311,18 @@ func configuredLinks(configDir string) []config.Link {
 
 // configuredBlocked is every blocked path the install names, on the same
 // terms as configuredLinks.
+// configuredAgentUser is [server] agent_user as the installed config records
+// it, and "" where the config cannot be read: installDirs and the rule
+// rendering both skip an empty one, so a home missing from both sides of the
+// comparison is not drift.
+func configuredAgentUser(configDir string) string {
+	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
+	if err != nil {
+		return ""
+	}
+	return cfg.Server.AgentUser
+}
+
 func configuredBlocked(configDir string) []config.BlockedPath {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {

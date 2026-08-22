@@ -36,7 +36,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 			listed: []string{backup},
 			keeper: keeper, want: []string{backup},
 			warns: []string{"does not list the keeper", keeper, "redacts nothing",
-				"recipient add"},
+				"reader add"},
 		},
 		{
 			// Nothing read the key, so nothing is claimed about it. A dry run and a

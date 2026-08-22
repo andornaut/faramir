@@ -188,7 +188,7 @@ type Layout struct {
 	SudoRs bool
 
 	// NotifyCommand announces that a question is waiting. Empty is the default
-	// and means `faramir escalations --watch` is the only place one shows up.
+	// and means `faramir sudo watch` is the only place one shows up.
 	// Written by init, as pam_service and helper are: the broker execs this as
 	// the uid holding every plaintext value.
 	NotifyCommand []string
@@ -358,16 +358,34 @@ func (l Layout) validate() error {
 			name, l.SSHKey)
 	}
 	for name, account := range map[string]string{
-		"group":       l.ClientGroup,
-		"broker user": l.BrokerUser,
-		"keeper user": l.KeeperUser,
-		"exec user":   l.ExecUser,
+		"group":         l.ClientGroup,
+		"broker user":   l.BrokerUser,
+		"keeper user":   l.KeeperUser,
+		"exec user":     l.ExecUser,
+		"agent user":    l.AgentUser,
+		"secrets group": l.SecretsGroup,
 	} {
+		// The agent user and the secrets group are named after the rest because
+		// they are rendered later, not because they are checked less: both reach
+		// config.toml, and the agent user reaches the environment file a brokered
+		// command's sudo is given.
+		if account == "" && (name == "agent user" || name == "secrets group") {
+			continue // filled in by the step that resolves it, or not used
+		}
 		if account == "" {
 			return fmt.Errorf("%s must be named", name)
 		}
 		if strings.ContainsAny(account, " \t:,") {
 			return fmt.Errorf("%s is not a usable account name: %q", name, account)
+		}
+		// Every one of these is written into a file that is read a line at a time:
+		// config.toml, the logrotate rule, and the environment file pam_env hands
+		// to a brokered command's sudo. A newline in a name ends the line it was
+		// written into and makes the rest of it a directive of its own, in a file
+		// that decides what root is given.
+		if bad, found := hasControlChar(account); found {
+			return fmt.Errorf("%s must not contain a control character (%s): %q",
+				name, bad, account)
 		}
 	}
 	// The three uids are the boundaries: two of them sharing a name is an install

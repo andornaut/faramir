@@ -246,14 +246,14 @@ The controller is different, and by default it has to be left out, a brokered co
 faramir run --env-file faramir.env -- ansible-playbook msmtp.yml --limit '!controller'
 ```
 
-A playbook that touches every host then splits in two: the fleet through the broker, the controller as root some other way. `sudo faramir init --allow-sudo` closes that: a brokered command's `sudo` puts a question to a human, answered per run by `sudo faramir approve ID`, with no password anywhere. How to run it is [escalation.md](escalation.md); the reasoning is [design.md](design.md#allowing-sudo-on-the-controller).
+A playbook that touches every host then splits in two: the fleet through the broker, the controller as root some other way. `sudo faramir init --allow-sudo` closes that: a brokered command's `sudo` puts a question to a human, answered per run by `sudo faramir sudo approve ID`, with no password anywhere. How to run it is [escalation.md](escalation.md); the reasoning is [design.md](design.md#allowing-sudo-on-the-controller).
 
 The Ansible side needs nothing. `become` passes `-n` by default, which tells `sudo` to fail rather than authenticate; the grant sets `noninteractive_auth` for the executor alone, which is what lets the PAM stack run under it and the question be put. Nothing here prompts, so there is no `SUDO_ASKPASS` and no `-A`.
 
 Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, there being no become password. Leave a watcher running as root, in a terminal the coding agent cannot type into, and the first task that runs sudo puts its question there naming the playbook:
 
 ```bash
-sudo faramir escalations --watch
+sudo faramir sudo watch
 ```
 
 One approval covers the whole playbook run rather than one task. [What it does and does not bound](escalation.md#one-question-per-run-and-what-to-expect), including which other commands are refused meanwhile.

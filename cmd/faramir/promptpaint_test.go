@@ -161,8 +161,9 @@ func TestOnlyThePaintingCommandsTakeColor(t *testing.T) {
 	}{
 		{"logs", newLogsCmd},
 		{"doctor", newDoctorCmd},
-		{"escalations", newEscalationsCmd},
-		{"deny", newDenyCmd},
+		{"sudo ls", newSudoListCmd},
+		{"sudo watch", newSudoWatchCmd},
+		{"sudo deny", newDenyCmd},
 	} {
 		flag := tc.command().Flags().Lookup("color")
 		if flag == nil {
@@ -179,7 +180,7 @@ func TestOnlyThePaintingCommandsTakeColor(t *testing.T) {
 		command func() *cobra.Command
 	}{
 		{"run", newRunCmd},
-		{"approve", newApproveCmd},
+		{"sudo approve", newApproveCmd},
 	} {
 		if tc.command().Flags().Lookup("color") != nil {
 			t.Errorf("faramir %s prints no report and takes --color anyway", tc.name)

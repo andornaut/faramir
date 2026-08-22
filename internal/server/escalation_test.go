@@ -174,7 +174,7 @@ func TestOnlyRootMayAnswerAnEscalation(t *testing.T) {
 			t.Errorf("%v as uid 1000 = %q, want forbidden: that account is the one the "+
 				"agent runs as", request, code)
 		}
-		if detail := errorDetail(response); !strings.Contains(detail, "faramir escalations") {
+		if detail := errorDetail(response); !strings.Contains(detail, "faramir sudo ls") {
 			t.Errorf("the refusal does not say what to run instead: %q", detail)
 		}
 	}

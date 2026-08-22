@@ -74,7 +74,7 @@ var (
 )
 
 // processNonce separates one writer's ids from another's: `faramir vault edit`
-// and `faramir recipient reseal` write their own records, and would otherwise
+// and `faramir reader reseal` write their own records, and would otherwise
 // start at the same place in the same second as the broker.
 func processNonce() uint16 {
 	var b [2]byte

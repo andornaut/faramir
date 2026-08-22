@@ -274,3 +274,60 @@ key = "github.com/oauth_token"
 		t.Errorf("loaded %+v, want %+v", got, want)
 	}
 }
+
+// A rendered deny rule is one line of a generated file, and the entry is
+// interpolated into it. A newline in an entry ends that line and starts a
+// second with the rest, so one rule becomes two fragments, both of them
+// unbalanced regular expressions that will not compile. A pattern that does not
+// compile is skipped at load, so the entry an operator added to refuse one more
+// file silently takes the rules protecting the install with it.
+func TestAnEntryCarryingAControlCharacterIsRefused(t *testing.T) {
+	for _, blocked := range []BlockedPath{
+		{Name: "aaa\nbbb"},
+		{Name: "aaa\rbbb"},
+		{Name: "aaa\x1bcbbb"},
+		{Name: "aaa\x7fbbb"},
+		{Path: "/tmp/aaa\nbbb"},
+		{Path: "/tmp/aaa\rbbb"},
+		{Command: "opread\nsecondline"},
+		{Command: "op\x1bcread here"},
+	} {
+		if err := ValidateBlocked(blocked); err == nil {
+			t.Errorf("%+v was accepted, so its rule renders across two lines", blocked)
+		}
+	}
+}
+
+// And an ordinary entry still loads, in every form. The check is about the
+// bytes a rule cannot carry, not about narrowing what may be blocked.
+func TestAnOrdinaryEntryIsStillAccepted(t *testing.T) {
+	for _, blocked := range []BlockedPath{
+		{Name: "*.pem"},
+		{Name: ".env*"},
+		{Name: "secrets*.yml"},
+		{Name: ".storage/"},
+		{Name: "\u65e5\u672c\u8a9e"},
+		{Path: "/etc/luks/volume.key"},
+		{Path: "/tmp/a b"},
+		{Command: "op read"},
+	} {
+		if err := ValidateBlocked(blocked); err != nil {
+			t.Errorf("%+v was refused: %v", blocked, err)
+		}
+	}
+}
+
+// The refusal has to say which byte and where: an entry pasted from somewhere
+// else carries one that prints as nothing, so a message naming only the entry
+// reads as a refusal of text that looks fine.
+func TestTheControlRefusalNamesTheByte(t *testing.T) {
+	err := ValidateBlocked(BlockedPath{Name: "aaa\nbbb"})
+	if err == nil {
+		t.Fatal("accepted")
+	}
+	for _, want := range []string{`\n`, "offset 3"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not name %s: %v", want, err)
+		}
+	}
+}

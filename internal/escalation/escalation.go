@@ -114,7 +114,7 @@ func (r Run) resolvedProgram() string {
 const maxCommandChars = 240
 
 // Command is the run as one line, rendered for a terminal. Every string in it
-// is the caller's and reaches the operator through `faramir escalations`, the
+// is the caller's and reaches the operator through `faramir sudo ls`, the
 // refusal messages and [escalation] notify_command, so left raw a run could
 // return the cursor with a "\r" and overwrite the question it is judged on.
 // termsafe says what survives that rendering.
@@ -182,7 +182,7 @@ type Server struct {
 	// and a second command is refused rather than filed behind it. A field
 	// rather than a map keyed by runID, so "at most one" is what the type says.
 	waiting *escalation
-	// changed is closed and replaced whenever waiting does, so `faramir escalations
+	// changed is closed and replaced whenever waiting does, so `faramir sudo ls
 	// --watch` can block on the next change rather than poll for it.
 	changed chan struct{}
 	// finished is how the last approved run ended, for the terminal that approved
@@ -730,7 +730,7 @@ type Question struct {
 	WaitingSec int `json:"waiting_sec"`
 	// ExpiresInSec is what is left of [escalation] timeout_sec, after which the
 	// question is refused. It matters most where the answer is a second command
-	// typed after this one was read, which is `faramir escalations` without
+	// typed after this one was read, which is `faramir sudo ls` without
 	// --watch.
 	ExpiresInSec int `json:"expires_in_sec"`
 }

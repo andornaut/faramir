@@ -18,6 +18,7 @@
 package termsafe
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -50,19 +51,35 @@ func Field(value string, limit int) string {
 // terminal would act on is escaped and the rest, tabs included, is left as it
 // was written.
 func Line(line string) string {
-	if strings.IndexFunc(line, unsafeRune) < 0 {
+	if strings.IndexFunc(line, unsafeRune) < 0 && utf8.ValidString(line) {
 		return line
 	}
 	var b strings.Builder
 	b.Grow(len(line))
-	for _, r := range line {
+	// Ranged by index rather than by rune, because a byte that is not valid UTF-8
+	// is not the rune it would have encoded. Ranging yields U+FFFD for it and
+	// writing that back would drop the byte; testing U+FFFD against unsafeRune
+	// says it is safe and writes the original byte straight through. Either way
+	// a lone 0x9b, the single-character form of the CSI introducer, would reach a
+	// terminal that honours 8-bit controls and be read as the start of a
+	// sequence. Output arrives here through the redactor, which replaces an
+	// invalid byte already; a recorded path or a detail string does not.
+	for i := 0; i < len(line); {
+		r, size := utf8.DecodeRuneInString(line[i:])
+		if r == utf8.RuneError && size == 1 {
+			fmt.Fprintf(&b, `\x%02x`, line[i])
+			i++
+			continue
+		}
 		if unsafeRune(r) {
 			// strconv.QuoteRune brings its own single quotes; the escape is what is
 			// wanted, so they come off.
 			b.WriteString(strings.Trim(strconv.QuoteRune(r), "'"))
+			i += size
 			continue
 		}
-		b.WriteRune(r)
+		b.WriteString(line[i : i+size])
+		i += size
 	}
 	return b.String()
 }

@@ -22,6 +22,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/termsafe"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -163,6 +164,27 @@ func resolveConfigDir(socketPath string) (string, error) {
 	return filepath.Dir(path), nil
 }
 
+// installedConfigDir is resolveConfigDir for a command that only reports, which
+// has to know the install is there before it says what it holds.
+//
+// The loaders read an absent config as an install carrying no entries, which is
+// what init needs on a host that has none yet. A listing given the same answer
+// says "no entries" about a config file that is not there, and a mistyped
+// $FARAMIR_CONFIG then reads as a host that declares nothing rather than as the
+// wrong install: the one thing the ladder exists to refuse.
+func installedConfigDir(socketPath string) (string, error) {
+	path, err := findConfigFile(askBroker(socketPath))
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path); err != nil {
+		return "", fmt.Errorf("config not found: %s. This reports on an install and "+
+			"found none there; $FARAMIR_CONFIG names the config file of the one to "+
+			"report on", path)
+	}
+	return filepath.Dir(path), nil
+}
+
 // initConfigDir is where init provisions to. Unlike every other command this
 // one takes a flag and falls back to the compiled-in default: a host with no
 // install has no broker to ask and no unit to read, which is the case init is
@@ -289,7 +311,7 @@ func newInitCmd() *cobra.Command {
 		"let a brokered command ASK to sudo on this host; it cannot sudo on its own. "+
 			"The executor gets a password-required sudoers entry pointed at a PAM "+
 			"service whose auth step asks the broker, so no password exists anywhere "+
-			"and a human approves each command through 'faramir approve'. Off by "+
+			"and a human approves each command through 'faramir sudo approve'. Off by "+
 			"default, and re-running without it takes the grant away")
 	fl.StringArrayVar(&f.notifyCommand, "notify-command", nil,
 		// The backquoted word is cobra's placeholder for the value, taken from the
@@ -300,7 +322,7 @@ func newInitCmd() *cobra.Command {
 			"of the two must appear. Keep \"{id}\" off anything that broadcasts: wall "+
 			"reaches every terminal on the host and the coding agent has one. The "+
 			"program is resolved on PATH here, being run as the account holding every "+
-			"decrypted value. Needs --allow-sudo; unset, 'faramir escalations --watch' "+
+			"decrypted value. Needs --allow-sudo; unset, 'faramir sudo watch' "+
 			"is the only place a question shows up")
 	fl.BoolVar(&f.moveConfig, "move-config", false,
 		"consent to point this host's daemons at a different --config-dir. There is "+
@@ -646,8 +668,16 @@ func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 		}
 		previous = finding.Name
 		// A finding with no detail is still a line.
+		//
+		// Escaped before it is wrapped: a detail carries a path from the config and
+		// an error string from the host, and a filename may hold anything the
+		// filesystem accepts. A terminal obeys what it is sent, so a carriage
+		// return in one would overwrite the status it was printed beside, on the
+		// one command an operator runs to find out whether the install is sound.
+		// Escaping first also keeps the wrap honest, the escaped form being what
+		// takes up the width.
 		first, rest := "", []string(nil)
-		if lines := wrapText(finding.Detail, terminalWidth()-indent); len(lines) > 0 {
+		if lines := wrapText(termsafe.Line(finding.Detail), terminalWidth()-indent); len(lines) > 0 {
 			first, rest = lines[0], lines[1:]
 		}
 		_, _ = fmt.Fprintf(w, "%s  %-*s  %s\n", paintStatus(paint, finding.Status), name, label, first)

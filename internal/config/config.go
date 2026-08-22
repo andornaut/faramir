@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/BurntSushi/toml"
 
@@ -906,6 +907,9 @@ func validateBlocked(blocked BlockedPath, at string) error {
 		if form.value != "" {
 			named = append(named, fmt.Sprintf("%s %q", form.key, form.value))
 		}
+		if err := refuseControl(form.key, form.value, at); err != nil {
+			return err
+		}
 	}
 	switch {
 	case len(named) > 1:
@@ -919,6 +923,32 @@ func validateBlocked(blocked BlockedPath, at string) error {
 		return validateBlockedCommand(blocked.Command, at)
 	}
 	return validateBlockedPath(blocked, at)
+}
+
+// refuseControl refuses an entry carrying a control character, whichever form
+// it took. Every one of these is rendered into a deny rule, and the rendered
+// file is one rule per line, so a newline in an entry ends the rule early and
+// starts a second line with the rest of it. Neither half is the rule that was
+// asked for, both halves are unbalanced regular expressions that will not
+// compile, and a pattern that does not compile is skipped: the entry an
+// operator added to refuse one more file takes the rules protecting the install
+// with it, and nothing on the host reports the loss.
+//
+// The other controls do not split a rule and are refused for a second reason: a
+// listing prints these back to a terminal, and a carriage return or an escape
+// sequence in an entry makes the row read as something other than what is
+// stored. Refused where they are written rather than escaped where they are
+// shown, an entry being text an operator chose.
+func refuseControl(form, value, at string) error {
+	for i, r := range value {
+		if r == 0x7f || (r < 0x20 && !unicode.IsPrint(r)) {
+			return fmt.Errorf("%s: %s %q carries %q at offset %d. A rule is one line "+
+				"of a generated file, so a newline in an entry splits it and leaves "+
+				"neither half a working rule; the rest of the controls make a listing "+
+				"print something other than what is stored", at, form, value, r, i)
+		}
+	}
+	return nil
 }
 
 // validateBlockedCommand holds a command entry to what can be rendered. The
@@ -1028,6 +1058,17 @@ func validateLink(link Link, at string) error {
 	if link.Path == "" {
 		return fmt.Errorf("%s: path is required", at)
 	}
+	// The path is rendered into the agents' deny rules and into the guard's, so
+	// it carries the same hazard a blocked entry does: one rule per line, and a
+	// newline in the subject splits the rule into two fragments that will not
+	// compile and are skipped. The key never reaches a rule, and is held to the
+	// same bytes because both are printed back by `faramir link ls`.
+	if err := refuseControl("path", link.Path, at); err != nil {
+		return err
+	}
+	if err := refuseControl("key", link.Key, at); err != nil {
+		return err
+	}
 	// A leading ~ is named separately from "not absolute": the daemons run as
 	// their own accounts, so a home there would be the wrong one even if
 	// something expanded it.
@@ -1124,7 +1165,7 @@ func loadEscalation(raw map[string]any, path string, out *EscalationConfig) erro
 		// made before this key existed leaves behind.
 		PamStack: "",
 		Helper:   "/usr/local/libexec/faramir/pam-approve",
-		// Nothing by default: `faramir escalations --watch` is where a question is
+		// Nothing by default: `faramir sudo watch` is where a question is
 		// seen and answered.
 		NotifyCommand: nil,
 		TimeoutSec:    DefaultEscalationTimeoutSec,

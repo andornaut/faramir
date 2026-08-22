@@ -40,7 +40,7 @@ sudo-rs has neither setting and compiles in the service names `sudo` and `sudo-i
 Leave a watcher running, as root, somewhere the coding agent cannot type:
 
 ```bash
-sudo faramir escalations --watch
+sudo faramir sudo watch
 ```
 
 1. `sudo` reaches the `auth` step of faramir's stack, `/etc/pam.d/faramir-sudo` or the block in `/etc/pam.d/sudo` depending on [which sudo this host has](#the-two-sudos), and `pam_exec` runs the helper as **root**. The helper walks up its own process ancestry and sends the pids it finds. The broker asks the executor which of its runs forked one of them, that being the only party that knows: it did the fork, and holds a pidfd taken at the time, so a number the kernel has since handed on answers for nothing. An ancestry no live run owns is refused without asking anybody, and nothing is carried in the command's environment for a caller to copy or hand on.
@@ -90,7 +90,7 @@ sudo faramir escalations --watch
 
    Which one it was decides whether running the command again is worth anything, so `--quiet` does not suppress it.
 6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `run` record it belongs to. `outcome_code` says which ending it was in one word so a log can be read for `expired` apart from `denied` without matching English; `outcome` says it in a sentence. `faramir logs` renders the two as `timed out` and `refused`. The full set is in [protocol.md](protocol.md#escalations).
-7. `--watch` prints how an approved run ended, when it does:
+7. `sudo watch` prints how an approved run ended, when it does:
 
    ```text
      w5vq7dbf000119 started
@@ -103,9 +103,9 @@ sudo faramir escalations --watch
 
 There is no password anywhere: what satisfies `sudo` is a decision, so nothing is minted, stored, injected or typed. The answer must come from root, checked with `SO_PEERCRED`.
 
-**Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one typing. The agent runs as *your* account, and a terminal your account owns is one it can reach: `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `--watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention, so watch from a console, an ssh session on another machine, or a login as another account. The deny rules refuse every faramir subcommand from the agent's own shell except the ones it needs, `escalations`, `approve` and `deny` among them, which raises the cost rather than removing it.
+**Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one typing. The agent runs as *your* account, and a terminal your account owns is one it can reach: `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `sudo watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention, so watch from a console, an ssh session on another machine, or a login as another account. The deny rules refuse every faramir subcommand from the agent's own shell except the ones it needs, the whole `sudo` group among them, which raises the cost rather than removing it.
 
-**Without `--watch`.** `sudo faramir escalations` lists what is waiting and exits. Answering is a second command: `sudo faramir approve 9f2a1c`, or `sudo faramir deny`, which takes an id but does not need one, only one question ever being outstanding. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached. `--json` prints the questions as an array and carries the same status; a broker it could not reach prints nothing rather than an empty array, which would report a host as quiet when nothing was asked. `expires` is what is left of the question, and you are typing against it. If it expires, the `sudo` fails and a re-run asks afresh.
+**Without a watcher.** `sudo faramir sudo ls` lists what is waiting and exits. Answering is a second command: `sudo faramir sudo approve 9f2a1c`, or `sudo faramir sudo deny`, which takes an id but does not need one, only one question ever being outstanding. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached. `--json` prints the questions as an array and carries the same status; a broker it could not reach prints nothing rather than an empty array, which would report a host as quiet when nothing was asked. `expires` is what is left of the question, and you are typing against it. If it expires, the `sudo` fails and a re-run asks afresh.
 
 Approving from your own shell is the last resort: reaching root that way leaves a warm sudo timestamp in a shell the agent can use. Consider `Defaults:<you> timestamp_timeout=0`.
 
@@ -119,7 +119,7 @@ faramir init --allow-sudo \
 
 **Keep `{id}` off a broadcast channel.** `wall` writes to every terminal on the host including the agent's: the id is not a credential, but publishing it is the difference between an agent that would have to guess what to type into your watcher and one that knows. `{prompt}` says what is waiting without saying what to type.
 
-**It runs as the broker, which reaches less than you do.** The environment is a fixed `PATH` and nothing else, and the uid is the broker's own, so anything needing your session is out: a desktop notifier wants `DBUS_SESSION_BUS_ADDRESS` and a path through `/run/user/<uid>`, which is `0700` and yours. What works is what needs neither, `wall` (setgid `tty`) or a request to something on the network. For a notification on your desktop, run `sudo faramir escalations --watch` on your own side instead: it reads the same questions and is already in your session.
+**It runs as the broker, which reaches less than you do.** The environment is a fixed `PATH` and nothing else, and the uid is the broker's own, so anything needing your session is out: a desktop notifier wants `DBUS_SESSION_BUS_ADDRESS` and a path through `/run/user/<uid>`, which is `0700` and yours. What works is what needs neither, `wall` (setgid `tty`) or a request to something on the network. For a notification on your desktop, run `sudo faramir sudo watch` on your own side instead: it reads the same questions and is already in your session.
 
 ## One question per run, and what to expect
 

@@ -749,7 +749,7 @@ func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 // an op as wide as its column shifts every column after it. logs.go names the
 // ops it renders rather than importing them, and this is where the two meet.
 func TestEveryOpFitsTheColumn(t *testing.T) {
-	ops := append([]string{opRunStarted, opAdd, opEdit, opRemove, opReseal, opRecipient},
+	ops := append([]string{opRunStarted, opAdd, opEdit, opRemove, opReseal, opReader},
 		protocol.Ops...)
 	for _, op := range ops {
 		t.Run(op, func(t *testing.T) {

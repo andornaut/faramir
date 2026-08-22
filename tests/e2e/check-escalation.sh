@@ -24,15 +24,15 @@ LOG=/var/log/faramir/audit.log
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 # The outstanding question's id, and a wait for one to appear.
-q() { /usr/local/bin/faramir escalations --json 2>/dev/null | grep -oE '"id"[^,]*' | head -1 | cut -d'"' -f4; }
+q() { /usr/local/bin/faramir sudo ls --json 2>/dev/null | grep -oE '"id"[^,]*' | head -1 | cut -d'"' -f4; }
 waitq() { local i; for _ in $(seq 100); do i=$(q); [ -n "$i" ] && { echo "$i"; return; }; sleep 0.1; done; echo ""; }
 # quiesce leaves no question outstanding and no process of the executor's uid,
 # which is the state every group below starts from: a leftover of either makes
 # the next group measure the last one.
 quiesce() {
   local id
-  for id in $(/usr/local/bin/faramir escalations --json 2>/dev/null | grep -oE '"id"[^,]*' | cut -d'"' -f4); do
-    /usr/local/bin/faramir deny "$id" >/dev/null 2>&1
+  for id in $(/usr/local/bin/faramir sudo ls --json 2>/dev/null | grep -oE '"id"[^,]*' | cut -d'"' -f4); do
+    /usr/local/bin/faramir sudo deny "$id" >/dev/null 2>&1
   done
   pkill -u faramir-exec 2>/dev/null || true
   sleep 1
@@ -91,7 +91,7 @@ if [ -z "$ID" ]; then
   bad "no question was filed for a brokered sudo"
 else
   ok "a question was filed ($ID)"
-  /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+  /usr/local/bin/faramir sudo approve "$ID" >/dev/null 2>&1
   wait $RUN 2>/dev/null
   grep -q 'uid=0(root)' /tmp/ap.out && ok "the approved command ran as root" \
     || bad "it did not become root: $(head -2 /tmp/ap.out | tr '\n' ' ')"
@@ -100,7 +100,7 @@ quiesce
 
 sudoRun /tmp/dn.out /usr/bin/sudo /usr/bin/id
 ID=$(waitq)
-/usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 grep -q 'uid=0(root)' /tmp/dn.out && bad "a REFUSED command became root anyway" \
   || ok "a refused command does not become root"
@@ -111,7 +111,7 @@ quiesce
 # whether running the command again is worth anything.
 sudoRun /tmp/dnwhy.out /usr/bin/sudo /usr/bin/id
 ID=$(waitq)
-/usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 grep -q 'escalation denied' /tmp/dnwhy.out && ok "and the caller is told a human refused it" \
   || bad "the refusal reaches the caller unnamed: $(tr '\n' ' ' </tmp/dnwhy.out | cut -c1-150)"
@@ -132,16 +132,16 @@ grep -q forbidden <<<"$out" && ok "nor can the executor's uid" || bad "faramir-e
 out=$(ask op '{"op":"escalations"}')
 grep -q forbidden <<<"$out" && ok "and neither may even list what is waiting" \
   || bad "op listed the questions: ${out:0:110}"
-out=$(runuser -u op -- /usr/local/bin/faramir approve "$ID" 2>&1)
-grep -q 'must run as root' <<<"$out" && ok "faramir approve as the agent is refused by name" \
-  || bad "faramir approve as op: ${out:0:110}"
+out=$(runuser -u op -- /usr/local/bin/faramir sudo approve "$ID" 2>&1)
+grep -q 'must run as root' <<<"$out" && ok "faramir sudo approve as the agent is refused by name" \
+  || bad "faramir sudo approve as op: ${out:0:110}"
 # A brokered command cannot even reach the attempt: it is refused for the same
 # serialisation that holds every other command while a question waits.
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo ran 2>&1)
 grep -q escalation_in_progress <<<"$out" && ok "and a brokered command cannot run at all to try" \
   || bad "a brokered command ran beside a question: ${out:0:110}"
 [ "$(q)" = "$ID" ] && ok "the question survived every attempt" || bad "the question is gone after those attempts"
-/usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 quiesce
 
@@ -172,7 +172,7 @@ sudoRun /tmp/stray.out /usr/bin/sudo /usr/bin/id -un
 ID=$(waitq)
 setsid runuser -u faramir-exec -- /bin/sleep 60 >/dev/null 2>&1 </dev/null &
 sleep 1
-out=$(/usr/local/bin/faramir approve --json "$ID" 2>&1)
+out=$(/usr/local/bin/faramir sudo approve --json "$ID" 2>&1)
 grep -q not_quiescent <<<"$out" && ok "the operator's yes was refused: not_quiescent" \
   || bad "a yes was taken with a stray process alive: ${out:0:130}"
 grep -qE '[0-9]+ \(sleep\)' <<<"$out" && ok "and it names the process in the way" \
@@ -184,7 +184,7 @@ quiesce
 
 sudoRun /tmp/quiet.out /usr/bin/sudo /usr/bin/id -un
 ID=$(waitq)
-out=$(/usr/local/bin/faramir approve --json "$ID" 2>&1)
+out=$(/usr/local/bin/faramir sudo approve --json "$ID" 2>&1)
 grep -q 'approved' <<<"$out" && ok "the same yes on a quiet host is taken" \
   || bad "a yes on a quiet host was refused: ${out:0:130}"
 wait $RUN 2>/dev/null
@@ -201,7 +201,7 @@ head_ "5. what one approval covers, and what the question shows of it"
 
 sudoRun /tmp/scope.out /bin/sh -c 'sudo /usr/bin/id -un; sudo /bin/cat /etc/shadow | head -1; sudo /usr/bin/whoami'
 ID=$(waitq)
-question=$(/usr/local/bin/faramir escalations 2>/dev/null)
+question=$(/usr/local/bin/faramir sudo ls 2>/dev/null)
 grep -q 'cat /etc/shadow' <<<"$question" && ok "shows the whole argv, second sudo included" \
   || bad "the question hides part of the command: ${question:0:150}"
 # The host is a field rather than part of the prompt, and an operator watching
@@ -216,7 +216,7 @@ grep -qE "^  caller +op \(uid $(id -u op)\)" <<<"$question" \
 grep -qE '^  caller +faramir-exec' <<<"$question" \
   && bad "the question names the executor as the caller" \
   || ok "and not the account it would run as"
-/usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo approve "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 covered=$(grep -c '^root' /tmp/scope.out)
 [ "$covered" -ge 2 ] && ok "one yes covered all $covered sudos in that run" \
@@ -231,13 +231,13 @@ runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 \
   --env PW=faramir://db/password -- /usr/bin/sudo /usr/bin/id -un >/tmp/val.out 2>&1 </dev/null &
 RUN=$!
 ID=$(waitq)
-body=$(/usr/local/bin/faramir escalations --json 2>/dev/null)
+body=$(/usr/local/bin/faramir sudo ls --json 2>/dev/null)
 # The listing answered, or the absence below is an op that failed rather than a
 # question that holds no value.
-grep -qF "$ID" <<<"$body" || bad "escalations --json did not name the waiting question"
+grep -qF "$ID" <<<"$body" || bad "sudo ls --json did not name the waiting question"
 grep -qF "$SECRET" <<<"$body" && bad "the question carries the plaintext value" \
   || ok "the question an operator reads carries no value"
-/usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 grep -qF "$SECRET" $LOG && bad "the audit log carries the value" || ok "and neither does the record"
 quiesce
@@ -245,7 +245,7 @@ quiesce
 # --------------------------------------------------------------------------
 head_ "7. answering something that is not there"
 
-out=$(/usr/local/bin/faramir approve deadbeef 2>&1); code=$?
+out=$(/usr/local/bin/faramir sudo approve deadbeef 2>&1); code=$?
 [ $code -ne 0 ] && ok "an id naming no question is an error (exit $code)" \
   || bad "approving an unknown id succeeded"
 grep -qi 'unknown\|no such\|not waiting' <<<"$out" && ok "and says so: $(head -1 <<<"$out" | cut -c1-70)" \
@@ -253,14 +253,14 @@ grep -qi 'unknown\|no such\|not waiting' <<<"$out" && ok "and says so: $(head -1
 
 sudoRun /tmp/twice.out /usr/bin/sudo /usr/bin/id -un
 ID=$(waitq)
-/usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
-out=$(/usr/local/bin/faramir approve "$ID" 2>&1); code=$?
+/usr/local/bin/faramir sudo approve "$ID" >/dev/null 2>&1
+out=$(/usr/local/bin/faramir sudo approve "$ID" 2>&1); code=$?
 [ $code -ne 0 ] && ok "answering the same question twice is an error" \
   || bad "the same question was answered twice: ${out:0:110}"
 wait $RUN 2>/dev/null
 quiesce
 
-out=$(/usr/local/bin/faramir deny 2>&1); code=$?
+out=$(/usr/local/bin/faramir sudo deny 2>&1); code=$?
 [ $code -ne 0 ] && ok "a bare deny with nothing waiting is an error" || bad "deny with no question: exit $code"
 
 # --------------------------------------------------------------------------
@@ -328,7 +328,7 @@ head_ "10. what became of the approved run"
 #
 # A yes is the last decision anybody makes about that command, so the terminal
 # that gave root away is told how it ended. It comes back on the poll the
-# question came in on, which is what `faramir escalations --watch` is sitting in:
+# question came in on, which is what `faramir sudo watch` is sitting in:
 # no second channel, and no read of the audit log.
 #
 # Only here, and not in the Go tests: filling the ending in is the exec path's,
@@ -336,13 +336,13 @@ head_ "10. what became of the approved run"
 
 sudoRun /tmp/ended.out /usr/bin/sudo /bin/sh -c 'exit 3'
 ID=$(waitq)
-LOGID=$(/usr/local/bin/faramir escalations --json 2>/dev/null | grep -oE '"log_id"[^,]*' | head -1 | cut -d'"' -f4)
+LOGID=$(/usr/local/bin/faramir sudo ls --json 2>/dev/null | grep -oE '"log_id"[^,]*' | head -1 | cut -d'"' -f4)
 [ -n "$LOGID" ] && ok "the question names the exec record it belongs to ($LOGID)" \
   || bad "the question carries no log_id, so there is nothing to wait on"
 # Answered after a pause, so the wait is a number worth reporting: the command's
 # own duration is wall time and it is blocked inside sudo for all of it.
 sleep 3
-/usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo approve "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 
 # The op as the watcher sends it: the run it approved, by name.
@@ -457,7 +457,7 @@ MODE = sys.argv[1]
 
 pid, fd = pty.fork()
 if pid == 0:
-    os.execv("/usr/local/bin/faramir", ["faramir", "escalations", "--watch"])
+    os.execv("/usr/local/bin/faramir", ["faramir", "sudo", "watch"])
     os._exit(127)
 
 buf = ""
@@ -575,7 +575,7 @@ PROMPT = "approve? [y/n]"
 
 pid, fd = pty.fork()
 if pid == 0:
-    os.execv("/usr/local/bin/faramir", ["faramir", "escalations", "--watch"])
+    os.execv("/usr/local/bin/faramir", ["faramir", "sudo", "watch"])
     os._exit(127)
 
 buf = ""
@@ -730,7 +730,7 @@ ID=$(waitq)
 if [ -z "$ID" ]; then
   bad "no question was filed for a sudo that reads its own environment"
 else
-  /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+  /usr/local/bin/faramir sudo approve "$ID" >/dev/null 2>&1
   wait $RUN 2>/dev/null
   grep -q '^FARAMIR_OPERATOR=op$' /tmp/sudoenv.out \
     && ok "root is told which account the host belongs to" \
@@ -770,7 +770,7 @@ if [ -z "$ID" ]; then
   bad "sudo -n filed no question, so it refused before the PAM stack ran: $(head -2 /tmp/nonint.out)"
 else
   ok "a question was filed for a sudo run with -n ($ID)"
-  /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+  /usr/local/bin/faramir sudo approve "$ID" >/dev/null 2>&1
   wait $RUN 2>/dev/null
   grep -q 'uid=0' /tmp/nonint.out \
     && ok "and the approved -n command reached root" \
@@ -783,7 +783,7 @@ ID=$(waitq)
 if [ -z "$ID" ]; then
   bad "no question was filed for the -n refusal check"
 else
-  /usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
+  /usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
   wait $RUN 2>/dev/null
   grep -q 'uid=0' /tmp/nonint.deny \
     && bad "a refused sudo -n reached root" || ok "and a no still refuses under -n"
@@ -935,7 +935,7 @@ $(tail -1 /tmp/alice.right)"
       bad "no question was filed for a brokered sudo under sudo-rs"
     else
       ok "a question was filed under sudo-rs ($ID)"
-      /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+      /usr/local/bin/faramir sudo approve "$ID" >/dev/null 2>&1
       wait $RUN 2>/dev/null
       grep -q '^FARAMIR_OPERATOR=op$' /tmp/rs.out \
         && ok "an approved command reached root, and was told whose host it is" \
@@ -952,7 +952,7 @@ $(tail -1 /tmp/alice.right)"
     if [ -z "$ID" ]; then
       bad "no question was filed for the refusal check under sudo-rs"
     else
-      /usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
+      /usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
       wait $RUN 2>/dev/null
       grep -q 'uid=0' /tmp/rs.deny.out \
         && bad "a refused escalation reached root under sudo-rs" \

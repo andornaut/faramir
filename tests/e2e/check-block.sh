@@ -47,7 +47,7 @@ cp -a $CFG "$BACKUP/config.toml"
 restore_baseline() {
   local rc=$?
   for path in "$KEY" "$ABSENT" "$SSHDIR"; do
-    "$faramir" block rm --agent-user op "$path" >/dev/null 2>&1 || true
+    "$faramir" block rm --agent-user op --path "$path" >/dev/null 2>&1 || true
   done
   cp -a "$BACKUP/config.toml" $CFG
   # Section 9 empties the rule file to check that a re-add restores it.
@@ -55,7 +55,7 @@ restore_baseline() {
   rm -rf "$BACKUP" "$KEYDIR" "$SSHDIR"
   rm -f /etc/refused-world.key
   "$faramir" link rm --agent-user op gh/refuse-suite >/dev/null 2>&1 || true
-  "$faramir" block rm --agent-user op /etc/beside-a-link.key >/dev/null 2>&1 || true
+  "$faramir" block rm --agent-user op --path /etc/beside-a-link.key >/dev/null 2>&1 || true
   rm -rf /home/op/.config/gh
   [ -n "$MADE_CLAUDE_HOME" ] && rm -rf "$CLAUDE_HOME"
   "$faramir" reload >/dev/null 2>&1 || true
@@ -100,7 +100,7 @@ for case in \
   "/|every file on the host"; do
   path=${case%%|*}
   want=${case##*|}
-  out=$(block add "$path" 2>&1)
+  out=$(block add --path "$path" 2>&1)
   if grep -qF "$want" <<<"$out"; then
     ok "refused $path: names '$want'"
   else
@@ -113,7 +113,7 @@ done
 
 # --------------------------------------------------------------------------
 head_ "2. the entry, and the rule it exists for"
-out=$(block add "$KEY")
+out=$(block add --path "$KEY")
 grep -q "blocked $KEY" <<<"$out" \
   && ok "block add reports what it blocked" \
   || bad "block add: ${out:0:160}"
@@ -179,7 +179,7 @@ WORLD=/etc/refused-world.key
 WORLD_VALUE=luks_refused_e2e_world_0002
 printf '%s\n' "$WORLD_VALUE" > $WORLD
 chmod 644 $WORLD
-block add "$WORLD" >/dev/null 2>&1
+block add --path "$WORLD" >/dev/null 2>&1
 out=$(brokered -- /bin/cat $WORLD)
 if grep -qF "$WORLD_VALUE" <<<"$out"; then
   ok "a brokered command still reads a refused file, in the clear: only the agent's own tools are stopped"
@@ -188,12 +188,12 @@ elif grep -q 'SECRET:' <<<"$out"; then
 else
   bad "the brokered read neither returned the value nor a token: ${out:0:140}"
 fi
-block rm "$WORLD" >/dev/null 2>&1
+block rm --path "$WORLD" >/dev/null 2>&1
 rm -f $WORLD
 
 # --------------------------------------------------------------------------
 head_ "4. a path that is not there"
-out=$(block add "$ABSENT")
+out=$(block add --path "$ABSENT")
 grep -q 'not there' <<<"$out" \
   && ok "an absent path is recorded and reported as absent" \
   || bad "adding an absent path said nothing about it: ${out:0:160}"
@@ -206,7 +206,7 @@ grep -q "$ABSENT" $CFG \
 
 # --------------------------------------------------------------------------
 head_ "5. a directory refuses what is under it"
-out=$(block add "$SSHDIR")
+out=$(block add --path "$SSHDIR")
 grep -q "blocked $SSHDIR" <<<"$out" \
   && ok "a directory is accepted" \
   || bad "block add on a directory: ${out:0:160}"
@@ -291,7 +291,7 @@ chmod 600 $LINKFILE
 waitfor 25 asop refs >/dev/null 2>&1
 if asop refs 2>/dev/null | grep -q 'faramir://gh/refuse-suite'; then
   ok "a link is serving beside the blocked paths"
-  block add /etc/beside-a-link.key >/dev/null 2>&1
+  block add --path /etc/beside-a-link.key >/dev/null 2>&1
   grep -q 'gh/refuse-suite' $CFG \
     && ok "and block add leaves its entry in config.toml" \
     || bad "block add erased the [[secret.link]] entry"
@@ -299,7 +299,7 @@ if asop refs 2>/dev/null | grep -q 'faramir://gh/refuse-suite'; then
   asop refs 2>/dev/null | grep -q 'faramir://gh/refuse-suite' \
     && ok "and the ref is still served, so the value is still redacted" \
     || bad "the linked ref stopped being served after a block add"
-  block rm /etc/beside-a-link.key >/dev/null 2>&1
+  block rm --path /etc/beside-a-link.key >/dev/null 2>&1
 else
   bad "the link never started serving, so this section asserts nothing"
 fi
@@ -312,7 +312,7 @@ head_ "9. adding what is already there"
 # ordinary case rather than a mistake: the entry stands and the rules are
 # rendered again.
 before=$(cat $CFG)
-out=$(block add "$KEY" --json)
+out=$(block add --path "$KEY" --json)
 rc=$?
 [ $rc -eq 0 ] \
   && ok "a path this install already refuses is not an error" \
@@ -329,7 +329,7 @@ grep -q '"changed": false' <<<"$out" \
 cp -a $RULES "$BACKUP/settings.json"
 printf '{}\n' > $RULES
 chown op:op $RULES
-block add "$KEY" >/dev/null 2>&1
+block add --path "$KEY" >/dev/null 2>&1
 grep -qF "Read($KEY)" $RULES \
   && ok "and a rule that left the agent's settings comes back" \
   || bad "the rule was not restored to $RULES"
@@ -348,7 +348,7 @@ asop block ls >/dev/null 2>&1 \
   && ok "and needs no root, reading only the config" \
   || note "block ls as the agent's account was refused (the guard denies it in a shell)"
 
-out=$(block rm "$ABSENT")
+out=$(block rm --path "$ABSENT")
 grep -q "stopped blocking $ABSENT" <<<"$out" \
   && ok "block rm reports what it removed" \
   || bad "block rm: ${out:0:160}"
@@ -360,7 +360,7 @@ grep -q 'deny rule' <<<"$out" \
   || bad "removal does not say the rule stays: ${out:0:160}"
 
 before=$(cat $CFG)
-out=$(block rm /no/such/path 2>&1)
+out=$(block rm --path /no/such/path 2>&1)
 rc=$?
 [ $rc -eq 0 ] \
   && ok "removing a path this install does not refuse is not an error" \
@@ -435,18 +435,36 @@ guard_says "cat /etc/hostname" | grep -q '"permissionDecision":"deny"' \
   || ok "and an ordinary read is left alone"
 
 out=$(block ls)
-grep -qE '^(path|name|suffix|glob|dir) ' <<<"$out" \
+grep -qE '^(path|name|command) ' <<<"$out" \
   && ok "block ls lists what the config declares" \
   || bad "block ls carries no declared entry: ${out:0:200}"
 grep -q 'command rule(s), which no entry changes' <<<"$out" \
   && ok "and the command rules faramir carries itself" \
   || bad "block ls does not list the command rules: ${out: -300}"
+# A row is one of three kinds and nothing else: a suffix and a prefix are
+# spellings of a name, and the entry shows which. Where a rule is enforced
+# follows from the kind rather than being carried in a column beside it.
+grep -qE '^(suffix|prefix|dir|glob) ' <<<"$out" \
+  && bad "block ls still reports a shape as a kind: ${out:0:200}" \
+  || ok "and every row is a name, a path or a command"
 grep -q 'file tools, commands' <<<"$out" \
-  && ok "and says a declared entry covers both entry points" \
-  || bad "block ls does not say where an entry is enforced: ${out:0:300}"
+  && bad "block ls still carries a covers column: ${out:0:200}" \
+  || ok "and carries no column for where a rule is enforced"
 block ls --declared | grep -q 'command rule(s)' \
   && bad "--declared listed the command rules" \
   || ok "and --declared is the config's own half"
+# The other half, which no entry declares and no block rm removes.
+out=$(block ls --built-in)
+grep -q "$KEY" <<<"$out" \
+  && bad "--built-in listed a declared entry: ${out:0:200}" \
+  || ok "and --built-in is the half faramir renders itself"
+grep -qE '^path +/etc/faramir' <<<"$out" \
+  && ok "which names this install's own directories" \
+  || bad "--built-in names no install directory: ${out:0:200}"
+out=$(block ls --declared --built-in 2>&1); code=$?
+[ $code -eq 2 ] \
+  && ok "and naming both halves is refused, being the default" \
+  || bad "--declared --built-in: exit $code [${out:0:120}]"
 
 # A command entry: the third form, which reaches the guard and no rule file.
 out=$(block add --command 'e2e-probe read')
@@ -483,15 +501,15 @@ block rm --command 'e2e-probe read' >/dev/null 2>&1
 # A path the install's own layout also covers. Taking the entry back leaves the
 # path blocked, and saying nothing would read as the file becoming readable.
 INSIDE=/etc/faramir/secrets/e2e-inside.sops.yml
-block add "$INSIDE" >/dev/null 2>&1
-out=$(block rm "$INSIDE")
+block add --path "$INSIDE" >/dev/null 2>&1
+out=$(block rm --path "$INSIDE")
 grep -q "$INSIDE" <<<"$out" \
   && ok "block rm removes an entry the layout also covers" \
   || bad "block rm of a covered path: ${out:0:200}"
 grep -q '/etc/faramir' <<<"$out" \
   && ok "and names the directory that still blocks it" \
   || bad "the removal says nothing about what still blocks it: ${out:0:300}"
-out=$(block rm /etc/faramir/age.key 2>&1); code=$?
+out=$(block rm --path /etc/faramir/age.key 2>&1); code=$?
 [ $code -eq 1 ] && grep -q 'block ls' <<<"$out" \
   && ok "and a path only the layout blocks cannot be removed at all" \
   || bad "block rm of an undeclared covered path: exit $code [${out:0:200}]"
@@ -503,5 +521,97 @@ grep -qF "stopped blocking $NAME" <<<"$out" \
 grep -qF 'name = "*.e2e-htpasswd"' $CFG \
   && bad "the name entry is still in config.toml" \
   || ok "and the entry is gone from config.toml"
+
+head_ "12. an entry a rule cannot carry"
+
+# A rendered rule is one line of a generated file and the entry is written into
+# it, so a newline ends that rule and starts a second line with the rest. Both
+# halves are unbalanced expressions the guard cannot compile, and a rule that
+# does not compile is skipped: the entry meant to refuse one more file takes the
+# rules protecting the install with it, and a doctor that re-renders and
+# compares cannot see it, the file agreeing with itself.
+RULES=/usr/local/libexec/faramir/deny-patterns.txt
+rules_now() { grep -cvE '^\s*(#|$)' $RULES; }
+before_rules=$(rules_now)
+
+for form in --name --command; do
+  out=$(block add "$form" "$(printf 'aa\nbb')"); code=$?
+  [ $code -ne 0 ] && grep -q 'control\|carries' <<<"$out" \
+    && ok "block add $form refuses an entry carrying a newline" \
+    || bad "block add $form took a newline: exit $code [${out:0:200}]"
+done
+out=$(block add --path "$(printf '/tmp/aa\nbb')"); code=$?
+[ $code -ne 0 ] \
+  && ok "and so does the path form" \
+  || bad "block add PATH took a newline: exit $code [${out:0:200}]"
+
+# The rest of the controls do not split a rule; they are refused because a
+# listing prints an entry back to a terminal, which acts on them.
+# $'' so these are the bytes themselves rather than two characters each.
+ctl_names=('carriage return' 'ESC c' 'BEL')
+ctl_bytes=($'\r' $'\ec' $'\a')
+for i in 0 1 2; do
+  out=$(block add --name "aa${ctl_bytes[$i]}bb"); code=$?
+  [ $code -ne 0 ] \
+    && ok "and an entry carrying a ${ctl_names[$i]} is refused" \
+    || bad "block add --name took a ${ctl_names[$i]}: exit $code"
+done
+
+[ "$(rules_now)" = "$before_rules" ] \
+  && ok "so the rendered file still carries its $before_rules rule(s)" \
+  || bad "the rule count moved from $before_rules to $(rules_now)"
+
+# The consequence, stated as behaviour: the rules that protect the install are
+# the ones a split takes out, so they are what is asserted afterwards.
+for target in /etc/faramir/age.key /var/log/faramir/audit.log; do
+  guard_says "cat $target" | grep -q '"permissionDecision":"deny"' \
+    && ok "and $target is still refused" \
+    || bad "the guard allows a read of $target"
+done
+
+# Every rendered rule compiles, which is the check doctor makes and the one a
+# re-render cannot: a skipped rule refuses nothing and the file still matches
+# itself. Asked of doctor rather than of another regexp engine, so the question
+# is put to the one that decides it.
+out=$("$faramir" doctor --agent-user op 2>&1 | grep 'deny patterns')
+grep -q '^ok' <<<"$out" \
+  && ok "doctor finds every rendered rule compiles" \
+  || bad "doctor on the rendered rules: ${out:0:200}"
+
+# And a listing prints an entry back to a terminal, which obeys what it is sent.
+block ls | grep -qP '[\x00-\x08\x0b\x0c\x0e-\x1f]' \
+  && bad "block ls sent a control character to the terminal" \
+  || ok "block ls sends the terminal nothing it would act on"
+
+head_ "13. the spellings a shell expands to the same file"
+
+# A path rule is a literal, and the tilde is how a person and a model both name
+# a file under a home: without the other spellings `cat ~/.luks/luks.key`
+# reaches a file that the absolute spelling is refused. That is the accident
+# this list exists to catch, not the evasion it does not claim to stop.
+block add --path "$KEY" >/dev/null 2>&1
+REL=${KEY#/home/op/}
+# Built rather than written inline: each of these has to reach the guard as the
+# literal text a shell would have expanded, so none of them may expand here.
+TILDE='~'
+DOLLAR_HOME='$HOME'
+BRACED_HOME='${HOME}'
+for spelling in "$KEY" "$TILDE/$REL" "$DOLLAR_HOME/$REL" "$BRACED_HOME/$REL"; do
+  guard_says "cat $spelling" | grep -q '"permissionDecision":"deny"' \
+    && ok "cat $spelling is refused" \
+    || bad "cat $spelling reaches the declared $KEY"
+done
+guard_says "rm -rf $TILDE/$REL" | grep -q '"permissionDecision":"deny"' \
+  && ok "and a write through the tilde spelling too" \
+  || bad "rm -rf $TILDE/$REL is allowed"
+
+# The bound still holds: a neighbour that merely starts the same way, and an
+# ordinary file under the same home, are both left alone.
+for spelling in "$TILDE/.luksier/x" "$TILDE/notes.md"; do
+  guard_says "cat $spelling" | grep -q '"permissionDecision":"deny"' \
+    && bad "cat $spelling is refused by a rule about a neighbouring path" \
+    || ok "and cat $spelling is left alone"
+done
+block rm --path "$KEY" >/dev/null 2>&1
 
 summary

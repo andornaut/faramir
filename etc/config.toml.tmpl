@@ -79,7 +79,7 @@ ssh_add = "{{.SshAdd}}"
 #
 # So there is no password anywhere: nothing minted, nothing stored, nothing
 # handed out, and nothing a command approved once could keep and pass to a
-# later one. The answer comes from `sudo faramir approve`, checked with
+# later one. The answer comes from `sudo faramir sudo approve`, checked with
 # SO_PEERCRED to be root, so the account the coding agent runs as cannot
 # approve what the agent asked for.
 #
@@ -98,7 +98,7 @@ helper = "{{.PamHelper}}"
 # Optional: announce that a question is waiting, "{prompt}" being the line the
 # broker builds and "{id}" the question to answer. It carries no answer and is
 # not waited on, so anything will do: wall, a desktop notifier, a push.
-# Unset, `faramir escalations --watch` is the only place a question shows up.
+# Unset, `faramir sudo watch` is the only place a question shows up.
 # Set it with `faramir init --allow-sudo --notify-command PROGRAM --notify-command ARG`,
 # which resolves the program on PATH.
 #

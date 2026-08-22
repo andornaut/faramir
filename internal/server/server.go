@@ -462,7 +462,7 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 	}
 	out := protocol.ErrorResponse("forbidden", fmt.Sprintf(
 		"%s is root's: an escalation must be answered by an account the coding "+
-			"agent cannot become. Run `sudo faramir escalations`", op), "")
+			"agent cannot become. Run `sudo faramir sudo ls`", op), "")
 	return &out
 }
 
@@ -1080,7 +1080,7 @@ func (s *Server) describeEscalation() (map[string]any, []string) {
 	} else {
 		info["pam_stack"] = stack
 	}
-	// The notifier is optional, `faramir escalations --watch` being where a
+	// The notifier is optional, `faramir sudo watch` being where a
 	// question is seen, but one configured and absent announces nothing,
 	// silently.
 	if len(cfg.NotifyCommand) > 0 {

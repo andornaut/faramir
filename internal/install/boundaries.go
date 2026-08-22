@@ -287,6 +287,19 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 // diagnoseDenyPatterns checks the shipped deny list was rendered for this
 // install: a list naming a directory nothing uses refuses reads of a secrets
 // directory that is not there and passes every read of the one that is.
+// uncompilable is the rules the hook would skip, in the file's own order. The
+// hook compiles each with the same case-insensitive prefix, so this asks the
+// question the way the hook answers it rather than a near version of it.
+func uncompilable(rules []string) []string {
+	var out []string
+	for _, rule := range rules {
+		if _, err := regexp.Compile("(?i)" + rule); err != nil {
+			out = append(out, rule)
+		}
+	}
+	return out
+}
+
 func diagnoseDenyPatterns(report *DoctorReport, opts DoctorOptions) {
 	reportDenyPatterns(report, opts, filepath.Join(DefaultLibexecDir, "deny-patterns.txt"))
 }
@@ -346,6 +359,20 @@ func reportDenyPatterns(report *DoctorReport, opts DoctorOptions, path string) {
 		return
 	}
 	have := ruleLines(string(body))
+	// Before the comparison, because a re-render compares the file to itself and
+	// so agrees with a rule that no longer works. The hook skips a pattern that
+	// will not compile rather than failing every command over it, which is the
+	// right answer there and leaves the loss silent: what should have been three
+	// rules is however many of them compiled.
+	if broken := uncompilable(have); len(broken) > 0 {
+		report.addf("deny patterns", StatusFailed, "%d of the %d rule(s) in %s will "+
+			"not compile, and the hook skips a rule it cannot compile, so each one "+
+			"refuses nothing: %s. An entry carrying a control character renders a "+
+			"rule across two lines and breaks both halves; `faramir block ls "+
+			"--declared` names the entries",
+			len(broken), len(have), path, firstFew(broken))
+		return
+	}
 	absent, spare := diffRuleLines(want, have)
 	switch {
 	case len(absent) > 0:

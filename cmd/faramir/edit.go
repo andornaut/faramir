@@ -510,7 +510,7 @@ func ruleMustCover(rulePath, target string, recipients []string) error {
 }
 
 // ruleMustNotSplitTheKey refuses an edit under a rule that splits the data key,
-// or nil. The refusal `faramir recipient reseal` makes, one step earlier:
+// or nil. The refusal `faramir reader reseal` makes, one step earlier:
 // shamir_threshold means N of the rule's key groups have to come together to
 // open a file, and what an edit writes back is sealed to the recipients the
 // file already carried, as one group. sops writes the threshold beside that

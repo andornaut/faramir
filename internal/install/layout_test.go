@@ -138,3 +138,47 @@ func TestAPathWithAControlCharacterIsRefused(t *testing.T) {
 		t.Errorf("an ordinary config dir was refused: %v", err)
 	}
 }
+
+// Each of these names is written into a file that is read a line at a time:
+// config.toml, the logrotate rule, and the environment file pam_env hands a
+// brokered command's sudo. A newline ends the line the name was written into
+// and makes the rest of it a directive of its own, in files that decide what
+// root is given. The account has to exist for an install to get this far, so
+// this is the gate rather than the only thing standing in the way.
+func TestAnAccountNameCarryingAControlCharacterIsRefused(t *testing.T) {
+	for _, c := range []struct {
+		field string
+		set   func(*Options, string)
+	}{
+		{"agent user", func(o *Options, v string) { o.AgentUser = v }},
+		{"client group", func(o *Options, v string) { o.ClientGroup = v }},
+		{"secrets group", func(o *Options, v string) { o.SecretsGroup = v }},
+		{"broker user", func(o *Options, v string) { o.BrokerUser = v }},
+		{"keeper user", func(o *Options, v string) { o.KeeperUser = v }},
+		{"exec user", func(o *Options, v string) { o.ExecUser = v }},
+	} {
+		for _, bad := range []string{"x\nroot ALL=(ALL) NOPASSWD: ALL", "x\ry", "x\x1bcy"} {
+			opts := Options{AgentUser: "op", ConfigDir: "/etc/faramir"}
+			c.set(&opts, bad)
+			opts.applyDefaults()
+			if _, err := opts.layout(); err == nil {
+				t.Errorf("%s %q was accepted, so it renders into a generated file whole",
+					c.field, bad)
+			}
+		}
+	}
+}
+
+// And the ordinary names still render, or an install cannot be performed at all.
+func TestOrdinaryAccountNamesStillRender(t *testing.T) {
+	opts := Options{
+		AgentUser: "op", ConfigDir: "/etc/faramir",
+		ClientGroup: "faramir-client", SecretsGroup: "faramir-keeper",
+		BrokerUser: "faramir-broker", KeeperUser: "faramir-keeper",
+		ExecUser: "faramir-exec",
+	}
+	opts.applyDefaults()
+	if _, err := opts.layout(); err != nil {
+		t.Errorf("an ordinary install was refused: %v", err)
+	}
+}

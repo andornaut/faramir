@@ -1,7 +1,7 @@
 // Package sopsrule reads the creation rules out of a .sops.yaml: which rules
 // there are, and which age recipients each one seals to.
 //
-// One reader for every caller that asks: `faramir recipient reseal` re-encrypts
+// One reader for every caller that asks: `faramir reader reseal` re-encrypts
 // the store to what the rules say and `faramir doctor` reports whether the
 // keeper is still among them, so two readers could disagree about whether a
 // store is healthy.

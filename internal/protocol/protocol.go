@@ -270,7 +270,7 @@ func parseApprove(payload map[string]any, req *Request) error {
 	id, isStr := payload["id"].(string)
 	if !isStr || id == "" {
 		return errors.New("'id' must name the question to answer; " +
-			"`faramir escalations` lists what is waiting")
+			"`faramir sudo ls` lists what is waiting")
 	}
 	req.ID = id
 	// Absent is a refusal: a malformed answer must not read as a yes.

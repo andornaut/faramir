@@ -67,7 +67,7 @@ func (r *runner) stepAgeKey() error {
 // secrets directory: sops resolves it from the working directory upward, so it
 // is found from both. Written once, sealed to the keeper's own recipient, and
 // kept on every later run: adding or dropping a recipient means re-encrypting
-// every managed value, which `faramir recipient add` does and an installer
+// every managed value, which `faramir reader add` does and an installer
 // should not.
 func (r *runner) stepSopsConfig() error {
 	path := r.layout.SopsConfigPath()
@@ -99,7 +99,7 @@ func (r *runner) stepSopsConfig() error {
 			"that has it, or re-seal from the original key")
 		return nil
 	}
-	body := "# Which files sops encrypts, and to whom. Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# sops encrypts values and leaves keys readable, so diffs stay per-key and\n# reviewable. 'faramir vault edit' and 'faramir recipient reseal' read this file to decide the\n# shape of what they write back, so a key added here governs them too.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n" +
+	body := "# Which files sops encrypts, and to whom. Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# sops encrypts values and leaves keys readable, so diffs stay per-key and\n# reviewable. 'faramir vault edit' and 'faramir reader reseal' read this file to decide the\n# shape of what they write back, so a key added here governs them too.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n" +
 		"      - age:\n          - " + r.keeperRecipient + "\n"
 	// Root-owned like the rest of the config directory, or the recipients could
 	// be rewritten by an account the secrets group exists to keep out.
@@ -113,7 +113,7 @@ func (r *runner) stepSopsConfig() error {
 	// key gets in: sealed to this host alone, a backup of the ciphertext opens
 	// with nothing but the key beside it.
 	r.step("sops config", changed, fmt.Sprintf("%s, sealed to %s alone; "+
-		"`faramir recipient add KEY` grants a key that opens it without this host's",
+		"`faramir reader add KEY` grants a key that opens it without this host's",
 		path, r.layout.KeeperUser))
 	return nil
 }
@@ -134,7 +134,7 @@ func (r *runner) keepSopsConfig(path string) {
 		r.step("sops config", false, "keeping "+path)
 		return
 	}
-	// What the file says: nothing else asks for a recipient, `faramir recipient
+	// What the file says: nothing else asks for a recipient, `faramir reader
 	// add` being what changes one.
 	r.report.AgeRecipients = listed
 
@@ -143,7 +143,7 @@ func (r *runner) keepSopsConfig(path string) {
 			"encrypted into the secrets directory from now on is one %s cannot "+
 			"decrypt: the broker starts, loads nothing, and redacts nothing. Put it "+
 			"back with:\n"+
-			"  sudo faramir recipient add %s\n"+
+			"  sudo faramir reader add %s\n"+
 			"which writes the rule and re-seals the store to it in one pass. That "+
 			"works while the managed files still open with %s; where they do not, "+
 			"this is what replacing that key leaves behind, and only the key they "+

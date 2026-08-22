@@ -38,7 +38,7 @@ type managedFile struct {
 	Refs       []string `json:"refs"`
 	Recipients []string `json:"recipients"`
 	// Drifted is true where the file is sealed to a set the rule no longer names,
-	// which is what `faramir recipient reseal` is for.
+	// which is what `faramir reader reseal` is for.
 	Drifted bool `json:"drifted"`
 	// Problem is why this file could not be read or parsed, and "" otherwise. A
 	// file the broker would refuse is what an operator comes here to find, so it
@@ -136,7 +136,7 @@ func runVaultList(f vaultListFlags) int {
 	// Named after the listing rather than mixed into it: a pattern that matched
 	// nothing is not a file.
 	for _, reason := range slices.Concat(failures, absent) {
-		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, reason)
+		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, safe(reason))
 	}
 	if ruleErr != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v, so nothing here says whether a file "+
@@ -151,7 +151,7 @@ func stateOf(file managedFile) string {
 	case file.Problem != "":
 		return file.Problem
 	case file.Drifted:
-		return "drifted; run `faramir recipient reseal`"
+		return "drifted; run `faramir reader reseal`"
 	}
 	return "ok"
 }
@@ -241,7 +241,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		for _, reason := range slices.Concat(failures, absent) {
-			fmt.Fprintf(os.Stderr, "  %s\n", reason)
+			fmt.Fprintf(os.Stderr, "  %s\n", safe(reason))
 		}
 		return 1
 	}
@@ -250,7 +250,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	// rather than a path.
 	refs, refsErr := refsIn(target)
 	if !f.force && !confirmRemoval(target, refs, refsErr) {
-		fmt.Fprintf(os.Stderr, "faramir %s: left %s alone\n", label, target)
+		fmt.Fprintf(os.Stderr, "faramir %s: left %s alone\n", label, safe(target))
 		return 1
 	}
 
@@ -270,7 +270,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 		return 1
 	}
 	fmt.Fprintf(os.Stderr, "faramir %s: removed %s and the %d ref(s) it held; the "+
-		"broker stops serving them within one refresh interval\n", label, target, len(refs))
+		"broker stops serving them within one refresh interval\n", label, safe(target), len(refs))
 	return 0
 }
 
@@ -278,7 +278,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 // only the file's own name for an answer: a y/n prompt is answered by reflex.
 // Deny by default, so a closed stdin or an empty line is a no.
 func confirmRemoval(target string, refs []string, refsErr error) bool {
-	fmt.Fprintf(os.Stderr, "%s\n", target)
+	fmt.Fprintf(os.Stderr, "%s\n", safe(target))
 	switch {
 	case refsErr != nil:
 		fmt.Fprintf(os.Stderr, "  its refs could not be read (%v), so what goes with "+
@@ -286,13 +286,13 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	case len(refs) == 0:
 		fmt.Fprintf(os.Stderr, "  it names no ref\n")
 	default:
-		fmt.Fprintf(os.Stderr, "  %d ref(s) go with it: %s\n", len(refs), strings.Join(refs, ", "))
+		fmt.Fprintf(os.Stderr, "  %d ref(s) go with it: %s\n", len(refs), safe(strings.Join(refs, ", ")))
 	}
 	// The expected word is shown rather than guessed at: what makes this safe is
 	// having read which file it is, not having worked out what to type.
 	name := managedStem(target)
 	fmt.Fprintf(os.Stderr, "Every value in it is destroyed, and nothing here brings "+
-		"it back.\nType %s to remove it: ", name)
+		"it back.\nType %s to remove it: ", safe(name))
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && line == "" {
 		fmt.Fprintln(os.Stderr)

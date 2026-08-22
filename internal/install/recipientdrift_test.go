@@ -73,7 +73,7 @@ func TestRecipientDriftFailsWhenTheCiphertextLagsTheRule(t *testing.T) {
 	if finding.Status != StatusFailed {
 		t.Fatalf("status = %q, want failed: %s", finding.Status, finding.Detail)
 	}
-	for _, want := range []string{"stale.sops.yml", backup, "recipient reseal"} {
+	for _, want := range []string{"stale.sops.yml", backup, "reader reseal"} {
 		if !strings.Contains(finding.Detail, want) {
 			t.Errorf("detail does not name %q: %s", want, finding.Detail)
 		}

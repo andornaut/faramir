@@ -1,6 +1,6 @@
 package main
 
-// faramir escalations, approve and deny: the channel an escalation is answered
+// faramir sudo ls, approve and deny: the channel an escalation is answered
 // on. Three commands rather than one with flags, mirroring the ops the broker
 // speaks: `escalations` lists, `approve` says yes, `deny` says no.
 //
@@ -61,75 +61,123 @@ func requireRootToAnswer(command string) bool {
 	return false
 }
 
-// cmdEscalations, cmdApprove and cmdDeny run one command on its own, which is
-// how the tests reach them without going through the root command.
-func cmdEscalations(args []string) int { return runCommand(newEscalationsCmd(), args) }
-func cmdApprove(args []string) int     { return runCommand(newApproveCmd(), args) }
-func cmdDeny(args []string) int        { return runCommand(newDenyCmd(), args) }
+// These run one command on its own, which is how the tests reach them without
+// going through the root command.
+func cmdSudoList(args []string) int  { return runCommand(newSudoListCmd(), args) }
+func cmdSudoWatch(args []string) int { return runCommand(newSudoWatchCmd(), args) }
+func cmdApprove(args []string) int   { return runCommand(newApproveCmd(), args) }
+func cmdDeny(args []string) int      { return runCommand(newDenyCmd(), args) }
 
-// newEscalationsCmd lists what is waiting, or waits for it with --watch. It
-// answers nothing: the verbs are their own commands.
-func newEscalationsCmd() *cobra.Command {
+// newSudoCmd groups everything about a brokered command asking to become root:
+// what is waiting, and the three ways an operator answers it.
+//
+// Named for sudo rather than for escalation because sudo is the word an
+// operator reaches for and the one the rest of the install already uses:
+// `faramir init --allow-sudo` grants it, and the page that explains it is
+// called "Allowing sudo on the controller". The cost is that these need root,
+// so the usual form doubles the word.
+//
+// It runs nothing itself, as the other groups do not: listing is `sudo ls`, so
+// that reading and waiting are two verbs rather than one verb and a flag that
+// turns it into a different program.
+func newSudoCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:     "sudo",
+		Short:   "The questions a brokered command's sudo raises, and the answers",
+		GroupID: groupProvisioning,
+		Args:    requiresSubcommand,
+		RunE:    func(c *cobra.Command, args []string) error { return nil },
+	}
+	c.AddCommand(newSudoListCmd(), newSudoWatchCmd(), newApproveCmd(), newDenyCmd())
+	return c
+}
+
+// newSudoListCmd is what is waiting, printed once. `ls` as the other groups
+// spell it.
+func newSudoListCmd() *cobra.Command {
 	var (
-		o     brokerOptions
-		watch bool
-		when  string
+		o    brokerOptions
+		when string
 	)
 	c := &cobra.Command{
-		Use:     "escalations [options]",
-		Short:   "List the escalation a brokered command is waiting on",
-		GroupID: groupProvisioning,
-		Args: func(c *cobra.Command, args []string) error {
-			if len(args) > 0 {
-				return usagef("faramir escalations: unexpected argument %q\n"+
-					"To answer one: faramir approve ID, or faramir deny ID", args[0])
-			}
-			return nil
-		},
+		Use:   useLs,
+		Short: "List the question a brokered command is waiting on",
+		Long: "Prints what is waiting and exits. Exit status is 0 where something was\n" +
+			"waiting, 1 where nothing was, and 69 where the broker could not be\n" +
+			"reached: a broker that did not answer prints nothing rather than an\n" +
+			"empty list, which would report a host as quiet when nothing was asked.\n\n" +
+			"`faramir sudo watch` is the other form: it waits for questions and\n" +
+			"answers them from that terminal.",
+		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			if !requireRootToAnswer("escalations") {
+			if !requireRootToAnswer("sudo ls") {
 				return codeErr(1)
 			}
 			paint, err := newPalette(when)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir escalations: %v\n", err)
+				fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
 				return codeErr(2)
-			}
-			if watch {
-				return codeErr(watchEscalations(socketDefault(), paint))
 			}
 			return codeErr(listEscalations(socketDefault(), o.json, paint))
 		},
 	}
 	o.add(c)
-	c.Flags().BoolVar(&watch, "watch", false,
-		"answer questions as they arrive and report how each run ended")
+	addColorFlag(c, &when)
+	return c
+}
+
+// newSudoWatchCmd is the other program: it holds the terminal, reads answers
+// from it, and reports how each approved run ended. A verb rather than a flag
+// on the listing, which is what it was: waiting for a question, answering it
+// and following the run afterwards is not a mode of printing a list.
+func newSudoWatchCmd() *cobra.Command {
+	var when string
+	c := &cobra.Command{
+		Use:   "watch",
+		Short: "Wait for questions, answer them here, and report how each run ended",
+		Long: "Holds this terminal: it prints each question as it arrives, reads your\n" +
+			"answer, and prints how each approved run ended.\n\n" +
+			"Run it as root somewhere the coding agent cannot type. The socket check\n" +
+			"makes the answer come from root; it cannot make root the one typing, and\n" +
+			"a terminal your own account owns is one the agent can send keys to.",
+		Args: noArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			if !requireRootToAnswer("sudo watch") {
+				return codeErr(1)
+			}
+			paint, err := newPalette(when)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "faramir sudo watch: %v\n", err)
+				return codeErr(2)
+			}
+			return codeErr(watchEscalations(socketDefault(), paint))
+		},
+	}
 	addColorFlag(c, &when)
 	return c
 }
 
 // newApproveCmd says yes to one question, which has to be named: there is no
-// bare `faramir approve`, an escalation naming no command being one nobody
+// bare `faramir sudo approve`, an escalation naming no command being one nobody
 // judged.
 func newApproveCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
-		Use:     "approve [options] ID",
-		Short:   "Say yes to one, by id",
-		GroupID: groupProvisioning,
+		Use:   "approve [options] ID",
+		Short: "Say yes to one, by id",
 		// The command line before the caller: a malformed one is worth saying
 		// whoever is asking, and the other two commands check in that order.
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) != 1 || args[0] == "" {
-				return usagef("faramir approve: one id is required\n" +
+				return usagef("faramir sudo approve: one id is required\n" +
 					"A yes names the command it is for, so there is no form that approves " +
-					"whatever is waiting. `faramir escalations` lists it; `faramir deny` needs " +
-					"no id, one question being outstanding at a time")
+					"whatever is waiting. `faramir sudo ls` lists it; `faramir sudo deny` " +
+					"needs no id, one question being outstanding at a time")
 			}
 			return nil
 		},
 		RunE: func(c *cobra.Command, args []string) error {
-			if !requireRootToAnswer("approve") {
+			if !requireRootToAnswer("sudo approve") {
 				return codeErr(1)
 			}
 			return codeErr(answer("approve", socketDefault(), args[0], true, o.json))
@@ -148,12 +196,11 @@ func newDenyCmd() *cobra.Command {
 		when string
 	)
 	c := &cobra.Command{
-		Use:     "deny [options] [ID]",
-		Short:   "Say no, to that one or to whatever is waiting",
-		GroupID: groupProvisioning,
-		Args:    atMostOneArg("id"),
+		Use:   "deny [options] [ID]",
+		Short: "Say no, to that one or to whatever is waiting",
+		Args:  atMostOneArg("id"),
 		RunE: func(c *cobra.Command, args []string) error {
-			if !requireRootToAnswer("deny") {
+			if !requireRootToAnswer("sudo deny") {
 				return codeErr(1)
 			}
 			if len(args) == 1 && args[0] != "" {
@@ -161,7 +208,7 @@ func newDenyCmd() *cobra.Command {
 			}
 			paint, err := newPalette(when)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir deny: %v\n", err)
+				fmt.Fprintf(os.Stderr, "faramir sudo deny: %v\n", err)
 				return codeErr(2)
 			}
 			return codeErr(denyWaiting(socketDefault(), o.json, paint))
@@ -194,12 +241,12 @@ func denyWaiting(socketPath string, asJSON bool, paint palette) int {
 func waiting(socketPath, verb string) ([]escalation.Question, int) {
 	questions, _, err := pending(socketPath, 0, "")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir escalations: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
 		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
 	}
 	if len(questions) == 0 {
 		fmt.Fprintf(os.Stderr, "nothing is waiting to be %s. "+
-			"`faramir escalations --watch` waits for the next one\n", verb)
+			"`faramir sudo watch` waits for the next one\n", verb)
 		return nil, 1
 	}
 	return questions, 0
@@ -219,8 +266,8 @@ func listEscalations(socketPath string, asJSON bool, paint palette) int {
 		printQuestion(question, paint)
 		// The answer is a second command here, so the question says how to type
 		// it.
-		fmt.Printf("  approve with: faramir approve %s\n", question.ID)
-		fmt.Printf("  refuse with:  faramir deny %s\n\n", question.ID)
+		fmt.Printf("  approve with: faramir sudo approve %s\n", question.ID)
+		fmt.Printf("  refuse with:  faramir sudo deny %s\n\n", question.ID)
 	}
 	return 0
 }
@@ -239,7 +286,7 @@ func listAsJSON(questions []escalation.Question, code int) int {
 	}
 	body, err := json.MarshalIndent(questions, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir escalations: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
 		return 1
 	}
 	fmt.Println(string(body))
@@ -277,8 +324,8 @@ func watchEscalations(socketPath string, paint palette) int {
 			//
 			// The cost is that `faramir init` restarts the broker, so an install ends
 			// a watcher and it has to be started again.
-			fmt.Fprintf(os.Stderr, "faramir escalations: %v\n", err)
-			fmt.Fprintln(os.Stderr, "faramir approve: stopping rather than "+
+			fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
+			fmt.Fprintln(os.Stderr, "faramir sudo approve: stopping rather than "+
 				"reconnecting: questions raised while nothing was watching would "+
 				"expire unanswered. Start it again once the broker is back.")
 			return 69 // EX_UNAVAILABLE, as every other broker-facing command
@@ -298,7 +345,7 @@ func watchEscalations(socketPath string, paint palette) int {
 			case stdinClosed:
 				// Nothing further can be answered here, and leaving the loop spinning
 				// would refuse nothing and approve nothing.
-				fmt.Fprintln(os.Stderr, "faramir approve: stdin closed; stopping")
+				fmt.Fprintln(os.Stderr, "faramir sudo approve: stdin closed; stopping")
 				return 0
 			case expired:
 				fmt.Printf("\n  %s %s\n", paint.dim(question.LogID), paint.bad("expired"))
@@ -334,12 +381,12 @@ func watchEscalations(socketPath string, paint palette) int {
 				fmt.Printf("  %s %s %s\n", paint.dim(question.LogID), paint.bad("refused:"),
 					strconv.Quote(strings.Trim(line, "\r\n")))
 			case 69:
-				fmt.Fprintf(os.Stderr, "faramir approve: %s could not be answered and is "+
+				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s could not be answered and is "+
 					"still open with nobody watching it; stopping rather than leaving it "+
 					"that way. Start this again once the broker is back.\n", question.ID)
 				return 69
 			default:
-				fmt.Fprintf(os.Stderr, "faramir approve: %s was not approved and is now "+
+				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s was not approved and is now "+
 					"closed; run the command again if it still needs to\n", question.ID)
 			}
 		}

@@ -92,9 +92,9 @@ key  = "github.com/oauth_token"
 Key | Rule
 --- | ---
 `ref` | The name a caller asks by, in the same namespace the sops store uses. Nothing marks a ref as linked: where a secret is kept is not part of its name, or moving one into the store later would rename it, and every `faramir.env` naming it with it. A link claiming a ref the store already defines is refused too.
-`path` | Absolute. No `~`, which nothing expands here: the broker runs as its own account, so a home would be the wrong one.
+`path` | Absolute. No `~`, which nothing expands here: the broker runs as its own account, so a home would be the wrong one. No control character either: the path is rendered into the deny rules, one rule to a line, and a newline in it splits the rule into halves that will not compile and are skipped.
 `type` | `text` or `base64` for the whole file, `json`, `yaml`, `toml` or `ini` to select out of it.
-`key` | Required for the four that select, refused for the two that do not. `a/b/c` walks a tree the way a sops ref does, a number indexing a list; `ini` matches the whole key instead. [Selectors, escaping and the per-tool recipes](integrations.md#linking-a-credential-another-tool-owns).
+`key` | Required for the four that select, refused for the two that do not. Held to the same bytes as `path`, `faramir link ls` printing it back to a terminal. `a/b/c` walks a tree the way a sops ref does, a number indexing a list; `ini` matches the whole key instead. [Selectors, escaping and the per-tool recipes](integrations.md#linking-a-credential-another-tool-owns).
 
 faramir grants the broker read, so there is nothing to arrange by hand:
 
@@ -114,7 +114,7 @@ Why it is shaped this way (one ref per entry rather than a whole-file flatten, t
 A `[[secret.block]]` entry blocks one thing from the agent, for a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity. A `path` or a `name` is kept from its file tools and its shell alike; a `command` is kept from the shell alone, a command being nothing a file tool can name. [When to reach for one](integrations.md#where-the-value-lives).
 
 ```sh
-sudo faramir block add /etc/luks/volume.key          # this file, on this host
+sudo faramir block add --path /etc/luks/volume.key   # this file, on this host
 sudo faramir block add --name '*.htpasswd'           # any file of that name, anywhere
 
 # Each argument and each --name is one entry, and one command writes them all
@@ -124,7 +124,9 @@ sudo faramir block add --name id_rsa --name '*.pem' --name '.env*'
 sudo faramir block add --command 'op read' --command 'pass show'
 ```
 
-**A path and a name are not the same rule, and one entry is one of them.** A path refuses the file at that path. A name is matched against the path the agent names rather than against this host's filesystem, which is what reaches a path the host does not have: a container mounts `/srv/ha/config` as `/config`, the agent names the second, and a rule carrying the first covers nothing it runs. Naming both in one entry is refused rather than answered by picking one.
+**Each form is named by its own flag, and one entry is one form.** A bare argument is refused rather than read as a path: the three block different things, and an operator who means every file of a name would otherwise get a rule about one file on this host.
+
+**A path and a name are not the same rule.** A path refuses the file at that path. A name is matched against the path the agent names rather than against this host's filesystem, which is what reaches a path the host does not have: a container mounts `/srv/ha/config` as `/config`, the agent names the second, and a rule carrying the first covers nothing it runs. Naming both in one entry is refused rather than answered by picking one.
 
 Name | Matches
 --- | ---
@@ -139,7 +141,7 @@ Which of the five a pattern is comes from its shape, and `block add` prints what
 
 **The two forms fail in opposite directions.** A mistyped path refuses one file, and the file stays readable until somebody notices. A pattern that matches more than it was meant to refuses a class of files at once, and nothing announces it: the agent meets it as file tools failing on files nobody discussed. So a pattern that matches everything is refused at load the way `/` is as a path, and what a pattern will match is printed as it is written rather than left to be discovered.
 
-**An entry covers both entry points.** The agents' deny rules and the command guard's patterns are rendered from one set, so a declared path or name refuses a file tool and `cat` alike, and `faramir init` re-asserts both. Before, an entry reached the file tools only, and a command reading the very path an operator had just refused was allowed with nothing to say so.
+**A path or a name covers both entry points.** The agents' deny rules and the command guard's patterns are rendered from one set, so a declared path or name refuses a file tool and `cat` alike, and `faramir init` re-asserts both. A command covers the shell alone, being nothing a file tool can name.
 
 **It is the weaker of the two entries.** A link reads the file, so it does three things this one cannot:
 
@@ -157,12 +159,13 @@ Key | Rule
 `command` | A command the agent's shell may not run, written as it would be typed: `op read`, `sops -d`. The words are literal and the space between them matches any run of whitespace, so there is no pattern to get wrong. It reaches the command guard and no agent's file-tool rules, a command not being a path. A single-character word is refused, matching nearly every command line.
 
 **Matched where a command starts**, not wherever the words appear: after a separator, a pipe, a subshell, an assignment, `sudo` and its kin, or a shell's `-c` string. So `pass` is safe to declare on its own, where matching anywhere would have refused every `ansible-playbook --ask-become-pass`, and a `grep` naming a declared command is left alone. The cost is the other way round: a command reached through a wrapper the anchor does not know is missed. That is the better error for a list [the design says is not the boundary](design.md#three-layers), which is there to catch an accident, and an accident is typed rather than wrapped
-`path` | Absolute, and in its shortest form: a rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules of which one matches nothing. No `~`, which nothing expands here. `/` is refused, being every file on the host
+`path` | Absolute, and in its shortest form: a rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules of which one matches nothing. A path under a home is refused in the spellings a shell expands to it as well: `~/`, `$HOME/` and `${HOME}/`, which is how a person and a model both write one. No `~`, which nothing expands here. `/` is refused, being every file on the host
 `name` | A name, suffix, prefix, wildcard name or directory, per the table above. Not absolute, which is a path; no `~` and no `..`, nothing resolving either here; no `**`, a name matching in any directory already. A pattern with nothing left once the wildcards and separators are taken out is refused, being every file on the host
 
+- **An entry carrying a control character is refused**, in all three forms. A rule is one line of a generated file and the entry is written into it, so a newline ends that rule early and starts a second line with the rest: neither half is the rule that was asked for, both are unbalanced expressions the guard cannot compile, and a rule that will not compile is skipped. The entry meant to refuse one more file would take the rules protecting the install with it. The rest of the controls are refused because a listing prints an entry back to a terminal, which obeys what it is sent. `faramir doctor` fails on any rendered rule that will not compile, whatever wrote it.
 - **A path that is not there is still recorded**, and you are told. The rule costs nothing while the file is absent and holds once the volume mounts, which is the case these exist for. A path spelled wrong looks the same, so the message says both.
 - **A name is not asked of the filesystem at all**, having nothing on this host to be asked about. What it will match is printed instead.
-- **`faramir block ls` is the answer to "what is blocked here".** The declared entries and this install's own directories in a table, each marked as covering the file tools and the commands together, and under it the command rules faramir carries itself, which are about its binary, the files an enrolment installs, and the commands that act on the install rather than through it. Neither half can be asked any other way, a refusal naming the rule that matched rather than the set. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges.
+- **`faramir block ls` is the answer to "what is blocked here".** The declared entries and this install's own directories in a table of kind and entry, and under it the command rules faramir carries itself, which are about its binary, the files an enrolment installs, and the commands that act on the install rather than through it. The kind is one of three, `name`, `path` or `command`, and where a rule is enforced follows from it rather than being printed beside it. Neither half can be asked any other way, a refusal naming the rule that matched rather than the set. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges, and `--built-in` to the half faramir renders from its own layout, which no entry names.
 - **An entry covers the path and everything under it**, whether or not it is a directory today. The filesystem is not asked: these rules are a function of the config alone, or a key on an unmounted volume would render no subtree rule and gain one when it mounts. The subject is bounded, so `~/.sshrc` is not part of `~/.ssh`.
 - **A path this install occupies cannot be unblocked, and asking fails.** `block rm /etc/faramir/age.key` names a rule the layout renders on every run rather than an entry this install carries, so there is nothing to remove and the host goes on blocking it; reporting that as "nothing removed" would read as the file becoming readable. Where an install declared the same path as well, its entry is removed and the directory is named as what still blocks it. Nothing else is unremovable: no rule is compiled in.
 - **Nothing is reloaded.** No daemon reads these entries, so `block add` does not restart the broker under a running command.

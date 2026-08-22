@@ -502,20 +502,23 @@ func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
 // error from an argument that was accepted.
 func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
 	if code := cmdDeny(nil); code == 2 {
-		t.Error("faramir deny = 2, want it accepted without an id")
+		t.Error("faramir sudo deny = 2, want it accepted without an id")
 	}
 	if code := cmdDeny([]string{"9f2a1c"}); code == 2 {
-		t.Error("faramir deny ID = 2, want an id accepted too")
+		t.Error("faramir sudo deny ID = 2, want an id accepted too")
 	}
 	if code := cmdApprove(nil); code != 2 {
-		t.Errorf("faramir approve = %d, want 2: a yes has to name the command it is for", code)
+		t.Errorf("faramir sudo approve = %d, want 2: a yes has to name the command it is for", code)
 	}
 	if code := cmdApprove([]string{"9f2a1c"}); code == 2 {
-		t.Error("faramir approve ID = 2, want it accepted")
+		t.Error("faramir sudo approve ID = 2, want it accepted")
 	}
-	// Listing takes no id at all: the verbs are their own commands now.
-	if code := cmdEscalations([]string{"9f2a1c"}); code != 2 {
-		t.Errorf("faramir escalations ID = %d, want 2: it lists and answers nothing", code)
+	// Listing and watching take no id at all: the verbs are their own commands.
+	if code := cmdSudoList([]string{"9f2a1c"}); code != 2 {
+		t.Errorf("faramir sudo ls ID = %d, want 2: it lists and answers nothing", code)
+	}
+	if code := cmdSudoWatch([]string{"9f2a1c"}); code != 2 {
+		t.Errorf("faramir sudo watch ID = %d, want 2: it answers from the terminal", code)
 	}
 }
 
