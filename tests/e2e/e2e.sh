@@ -385,6 +385,20 @@ cmd_down() {
   echo "e2e: containers, images and networks removed, both arrangements"
 }
 
+# usage is the header comment down to the end of the paragraph about SUDO: what
+# the subcommands are, and how to pick an arrangement.
+#
+# Taken by counting the blank comment lines that separate the paragraphs rather
+# than by a line number. The line number was 13 and the paragraph grew past it,
+# so `./e2e.sh` with no arguments ended its own help mid-sentence, on "Every
+# container, image and". A count follows the text it is counting.
+usage() {
+  awk 'NR == 1 { next }
+       !/^#/ { exit }
+       /^#$/ && ++blank > 2 { exit }
+       { sub(/^# ?/, ""); print }' "$0"
+}
+
 case "${1:-}" in
   fetch) shift; cmd_fetch "$@";;
   up) shift; cmd_up "$@";;
@@ -393,5 +407,5 @@ case "${1:-}" in
   cp) shift; cmd_cp "$@";;
   down) shift; cmd_down "$@";;
   both) shift; cmd_both "$@";;
-  *) sed -n '2,13p' "$0" | sed 's/^# \?//'; exit 2;;
+  *) usage; exit 2;;
 esac
