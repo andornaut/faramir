@@ -14,9 +14,12 @@
 # itself. It is not a general destruction guard.
 #
 # Two limits: a pattern matches the command string, so a grep or a heredoc that
-# only mentions the text is refused like one that would run it; and "[^|]*"
-# rather than ".*" wherever a rule spans arguments, so it stops at the first
-# pipe.
+# only mentions the text is refused like one that would run it; and a rule that
+# spans arguments reaches to the end of the command it started in and no
+# further, so a reader earlier on a compound line says nothing about a path in a
+# later one. A separator inside quotes, a "&" that is redirection, and a
+# backslash before a newline are all crossed, being parts of one command rather
+# than the end of it.
 
 # No rule for a decryption verb, and none for another tool's secret store.
 #
