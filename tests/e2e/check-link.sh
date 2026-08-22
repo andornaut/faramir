@@ -134,6 +134,24 @@ grep -q "chgrp $brokergroup" <<<"$out" && grep -q 'chmod g+r' <<<"$out" \
   && ok "and it arranged nothing itself" \
   || bad "the refused add altered the file: $(stat -c %U:%G/%a $GH)"
 
+# A ref the managed store already defines. Refused before the entry is written,
+# because the broker refuses every brokered command while one stands: callers
+# would go on getting the managed value while this file held a second one for
+# the same name, which nothing reads and nothing redacts.
+out=$(addlink db/password $GH --type yaml --key github.com/oauth_token)
+if grep -q 'db/password' $CFG; then
+  bad "a link claiming a managed ref was written: $out"
+else
+  ok "a link claiming a ref the store defines is refused, and no entry is written"
+fi
+grep -q 'already serves' <<<"$out" \
+  && ok "and the refusal says the broker answers that name already" \
+  || bad "the refusal does not say why: $out"
+# Still serving: the refusal came before anything reached the config.
+asop refs 2>/dev/null | grep -q 'faramir://db/password' \
+  && ok "and the host is still serving every ref it was" \
+  || bad "the refused add left the broker refusing: $(asop refs 2>&1 | tr '\n' ' ')"
+
 out=$(addlink gone/token $GHDIR/nosuchfile --type text)
 grep -q 'mount it first' <<<"$out" \
   && ok "a file that is not there is refused, naming the case that explains it" \

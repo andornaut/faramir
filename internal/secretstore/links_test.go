@@ -186,6 +186,11 @@ func TestAShortLinkedValueIsRefused(t *testing.T) {
 
 // Blocked rather than resolved either way: one of the two would then rotate
 // with nothing reading it.
+//
+// Not a degraded ref, which is the other thing a link can be: this one is
+// answered, by the managed store. What the broker refuses over is the second
+// value the linked file holds for that name, which is on disk and in no
+// redactor, so it is refused the way a managed file that did not load is.
 func TestALinkShadowingAManagedRefIsRefused(t *testing.T) {
 	path := writeLinked(t, "token", "gho_linked_example\n")
 	managed := managedFile(t)
@@ -195,11 +200,18 @@ func TestALinkShadowingAManagedRefIsRefused(t *testing.T) {
 	}}, managed)
 	s.Reload()
 
-	if reason := s.Unreadable(); reason != "" {
-		t.Fatalf("a link shadowing a managed ref stopped the broker: %s", reason)
+	reason := s.Unreadable()
+	if reason == "" {
+		t.Fatal("a link shadowing a managed ref was accepted")
 	}
-	if _, named := s.DegradedLinks()["a/b"]; !named {
-		t.Errorf("the shadowing link is not reported: %v", s.DegradedLinks())
+	if !strings.Contains(reason, "a/b") {
+		t.Errorf("the refusal does not name the ref: %s", reason)
+	}
+	// Not reported as a ref that answers nothing: it answers, and what it answers
+	// with is the managed value.
+	if _, named := s.DegradedLinks()["a/b"]; named {
+		t.Errorf("a shadowed ref is reported as a link that did not load: %v",
+			s.DegradedLinks())
 	}
 	// The managed value wins, so the redactor still covers what sops holds.
 	if got, err := s.Value("a/b"); err != nil || got != "hunter2-correct-horse" {

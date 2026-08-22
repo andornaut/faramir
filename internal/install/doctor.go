@@ -923,15 +923,25 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			explained = true
 		}
 	}
-	// Links the broker could not load. Its own view rather than the mode check
-	// diagnoseLinkedAccess makes: this is what the running daemon holds, so it
-	// also catches a selector the owning tool stopped writing, which no mode says
-	// anything about. A failure: the ref answers nothing, and nothing else
-	// surfaces that until a command asks for it.
+	// Links that did not load, read out of the file rather than off its mode:
+	// this catches a selector the owning tool stopped writing, which no mode says
+	// anything about, and which diagnoseLinkedAccess therefore cannot see.
+	//
+	// What a fresh load of this config produces, not what the running daemon
+	// holds. The two differ after a linked file is repaired by hand: the broker
+	// fingerprints one by mtime and size, and a `chgrp` changes neither, so its
+	// view stands until it is restarted. Nothing does that on its own, which is
+	// why the remedy says so.
+	//
+	// A failure: the ref answers nothing, and nothing else surfaces that until a
+	// command asks for it.
 	if len(check.Secrets.DegradedLinks) > 0 {
-		report.addf("linked refs", StatusFailed, "%d [[secret.link]] entry/entries "+
-			"did not load, so those refs answer nothing while every other ref is "+
-			"served: %s", len(check.Secrets.DegradedLinks), check.degradedRefs())
+		report.addf("linked refs", StatusFailed, "%s did not load, so those refs "+
+			"answer nothing while every other ref is served: %s. Fix what each one "+
+			"needs, then `sudo systemctl restart faramir-broker`: the broker "+
+			"fingerprints a linked file by mtime and size, so a repair that changes "+
+			"neither leaves its view as it was",
+			linkEntries(len(check.Secrets.DegradedLinks)), check.degradedRefs())
 		if check.onlyDegradedLinks() {
 			explained = true
 		}

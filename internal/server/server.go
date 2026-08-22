@@ -606,9 +606,12 @@ func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	}, audit.Output{})
 	out := protocol.ErrorResponse("no_secrets", fmt.Sprintf(
 		"the broker does not hold every managed value, so %s would run with "+
-			"redaction covering less than the config asks for: %s. Write a first "+
-			"file into %s with `sudo faramir vault add NAME`, or `sudo faramir vault "+
-			"edit` once one is there, then retry", phrase, reason, s.secretsDir()), logID)
+			"redaction covering less than the config asks for: %s. Where the store "+
+			"has not been written yet, write a first file into %s with `sudo faramir "+
+			"vault add NAME`, or `sudo faramir vault edit` once one is there; where "+
+			"the reason above names a [[secret.link]] ref, that entry claims a name "+
+			"the managed store already defines and `sudo faramir link rm REF` is what "+
+			"clears it", phrase, reason, s.secretsDir()), logID)
 	return &out
 }
 

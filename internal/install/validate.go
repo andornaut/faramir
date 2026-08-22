@@ -64,7 +64,12 @@ func (c checkReport) onlyDegradedLinks() bool {
 		len(c.Policy) == 0 &&
 		len(c.Secrets.Errors) == 0 &&
 		len(c.Secrets.NotRedactable) == 0 &&
-		len(c.Secrets.UnresolvedPatterns) == 0
+		len(c.Secrets.UnresolvedPatterns) == 0 &&
+		// --check also exits non-zero for a store that loaded nothing at all, which
+		// is a broker protecting nothing rather than one ref short. Without this a
+		// degraded link beside it would account for that exit code and carry the
+		// install past it.
+		c.Secrets.Count > 0
 }
 
 // refusedRefs is the refused refs and their reasons, ordered, for a message.
@@ -151,22 +156,21 @@ func (r *runner) stepValidate() error {
 			r.step("validate", false, "no secrets yet")
 			return nil
 		}
+		// Links that did not load, and nothing else wrong. Reported and carried on
+		// from: the broker serves every other ref, and the file a link names
+		// belongs to another tool, so an install cannot produce it.
+		if report.onlyDegradedLinks() {
+			r.warnf("%s did not load, so those refs answer nothing while every other "+
+				"one is served: %s. `sudo faramir doctor` says what each needs",
+				linkEntries(len(report.Secrets.DegradedLinks)), report.degradedRefs())
+			r.step("validate", false, "installed; links to fix")
+			return nil
+		}
 		// Refs the redactor refused, and nothing else wrong. Reported and carried
 		// on from: the store loaded and the daemons are serving, the values are
 		// never injected so nothing is exposed by continuing, and an install cannot
 		// lengthen a secret. Failing here ends every future `init` on this host
 		// the same way, including the upgrade that would carry a fix.
-		// Links that did not load, and nothing else wrong. Reported and carried on
-		// from for the reason below: the broker serves every other ref, and the file
-		// a link names belongs to another tool, so an install cannot produce it.
-		if report.onlyDegradedLinks() {
-			r.warnf("%d [[secret.link]] entry/entries did not load, so those refs "+
-				"answer nothing while every other one is served: %s. `sudo faramir "+
-				"doctor` says what each needs",
-				len(report.Secrets.DegradedLinks), report.degradedRefs())
-			r.step("validate", false, "installed; links to fix")
-			return nil
-		}
 		if report.onlyNotRedactable() {
 			r.warnf("%d ref(s) are too short for [secret] min_length, so they are "+
 				"never injected and never redacted: %s. Lengthen them with `faramir "+
@@ -177,7 +181,9 @@ func (r *runner) stepValidate() error {
 		}
 		return fmt.Errorf("the installed config does not work for %s: %w\n"+
 			"A [secret] file named there is one the broker could not load. A ref "+
-			"reported under not_redactable needs lengthening instead",
+			"reported under not_redactable needs lengthening instead, and a "+
+			"[[secret.link]] entry named there is one claiming a ref the managed "+
+			"store already defines: remove it with `sudo faramir link rm REF`",
 			r.layout.BrokerUser, checkErr)
 	}
 
@@ -327,6 +333,12 @@ func storeFinding(c checkReport) (Status, string) {
 		return StatusWarn, fmt.Sprintf("%s, so %s. Either the secrets have not been "+
 			"written yet, or they are on a filesystem that is not mounted",
 			strings.Join(c.Secrets.UnresolvedPatterns, "; "), c.storeHolds())
+	case c.Secrets.Count == 0 && len(c.Secrets.Files) == 0:
+		// Reachable on an install whose secrets are all linked and whose links have
+		// all gone: nothing was read, so there is no file to name.
+		return StatusFailed, fmt.Sprintf("no managed file was read and %s produced "+
+			"no value, so nothing is injectable and nothing is redacted",
+			linkEntries(c.Secrets.Links))
 	case c.Secrets.Count == 0:
 		return StatusFailed, fmt.Sprintf("read %s and loaded no refs",
 			strings.Join(c.Secrets.Files, ", "))

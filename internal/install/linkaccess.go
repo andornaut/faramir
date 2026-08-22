@@ -54,7 +54,7 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	mode := info.Mode().Perm()
 	var fix []string
 	if int(stat.Gid) != r.brokerGID {
-		fix = append(fix, fmt.Sprintf("sudo chgrp %s %s", r.layout.BrokerUser, link.Path))
+		fix = append(fix, fmt.Sprintf("sudo chgrp %s %s", r.brokerGroupName(), link.Path))
 	}
 	if mode&0o040 == 0 {
 		fix = append(fix, "sudo chmod g+r "+link.Path)
@@ -67,11 +67,23 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	if len(fix) == 0 {
 		return "", nil
 	}
-	return fmt.Sprintf("%s (%s) is %s %04o, and a linked file has to be %s and "+
-		"group-readable, and readable by nobody else: naming a value is not "+
+	return fmt.Sprintf("%s (%s) is %s %04o, and a linked file has to be group %s "+
+		"and group-readable, and readable by nobody else: naming a value is not "+
 		"permission to read the file it came from.\n%s",
-		link.Path, link.Ref, fileGroup(info), mode, r.layout.BrokerUser,
+		link.Path, link.Ref, fileGroup(info), mode, r.brokerGroupName(),
 		strings.Join(fix, " && ")), nil
+}
+
+// groupNameOf is an account's own group, by name, for a remedy a reader pastes
+// into a shell: an account adopted by --broker-user may have a group named
+// something else, and a chgrp naming the account fails with "invalid group".
+// Falls back to the account name, so the remedy is never printed with an empty
+// field.
+func groupNameOf(account string) string {
+	if _, name, err := primaryGroup(account); err == nil {
+		return name
+	}
+	return account
 }
 
 // fileGroup is the group that owns a file, by name where the group still
@@ -240,6 +252,9 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		return Report{}, false, err
 	}
 
+	if err := run.refuseShadowedRef(configFile, link.Ref); err != nil {
+		return Report{}, false, err
+	}
 	fault, err := run.linkFault(link)
 	if err != nil {
 		return Report{}, false, fmt.Errorf("%s: %w", link.Path, err)
@@ -257,6 +272,62 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		return report, false, err
 	}
 	return report, true, nil
+}
+
+// refuseShadowedRef refuses an entry naming a ref the managed store already
+// defines. Asked before the entry is written, because the broker refuses every
+// brokered command while one stands: the managed value is what callers get, and
+// the linked file then holds a second value for that name which nothing reads
+// and nothing redacts.
+//
+// Asked of the running broker, which is the only thing that can answer it. The
+// managed values are encrypted and the keeper alone decrypts them, so the refs
+// they define cannot be read out of the config this command is editing.
+//
+// Asked as the agent account, that being the one the broker's socket admits.
+//
+// A broker that does not answer refuses the add rather than letting it through
+// unasked. The question is not optional: an entry claiming a name the store
+// already answers refuses every brokered command on the host from the moment
+// the broker next loads, and writing one while nothing could check is how that
+// arrives at a moment nobody chose. `refs` answers on a host that has no
+// secrets yet and on one whose store will not serve, so there is no first
+// install this locks out; what it stops is an add made against a broker that is
+// down.
+func (r *runner) refuseShadowedRef(configFile, ref string) error {
+	if r.opts.DryRun {
+		return nil
+	}
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		return fmt.Errorf("%s: %w", configFile, err)
+	}
+	if cfg.Server.SocketPath == "" {
+		return fmt.Errorf("%s names no [server] socket_path, so the broker cannot "+
+			"be asked whether it already serves %s. Re-run `sudo faramir init` "+
+			"before adding a link", configFile, ref)
+	}
+	out, err := asUser(r.opts.AgentUser, "env",
+		"FARAMIR_SOCKET="+cfg.Server.SocketPath, selfPath(), "refs")
+	if err != nil {
+		return fmt.Errorf("the broker did not answer, so whether it already serves "+
+			"%s could not be asked, and an entry claiming a name it serves refuses "+
+			"every brokered command on this host. Start it and run this again "+
+			"(`systemctl start faramir-broker.socket`, and `faramir doctor` says "+
+			"what is wrong where it does not come up): %w", ref, err)
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if strings.TrimSpace(line) != "faramir://"+ref {
+			continue
+		}
+		return fmt.Errorf("the broker already serves %s, so a [[secret.link]] "+
+			"entry cannot claim that name: a ref has one definition, and a second "+
+			"file answering it is one nothing reads and nothing redacts, which the "+
+			"broker refuses every brokered command over. Choose another name, or take "+
+			"the value it serves now out of the managed store with `sudo faramir "+
+			"vault edit` first", ref)
+	}
+	return nil
 }
 
 // linkNamed is the entry claiming a ref, and whether one does.
@@ -441,7 +512,7 @@ func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.
 			"ref is refused and anything that touches the file can print the value "+
 			"in the clear. A tool that replaces its own file rather than rewriting it "+
 			"takes the group with it, and `sudo chgrp %s PATH && sudo chmod g+r "+
-			"PATH` puts it back: %s", opts.BrokerUser, opts.BrokerUser,
+			"PATH` puts it back: %s", opts.BrokerUser, groupNameOf(opts.BrokerUser),
 			strings.Join(unreadable, ", "))
 	case len(absent) > 0:
 		report.addf(name, StatusFailed, "%d linked file(s) are readable by %s "+

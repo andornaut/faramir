@@ -101,10 +101,13 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 	//
 	// Only when something changed. A re-assert that found the host as it should
 	// be has nothing new for a daemon to read, and reloading would restart them
-	// under whatever brokered command is running. One that regranted a lost
-	// access does need it: the broker fingerprints a linked file by mtime and
-	// size, which a chgrp leaves alone, so it would go on refusing every command
-	// against a file it can now read.
+	// under whatever brokered command is running.
+	//
+	// A run that reported a linked file needing repair changes nothing either,
+	// this command not altering a file it does not own, so it does not reload.
+	// The broker fingerprints a linked file by mtime and size and a chgrp changes
+	// neither, so a repair is followed by a restart the operator makes; `faramir
+	// doctor` says so where it reports one.
 	if report.Changed {
 		if err := install.Reload(); err != nil {
 			fmt.Fprintf(os.Stderr, "faramir link add: applied %s, but the daemons did not "+

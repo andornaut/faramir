@@ -111,11 +111,16 @@ func (s *Store) Reload() {
 		// Blocked rather than resolved: a link shadowing a managed value would
 		// leave one of them rotating with nothing reading it.
 		if _, ok := values[ref]; ok {
-			degradedLinks[ref] = "it claims a ref the managed store already defines"
-			linkDetail = append(linkDetail, fmt.Sprintf("%s: a [[secret.link]] entry "+
-				"claims a ref the managed store already defines; one of the two is "+
-				"then rotated with nothing reading it, so rename the link or remove "+
-				"the managed value", ref))
+			// Not a degraded ref: this one is answered, by the managed store. What is
+			// wrong is that a second file holds a value for the same name, and that
+			// value is on disk and not in the redactor, so a fault of the managed
+			// store's kind and refused the same way.
+			errors = append(errors, fmt.Sprintf("%s: a [[secret.link]] entry claims a "+
+				"ref the managed store already defines. The managed value is what "+
+				"callers get, and the linked file holds a second value for that name "+
+				"which nothing reads and nothing redacts; one of the two is then "+
+				"rotated with nothing reading it, so rename the link or remove the "+
+				"managed value", ref))
 			continue
 		}
 		values[ref] = linkValues[ref]
@@ -362,9 +367,10 @@ func (s *Store) describeLocked() map[string]any {
 		// refused to the agent's file tools, so naming it here would hand over the
 		// location of a credential. DescribeForOperator carries the paths.
 		"links": len(s.config.Links),
-		// Refs and reasons, no paths, for the same reason and to the same rule:
-		// the ref names are already what the refs op answers with, and a caller
-		// that asks for one of these gets this reason back anyway.
+		// Refs and reasons, no paths, to the same rule. A degraded ref is not one
+		// the refs op lists, that being the loaded ones, but it is a name the agent
+		// can already read out of `faramir link ls` and is given verbatim the
+		// moment it asks for the ref. Where the file lives is what stays out.
 		"degraded_links": maps.Clone(s.degradedLinks),
 	}
 }
@@ -442,12 +448,17 @@ func (s *Store) Count() int {
 // out of them does not enter into it. Called per request, a reload being able
 // to lose a file at any time.
 //
-// A managed file only. A [[secret.link]] entry that did not load is one ref the
+// A [[secret.link]] entry that did not load is not this. It is one ref the
 // broker can name, so it refuses that ref and serves the rest rather than
 // withholding the output of every command on the host; see DegradedLinks. The
 // distinction is what the two hold: a managed file names none of its refs until
 // it decrypts, so a file that went unread leaves the broker knowing values are
 // missing and not which.
+//
+// The one link that does reach here is one claiming a ref the managed store
+// already defines. That ref is answered, by the store; what is missing is the
+// second value the linked file holds for the same name, which no redactor has
+// and which is a managed value's kind of missing rather than a link's.
 //
 // A keeper that could not be reached is the exception, but only once a set has
 // loaded: what is kept then is unconfirmed rather than short.
@@ -463,8 +474,8 @@ func (s *Store) Unreadable() string {
 		return "the keeper could not be reached and no value set was ever loaded: " +
 			strings.Join(s.loadErrors, "; ")
 	case len(s.loadErrors) > 0:
-		return "a managed file did not load, so what is in it went unread: " +
-			strings.Join(s.loadErrors, "; ")
+		return "a managed value the redactor should hold is missing, so output " +
+			"could carry one nothing would cover: " + strings.Join(s.loadErrors, "; ")
 	case len(s.state) > 0, len(s.linkState) > 0:
 		return ""
 	case len(s.config.Patterns) == 0 && len(s.config.Links) == 0:

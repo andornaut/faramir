@@ -154,7 +154,7 @@ Code | Meaning
 `escalation_in_progress` | An escalation is being decided or held, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only where `--allow-sudo` was installed
 `not_quiescent` | the answer was yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the escalation. The `sudo` fails and the command is run again once the host is quiet
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `run` alone
-`no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `run` and `redact` both refuse; `status` and `refs` always answer
+`no_secrets` | A managed value the redactor should hold is missing: no entry matched a file, or one that matched did not load. `run` and `redact` both refuse; `status` and `refs` always answer. A `[[secret.link]]` entry that did not load is not this, being one ref the broker can name: it is refused on its own with `unknown_secret` and the host goes on serving
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `internal` | The broker could not render its own answer. Not a fault of the request
 `forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the three root-only ops

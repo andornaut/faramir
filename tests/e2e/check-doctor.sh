@@ -32,7 +32,10 @@ settle() {
   systemctl reset-failed faramir-broker.service faramir-broker.socket \
     faramir-keeper.socket faramir-exec.socket >/dev/null 2>&1
   systemctl start faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
-  waitfor 30 runuser -u "$OP" -- /usr/local/bin/faramir status && return 0
+  # refs rather than status: this asks whether the broker answers, and status's
+  # exit code carries the health of the value set as well, so a host holding one
+  # degraded ref would read as a broker that never came up.
+  waitfor 30 runuser -u "$OP" -- /usr/local/bin/faramir refs && return 0
   printf '    (settle gave up: %s)\n' \
     "$(for u in faramir-keeper.socket faramir-exec.socket faramir-broker.socket faramir-broker.service; do
          printf '%s=%s ' "$u" "$(systemctl is-active $u)"; done)"
