@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -222,6 +223,12 @@ func runLinkList(f linkFlags) int {
 		fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)
 		return 1
 	}
+	// By ref, so a listing is the same twice running and two hosts diff against
+	// each other. Config order is whatever they were added in, which is a
+	// history rather than an order anybody reads by.
+	slices.SortFunc(links, func(a, b config.Link) int {
+		return strings.Compare(a.Ref, b.Ref)
+	})
 	if f.json {
 		// An empty install prints [], not null: a nil slice marshals to null, and a
 		// caller iterating the document would break on the one answer it is most

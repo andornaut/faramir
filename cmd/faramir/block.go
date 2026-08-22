@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -352,6 +354,7 @@ func (r blockRow) belowTable() bool {
 // enough to push them off a screen.
 func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []blockRow {
 	rows := make([]blockRow, 0, len(declared)+8)
+	declaredFrom := len(rows)
 	for _, entry := range declared {
 		if entry.Command != "" {
 			rows = append(rows, blockRow{
@@ -373,9 +376,15 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 			State: blockedPathState(entry.Path),
 		})
 	}
+	// Sorted, so a listing is the same twice running and two hosts diff against
+	// each other. Within the half rather than across it: the declared entries
+	// come first because that is the half an operator wrote and a configuration
+	// manager converges, and one order over the whole table would bury them.
+	sortRows(rows[declaredFrom:])
 	if !builtIn {
 		return rows
 	}
+	builtInFrom := len(rows)
 	// What this install occupies, which is refused without anybody declaring it
 	// and is most of what a bare host blocks. Derived from the layout rather
 	// than compiled in, so these are the paths this host actually uses.
@@ -393,7 +402,20 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 			Source: sourceBuiltIn, Kind: kindCommand, Entry: pattern,
 		})
 	}
+	sortRows(rows[builtInFrom:])
 	return rows
+}
+
+// sortRows orders one half of the listing by kind and then by entry. Kind
+// first, because it is the column a reader scans: every name together, every
+// path together, rather than the order they happened to be written in.
+func sortRows(rows []blockRow) {
+	slices.SortFunc(rows, func(a, b blockRow) int {
+		if a.Kind != b.Kind {
+			return strings.Compare(a.Kind, b.Kind)
+		}
+		return strings.Compare(a.Entry, b.Entry)
+	})
 }
 
 // blockedPathState is whether a declared path is there. The same state `link
@@ -482,14 +504,12 @@ func runBlockList(f blockFlags) int {
 		return 0
 	}
 	if len(rows) == 0 {
-		fmt.Fprintln(os.Stderr, "no [[secret.block]] entries; `faramir block ls` "+
-			"without --declared lists the rules compiled in")
+		fmt.Fprintln(os.Stderr, "no [[secret.block]] entries")
 		return 0
 	}
-	// The built-in command rules are printed under the table rather than in it:
-	// they are regular expressions, one of them long enough that a cell holding
-	// it would take the alignment of every other row with it, and they are read
-	// as patterns rather than scanned as a column.
+	// Under the table rather than in it: they are regular expressions, one long
+	// enough that a cell holding it would take the alignment of every other row
+	// with it.
 	var commands []blockRow
 	table := [][]cell{{
 		painted("KIND", paint.key), painted("ENTRY", paint.key),
@@ -509,8 +529,7 @@ func runBlockList(f blockFlags) int {
 	if len(commands) == 0 {
 		return 0
 	}
-	fmt.Printf("\n%d command rule(s), which no entry changes: faramir blocks these "+
-		"for what the command does rather than for what it names.\n", len(commands))
+	fmt.Printf("\n%d built-in command rule(s):\n", len(commands))
 	for _, row := range commands {
 		fmt.Printf("  %s\n", paint.dim(row.Entry))
 	}

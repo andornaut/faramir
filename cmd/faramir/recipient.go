@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -306,6 +307,9 @@ func runRecipientList(f recipientFlags) int {
 		fmt.Fprintf(os.Stderr, "faramir reader ls: %v\n", err)
 		return 1
 	}
+	// Sorted rather than left in the order the rule lists them: two hosts sealed
+	// to the same set should print the same thing.
+	slices.Sort(recipients)
 	if f.json {
 		out, err := json.Marshal(recipients)
 		if err != nil {

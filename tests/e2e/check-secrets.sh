@@ -673,6 +673,15 @@ jq -e --arg p /etc/faramir/secrets/inventory.sops.yml \
 # The whole point of reading the structure rather than the values.
 grep -q 'inventory-value-one' /tmp/ls.json && bad "PLAINTEXT IN THE LISTING" \
   || ok "and no value appears in the listing"
+# By the name an operator types, which is not the order a glob returns once the
+# directory holds a name that sorts differently from its path. A listing is read
+# twice and diffed between hosts.
+jq -e '[.[].name] == ([.[].name]|sort)' /tmp/ls.json >/dev/null \
+  && ok "and the listing is sorted by name" \
+  || bad "vault ls is not sorted: $(jq -c '[.[].name]' /tmp/ls.json)"
+[ "$(jq -r 'length' /tmp/ls.json)" -ge 2 ] \
+  && ok "with enough files for that to be an order" \
+  || bad "only $(jq -r 'length' /tmp/ls.json) file(s) listed, too few to order"
 jq -e --arg p /etc/faramir/secrets/inventory.sops.yml \
   '[.[]|select(.path==$p)|.drifted]==[false]' /tmp/ls.json >/dev/null \
   && ok "and reports it as agreeing with the rule" || bad "ls reports drift on a fresh file"

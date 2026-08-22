@@ -95,6 +95,11 @@ func runVaultList(f vaultListFlags) int {
 	for _, path := range managed {
 		files = append(files, describeManaged(path, wanted, ruleErr == nil))
 	}
+	// By the name an operator types, which is not the order a glob returns once
+	// the directory holds a name that sorts differently from its path.
+	slices.SortFunc(files, func(a, b managedFile) int {
+		return strings.Compare(a.Name, b.Name)
+	})
 
 	if f.json {
 		out, err := json.MarshalIndent(files, "", "  ")
@@ -107,8 +112,7 @@ func runVaultList(f vaultListFlags) int {
 	}
 
 	if len(files) == 0 {
-		fmt.Fprintf(os.Stderr, "faramir %s: the managed store names no file yet; "+
-			"`faramir vault add NAME` writes the first\n", label)
+		fmt.Fprintf(os.Stderr, "faramir %s: no managed files\n", label)
 	} else {
 		// The directory once, above the rows, so the names are the ones the other
 		// commands take and a full path is still readable.
@@ -139,8 +143,7 @@ func runVaultList(f vaultListFlags) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, safe(reason))
 	}
 	if ruleErr != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: %v, so nothing here says whether a file "+
-			"agrees with it\n", label, ruleErr)
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, ruleErr)
 	}
 	return 0
 }
@@ -151,7 +154,7 @@ func stateOf(file managedFile) string {
 	case file.Problem != "":
 		return file.Problem
 	case file.Drifted:
-		return "drifted; run `faramir reader reseal`"
+		return "drifted"
 	}
 	return "ok"
 }
@@ -313,9 +316,11 @@ func newRefsCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:     "refs [options]",
-		Short:   "The refs the broker is serving, names only",
+		Short:   "List the secret names you can inject, never their values",
 		GroupID: groupOperator,
-		Long: "Asks the broker, so this is what a brokered command could actually\n" +
+		Long: "Each name is a ref: what `--env NAME=faramir://<ref>` takes, and what\n" +
+			"`env_refs` names on the socket and in the MCP tool.\n\n" +
+			"Asks the broker, so this is what a brokered command could actually\n" +
 			"name. `faramir vault ls` is the other question: what is in the\n" +
 			"directory, including a file the broker refused to load.\n\n" +
 			"Needs no root, and returns names only. Never a value.",

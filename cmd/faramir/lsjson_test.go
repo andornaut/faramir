@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -227,6 +228,66 @@ func TestBuiltInLeavesTheDeclaredEntriesOut(t *testing.T) {
 	for _, row := range rows {
 		if row["source"] != "built-in" {
 			t.Errorf("--built-in listed a %v row: %v", row["source"], row)
+		}
+	}
+}
+
+// A listing is read twice and diffed between hosts, so its order is the entry's
+// rather than the order it happened to be declared in. Within a half, not
+// across one: the declared entries come first because that is the half an
+// operator wrote and a configuration manager converges.
+func TestTheListingIsSortedWithinEachHalf(t *testing.T) {
+	// Written out of order, and mixing the three kinds, so the half is sorted by
+	// this rather than by the order it was declared in. A fixture with no
+	// declared entries would leave that half empty and pass whatever the code
+	// does.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`[secret]
+[[secret.block]]
+path = "/srv/zulu.key"
+[[secret.block]]
+name = "id_rsa"
+[[secret.block]]
+command = "pass show"
+[[secret.block]]
+path = "/srv/alpha.key"
+[[secret.block]]
+name = "*.pem"
+[[secret.block]]
+command = "op read"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_CONFIG", filepath.Join(dir, "config.toml"))
+	out, code := captureStdout(t, func() int { return runBlockList(blockFlags{json: true}) })
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	var rows []blockRow
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &rows); err != nil {
+		t.Fatal(err)
+	}
+	for _, half := range []string{sourceDeclared, sourceBuiltIn} {
+		var keys []string
+		for _, r := range rows {
+			if r.Source == half {
+				keys = append(keys, r.Kind+"\x00"+r.Entry)
+			}
+		}
+		if len(keys) < 2 {
+			t.Errorf("the %s half has %d row(s), too few to be an order", half, len(keys))
+		}
+		if !slices.IsSorted(keys) {
+			t.Errorf("the %s half is not sorted by kind then entry: %v", half, keys)
+		}
+	}
+	// And no declared row appears after a built-in one.
+	seenBuiltIn := false
+	for _, r := range rows {
+		if r.Source == sourceBuiltIn {
+			seenBuiltIn = true
+		} else if seenBuiltIn {
+			t.Errorf("a declared row follows a built-in one: %+v", r)
 		}
 	}
 }

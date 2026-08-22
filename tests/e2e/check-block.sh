@@ -438,7 +438,7 @@ out=$(block ls)
 grep -qE '^(path|name|command) ' <<<"$out" \
   && ok "block ls lists what the config declares" \
   || bad "block ls carries no declared entry: ${out:0:200}"
-grep -q 'command rule(s), which no entry changes' <<<"$out" \
+grep -qE '^[0-9]+ built-in command rule\(s\):' <<<"$out" \
   && ok "and the command rules faramir carries itself" \
   || bad "block ls does not list the command rules: ${out: -300}"
 # A row is one of three kinds and nothing else: a suffix and a prefix are
