@@ -758,3 +758,38 @@ func TestAnOrdinaryBareNameStillResolves(t *testing.T) {
 		t.Errorf("refs = %v", refs)
 	}
 }
+
+// No two commands describe themselves the same way. A group and one of its
+// subcommands sharing a line is the case this catches: `faramir reader` and
+// `faramir reader ls` both read "Who can decrypt the managed store", so the
+// listing gave the same answer to two different questions and neither said
+// what it did that the other did not.
+func TestNoTwoCommandsShareADescription(t *testing.T) {
+	root := newRootCmd()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("assembling the root: %s", err)
+	}
+	seen := map[string]string{}
+	var walk func(*cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			// cobra writes its own for these two, and writes them once.
+			if name := sub.Name(); name != "help" && name != "completion" {
+				if first, dup := seen[sub.Short]; dup {
+					t.Errorf("%s and %s are both described as %q",
+						first, sub.CommandPath(), sub.Short)
+				} else {
+					seen[sub.Short] = sub.CommandPath()
+				}
+			}
+			walk(sub)
+		}
+	}
+	walk(root)
+	if len(seen) < 20 {
+		t.Fatalf("only %d description(s) collected; the root was not assembled", len(seen))
+	}
+}

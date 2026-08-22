@@ -25,7 +25,7 @@ import (
 func newBlockCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "block",
-		Short:   "Block paths and names from the agent's file tools",
+		Short:   "Paths, names and commands the agent may not reach",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
@@ -111,7 +111,7 @@ func newBlockAddCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
 		Use:   "add [options] (--path PATH | --name PATTERN | --command COMMAND)...",
-		Short: "Block a path or a name from the agent's file tools",
+		Short: "Block a path, a name or a command from the agent",
 		Long: "Adds a [[secret.block]] entry per --path, --name and --command given, and\n" +
 			"re-renders your agent's deny rules, so each is blocked from its file tools.\n" +
 			"For a credential faramir has no use for the value of: a LUKS keyfile, an\n" +
@@ -196,7 +196,7 @@ func newBlockRemoveCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
 		Use:   "rm [options] (--path PATH | --name PATTERN | --command COMMAND)...",
-		Short: "Stop blocking a path or a name",
+		Short: "Stop blocking a path, a name or a command",
 		Long: "Removes the entry, so `faramir init` stops rendering the rule.\n\n" +
 			"It does not take the rule out of your agent's settings: those files are\n" +
 			"merged rather than replaced, and a merge can only add. Remove that line\n" +
@@ -279,7 +279,7 @@ func newBlockListCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
 		Use:   useLs,
-		Short: "List what the agent's file tools are blocked",
+		Short: "List what this host blocks from the agent",
 		Long: "Lists both halves of what this host blocks: the directories the install\n" +
 			"occupies, and the [[secret.block]] entries it declares. The declared\n" +
 			"entries come first, and --json says which half a row came from in a\n" +

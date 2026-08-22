@@ -160,3 +160,55 @@ func TestLineLeavesOrdinaryTextAlone(t *testing.T) {
 		}
 	}
 }
+
+// Field is what an escalation prompt shows for one field: the account that
+// asked, the working directory, the program a relative argv[0] resolved to.
+// Each is somebody else's text, so it is escaped and quoted like an argument,
+// and bounded as well, a question that scrolled off the top being one nobody
+// read.
+func TestFieldEscapesQuotesAndBounds(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		// Ordinary text is left bare, so a prompt is not full of quotes.
+		{"/srv/ansible", "/srv/ansible"},
+		{"operator", "operator"},
+		// Anything a terminal would act on, or that needs a boundary shown.
+		{"/srv/a b", `"/srv/a b"`},
+		{"a\rb", `"a\rb"`},
+		{"a\x1bcb", `"a\x1bcb"`},
+	} {
+		if got := Field(tc.in, 200); got != tc.want {
+			t.Errorf("Field(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	// And bounded: the limit is on the text, and a marker says what was dropped
+	// and where the whole of it is, so a truncated field is never read as the
+	// whole value.
+	long := strings.Repeat("x", 300)
+	got := Field(long, 40)
+	head, marker, found := strings.Cut(got, "...")
+	if !found {
+		t.Fatalf("Field(300 bytes, 40) = %q, with no truncation marker", got)
+	}
+	if len(head) != 40 {
+		t.Errorf("kept %d bytes of text, want 40: %q", len(head), head)
+	}
+	if !strings.Contains(marker, "260 more bytes") {
+		t.Errorf("the marker does not say how much was dropped: %q", marker)
+	}
+}
+
+// Nothing a terminal acts on survives Field either, at any length.
+func TestFieldLeavesNothingActionable(t *testing.T) {
+	for r := rune(0); r <= 0x9f; r++ {
+		if !Actionable(r) {
+			continue
+		}
+		out := Field("a"+string(r)+"b", 200)
+		for _, got := range out {
+			if Actionable(got) && got != '\t' {
+				t.Errorf("Field(%q) leaves %q", r, out)
+				break
+			}
+		}
+	}
+}

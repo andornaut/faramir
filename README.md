@@ -254,7 +254,7 @@ The install | `init`, `init-project`, `doctor`, `reload`, `uninstall`
 The managed store | `vault add`, `vault ls`, `vault rm`, `vault edit`
 Who can decrypt it | `reader add`, `reader rm`, `reader ls`, `reader reseal`
 A secret another tool owns | `link add`, `link rm`, `link ls`
-A path blocked from the agent | `block add`, `block rm`, `block ls`
+A path, name or command blocked from the agent | `block add`, `block rm`, `block ls`
 The record, and sudo | `logs`, `sudo ls`, `sudo watch`, `sudo approve`, `sudo reject`
 
 All need root except `doctor`, which degrades, and the three that only read: `reader ls`, `link ls` and `block ls`. `init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).

@@ -92,7 +92,7 @@ In run order, which is what the prefix rule above is about: a set named to `run`
 | `check-escalation.sh` | the `--allow-sudo` escalation channel |
 | `check-secrets.sh` | the secret lifecycle: edit, reseal, the `.sops.yaml` shapes that seal a store to the wrong people, and a store that will not open |
 | `check-link.sh` | `[[secret.link]]`: a value read out of a file another tool maintains, and the grant that lets the broker read it and nobody else |
-| `check-block.sh` | `[[secret.block]]`: a path or a name blocked from the agent's file tools, the listing that shows the built-in rules beside them, and the two costs of never reading it: the mode is left alone and the value is absent from the redactor |
+| `check-block.sh` | `[[secret.block]]`: a path, a name or a command blocked from the agent, the listing that shows the built-in rules beside them, and the two costs of never reading it: the mode is left alone and the value is absent from the redactor |
 | `check-uninstall.sh` | `faramir uninstall`, and what it is right to leave behind |
 
 ## Writing a check

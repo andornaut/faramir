@@ -37,7 +37,7 @@ const opReader = "reader"
 func newRecipientCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "reader",
-		Short:   "Who can decrypt the managed store",
+		Short:   "Who can decrypt the managed store, and who may",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
@@ -107,7 +107,7 @@ func newRecipientListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     useLs,
 		Aliases: []string{"list"},
-		Short:   "Who can decrypt the managed store",
+		Short:   "List the keys the store is sealed to",
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runRecipientList(f)) },
 	}

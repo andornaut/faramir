@@ -291,3 +291,43 @@ command = "op read"
 		}
 	}
 }
+
+// Three forms are blocked here and none of them is the default, so a bare
+// argument is refused rather than read as a path. Someone who means every file
+// called id_rsa and writes it as an argument would otherwise get a rule about
+// one file on this host, which is not what they asked for and looks like it
+// worked.
+func TestABareArgumentToBlockIsRefused(t *testing.T) {
+	for _, verb := range []string{"add", "rm"} {
+		var f blockFlags
+		_, err := f.entries(verb, []string{"/etc/luks/volume.key"})
+		if err == nil {
+			t.Errorf("block %s took a positional path", verb)
+			continue
+		}
+		for _, want := range []string{"--path", "--name", "--command"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the refusal does not name %s: %v", want, err)
+			}
+		}
+	}
+	// A stray argument beside a named form is refused too, rather than silently
+	// dropped.
+	f := blockFlags{paths: []string{"/etc/x"}}
+	if _, err := f.entries("add", []string{"stray"}); err == nil {
+		t.Error("an argument beside --path was accepted and would be ignored")
+	}
+	// And the three named forms are taken, together, one entry each.
+	f = blockFlags{paths: []string{"/etc/x"}, names: []string{"*.pem"}, commands: []string{"op read"}}
+	got, err := f.entries("add", nil)
+	if err != nil {
+		t.Fatalf("the three forms together were refused: %v", err)
+	}
+	if len(got) != 3 {
+		t.Errorf("got %d entries from three forms, want 3", len(got))
+	}
+	// Naming none is refused, and says how to name one.
+	if _, err := (&blockFlags{}).entries("add", nil); err == nil {
+		t.Error("an add naming no form was accepted")
+	}
+}

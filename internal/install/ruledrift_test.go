@@ -204,3 +204,24 @@ func TestLooksManagedMatchesOnlyTheInstallersOwnLine(t *testing.T) {
 		})
 	}
 }
+
+// doctor re-renders the rules and compares them against the installed file, so
+// the layout it renders from has to be the one init rendered. The agent's
+// account is part of that: a path under its home is written in the spellings a
+// shell expands to it, so a re-render that does not know the home produces
+// fewer rules than the host carries and reports the difference as drift on a
+// host where nothing is wrong.
+func TestTheReRenderKnowsTheAgentsAccount(t *testing.T) {
+	const agent = "someoperator"
+	dir := configDirWith(t, "[server]\nagent_user = \""+agent+"\"\n")
+	if got := ruleLayout(dir).AgentUser; got != agent {
+		t.Errorf("ruleLayout carries AgentUser %q, want %q: doctor would re-render "+
+			"without the home spellings and call the installed file drifted", got, agent)
+	}
+	// And a config that names none leaves it empty rather than guessing, which
+	// is what installDirs and the rendering both skip.
+	bare := configDirWith(t, "[command]\ntimeout_sec = 600\n")
+	if got := ruleLayout(bare).AgentUser; got != "" {
+		t.Errorf("ruleLayout invented an agent user %q from a config naming none", got)
+	}
+}

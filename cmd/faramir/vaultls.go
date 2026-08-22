@@ -55,7 +55,7 @@ func newVaultListCmd() *cobra.Command {
 	var f vaultListFlags
 	c := &cobra.Command{
 		Use:   useLs,
-		Short: "The managed files, their refs and who can read them",
+		Short: "List the managed files, their refs and who can read them",
 		Long: "Reads the secrets directory rather than asking the broker, so a file the\n" +
 			"broker refused to load is listed here with the reason. `faramir secret\n" +
 			"refs` is the other question: what the broker is actually serving.\n\n" +
