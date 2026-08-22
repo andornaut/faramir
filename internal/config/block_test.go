@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/termsafe"
 )
 
 func TestBlockedPathsLoad(t *testing.T) {
@@ -294,6 +296,21 @@ func TestAnEntryCarryingAControlCharacterIsRefused(t *testing.T) {
 	} {
 		if err := ValidateBlocked(blocked); err == nil {
 			t.Errorf("%+v was accepted, so its rule renders across two lines", blocked)
+		}
+	}
+}
+
+// Every rune a terminal acts on rather than draws, not a list of the ones
+// somebody thought of. The C1 block is the half that gets forgotten: U+009B is
+// the single-character form of the introducer ESC "[" begins, so a terminal
+// honouring 8-bit controls reads what follows it as a sequence.
+func TestNoRuneATerminalActsOnSurvivesValidation(t *testing.T) {
+	for r := rune(0); r <= 0x9f; r++ {
+		if !termsafe.Actionable(r) {
+			continue
+		}
+		if err := ValidateBlocked(BlockedPath{Name: "aa" + string(r) + "bb"}); err == nil {
+			t.Errorf("a name carrying %q was accepted", r)
 		}
 	}
 }

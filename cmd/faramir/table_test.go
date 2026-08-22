@@ -86,21 +86,41 @@ func TestAValueCannotReachTheTerminal(t *testing.T) {
 // And the columns line up when a cell is drawn wider or narrower than its rune
 // count: a CJK ideograph takes two columns, a combining mark none. Counting
 // runes leaves every column after such a cell out by the difference.
+//
+// Asserted against the exact line rather than by measuring the output with
+// width(), which is the function under test: an error there would shift the
+// padding and the measurement together and cancel itself out. All three cells
+// below are six columns wide and three different rune counts, so each one is
+// padded by exactly the two spaces that separate columns.
 func TestColumnsAlignAtTheWidthATerminalDraws(t *testing.T) {
+	for _, first := range []string{
+		"\u65e5\u672c\u8a9e", // three runes, six columns
+		"abcdef",             // six of each
+		"e\u0301abcde",       // seven runes, six columns
+	} {
+		var out bytes.Buffer
+		printTable(&out, [][]cell{{value(first), value("x")}})
+		if got, want := out.String(), first+"  x\n"; got != want {
+			t.Errorf("printTable(%q) = %q, want %q", first, got, want)
+		}
+	}
+	// And together, where the widest decides: every second column starts in the
+	// same place, so every line is the same length.
 	var out bytes.Buffer
 	printTable(&out, [][]cell{
-		{value("\u65e5\u672c\u8a9e"), value("wide")},
-		{value("abcdef"), value("ascii")},
-		{value("e\u0301abcde"), value("combining")},
+		{value("\u65e5\u672c\u8a9e"), value("a")},
+		{value("ab"), value("b")},
 	})
-	starts := make([]int, 0, 3)
-	for line := range strings.SplitSeq(strings.TrimSuffix(out.String(), "\n"), "\n") {
-		starts = append(starts, width(line[:strings.LastIndex(line, "  ")+2]))
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines", len(lines))
 	}
-	for i, got := range starts {
-		if got != starts[0] {
-			t.Errorf("row %d puts the second column at %d, row 0 at %d", i, got, starts[0])
-		}
+	if want := "\u65e5\u672c\u8a9e  a"; lines[0] != want {
+		t.Errorf("wide row = %q, want %q", lines[0], want)
+	}
+	if want := "ab      b"; lines[1] != want {
+		t.Errorf("narrow row = %q, want %q: it pads to the six columns the wide "+
+			"cell draws, not to its three runes", lines[1], want)
 	}
 }
 

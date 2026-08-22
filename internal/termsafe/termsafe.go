@@ -92,8 +92,18 @@ func Line(line string) string {
 // single-character form of the same introducer, reaches this unchanged, and a
 // terminal honouring 8-bit controls reads "2J" as a screen clear. Arg
 // escapes these already, strconv.Quote treating them as non-printable.
-func unsafeRune(r rune) bool {
-	return (r < 0x20 && r != '\t') || (r >= 0x7f && r <= 0x9f)
+func unsafeRune(r rune) bool { return r != '\t' && Actionable(r) }
+
+// Actionable reports whether a terminal would act on this rune rather than draw
+// it: the C0 controls, DEL, and the C1 block, which carries the
+// single-character forms of the same introducers ESC begins.
+//
+// Exported because it is also what may not be written into a rule. A subject
+// carrying one of these is refused where it is written rather than escaped
+// where it is shown, and two packages deciding that separately is two lists
+// that agree until one of them is edited.
+func Actionable(r rune) bool {
+	return r < 0x20 || (r >= 0x7f && r <= 0x9f)
 }
 
 // Bound truncates on a rune boundary and says that it did: silent truncation

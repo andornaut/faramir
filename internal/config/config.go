@@ -14,12 +14,12 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"unicode"
 
 	"github.com/BurntSushi/toml"
 
 	"github.com/andornaut/faramir/internal/secretlink"
 	"github.com/andornaut/faramir/internal/secretref"
+	"github.com/andornaut/faramir/internal/termsafe"
 )
 
 const (
@@ -941,7 +941,7 @@ func validateBlocked(blocked BlockedPath, at string) error {
 // shown, an entry being text an operator chose.
 func refuseControl(form, value, at string) error {
 	for i, r := range value {
-		if r == 0x7f || (r < 0x20 && !unicode.IsPrint(r)) {
+		if termsafe.Actionable(r) {
 			return fmt.Errorf("%s: %s %q carries %q at offset %d. A rule is one line "+
 				"of a generated file, so a newline in an entry splits it and leaves "+
 				"neither half a working rule; the rest of the controls make a listing "+

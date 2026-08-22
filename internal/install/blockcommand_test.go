@@ -264,3 +264,44 @@ func TestACommandAndAPathAreNotOneEntry(t *testing.T) {
 		t.Fatalf("the set holds %d entries, want 3: %+v", len(entries), entries)
 	}
 }
+
+// The hook skips a rule it cannot compile rather than failing every command
+// over one typo, which is right there and leaves the loss silent: what should
+// have been three rules is however many of them compiled. A re-render cannot
+// notice, comparing the file against itself, so the check compiles each rule
+// before it compares. Without this, an entry that split a rule across two lines
+// took every path protection with it and doctor reported ok.
+func TestDoctorFailsOnARenderedRuleThatWillNotCompile(t *testing.T) {
+	dir := writeBlockConfig(t, "[secret]\n")
+	path := filepath.Join(t.TempDir(), "deny-patterns.txt")
+	opts := DoctorOptions{ConfigDir: dir}
+
+	rendered, err := RenderDenyPatterns(ruleLayout(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What this install renders, which must pass, and the same with one rule
+	// broken the way a split leaves both halves.
+	if err := os.WriteFile(path, rendered, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var clean DoctorReport
+	reportDenyPatterns(&clean, opts, path)
+	if len(clean.Findings) != 1 || clean.Findings[0].Status != StatusOK {
+		t.Fatalf("a file this install rendered was not ok: %+v", clean.Findings)
+	}
+
+	if err := os.WriteFile(path, append(rendered, "\n((unbalanced\n"...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var broken DoctorReport
+	reportDenyPatterns(&broken, opts, path)
+	if len(broken.Findings) != 1 || broken.Findings[0].Status != StatusFailed {
+		t.Fatalf("findings = %+v, want one failure", broken.Findings)
+	}
+	for _, want := range []string{"will not compile", "refuses nothing"} {
+		if !strings.Contains(broken.Findings[0].Detail, want) {
+			t.Errorf("the finding does not say %q: %s", want, broken.Findings[0].Detail)
+		}
+	}
+}
