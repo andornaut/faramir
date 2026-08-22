@@ -219,7 +219,10 @@ jobs:
   e2e:
     name: E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Capped well under the six-hour default: nothing here runs longer than
+    # nine minutes, so a job still going at fifteen has hung rather than
+    # failed.
+    timeout-minutes: 15
     # Both sudo implementations: they take different settings out of the same
     # /etc/sudoers.d, so `--allow-sudo` installs a different arrangement for each
     # and only one of them is exercised by a run that does not say which.
