@@ -476,6 +476,19 @@ grep -qE '^  /etc/faramir$' <<<"$out" \
 [ -n "$(head -1 <<<"$out")" ] \
   && ok "and opens on the heading rather than a blank line" \
   || bad "--built-in opens on a blank line: [${out:0:80}]"
+# The two renderings are one listing. A row the text prints under a heading and
+# the JSON calls declared is a row an operator would try to `block rm`.
+full=$(block ls)
+sections=$(grep -oE '^[0-9]+ built-in' <<<"$full" | grep -oE '^[0-9]+' | paste -sd+ | bc)
+declared_rows=$(sed -n '2,/^$/p' <<<"$full" | sed '/^$/d' | wc -l)
+json_built=$(block ls --json | jq '[.[]|select(.source=="built-in")]|length')
+json_declared=$(block ls --json | jq '[.[]|select(.source=="declared")]|length')
+[ "$sections" = "$json_built" ] \
+  && ok "the text sections hold every built-in the JSON reports ($sections)" \
+  || bad "text sections total $sections, JSON reports $json_built built-in"
+[ "$declared_rows" = "$json_declared" ] \
+  && ok "and the table holds every declared entry ($declared_rows)" \
+  || bad "table has $declared_rows rows, JSON reports $json_declared declared"
 out=$(block ls --declared --built-in 2>&1); code=$?
 [ $code -eq 2 ] \
   && ok "and naming both halves is refused, being the default" \
