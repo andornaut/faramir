@@ -29,6 +29,9 @@ const (
 	keySocketPath = "socket_path"
 	// keyPath is the TOML key both entry kinds spell a file with.
 	keyPath = "path"
+	// keyCommand is the TOML key a [[secret.block]] entry names a command with,
+	// and the section name [command] happens to be the same word.
+	keyCommand = "command"
 )
 
 // The limits no config key reaches. Variables rather than constants so a test
@@ -556,7 +559,7 @@ var (
 	// The daemon sections keep their names: [server], [keeper] and [executor] do
 	// describe faramir's own processes. The rest are named for what an operator
 	// is deciding.
-	sections = []string{"server", "keeper", "executor", "command", "ssh",
+	sections = []string{"server", "keeper", "executor", keyCommand, "ssh",
 		"escalation", "secret", "audit"}
 	serverKeys = []string{keySocketPath, "allowed_group", "agent_user"}
 	keeperKeys = []string{keySocketPath, "allowed_user",
@@ -569,7 +572,7 @@ var (
 		"notify_command", "timeout_sec"}
 	secretKeys = []string{"min_length", "min_refresh_sec", "link", "block"}
 	linkKeys   = []string{"ref", keyPath, "type", "key"}
-	blockKeys  = []string{"path", "name"}
+	blockKeys  = []string{keyPath, "name", keyCommand}
 	auditKeys  = []string{"log_path"}
 )
 
@@ -858,7 +861,7 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		if refused.Name, err = str(entry["name"], at, ""); err != nil {
 			return nil, err
 		}
-		if refused.Command, err = str(entry["command"], at, ""); err != nil {
+		if refused.Command, err = str(entry[keyCommand], at, ""); err != nil {
 			return nil, err
 		}
 		if err := validateBlocked(refused, at); err != nil {

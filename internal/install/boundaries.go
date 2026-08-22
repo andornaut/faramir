@@ -288,7 +288,12 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 // install: a list naming a directory nothing uses refuses reads of a secrets
 // directory that is not there and passes every read of the one that is.
 func diagnoseDenyPatterns(report *DoctorReport, opts DoctorOptions) {
-	path := filepath.Join(DefaultLibexecDir, "deny-patterns.txt")
+	reportDenyPatterns(report, opts, filepath.Join(DefaultLibexecDir, "deny-patterns.txt"))
+}
+
+// reportDenyPatterns is the check against a path already chosen, so a test can
+// put a rendered file somewhere it may write.
+func reportDenyPatterns(report *DoctorReport, opts DoctorOptions, path string) {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		report.addf("deny patterns", StatusFailed, "%s is missing, so the hook refuses "+
@@ -301,7 +306,31 @@ func diagnoseDenyPatterns(report *DoctorReport, opts DoctorOptions) {
 			"from another install rather than rendered for this one", path, opts.ConfigDir)
 		return
 	}
-	report.addf("deny patterns", StatusOK, "%s names this install's directories", path)
+	// Every declared command, which nothing else asks about. The blocked paths
+	// check compares entries against the agents' own rule files, and a command
+	// entry is in none of them: the guard's file is the whole of where one is
+	// enforced, so a command missing from it is an entry doing nothing at all.
+	//
+	// The rendered rule rather than the words, which is what the file carries.
+	var missing []string
+	for _, entry := range configuredBlocked(opts.ConfigDir) {
+		if entry.Command == "" {
+			continue
+		}
+		if !strings.Contains(string(body), BlockedCommandRule(entry.Command)) {
+			missing = append(missing, entry.Command)
+		}
+	}
+	if len(missing) > 0 {
+		report.addf("deny patterns", StatusFailed, "%s does not carry %d declared "+
+			"command(s), which are refused by nothing until it does: %s. `faramir "+
+			"block add` renders this file with the entry, so this is an entry "+
+			"written by hand or a run that stopped early; `faramir init` renders it "+
+			"again", path, len(missing), strings.Join(missing, ", "))
+		return
+	}
+	report.addf("deny patterns", StatusOK, "%s names this install's directories "+
+		"and every command it declares", path)
 }
 
 // holds is inGroup with the error folded in: an unknown account is in no group.

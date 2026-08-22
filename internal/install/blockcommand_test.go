@@ -1,6 +1,9 @@
 package install
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -119,5 +122,41 @@ func TestACommandEntryWarnsAboutItselfRatherThanAnEmptyPath(t *testing.T) {
 	}
 	if !strings.Contains(got, "op read") {
 		t.Errorf("the warning does not name the command: %s", got)
+	}
+}
+
+// The one check that can see a command entry. The blocked paths check compares
+// against the agents' rule files, where a command never appears, so without
+// this a declared command refused by nothing reads as a converged host: which
+// is what it did while `block add` was not rendering the guard's file.
+func TestDoctorSeesACommandMissingFromTheGuardsFile(t *testing.T) {
+	dir := writeBlockConfig(t, "[[secret.block]]\ncommand = \"op read\"\n")
+	libexec := t.TempDir()
+	path := filepath.Join(libexec, "deny-patterns.txt")
+	opts := DoctorOptions{ConfigDir: dir}
+
+	// A file rendered without the entry, which is what an add that wrote the
+	// config and stopped leaves behind.
+	if err := os.WriteFile(path, []byte(regexp.QuoteMeta(dir)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var missing DoctorReport
+	reportDenyPatterns(&missing, opts, path)
+	if len(missing.Findings) != 1 || missing.Findings[0].Status != StatusFailed {
+		t.Fatalf("findings = %+v, want one failure", missing.Findings)
+	}
+	if !strings.Contains(missing.Findings[0].Detail, "op read") {
+		t.Errorf("the finding does not name the command: %s", missing.Findings[0].Detail)
+	}
+
+	// And the same file with the rule in it.
+	body := regexp.QuoteMeta(dir) + "\n" + BlockedCommandRule("op read") + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var present DoctorReport
+	reportDenyPatterns(&present, opts, path)
+	if len(present.Findings) != 1 || present.Findings[0].Status != StatusOK {
+		t.Errorf("findings = %+v, want one ok", present.Findings)
 	}
 }

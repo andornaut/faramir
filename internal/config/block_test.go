@@ -175,3 +175,36 @@ name = ".storage/"
 		t.Errorf("Blocks() = %q, want the path", got)
 	}
 }
+
+// A command entry through the loader, which is the half the struct-level tests
+// cannot see: "command" was missing from the accepted keys for as long as the
+// form existed, so every one of these was refused at load while the code that
+// renders them was covered and green.
+func TestABlockedCommandLoads(t *testing.T) {
+	cfg, err := load(t, minimal+`
+[[secret.block]]
+command = "op read"
+
+[[secret.block]]
+name = "*.pem"
+
+[[secret.block]]
+path = "/etc/luks/volume.key"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Secret.Blocked) != 3 {
+		t.Fatalf("blocked = %v, want three", cfg.Secret.Blocked)
+	}
+	if got := cfg.Secret.Blocked[0].Command; got != "op read" {
+		t.Errorf("first names command %q", got)
+	}
+	if got := cfg.Secret.Blocked[0].Blocks(); got != "op read" {
+		t.Errorf("Blocks() = %q, want the command", got)
+	}
+	// And the other two are untouched by the third form existing.
+	if cfg.Secret.Blocked[1].Name != "*.pem" || cfg.Secret.Blocked[2].Path != "/etc/luks/volume.key" {
+		t.Errorf("the other forms did not load: %+v", cfg.Secret.Blocked)
+	}
+}
