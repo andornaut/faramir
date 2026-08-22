@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -329,5 +330,55 @@ func TestABareArgumentToBlockIsRefused(t *testing.T) {
 	// Naming none is refused, and says how to name one.
 	if _, err := (&blockFlags{}).entries("add", nil); err == nil {
 		t.Error("an add naming no form was accepted")
+	}
+}
+
+// What the table looks like, which is where the two halves met. The JSON was
+// right all along: declared rows first, each half sorted on its own. Rendering
+// both into one table put the seam in the middle of a sorted column with
+// nothing to mark it, so a reader saw a listing that had lost its order and no
+// way to tell which rows `block rm` would refuse.
+func TestTheRenderedTableIsTheDeclaredHalfAndIsSortedThroughout(t *testing.T) {
+	dir := t.TempDir()
+	// A path sorting after the install's own directories and one sorting before
+	// them, so a built-in row rendered into the table lands between the two.
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`[secret]
+[[secret.block]]
+path = "/aaa/first.key"
+[[secret.block]]
+path = "/zzz/last.key"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_CONFIG", filepath.Join(dir, "config.toml"))
+	out, code := captureStdout(t, func() int { return runBlockList(blockFlags{when: "never"}) })
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	table, sections, _ := strings.Cut(out, "\n\n")
+	if sections == "" {
+		t.Fatal("nothing was printed under the table, so this asserts nothing")
+	}
+	rows := strings.Split(strings.TrimSpace(table), "\n")
+	if len(rows) < 3 {
+		t.Fatalf("the table has %d line(s), too few to have an order:\n%s", len(rows), table)
+	}
+	if got := rows[0]; !strings.HasPrefix(got, "KIND") {
+		t.Fatalf("the first line is %q, want the header", got)
+	}
+	if body := rows[1:]; !slices.IsSorted(body) {
+		t.Errorf("the table is not sorted from its first row to its last: %v", body)
+	}
+	// The install's own directories are under the table, not in it.
+	for _, row := range rows[1:] {
+		if !strings.Contains(row, "/aaa/first.key") && !strings.Contains(row, "/zzz/last.key") {
+			t.Errorf("the table carries a row nothing declared: %q", row)
+		}
+	}
+	// And each built-in section says what it holds and how many.
+	for _, kind := range []string{"path", "command"} {
+		if !regexp.MustCompile(`(?m)^\d+ built-in ` + kind + ` rule\(s\):$`).MatchString(sections) {
+			t.Errorf("no built-in %s section under the table:\n%s", kind, sections)
+		}
 	}
 }
