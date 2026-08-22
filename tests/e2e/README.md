@@ -71,23 +71,25 @@ Each suite prints one line per check and exits non-zero if any failed.
 
 ## The suites
 
+In run order, which is what the prefix rule above is about: a set named to `run` that is not a prefix of this table runs against a box its predecessors never set up.
+
 | Script | What it covers |
 | --- | --- |
 | `check-init.sh` | `faramir init` against the layout in `docs/layout.md`, and which agents it writes rules for |
 | `check-project.sh` | `faramir init-project`: the enrolment that protects a tree, the record of what was enrolled, and the credentials section |
 | `check-config.sh` | changing a configuration: drop-ins plus reload |
 | `check-disclose.sh` | what the broker tells the account it keeps values from |
+| `check-plugin.sh` | the opencode and Kilo Code plugins, executed |
 | `check-guard.sh` | the guard's decision surface |
 | `check-wrap.sh` | the rewrite the guard hands back, executed |
-| `check-plugin.sh` | the opencode and Kilo Code plugins, executed |
-| `check-mcp.sh` | the MCP server |
-| `check-exec.sh` | the executor boundary |
 | `check-leak.sh` | the leak hunt: every place a value could come back out |
 | `check-stream.sh` | the redact stream |
-| `check-ssh.sh` | the SSH agent relay, against `managed-host` |
-| `check-escalation.sh` | the `--allow-sudo` escalation channel |
+| `check-mcp.sh` | the MCP server |
+| `check-exec.sh` | the executor boundary |
 | `check-logs.sh` | `faramir logs`, the operator's record |
+| `check-ssh.sh` | the SSH agent relay, against `managed-host` |
 | `check-doctor.sh` | `faramir doctor` as a fault detector |
+| `check-escalation.sh` | the `--allow-sudo` escalation channel |
 | `check-secrets.sh` | the secret lifecycle: edit, reseal, the `.sops.yaml` shapes that seal a store to the wrong people, and a store that will not open |
 | `check-link.sh` | `[[secret.link]]`: a value read out of a file another tool maintains, and the grant that lets the broker read it and nobody else |
 | `check-block.sh` | `[[secret.block]]`: a path or a name blocked from the agent's file tools, the listing that shows the built-in rules beside them, and the two costs of never reading it: the mode is left alone and the value is absent from the redactor |
