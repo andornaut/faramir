@@ -225,13 +225,20 @@ func configDirRules(dir string) []string {
 	return denyrules.For([]string{regexp.QuoteMeta(dir)})
 }
 
+// named reports whether the list already carries a rule about this directory,
+// which the rendered file does for the install it was rendered for.
+func named(raw []string, dir string) bool {
+	quoted := regexp.QuoteMeta(dir)
+	for _, pattern := range raw {
+		if strings.Contains(pattern, quoted) {
+			return true
+		}
+	}
+	return false
+}
+
 func loadPatterns() []compiled {
 	raw := fallback
-	// Only for a directory the literals do not already name: this runs on every
-	// Bash call, and a duplicate would compile three more regexps each time.
-	if dir := configDir(); dir != "" && dir != "/" && dir != filepath.Dir(config.DefaultConfigPath) {
-		raw = append(slices.Clone(raw), configDirRules(dir)...)
-	}
 	if data, err := os.ReadFile(patternsFile()); err == nil {
 		var lines []string
 		for line := range strings.SplitSeq(string(data), "\n") {
@@ -243,6 +250,18 @@ func loadPatterns() []compiled {
 		if len(lines) > 0 {
 			raw = lines
 		}
+	}
+	// After the file, not before it: the file replaces the list wholesale, so a
+	// rule appended first was thrown away on every host that had one, which is
+	// every installed host. It went unnoticed while the shipped file named
+	// age.key and sops/age as literals, which covered a moved config by
+	// accident; the subjects are generated per install now, so a config that
+	// moved after the rules were rendered is covered by this and nothing else.
+	//
+	// Only for a directory the list does not already name: this runs on every
+	// Bash call, and a duplicate would compile three more regexps each time.
+	if dir := configDir(); dir != "" && dir != "/" && !named(raw, dir) {
+		raw = append(slices.Clone(raw), configDirRules(dir)...)
 	}
 
 	out := make([]compiled, 0, len(raw))

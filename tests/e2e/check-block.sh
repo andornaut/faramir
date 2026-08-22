@@ -457,8 +457,14 @@ grep -qF "command = \"e2e-probe read\"" $CFG \
   && ok "and the config carries it as a command" \
   || bad "the command entry is not in config.toml"
 guard_says "e2e-probe read thing" | grep -q '"permissionDecision":"deny"' \
-  && ok "and the agent's shell is refused it" \
+  && ok "and the agent's shell is refused it, without a later init" \
   || bad "the guard allows the declared command"
+grep -qF 'e2e-probe' /usr/local/libexec/faramir/deny-patterns.txt \
+  && ok "the add rendered the file the guard reads" \
+  || bad "deny-patterns.txt does not carry the entry the add reported"
+grep -q 'is not there' <<<"$out" \
+  && bad "a command entry was stat'ed as a path: ${out:0:200}" \
+  || ok "and the add warns about the command rather than an empty path"
 guard_says "e2e-probe-other read" | grep -q '"permissionDecision":"deny"' \
   && bad "the guard denies a longer word starting the same way" \
   || ok "and a neighbouring command is left alone"

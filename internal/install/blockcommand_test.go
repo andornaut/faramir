@@ -1,6 +1,7 @@
 package install
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -66,5 +67,57 @@ func TestADeclaredCommandReachesTheGuardAlone(t *testing.T) {
 				t.Errorf("a command reached Claude Code's rules as %q", rule)
 			}
 		}
+	}
+}
+
+// An entry is in force when the add reports it, not after the next install.
+// Both files an entry feeds are rendered by the steps a `block` run applies:
+// the agents' own rule files, and the one the command guard reads. Without the
+// second, `block add --command` reported changed and the agent's shell could
+// still run the command, a command entry having no file-tool half at all.
+func TestABlockRunRendersBothEntryPoints(t *testing.T) {
+	var run runner
+	var agents, patterns bool
+	for _, step := range run.BlockedSteps() {
+		switch step.name {
+		case labelAgentConfig:
+			agents = true
+		case "deny patterns":
+			patterns = true
+		}
+	}
+	if !agents {
+		t.Error("a block run does not render the agents' rule files")
+	}
+	if !patterns {
+		t.Error("a block run does not render the file the command guard reads")
+	}
+	// A link is a subject in both too.
+	patterns = false
+	for _, step := range run.LinkSteps() {
+		if step.name == "deny patterns" {
+			patterns = true
+		}
+	}
+	if !patterns {
+		t.Error("a link run does not render the file the command guard reads")
+	}
+}
+
+// A command entry has no path, so nothing stats one: the warning said "` is not
+// there`" with an empty path where the path goes, once per command entry on
+// every run, which is how a warnings channel stops being read.
+func TestACommandEntryWarnsAboutItselfRatherThanAnEmptyPath(t *testing.T) {
+	var report Report
+	blockedWarnings(&report, config.BlockedPath{Command: "op read"}, nil)
+	if len(report.Warnings) != 1 {
+		t.Fatalf("warnings = %v, want one", report.Warnings)
+	}
+	got := report.Warnings[0]
+	if strings.Contains(got, "is not there") {
+		t.Errorf("a command entry was stat'ed as a path: %s", got)
+	}
+	if !strings.Contains(got, "op read") {
+		t.Errorf("the warning does not name the command: %s", got)
 	}
 }

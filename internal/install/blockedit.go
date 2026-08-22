@@ -35,6 +35,11 @@ func (r *runner) BlockedSteps() []namedStep {
 		{labelPreconditions, r.stepPreconditions},
 		{labelConfig, r.stepConfig},
 		{labelAgentConfig, r.stepAgentConfig},
+		// Both entry points, because an entry feeds both: the agents' rule files
+		// above, and the file the command guard reads here. Without this an add
+		// reported changed while half of what it declared, or all of it for a
+		// command, waited for the next `init`.
+		{"deny patterns", r.stepDenyPatterns},
 	}
 }
 
@@ -121,6 +126,13 @@ func blockedWarnings(report *Report, refused config.BlockedPath, links []config.
 	// A name is not asked of the filesystem at all: it is matched against what an
 	// agent names, which is why it reaches a path this host does not have. What
 	// it will match is said instead, that being the thing a wide pattern hides.
+	if refused.Command != "" {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"%s blocks the agent's shell from running it. The words are literal, so "+
+				"a command line carrying them anywhere is refused, this file included "+
+				"while you edit the list", refused.Command))
+		return
+	}
 	if refused.Name != "" {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
 			"%s refuses %s. Nothing announces a pattern that matches more than it "+

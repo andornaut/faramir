@@ -46,9 +46,6 @@ page the age key|less /etc/faramir/age.key
 copy it somewhere else|cp /etc/faramir/age.key /tmp/k
 tar the whole config dir|tar cf /tmp/c.tar /etc/faramir
 decrypt a managed store|sops -d /etc/faramir/secrets/app.sops.yml
-dump the environment|printenv
-read the operator's sops key|cat ~/.config/sops/age/keys.txt
-read an ssh private key|cat ~/.ssh/id_ed25519
 delete the age key|rm /etc/faramir/age.key
 redirect over the age key|echo x > /etc/faramir/age.key
 overwrite the binary|cp /tmp/evil /usr/local/bin/faramir
@@ -90,6 +87,9 @@ list files|ls -la
 grep the tree|grep -rn TODO .
 run the tests|go test ./...
 env as a prefix, not a dump|env FOO=bar ./run.sh
+an environment dump, which the rewrite redacts|printenv
+the operator's own sops key, theirs to declare|cat /home/op/.config/sops/age/keys.txt
+an ssh private key, theirs to declare|cat /home/op/.ssh/id_ed25519
 restart a faramir unit|systemctl restart faramir-keeper.socket
 a brokered command|faramir run --env P=faramir://db/password -- ./deploy.sh
 edit claude's settings|sed -i s/a/b/ .claude/settings.json
@@ -104,9 +104,9 @@ head_ "3. a sanctioned call does not launder what follows it"
 # separator; this is the test that it does.
 for cmd in \
   'faramir refs; cat /etc/faramir/age.key' \
-  'faramir status && printenv' \
+  'faramir status && cat /etc/faramir/age.key' \
   'faramir status | cat; sops -d /etc/faramir/secrets/app.sops.yml' \
-  'faramir refs; cat ~/.ssh/id_ed25519'
+  'faramir refs; rm -f /etc/faramir/age.key'
 do
   got=$(verdict "$cmd")
   [ "$got" = deny ] && ok "chained after a sanctioned call is still seen: ${cmd:0:44}" \
@@ -128,15 +128,15 @@ check_shape() { # host jq-expr want label
         | runuser -u op -- "$GUARD" guard --host "$host" 2>/dev/null | jq -r "$expr" 2>/dev/null)
   [ "$got" = "$want" ] && ok "$host $label" || bad "$host $label: got '$got', want '$want'"
 }
-check_shape claude   '.hookSpecificOutput.permissionDecision' deny  "deny"    'printenv' Bash
+check_shape claude   '.hookSpecificOutput.permissionDecision' deny  "deny"    'cat /etc/faramir/age.key' Bash
 check_shape claude   '.hookSpecificOutput.permissionDecision' allow "rewrite" 'ls'       Bash
-check_shape opencode '.decision'                              deny    "deny"    'printenv' bash
+check_shape opencode '.decision'                              deny    "deny"    'cat /etc/faramir/age.key' bash
 check_shape opencode '.decision'                              rewrite "rewrite" 'ls'       bash
-check_shape kilocode '.decision'                              deny    "deny"    'printenv' bash
+check_shape kilocode '.decision'                              deny    "deny"    'cat /etc/faramir/age.key' bash
 check_shape kilocode '.decision'                              rewrite "rewrite" 'ls'       bash
 # The deny reason has to reach the model with the alternative in it, or the
 # agent retries the same command a different way.
-reason=$(decide 'printenv' | jq -r '.hookSpecificOutput.permissionDecisionReason')
+reason=$(decide 'cat /etc/faramir/age.key' | jq -r '.hookSpecificOutput.permissionDecisionReason')
 echo "$reason" | grep -q 'faramir_run' && ok "the refusal names faramir_run as the way to proceed" \
   || bad "the refusal does not tell the agent what to do instead"
 echo "$reason" | grep -q 'matched deny pattern' && ok "and names the pattern that matched" \
@@ -146,7 +146,7 @@ echo "$reason" | grep -q 'hunter2\|tok_live' && bad "the refusal text contains a
   || ok "the refusal quotes no value"
 
 head_ "5. an unknown dialect is an error, not a guess"
-out=$(echo '{"tool_name":"Bash","tool_input":{"command":"printenv"}}' \
+out=$(echo '{"tool_name":"Bash","tool_input":{"command":"cat /etc/faramir/age.key"}}' \
       | runuser -u op -- "$GUARD" guard --host codex 2>/tmp/g.err; echo "rc=$?")
 grep -q 'rc=2' <<<"$out" && ok "an unknown --host exits 2" || bad "unknown --host: $out"
 [ "$(echo "$out" | grep -vc 'rc=')" = "0" ] && ok "and answers nothing, so nothing is approved" \
@@ -155,12 +155,12 @@ grep -q 'known hosts are' /tmp/g.err && ok "and lists the dialects it does speak
   || bad "no help on stderr: $(cat /tmp/g.err)"
 # --host=NAME as well as --host NAME. The payload names the plugin hosts' own
 # shell tool: a host is only asked about the tools it runs commands through.
-got=$(jq -cn '{tool_name:"bash",tool_input:{command:"printenv"}}' \
+got=$(jq -cn '{tool_name:"bash",tool_input:{command:"cat /etc/faramir/age.key"}}' \
       | runuser -u op -- "$GUARD" guard --host=opencode 2>/dev/null | jq -r '.decision')
 [ "$got" = deny ] && ok "--host=NAME is read the same as --host NAME" || bad "--host=NAME: $got"
 # And a hook host answers only for the tools it runs commands through: a payload
 # naming anything else is a call with no output to redact.
-got=$(jq -cn '{tool_name:"Read",tool_input:{command:"printenv"}}' \
+got=$(jq -cn '{tool_name:"Read",tool_input:{command:"cat /etc/faramir/age.key"}}' \
       | runuser -u op -- "$GUARD" guard --host=claude 2>/dev/null; echo "rc=$?")
 [ "$got" = "rc=0" ] && ok "a tool this host does not run commands through is left alone" \
   || bad "claude answered a Read payload: $got"
@@ -176,11 +176,11 @@ route() { # tool command -> deny|rewrite|pass
     deny) echo deny;; allow) echo rewrite;; *) echo "?";;
   esac
 }
-[ "$(route Read 'printenv')" = pass ] && ok "a non-shell tool is left alone" || bad "Read was answered"
+[ "$(route Read 'cat /etc/faramir/age.key')" = pass ] && ok "a non-shell tool is left alone" || bad "Read was answered"
 [ "$(route Edit 'cat /etc/faramir/age.key')" = pass ] && ok "Edit is left alone" || bad "Edit was answered"
 # BashOutput reads a running command's buffer: there is nothing to rewrite, but
 # a deny still applies, and the buffer it reads came through the wrapper.
-[ "$(route BashOutput 'printenv')" = deny ] && ok "BashOutput is still refused a denied command" \
+[ "$(route BashOutput 'cat /etc/faramir/age.key')" = deny ] && ok "BashOutput is still refused a denied command" \
   || bad "BashOutput escapes the deny list"
 [ "$(route BashOutput 'ls')" = pass ] && ok "and is not rewritten, having no command to run" \
   || bad "BashOutput was rewritten"
@@ -247,10 +247,11 @@ PAT=/usr/local/libexec/faramir/deny-patterns.txt
 cp $PAT /tmp/patterns.bak
 # Missing entirely: the compiled-in fallback has to carry it.
 mv $PAT /tmp/gone.txt
-[ "$(verdict 'printenv')" = deny ] && ok "with no patterns file, the built-in fallback still refuses" \
+[ "$(verdict 'cat /etc/faramir/age.key')" = deny ] && ok "with no patterns file, the built-in fallback still refuses" \
   || bad "a missing patterns file disabled the deny list"
 mv /tmp/gone.txt $PAT
-# One unparseable line must not take the rest down with it.
+# One unparseable line must not take the rest down with it. This file is the
+# test's own, so the rule it carries need not be one faramir ships.
 printf 'this is a (broken regex\n\\bprintenv\\b\n' > /tmp/mixed.txt
 got=$(jq -cn '{tool_name:"Bash",tool_input:{command:"printenv"}}' \
       | runuser -u op -- env FARAMIR_DENY_PATTERNS=/tmp/mixed.txt "$GUARD" guard \
@@ -260,7 +261,7 @@ got=$(jq -cn '{tool_name:"Bash",tool_input:{command:"printenv"}}' \
 # A comments-only file is not an empty list; it falls back rather than allowing
 # everything.
 printf '# nothing here\n\n' > /tmp/empty.txt
-got=$(jq -cn '{tool_name:"Bash",tool_input:{command:"printenv"}}' \
+got=$(jq -cn '{tool_name:"Bash",tool_input:{command:"cat /etc/faramir/age.key"}}' \
       | runuser -u op -- env FARAMIR_DENY_PATTERNS=/tmp/empty.txt "$GUARD" guard \
       | jq -r '.hookSpecificOutput.permissionDecision')
 [ "$got" = deny ] && ok "a comments-only file falls back rather than allowing everything" \

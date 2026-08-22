@@ -113,6 +113,43 @@ func (r *runner) stepDirectories() error {
 	return nil
 }
 
+// stepDenyPatterns re-renders the file the command guard reads, and nothing
+// else. Its own step because the guard's rules are generated from the same set
+// the agents' rule files are: an entry added by `block add` or `link add`
+// changes both, and a list that rendered one of them left the other a run
+// behind. For a command entry that was the whole of it, a command having no
+// file-tool half, so an add reported changed and the agent's shell could still
+// run it until the next `init`.
+func (r *runner) stepDenyPatterns() error {
+	if _, err := r.fs.ensureDir(r.layout.LibexecDir, 0o755, 0, 0, true); err != nil {
+		return err
+	}
+	changed, err := r.writeDenyPatterns()
+	if err != nil {
+		return err
+	}
+	r.step("deny patterns", changed,
+		filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"))
+	return nil
+}
+
+// writeDenyPatterns renders and writes it, for the step above and for the whole
+// install, which does the same thing beside the binaries it installs.
+//
+// Beside the hook rather than under the config directory, so they travel with
+// what reads them. Rendered rather than copied, which paths are worth refusing
+// belonging to this install: an operator who moved the config directory gets
+// rules naming where it is. A hook that cannot find the file falls back to the
+// compiled defaults.
+func (r *runner) writeDenyPatterns() (bool, error) {
+	patterns, err := render("agent/hooks/deny-patterns.txt", r.layout)
+	if err != nil {
+		return false, err
+	}
+	return r.fs.writeFile(filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"),
+		patterns, 0o644, 0, 0)
+}
+
 // stepBinaries installs the binaries, the agent hook and the docs.
 func (r *runner) stepBinaries() error {
 	changed := false
@@ -128,17 +165,7 @@ func (r *runner) stepBinaries() error {
 		return err
 	}
 
-	// Beside the hook rather than under the config directory, so they travel with
-	// what reads them. Rendered rather than copied, which paths are worth
-	// refusing belonging to this install: an operator who moved the config
-	// directory gets rules naming where it is. A hook that cannot find the file
-	// falls back to the compiled defaults.
-	patterns, err := render("agent/hooks/deny-patterns.txt", r.layout)
-	if err != nil {
-		return err
-	}
-	made, err := r.fs.writeFile(filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"),
-		patterns, 0o644, 0, 0)
+	made, err := r.writeDenyPatterns()
 	if err != nil {
 		return err
 	}

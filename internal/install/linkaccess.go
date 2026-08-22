@@ -140,6 +140,9 @@ func (r *runner) LinkSteps() []namedStep {
 		{labelConfig, r.stepConfig},
 		{"linked files", r.stepLinkAccess},
 		{labelAgentConfig, r.stepAgentConfig},
+		// A linked path is a subject in the command guard's rules as well as in
+		// the agents' own, so both are rendered here.
+		{"deny patterns", r.stepDenyPatterns},
 	}
 }
 
