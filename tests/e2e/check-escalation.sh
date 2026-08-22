@@ -32,7 +32,7 @@ waitq() { local i; for _ in $(seq 100); do i=$(q); [ -n "$i" ] && { echo "$i"; r
 quiesce() {
   local id
   for id in $(/usr/local/bin/faramir sudo ls --json 2>/dev/null | grep -oE '"id"[^,]*' | cut -d'"' -f4); do
-    /usr/local/bin/faramir sudo deny "$id" >/dev/null 2>&1
+    /usr/local/bin/faramir sudo reject "$id" >/dev/null 2>&1
   done
   pkill -u faramir-exec 2>/dev/null || true
   sleep 1
@@ -100,7 +100,7 @@ quiesce
 
 sudoRun /tmp/dn.out /usr/bin/sudo /usr/bin/id
 ID=$(waitq)
-/usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo reject "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 grep -q 'uid=0(root)' /tmp/dn.out && bad "a REFUSED command became root anyway" \
   || ok "a refused command does not become root"
@@ -111,9 +111,9 @@ quiesce
 # whether running the command again is worth anything.
 sudoRun /tmp/dnwhy.out /usr/bin/sudo /usr/bin/id
 ID=$(waitq)
-/usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo reject "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
-grep -q 'escalation denied' /tmp/dnwhy.out && ok "and the caller is told a human refused it" \
+grep -q 'escalation rejected' /tmp/dnwhy.out && ok "and the caller is told a human refused it" \
   || bad "the refusal reaches the caller unnamed: $(tr '\n' ' ' </tmp/dnwhy.out | cut -c1-150)"
 quiesce
 
@@ -124,10 +124,10 @@ sudoRun /tmp/who.out /usr/bin/sudo /usr/bin/id -un
 ID=$(waitq)
 [ -n "$ID" ] || bad "no question to answer"
 
-out=$(ask op "{\"op\":\"approve\",\"id\":\"$ID\"}")
+out=$(ask op "{\"op\":\"answer\",\"id\":\"$ID\"}")
 grep -q forbidden <<<"$out" && ok "the agent's uid cannot approve over the socket" \
   || bad "op approved: ${out:0:110}"
-out=$(ask faramir-exec "{\"op\":\"approve\",\"id\":\"$ID\"}")
+out=$(ask faramir-exec "{\"op\":\"answer\",\"id\":\"$ID\"}")
 grep -q forbidden <<<"$out" && ok "nor can the executor's uid" || bad "faramir-exec approved: ${out:0:110}"
 out=$(ask op '{"op":"escalations"}')
 grep -q forbidden <<<"$out" && ok "and neither may even list what is waiting" \
@@ -141,7 +141,7 @@ out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo ran
 grep -q escalation_in_progress <<<"$out" && ok "and a brokered command cannot run at all to try" \
   || bad "a brokered command ran beside a question: ${out:0:110}"
 [ "$(q)" = "$ID" ] && ok "the question survived every attempt" || bad "the question is gone after those attempts"
-/usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo reject "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 quiesce
 
@@ -237,7 +237,7 @@ body=$(/usr/local/bin/faramir sudo ls --json 2>/dev/null)
 grep -qF "$ID" <<<"$body" || bad "sudo ls --json did not name the waiting question"
 grep -qF "$SECRET" <<<"$body" && bad "the question carries the plaintext value" \
   || ok "the question an operator reads carries no value"
-/usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
+/usr/local/bin/faramir sudo reject "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 grep -qF "$SECRET" $LOG && bad "the audit log carries the value" || ok "and neither does the record"
 quiesce
@@ -260,7 +260,7 @@ out=$(/usr/local/bin/faramir sudo approve "$ID" 2>&1); code=$?
 wait $RUN 2>/dev/null
 quiesce
 
-out=$(/usr/local/bin/faramir sudo deny 2>&1); code=$?
+out=$(/usr/local/bin/faramir sudo reject 2>&1); code=$?
 [ $code -ne 0 ] && ok "a bare deny with nothing waiting is an error" || bad "deny with no question: exit $code"
 
 # --------------------------------------------------------------------------
@@ -283,7 +283,7 @@ grep -q 'uid=0\|^root$' /tmp/to.out && bad "*** an unanswered command became roo
 runuser -u op -- /usr/local/bin/faramir run --quiet -t 40 -- /usr/bin/sudo /usr/bin/id -un >/tmp/towhy.out 2>&1
 grep -q 'escalation expired' /tmp/towhy.out && ok "and told under --quiet, which is how an agent runs one" \
   || bad "an expiry is not told from a refusal: $(tr '\n' ' ' </tmp/towhy.out | cut -c1-150)"
-grep -q 'escalation denied' /tmp/towhy.out && bad "an expiry was reported as a refusal" \
+grep -q 'escalation rejected' /tmp/towhy.out && bad "an expiry was reported as a refusal" \
   || ok "and not as one somebody typed"
 # The host is usable again straight after, the serialisation having ended with it.
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo after 2>&1)
@@ -308,7 +308,7 @@ head_ "9. the PAM helper on its own"
 # It is what sudo execs, as root, so what it does when invoked by hand is the
 # question: it decides authentication for one account and one PAM type.
 
-HELPER=/usr/local/libexec/faramir/pam-approve
+HELPER=/usr/local/libexec/faramir/pam-escalate
 for probe in "PAM_TYPE=account:PAM_USER=faramir-exec" "PAM_TYPE=session:PAM_USER=faramir-exec" \
              "PAM_TYPE=auth:PAM_USER=root" "PAM_TYPE=auth:PAM_USER=op"; do
   env_type=${probe%%:*}; env_user=${probe##*:}
@@ -387,17 +387,17 @@ head_ "11. the record"
 # Both answers read as answers in the listing, not as blank rows.
 /usr/local/bin/faramir logs --color never -n 80 | grep -q approved && ok "an escalation reads as approved in faramir logs" \
   || bad "an escalation renders with no outcome"
-/usr/local/bin/faramir logs --color never -n 80 | grep -q refused && ok "and a refusal reads as refused" \
-  || bad "a refusal renders with no outcome"
-# Which no it was, for each of the three this suite produced. A denial, an
+/usr/local/bin/faramir logs --color never -n 80 | grep -q rejected && ok "and a rejection reads as rejected" \
+  || bad "a rejection renders with no outcome"
+# Which no it was, for each of the three this suite produced. A rejection, an
 # expiry and a yes read alike in prose and are acted on differently.
-for want in approved denied expired; do
+for want in approved rejected expired; do
   [ "$(jq -r --arg c "$want" 'select(.op=="escalate" and .outcome_code==$c) | .outcome_code' $LOG 2>/dev/null | head -1)" = "$want" ] \
     && ok "a $want ending is recorded as one" || bad "no escalate record carries outcome_code=$want"
 done
 # The prose is kept beside it: it names the account that answered, which no code
 # carries.
-jq -r 'select(.op=="escalate" and .outcome_code=="denied") | .outcome' $LOG 2>/dev/null | grep -q 'refused by' \
+jq -r 'select(.op=="escalate" and .outcome_code=="rejected") | .outcome' $LOG 2>/dev/null | grep -q 'rejected by' \
   && ok "and the sentence beside it still names who answered" \
   || bad "the prose was dropped when the code arrived"
 
@@ -783,7 +783,7 @@ ID=$(waitq)
 if [ -z "$ID" ]; then
   bad "no question was filed for the -n refusal check"
 else
-  /usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
+  /usr/local/bin/faramir sudo reject "$ID" >/dev/null 2>&1
   wait $RUN 2>/dev/null
   grep -q 'uid=0' /tmp/nonint.deny \
     && bad "a refused sudo -n reached root" || ok "and a no still refuses under -n"
@@ -952,7 +952,7 @@ $(tail -1 /tmp/alice.right)"
     if [ -z "$ID" ]; then
       bad "no question was filed for the refusal check under sudo-rs"
     else
-      /usr/local/bin/faramir sudo deny "$ID" >/dev/null 2>&1
+      /usr/local/bin/faramir sudo reject "$ID" >/dev/null 2>&1
       wait $RUN 2>/dev/null
       grep -q 'uid=0' /tmp/rs.deny.out \
         && bad "a refused escalation reached root under sudo-rs" \

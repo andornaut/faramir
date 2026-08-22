@@ -21,7 +21,7 @@ func allowSudo(t *testing.T, s *Server) {
 	s.Config.Escalation = config.EscalationConfig{
 		ExecUser:   "faramir-exec",
 		PamService: "faramir-sudo",
-		Helper:     "/usr/local/libexec/faramir/pam-approve",
+		Helper:     "/usr/local/libexec/faramir/pam-escalate",
 		TimeoutSec: 5,
 	}
 	// New() built the server from the config it was made with, so it is rebuilt
@@ -117,7 +117,7 @@ func TestAnEscalationHoldsOtherCommands(t *testing.T) {
 	held, question, _ := raiseAndWait(t, s, "log-h")
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 	if response := handle(s, map[string]any{
-		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
+		"op": "answer", "id": question.ID, "approved": true}, root); response["error"] != nil {
 		t.Fatalf("root could not approve the standing run: %v", response["error"])
 	}
 
@@ -161,7 +161,7 @@ func TestOnlyRootMayAnswerAnEscalation(t *testing.T) {
 	operator := &sockutil.Peer{PID: 42, UID: 1000, GID: 1000}
 	for _, request := range []map[string]any{
 		{"op": "escalations"},
-		{"op": "approve", "id": "abc123", "approve": true},
+		{"op": "answer", "id": "abc123", "approved": true},
 		// escalate is the one that decides a sudo, so it is the one an agent would
 		// reach for: answered by anything but root, a command could approve its
 		// own sudo.
@@ -199,7 +199,7 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 	}
 
 	if response := handle(s, map[string]any{
-		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
+		"op": "answer", "id": question.ID, "approved": true}, root); response["error"] != nil {
 		t.Fatalf("root could not answer: %v", response["error"])
 	}
 	if approved := <-granted; !approved {
@@ -226,7 +226,7 @@ func TestAnEscalationIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 
 	response := handle(s, map[string]any{
-		"op": "approve", "id": question.ID, "approve": true}, root)
+		"op": "answer", "id": question.ID, "approved": true}, root)
 	if code := errorCode(t, response); code != "not_quiescent" {
 		t.Errorf("code = %q, want not_quiescent: a yes that was refused is not an id "+
 			"nobody is waiting on", code)
@@ -246,7 +246,7 @@ func TestAnEscalationIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 func TestAnsweringAnUnknownQuestionIsAnError(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
-	response := handle(s, map[string]any{"op": "approve", "id": "beef00", "approve": true},
+	response := handle(s, map[string]any{"op": "answer", "id": "beef00", "approved": true},
 		&sockutil.Peer{PID: 1, UID: 0, GID: 0})
 	if code := errorCode(t, response); code != "unknown_question" {
 		t.Errorf("code = %q, want unknown_question", code)
@@ -321,7 +321,7 @@ func TestTheEscalationsOpReportsHowTheApprovedRunEnded(t *testing.T) {
 
 	held, question, _ := raiseAndWait(t, s, "log-e")
 	if response := handle(s, map[string]any{
-		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
+		"op": "answer", "id": question.ID, "approved": true}, root); response["error"] != nil {
 		t.Fatalf("root could not approve the run: %v", response["error"])
 	}
 
@@ -382,7 +382,7 @@ func TestAnExecReportsWhyItsSudoWasRefused(t *testing.T) {
 
 	held, question, granted := raiseAndWait(t, s, "log-r")
 	if response := handle(s, map[string]any{
-		"op": "approve", "id": question.ID, "approve": false}, root); response["error"] != nil {
+		"op": "answer", "id": question.ID, "approved": false}, root); response["error"] != nil {
 		t.Fatalf("root could not refuse the run: %v", response["error"])
 	}
 	if <-granted {
@@ -390,8 +390,8 @@ func TestAnExecReportsWhyItsSudoWasRefused(t *testing.T) {
 	}
 
 	code, _ := s.Escalation.Refusal(held)
-	if code != escalation.CodeDenied {
-		t.Errorf("the run kept %q, want %q", code, escalation.CodeDenied)
+	if code != escalation.CodeRejected {
+		t.Errorf("the run kept %q, want %q", code, escalation.CodeRejected)
 	}
 
 	// And it is gone with the run, so a later command carries no answer of

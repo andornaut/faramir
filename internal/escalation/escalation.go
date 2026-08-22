@@ -241,7 +241,7 @@ type escalation struct {
 // the command that held the host.
 const (
 	CodeApproved      = "approved"
-	CodeDenied        = "denied"
+	CodeRejected      = "rejected"
 	CodeExpired       = "expired"
 	CodeNotQuiescent  = "not_quiescent"
 	CodeRunEnded      = "run_ended"
@@ -855,14 +855,14 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 		}
 	}
 	s.mu.Unlock()
-	code, reason := CodeDenied, "refused by "+who
+	code, reason := CodeRejected, "rejected by "+who
 	if approve {
 		code, reason = CodeApproved, "approved by "+who
 	}
 	// Not recorded here: the answer reaches every request waiting on it through
 	// `reason`, and each of those writes a record naming who answered.
 	log.Printf("escalation: %s %s by %s", id,
-		map[bool]string{true: "approved", false: "refused"}[approve], who)
+		map[bool]string{true: "approved", false: "rejected"}[approve], who)
 	s.finish(pending, approve, code, reason)
 	return nil
 }

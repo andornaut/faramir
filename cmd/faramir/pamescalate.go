@@ -1,6 +1,6 @@
 package main
 
-// faramir pam-approve: the authentication step of faramir's own PAM service.
+// faramir pam-escalate: the authentication step of faramir's own PAM service.
 //
 // sudo execs this, as root, and reads nothing from it but the exit status: zero
 // authenticates the call, anything else refuses it, so every path here fails
@@ -28,41 +28,41 @@ import (
 	"github.com/andornaut/faramir/internal/escalation"
 )
 
-// cmdPamApprove runs pam-approve on its own, which is how the tests reach
+// cmdPamEscalate runs pam-escalate on its own, which is how the tests reach
 // it.
-func cmdPamApprove(args []string) int { return runPamApproveCommand(args) }
+func cmdPamEscalate(args []string) int { return runPamEscalateCommand(args) }
 
-// runPamApproveCommand applies the rule that nothing but a real escalation
+// runPamEscalateCommand applies the rule that nothing but a real escalation
 // exits 0. PAM reads the status as an auth pass, and --help and a usage error
 // both leave cobra with 0, so the status is taken from whether an escalation
 // happened rather than from how the command returned.
 //
 // Every caller goes through here: the root registers a command that forwards
 // its arguments untouched, so there is one path and one place the rule lives.
-func runPamApproveCommand(args []string) int {
+func runPamEscalateCommand(args []string) int {
 	granted := false
-	code := runCommand(newPamApproveCmd(&granted), args)
+	code := runCommand(newPamEscalateCmd(&granted), args)
 	if code == 0 && !granted {
 		return 2
 	}
 	return code
 }
 
-type pamApproveFlags struct {
+type pamEscalateFlags struct {
 	account string
 }
 
-// newPamApproveCmd decides one sudo, setting granted only on the path an
-// escalation was actually given on. Run it through runPamApproveCommand, which
+// newPamEscalateCmd decides one sudo, setting granted only on the path an
+// escalation was actually given on. Run it through runPamEscalateCommand, which
 // is what reads that.
-func newPamApproveCmd(granted *bool) *cobra.Command {
-	var f pamApproveFlags
+func newPamEscalateCmd(granted *bool) *cobra.Command {
+	var f pamEscalateFlags
 	c := &cobra.Command{
-		Use:   "pam-approve",
-		Short: "Decide one sudo, inside a brokered command (run by PAM)",
+		Use:   "pam-escalate",
+		Short: "Ask whether one sudo may proceed, inside a brokered command (run by PAM)",
 		Args:  noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runPamApprove(f, granted))
+			return codeErr(runPamEscalate(f, granted))
 		},
 	}
 	c.Flags().StringVar(&f.account, "account", "", "the account this PAM service is for")
@@ -85,17 +85,17 @@ func pamSocket() string { return defaultSocket }
 // being contacted at all.
 var ancestryOf = escalation.Ancestry
 
-func runPamApprove(f pamApproveFlags, granted *bool) int {
+func runPamEscalate(f pamEscalateFlags, granted *bool) int {
 	// PAM_TYPE and PAM_USER come from pam_exec. Checked, so a service file
 	// pointed at another account, or at the account stage rather than auth,
 	// cannot authenticate anything.
 	if kind := os.Getenv("PAM_TYPE"); kind != "auth" {
-		fmt.Fprintf(os.Stderr, "faramir pam-approve: PAM_TYPE is %q; this decides "+
+		fmt.Fprintf(os.Stderr, "faramir pam-escalate: PAM_TYPE is %q; this decides "+
 			"authentication and nothing else\n", kind)
 		return 1
 	}
 	if f.account != "" && os.Getenv("PAM_USER") != f.account {
-		fmt.Fprintf(os.Stderr, "faramir pam-approve: PAM_USER is %q, not %q: this "+
+		fmt.Fprintf(os.Stderr, "faramir pam-escalate: PAM_USER is %q, not %q: this "+
 			"service authenticates one account\n", os.Getenv("PAM_USER"), f.account)
 		return 1
 	}
@@ -107,17 +107,17 @@ func runPamApprove(f pamApproveFlags, granted *bool) int {
 	if len(ancestors) == 0 {
 		// Nothing above this call, which is what a `sudo` typed by hand as the
 		// executor's account looks like once its shell is gone.
-		fmt.Fprintln(os.Stderr, "faramir pam-approve: nothing above this sudo could "+
+		fmt.Fprintln(os.Stderr, "faramir pam-escalate: nothing above this sudo could "+
 			"be read, so there is nothing to attribute it to")
 		return 1
 	}
 	approved, reason, err := askBrokerToApprove(pamSocket(), ancestors)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir pam-approve: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir pam-escalate: %v\n", err)
 		return 1
 	}
 	if !approved {
-		fmt.Fprintf(os.Stderr, "faramir pam-approve: %s\n", reason)
+		fmt.Fprintf(os.Stderr, "faramir pam-escalate: %s\n", reason)
 		return 1
 	}
 	*granted = true

@@ -1164,7 +1164,7 @@ func loadEscalation(raw map[string]any, path string, out *EscalationConfig) erro
 		// established. Absent means "look for either", which is what an install
 		// made before this key existed leaves behind.
 		PamStack: "",
-		Helper:   "/usr/local/libexec/faramir/pam-approve",
+		Helper:   "/usr/local/libexec/faramir/pam-escalate",
 		// Nothing by default: `faramir sudo watch` is where a question is
 		// seen and answered.
 		NotifyCommand: nil,

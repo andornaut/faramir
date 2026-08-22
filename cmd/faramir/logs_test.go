@@ -852,7 +852,7 @@ func TestEachAnswerReadsAsItsOwnEnding(t *testing.T) {
 		failed bool
 	}{
 		{escalation.CodeApproved, "approved", false},
-		{escalation.CodeDenied, "refused", true},
+		{escalation.CodeRejected, "rejected", true},
 		{escalation.CodeExpired, "timed out", true},
 		{escalation.CodeNotQuiescent, "not quiescent", true},
 		{escalation.CodeRunEnded, "run ended", true},
@@ -883,8 +883,8 @@ func TestEachAnswerReadsAsItsOwnEnding(t *testing.T) {
 func TestAnAnswerWithNoCodeStillReads(t *testing.T) {
 	if label, failed := outcome(map[string]any{
 		"op": "escalate", "approved": false, "outcome": "refused by root",
-	}); label != "refused" || !failed {
-		t.Errorf("outcome = (%q, %v), want (refused, true)", label, failed)
+	}); label != "rejected" || !failed {
+		t.Errorf("outcome = (%q, %v), want (rejected, true)", label, failed)
 	}
 }
 

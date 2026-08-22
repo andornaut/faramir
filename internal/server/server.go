@@ -347,7 +347,7 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 		return s.opRedact(request, peer, stream)
 	case "escalations":
 		return s.opEscalations(request, peer)
-	case "approve":
+	case "answer":
 		return s.opApprove(request, peer)
 	case "escalate":
 		return s.opEscalate(request, peer)
@@ -522,7 +522,7 @@ func (s *Server) opEscalations(request *protocol.Request, peer *sockutil.Peer) p
 }
 
 func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
-	if refused := s.requireRoot("approve", peer); refused != nil {
+	if refused := s.requireRoot("answer", peer); refused != nil {
 		return *refused
 	}
 	// Named by the answering account rather than by uid alone: the audit record

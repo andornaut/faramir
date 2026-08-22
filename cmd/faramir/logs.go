@@ -657,7 +657,7 @@ func paintOutcome(record map[string]any, paint palette) string {
 func answerLabel(code string) string {
 	labels := map[string]string{
 		escalation.CodeApproved:      "approved",
-		escalation.CodeDenied:        "refused",
+		escalation.CodeRejected:      "rejected",
 		escalation.CodeExpired:       "timed out",
 		escalation.CodeNotQuiescent:  "not quiescent",
 		escalation.CodeRunEnded:      "run ended",
@@ -698,7 +698,7 @@ func outcome(record map[string]any) (string, bool) {
 		if approved {
 			return "approved", false
 		}
-		return "refused", true
+		return "rejected", true
 	}
 	// The refusal's own code, which is the string the caller was answered with,
 	// so an operator handed a log_id can confirm they are reading the refusal

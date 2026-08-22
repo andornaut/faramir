@@ -45,7 +45,7 @@ Op | Does | Notes
 `refs` | ref names only | Adds `refs`.
 `status` | version, `build`, `configs`, loaded files, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
 `escalations` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
-`approve` | answer by `id` | Root only.
+`answer` | answer a question by `id`, carrying `approved` | Root only.
 `escalate` | the PAM helper's half | Root only. Adds `approved`, `outcome_code`, `reason`.
 
 The three root-only ops are checked with `SO_PEERCRED`: the account the coding agent runs as must not approve what the agent asked for. `status` and `refs` answer whatever the value set is doing.
@@ -104,7 +104,7 @@ It also takes an optional `await_log_id`, naming the run the caller approved and
 Code | Means
 --- | ---
 `approved` | a human said yes, or this sudo was covered by the yes given for the same command
-`denied` | a human said no
+`rejected` | a human said no
 `expired` | nobody answered within `[escalation] timeout_sec`
 `not_quiescent` | a yes was turned into a no: a process of the executor's uid was alive outside the run
 `run_ended` | the command exited before the question was answered
@@ -135,7 +135,7 @@ Field | Meaning
 `log_id` | Points into `/var/log/faramir/audit.log`, which the agent cannot read, so it can cite a record to the operator.
 `invalid_bytes` | How many bytes were not valid UTF-8 and came back as `U+FFFD`. What says the output was binary.
 `waited_sec` | How much of `duration_sec` the command spent blocked on its own escalation, present only where a `sudo` waited at all. Written to the `run` record and carried on `finished` as well. `duration_sec` is wall time from fork to exit and the child sits inside `sudo` for the whole question, so an escalation answered slowly reads as a slow command without this. Reported beside the duration rather than subtracted from it: `[command] max_timeout_sec` is enforced against the same clock, and a duration that no longer matched it would be a second, quieter number.
-`escalation_code`, `escalation` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `denied` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [escalate codes](#escalations); the same pair is written to the `run` record.
+`escalation_code`, `escalation` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `rejected` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [escalate codes](#escalations); the same pair is written to the `run` record.
 `truncated` | Output hit the output cap.
 
 A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `exit_code` and adds `error`:
@@ -149,10 +149,10 @@ Code | Meaning
 --- | ---
 `bad_request` | Malformed request, a `version` that is not this daemon's own, bad or reserved env var name, a malformed `faramir://` reference, or a `cwd` that does not exist or is not a directory
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
-`unknown_question` | `approve` named a question that is no longer waiting: already answered, or its command gave up
+`unknown_question` | `answer` named a question that is no longer waiting: already answered, or its command gave up
 `busy` | At `[command] concurrency`; retry
 `escalation_in_progress` | An escalation is being decided or held, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only where `--allow-sudo` was installed
-`not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the escalation. The `sudo` fails and the command is run again once the host is quiet
+`not_quiescent` | the answer was yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the escalation. The `sudo` fails and the command is run again once the host is quiet
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `run` alone
 `no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `run` and `redact` both refuse; `status` and `refs` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started

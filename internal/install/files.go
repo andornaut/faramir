@@ -185,7 +185,7 @@ func (r *runner) stepBinaries() error {
 	// without a PAM service and a sudoers entry nothing execs it, and a stale one
 	// left behind would be worse. Executable, unlike wrap.sh: PAM execs this, as
 	// root.
-	helper, err := render("agent/hooks/pam-approve.tmpl", r.layout)
+	helper, err := render("agent/hooks/pam-escalate.tmpl", r.layout)
 	if err != nil {
 		return err
 	}

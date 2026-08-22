@@ -16,7 +16,7 @@ func baseConfig() config.EscalationConfig {
 	return config.EscalationConfig{
 		ExecUser:   "faramir-exec",
 		PamService: "faramir-sudo",
-		Helper:     "/usr/local/libexec/faramir/pam-approve",
+		Helper:     "/usr/local/libexec/faramir/pam-escalate",
 		TimeoutSec: 10,
 	}
 }
@@ -217,7 +217,7 @@ func TestARefusedRequestIsDenied(t *testing.T) {
 	if approved {
 		t.Fatal("a refused request was approved")
 	}
-	if !strings.Contains(reason, "refused by the test") {
+	if !strings.Contains(reason, "rejected by the test") {
 		t.Errorf("reason = %q, want the answer to name who gave it", reason)
 	}
 }
@@ -905,8 +905,8 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 		if approved {
 			t.Fatal("a refusal was approved")
 		}
-		if code != CodeDenied {
-			t.Errorf("code = %q, want %q", code, CodeDenied)
+		if code != CodeRejected {
+			t.Errorf("code = %q, want %q", code, CodeRejected)
 		}
 	})
 

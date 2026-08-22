@@ -148,31 +148,49 @@ sudo ./bin/faramir init
 
 Every flag, what a re-run adopts, and where the config directory may not go: [docs/installing.md](docs/installing.md).
 
-### Checking an install
+## Getting Started
+
+A bare host to a redacted command, in six steps. Each names the section that carries the detail.
+
+1. **Install the binary**, from [an archive](#pre-compiled-binary) or [a build](#compile-from-source). `init` puts it in `/usr/local/bin` itself, so there is nothing to copy into place first.
+2. **Provision the host** with `sudo faramir init`. It creates the accounts, mints the age key, renders the config and the units, and starts the sockets. [What it does](#what-init-does), and [every flag](docs/installing.md).
+3. **Check it** with `sudo faramir doctor`. It reports whether the install is doing its job, and as root what each account can reach. Without root it still runs, reporting what it could not ask as unasked rather than as passing. [What it checks](docs/operating.md#checking-an-install).
+4. **Name what this machine should block.** A fresh install refuses its own files and nothing else, so your SSH key is readable by your agent until you say otherwise. [Below](#naming-what-this-machine-should-block).
+5. **Enrol a project** with `cd <project> && sudo faramir init-project`, in the trees where managed credentials are in play rather than in every tree. [What an enrolment writes, and the three steps before it](#onboarding-a-project).
+6. **Run something.** `faramir refs` names what the broker serves, and `faramir run` is how a command receives one:
 
 ```bash
-sudo faramir doctor
+faramir refs
+faramir run --env TOKEN=faramir://svc/token -- printenv TOKEN   # -> «SECRET:svc/token»
 ```
-
-Reports whether the install is doing its job, and as root what each account can reach. Without root it still runs, reporting what it could not ask as unasked. What it checks, and how every command finds the install: [docs/operating.md](docs/operating.md).
 
 ### Naming what this machine should block
 
 **A fresh install blocks its own files and nothing else.** Everything under `<config-dir>`, the managed store, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' directories, at the paths this host uses. That is the whole of it: faramir does not guess at what else you keep, so an SSH private key, a `.pem`, a `.env` or an `~/.aws/credentials` is refused to your agent only once you say so.
 
-Say so once, in one command. Delete the lines that do not apply to this machine, and add the ones that do:
+Say so once, in one command. This one is deliberately broad: delete the lines that do not apply to this machine, and add the ones that do.
 
 ```bash
 sudo faramir block add \
     --name id_rsa --name id_ecdsa --name id_ed25519 \
     --name '*.pem' --name '*.key' \
-    --name '.env*' --name credentials \
-    --name 'secrets*.yml' --name 'secrets*.yaml' \
-    --name '*.kdbx' --name '.storage/auth' \
+    --name '.env*' --name credentials --name 'secrets*' \
+    --name '.mozilla/' --name 'chromium/' --name 'google-chrome/' \
+    --path ~/.gnupg --path ~/.local/share/keyrings \
     --command 'op read' --command 'pass show'
 ```
 
-Three forms, each named by its own flag, and they mix in one command. None of them is the default, so a bare argument is refused rather than read as a path. A **name** is matched against the path your agent asks for rather than against this filesystem, which is what reaches a file inside a container. A **path** is one file on this host: `sudo faramir block add --path /etc/luks/volume.key`. A **command** is what the agent's shell may not run, written as it would be typed. A path or a name blocks the agent's file tools and a command reading it alike; `faramir block ls` lists everything in force, including the rules faramir carries itself.
+Three forms, each named by its own flag, and they mix in one command. None of them is the default, so a bare argument is refused rather than read as a path.
+
+Form | Blocks | Matched against
+--- | --- | ---
+`--name` | every file of that name, wherever it turns up | the path your agent asks for, not this filesystem, which is what reaches a file inside a container
+`--path` | one file or directory on this host, and everything under it | the path as written, so it is absolute and in its shortest form
+`--command` | what the agent's shell may not run, written as it would be typed | where a command starts, so `grep` naming one is left alone
+
+A name and a path reach the agent's file tools and its shell alike; a command reaches the shell alone, being nothing a file tool can name.
+
+`faramir block ls` lists everything in force, the rules faramir carries itself included. It is one of the three operator commands that need no root, beside `reader ls` and `link ls`.
 
 A fleet declares these where it declares everything else: every `block` command is idempotent and reports what changed with `--json`, so a configuration manager can name the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
 
@@ -187,10 +205,7 @@ A fleet declares these where it declares everything else: every `block` command 
 
 Enrol the projects where managed credentials are in play, not every tree. Enrolling one registers the hook the table above names for each agent it finds: it rewrites what the agent runs in the tree into a brokered command and hands the output back redacted. There is no enrolment without it, redaction being what an enrolment is for.
 
-```bash
-faramir refs
-faramir run --env TOKEN=faramir://svc/token -- printenv TOKEN   # -> «SECRET:svc/token»
-```
+What to run in one: [below](#running-commands).
 
 Per-tool recipes, the `faramir link` types and selectors, SSH keys, and a worked Ansible example: [docs/integrations.md](docs/integrations.md).
 
@@ -240,7 +255,7 @@ The managed store | `vault add`, `vault ls`, `vault rm`, `vault edit`
 Who can decrypt it | `reader add`, `reader rm`, `reader ls`, `reader reseal`
 A secret another tool owns | `link add`, `link rm`, `link ls`
 A path blocked from the agent | `block add`, `block rm`, `block ls`
-The record, and sudo | `logs`, `sudo ls`, `sudo watch`, `sudo approve`, `sudo deny`
+The record, and sudo | `logs`, `sudo ls`, `sudo watch`, `sudo approve`, `sudo reject`
 
 All need root except `doctor`, which degrades, and the three that only read: `reader ls`, `link ls` and `block ls`. `init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
 

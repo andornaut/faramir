@@ -7,7 +7,7 @@ Every path the install creates, what owns it, and what each account can reach th
 /usr/local/libexec/faramir/     0755 root:root
   deny-patterns.txt             0644 root:root, rendered per install
   wrap.sh                       0644 root:root, copied verbatim
-  pam-approve                   0755 root:root, rendered; installed on every host, grant or not
+  pam-escalate                   0755 root:root, rendered; installed on every host, grant or not
   sudo-env                      0644 root:root, what a brokered command's sudo is given; --allow-sudo only
 /usr/local/share/doc/faramir/   0755 root:root, README, LICENSE and docs/, embedded and written out
 

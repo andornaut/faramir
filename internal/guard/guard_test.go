@@ -77,15 +77,15 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 		"sudo faramir sudo approve",
 		"sudo faramir sudo approve a1b2c3",
 		"sudo -n faramir sudo approve a1b2c3",
-		"sudo faramir sudo deny",
-		"sudo faramir sudo deny a1b2c3",
-		"sudo faramir pam-approve",
+		"sudo faramir sudo reject",
+		"sudo faramir sudo reject a1b2c3",
+		"sudo faramir pam-escalate",
 		// Unprivileged too. It would reach a broker that refuses it, but a
 		// refusal here says why, where SO_PEERCRED says only that it failed.
 		"faramir sudo ls",
 		"faramir sudo watch",
 		"faramir sudo approve a1b2c3",
-		"faramir sudo deny a1b2c3",
+		"faramir sudo reject a1b2c3",
 	} {
 		if _, denied := decide(cmd); !denied {
 			t.Errorf("the agent may answer an escalation: %q", cmd)

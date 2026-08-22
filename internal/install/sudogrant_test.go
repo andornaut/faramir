@@ -92,7 +92,7 @@ func TestASudoGrantPlacesNoCredential(t *testing.T) {
 	layout := sudoGrantLayout(t)
 	for _, asset := range []string{
 		"etc/config.toml.tmpl", "etc/sudoers.tmpl", "etc/pam.d.tmpl",
-		"agent/hooks/pam-approve.tmpl", units["faramir-broker.service"],
+		"agent/hooks/pam-escalate.tmpl", units["faramir-broker.service"],
 		units["faramir-exec.service"],
 	} {
 		body, err := render(asset, layout)
@@ -274,15 +274,15 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 // put on the host rather than whatever is on PATH.
 func TestThePamHelperExecsTheInstalledBinary(t *testing.T) {
 	layout := sudoGrantLayout(t)
-	body, err := render("agent/hooks/pam-approve.tmpl", layout)
+	body, err := render("agent/hooks/pam-escalate.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "exec " + layout.BinDir + "/faramir pam-approve"
+	want := "exec " + layout.BinDir + "/faramir pam-escalate"
 	if !strings.Contains(string(body), want) {
 		t.Errorf("the helper does not %q:\n%s", want, body)
 	}
-	if layout.PamHelper() != filepath.Join(layout.LibexecDir, "pam-approve") {
+	if layout.PamHelper() != filepath.Join(layout.LibexecDir, "pam-escalate") {
 		t.Errorf("the helper installs to %q, outside %q",
 			layout.PamHelper(), layout.LibexecDir)
 	}

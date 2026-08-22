@@ -106,7 +106,7 @@ Command | Does
 `sudo faramir sudo ls` | Lists the escalation a brokered command is waiting on, and exits. Exit status is `0` where something was waiting, `1` where nothing was, `69` where the broker could not answer
 `sudo faramir sudo watch` | Waits for questions, answers them from that terminal, and reports how each approved run ended. A command of its own rather than a flag on the listing: it holds the terminal and keeps reporting after the question is settled. [How to run a watcher](escalation.md#what-happens-when-a-command-runs-sudo)
 `sudo faramir sudo approve ID` | Say yes. The id is required: an escalation that names no command is one nobody judged
-`sudo faramir sudo deny [ID]` | Say no. The id is optional, one question being outstanding at a time. Without one it prints the question it is refusing
+`sudo faramir sudo reject [ID]` | Say no. The id is optional, one question being outstanding at a time. Without one it prints the question it is refusing
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed config. All three are socket activated
 `sudo faramir uninstall` | Removes the broker from the install it finds. Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively. Running it again is not an error: a first run that stopped partway leaves nothing to find, and the removal is at fixed paths whether or not an install answers
 

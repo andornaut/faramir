@@ -42,7 +42,7 @@ var Operator = []string{
 	"sudo ls",
 	"sudo watch",
 	"sudo approve",
-	"sudo deny",
+	"sudo reject",
 	"doctor",
 	"reload",
 	"uninstall",
@@ -79,7 +79,7 @@ func OperatorOnly() []string {
 }
 
 // Internal is the roles run by systemd (broker, keeper, exec), by the agent's
-// harness (mcp, guard) and by PAM inside a brokered command (pam-approve),
+// harness (mcp, guard) and by PAM inside a brokered command (pam-escalate),
 // each spelled as its unit, account or PAM service is.
 var Internal = []string{
 	"broker",
@@ -87,7 +87,7 @@ var Internal = []string{
 	"exec",
 	"mcp",
 	"guard",
-	"pam-approve",
+	"pam-escalate",
 	// What doctor runs under runuser to answer access(2) as another account.
 	"access",
 	// What `link add` runs under runuser to ask whether the broker's own account

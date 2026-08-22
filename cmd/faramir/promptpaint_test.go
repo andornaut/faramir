@@ -163,7 +163,7 @@ func TestOnlyThePaintingCommandsTakeColor(t *testing.T) {
 		{"doctor", newDoctorCmd},
 		{"sudo ls", newSudoListCmd},
 		{"sudo watch", newSudoWatchCmd},
-		{"sudo deny", newDenyCmd},
+		{"sudo reject", newRejectCmd},
 	} {
 		flag := tc.command().Flags().Lookup("color")
 		if flag == nil {

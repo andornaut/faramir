@@ -583,7 +583,7 @@ BODY
 SYNCFG=$(configFor "$SYN" syn)
 out=$(logsAt "$SYNCFG")
 grep -q 'approved' <<<"$out"  && ok "an escalation that was granted reads as approved" || bad "escalation row: [$out]"
-grep -q 'refused'  <<<"$out"  && ok "and one that was not reads as refused" || bad "refusal row: [$out]"
+grep -q 'rejected' <<<"$out"  && ok "and one that was not reads as rejected" || bad "rejection row: [$out]"
 grep -q 'app.sops.yml' <<<"$out" && ok "an edit names the file it changed" || bad "edit row: [$out]"
 grep -q '4 redacted' <<<"$out" && ok "the listing sums the per-token counts" || bad "sum row: [$out]"
 

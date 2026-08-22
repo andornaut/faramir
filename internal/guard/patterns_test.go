@@ -98,7 +98,7 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		{"sudo faramir sudo approve abc123", adviceOperator},
 		{"sudo faramir sudo ls", adviceOperator},
 		{"sudo faramir sudo watch", adviceOperator},
-		{"sudo faramir sudo deny abc123", adviceOperator},
+		{"sudo faramir sudo reject abc123", adviceOperator},
 		{"sudo faramir reader add age1abc", adviceOperator},
 		{"sudo faramir reader reseal", adviceOperator},
 		{"sudo faramir access --read /etc/faramir/age.key", adviceOperator},

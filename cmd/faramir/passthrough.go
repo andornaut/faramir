@@ -23,17 +23,17 @@ func newMCPCmd() *cobra.Command {
 	return c
 }
 
-// newPamApproveRootCmd forwards to runPamApproveCommand rather than parsing
+// newPamEscalateRootCmd forwards to runPamEscalateCommand rather than parsing
 // here, so the rule that only an escalation exits 0 is applied in exactly one
-// place whichever way pam-approve is reached.
-func newPamApproveRootCmd() *cobra.Command {
+// place whichever way pam-escalate is reached.
+func newPamEscalateRootCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:                "pam-approve",
-		Short:              "Decide one sudo, inside a brokered command (run by PAM)",
+		Use:                "pam-escalate",
+		Short:              "Ask whether one sudo may proceed, inside a brokered command (run by PAM)",
 		GroupID:            groupInternal,
 		DisableFlagParsing: true,
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runPamApproveCommand(args))
+			return codeErr(runPamEscalateCommand(args))
 		},
 	}
 }

@@ -15,14 +15,14 @@ import (
 // must NOT return zero, and the socket it would ask is one nothing is listening
 // on: a helper that reached the broker at all would already have got past the
 // guard being tested.
-const noBroker = "/nonexistent/faramir-pam-approve-test.sock"
+const noBroker = "/nonexistent/faramir-pam-escalate-test.sock"
 
-func pamApprove(t *testing.T, env map[string]string, args ...string) int {
+func pamEscalate(t *testing.T, env map[string]string, args ...string) int {
 	t.Helper()
 	for name, value := range env {
 		t.Setenv(name, value)
 	}
-	return cmdPamApprove(args)
+	return cmdPamEscalate(args)
 }
 
 // The helper asks the installed broker and nothing else. It runs inside the
@@ -45,7 +45,7 @@ func TestOnlyTheAuthStageDecidesAnything(t *testing.T) {
 	for _, stage := range []string{"account", "session", "password", ""} {
 		t.Run(stage, func(t *testing.T) {
 			env := map[string]string{"PAM_TYPE": stage, "PAM_USER": "faramir-exec"}
-			if code := pamApprove(t, env, "--account", "faramir-exec"); code == 0 {
+			if code := pamEscalate(t, env, "--account", "faramir-exec"); code == 0 {
 				t.Errorf("PAM_TYPE=%q authenticated a sudo", stage)
 			}
 		})
@@ -57,7 +57,7 @@ func TestOnlyTheAuthStageDecidesAnything(t *testing.T) {
 // reads it, is a service deciding calls it was not written for.
 func TestTheServiceAuthenticatesOneAccount(t *testing.T) {
 	env := map[string]string{"PAM_TYPE": "auth", "PAM_USER": "root"}
-	if code := pamApprove(t, env, "--account", "faramir-exec"); code == 0 {
+	if code := pamEscalate(t, env, "--account", "faramir-exec"); code == 0 {
 		t.Error("a call for root was authenticated by faramir-exec's service")
 	}
 }
@@ -75,7 +75,7 @@ func TestASudoUnderNoBrokeredCommandIsRefused(t *testing.T) {
 	t.Cleanup(func() { ancestryOf = original })
 
 	env := map[string]string{"PAM_TYPE": "auth", "PAM_USER": "faramir-exec"}
-	if code := pamApprove(t, env, "--account", "faramir-exec"); code == 0 {
+	if code := pamEscalate(t, env, "--account", "faramir-exec"); code == 0 {
 		t.Error("a sudo with no brokered command above it was authenticated")
 	}
 }
@@ -85,7 +85,7 @@ func TestASudoUnderNoBrokeredCommandIsRefused(t *testing.T) {
 // question expiring. A helper that failed open here would make stopping the
 // broker the way to sudo.
 //
-// Asked of askBrokerToApprove rather than through cmdPamApprove, so the subject
+// Asked of askBrokerToApprove rather than through cmdPamEscalate, so the subject
 // is the answer to an unreachable broker rather than the walk above it.
 func TestAnUnreachableBrokerRefuses(t *testing.T) {
 	approved, _, err := askBrokerToApprove(noBroker, []int{os.Getpid()})
@@ -104,8 +104,8 @@ func TestAnUnreachableBrokerRefuses(t *testing.T) {
 func TestNoFlagPathAuthenticates(t *testing.T) {
 	t.Setenv("PAM_TYPE", "auth")
 	for _, args := range [][]string{{"--no-such-flag"}, {"--help"}, {"-h"}} {
-		if code := cmdPamApprove(args); code == 0 {
-			t.Errorf("cmdPamApprove(%v) returned 0: a flag-parsing exit authenticated a sudo", args)
+		if code := cmdPamEscalate(args); code == 0 {
+			t.Errorf("cmdPamEscalate(%v) returned 0: a flag-parsing exit authenticated a sudo", args)
 		}
 	}
 }

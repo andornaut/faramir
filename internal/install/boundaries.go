@@ -265,7 +265,7 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 		// The PAM helper is here for a different reason: nothing reads it to
 		// enforce a rule, PAM execs it as root. An account that can write it
 		// decides every escalation on this host.
-		filepath.Join(DefaultLibexecDir, "pam-approve"),
+		filepath.Join(DefaultLibexecDir, "pam-escalate"),
 	}
 	for _, path := range enforcers {
 		if !exists(path) {

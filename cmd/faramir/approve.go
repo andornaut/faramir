@@ -66,7 +66,7 @@ func requireRootToAnswer(command string) bool {
 func cmdSudoList(args []string) int  { return runCommand(newSudoListCmd(), args) }
 func cmdSudoWatch(args []string) int { return runCommand(newSudoWatchCmd(), args) }
 func cmdApprove(args []string) int   { return runCommand(newApproveCmd(), args) }
-func cmdDeny(args []string) int      { return runCommand(newDenyCmd(), args) }
+func cmdReject(args []string) int    { return runCommand(newRejectCmd(), args) }
 
 // newSudoCmd groups everything about a brokered command asking to become root:
 // what is waiting, and the three ways an operator answers it.
@@ -88,7 +88,7 @@ func newSudoCmd() *cobra.Command {
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newSudoListCmd(), newSudoWatchCmd(), newApproveCmd(), newDenyCmd())
+	c.AddCommand(newSudoListCmd(), newSudoWatchCmd(), newApproveCmd(), newRejectCmd())
 	return c
 }
 
@@ -171,7 +171,7 @@ func newApproveCmd() *cobra.Command {
 			if len(args) != 1 || args[0] == "" {
 				return usagef("faramir sudo approve: one id is required\n" +
 					"A yes names the command it is for, so there is no form that approves " +
-					"whatever is waiting. `faramir sudo ls` lists it; `faramir sudo deny` " +
+					"whatever is waiting. `faramir sudo ls` lists it; `faramir sudo reject` " +
 					"needs no id, one question being outstanding at a time")
 			}
 			return nil
@@ -190,28 +190,28 @@ func newApproveCmd() *cobra.Command {
 // newDenyCmd says no. The id is optional, unlike approving: only one question
 // is ever outstanding, and refusing something unseen is safe in a way approving
 // it is not, a refusal costing a re-run.
-func newDenyCmd() *cobra.Command {
+func newRejectCmd() *cobra.Command {
 	var (
 		o    brokerOptions
 		when string
 	)
 	c := &cobra.Command{
-		Use:   "deny [options] [ID]",
+		Use:   "reject [options] [ID]",
 		Short: "Say no, to that one or to whatever is waiting",
 		Args:  atMostOneArg("id"),
 		RunE: func(c *cobra.Command, args []string) error {
-			if !requireRootToAnswer("sudo deny") {
+			if !requireRootToAnswer("sudo reject") {
 				return codeErr(1)
 			}
 			if len(args) == 1 && args[0] != "" {
-				return codeErr(answer("deny", socketDefault(), args[0], false, o.json))
+				return codeErr(answer("reject", socketDefault(), args[0], false, o.json))
 			}
 			paint, err := newPalette(when)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir sudo deny: %v\n", err)
+				fmt.Fprintf(os.Stderr, "faramir sudo reject: %v\n", err)
 				return codeErr(2)
 			}
-			return codeErr(denyWaiting(socketDefault(), o.json, paint))
+			return codeErr(rejectWaiting(socketDefault(), o.json, paint))
 		},
 	}
 	o.add(c)
@@ -219,11 +219,11 @@ func newDenyCmd() *cobra.Command {
 	return c
 }
 
-// denyWaiting refuses the one question outstanding, without it having to be
+// rejectWaiting refuses the one question outstanding, without it having to be
 // named. It prints what it refused first, so the scrollback says which command
 // was turned down.
-func denyWaiting(socketPath string, asJSON bool, paint palette) int {
-	questions, code := waiting(socketPath, "refused")
+func rejectWaiting(socketPath string, asJSON bool, paint palette) int {
+	questions, code := waiting(socketPath, "rejected")
 	if questions == nil {
 		return code
 	}
@@ -267,7 +267,7 @@ func listEscalations(socketPath string, asJSON bool, paint palette) int {
 		// The answer is a second command here, so the question says how to type
 		// it.
 		fmt.Printf("  approve with: faramir sudo approve %s\n", question.ID)
-		fmt.Printf("  refuse with:  faramir sudo deny %s\n\n", question.ID)
+		fmt.Printf("  reject with:  faramir sudo reject %s\n\n", question.ID)
 	}
 	return 0
 }
@@ -376,9 +376,9 @@ func watchEscalations(socketPath string, paint palette) int {
 				// What it read, on a refusal: an answer nobody typed refuses a question
 				// exactly as one they did. Quoted rather than printed, a stray byte
 				// being the case this exists for.
-				// Painted as a failure for the reason `faramir logs` paints a refusal
-				// as one: not because refusing is wrong, but because something asked.
-				fmt.Printf("  %s %s %s\n", paint.dim(question.LogID), paint.bad("refused:"),
+				// Painted as a failure for the reason `faramir logs` paints a rejection
+				// as one: not because rejecting is wrong, but because something asked.
+				fmt.Printf("  %s %s %s\n", paint.dim(question.LogID), paint.bad("rejected:"),
 					strconv.Quote(strings.Trim(line, "\r\n")))
 			case 69:
 				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s could not be answered and is "+
@@ -774,7 +774,7 @@ func pending(socketPath string, waitSec int, awaitLogID string) ([]escalation.Qu
 
 func answer(prog, socketPath, id string, approve, asJSON bool) int {
 	return send(prog, socketPath, map[string]any{
-		"op": "approve", "id": id, "approve": approve,
+		"op": "answer", "id": id, "approved": approve,
 	}, asJSON, true)
 }
 

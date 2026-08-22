@@ -58,7 +58,7 @@ const opRun = "run"
 // ops the broker refuses to anything but root. They are on this socket rather
 // than one of their own because the check that matters is SO_PEERCRED, which
 // every connection here already carries.
-var Ops = []string{opRun, "refs", "redact", "status", "escalations", "approve", "escalate"}
+var Ops = []string{opRun, "refs", "redact", "status", "escalations", "answer", "escalate"}
 
 type Request struct {
 	// Version is what the caller's own binary reports, which every client sends
@@ -102,7 +102,7 @@ func Parse(payload map[string]any) (*Request, error) {
 	req := &Request{Op: opRun, EnvRefs: map[string]string{}}
 	for _, step := range []func(map[string]any, *Request) error{
 		parseVersion, parseOp, parseCmd, parseRedact, parseCwd, parseEnvRefs,
-		parseEscalations, parseApprove, parseEscalate, parseWaits,
+		parseEscalations, parseAnswer, parseEscalate, parseWaits,
 	} {
 		if err := step(payload, req); err != nil {
 			return nil, err
@@ -263,8 +263,8 @@ func parseEscalations(payload map[string]any, req *Request) error {
 	return nil
 }
 
-func parseApprove(payload map[string]any, req *Request) error {
-	if req.Op != "approve" {
+func parseAnswer(payload map[string]any, req *Request) error {
+	if req.Op != "answer" {
 		return nil
 	}
 	id, isStr := payload["id"].(string)
@@ -273,8 +273,8 @@ func parseApprove(payload map[string]any, req *Request) error {
 			"`faramir sudo ls` lists what is waiting")
 	}
 	req.ID = id
-	// Absent is a refusal: a malformed answer must not read as a yes.
-	req.Approve, _ = payload["approve"].(bool)
+	// Absent is a rejection: a malformed answer must not read as a yes.
+	req.Approve, _ = payload["approved"].(bool)
 	return nil
 }
 

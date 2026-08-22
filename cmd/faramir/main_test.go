@@ -500,12 +500,12 @@ func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
 // escalation that names no command is one nobody judged. Each stops at the
 // root check rather than dialling a socket, which is enough to tell a usage
 // error from an argument that was accepted.
-func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
-	if code := cmdDeny(nil); code == 2 {
-		t.Error("faramir sudo deny = 2, want it accepted without an id")
+func TestRejectNeedsNoIDAndApproveDoes(t *testing.T) {
+	if code := cmdReject(nil); code == 2 {
+		t.Error("faramir sudo reject = 2, want it accepted without an id")
 	}
-	if code := cmdDeny([]string{"9f2a1c"}); code == 2 {
-		t.Error("faramir sudo deny ID = 2, want an id accepted too")
+	if code := cmdReject([]string{"9f2a1c"}); code == 2 {
+		t.Error("faramir sudo reject ID = 2, want an id accepted too")
 	}
 	if code := cmdApprove(nil); code != 2 {
 		t.Errorf("faramir sudo approve = %d, want 2: a yes has to name the command it is for", code)

@@ -127,7 +127,7 @@ var fallbackOwn = []string{
 	// it, so they are the operator's whether or not sudo is in front: refused here
 	// so the agent is told that rather than meeting a permission error it will try
 	// to work around. Held to cli.OperatorOnly by a test.
-	`\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|reader[ \t]+add|reader[ \t]+rm|reader[ \t]+ls|reader[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|block[ \t]+add|block[ \t]+rm|block[ \t]+ls|logs|sudo[ \t]+ls|sudo[ \t]+watch|sudo[ \t]+approve|sudo[ \t]+deny|doctor|reload|uninstall)\b`,
+	`\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|reader[ \t]+add|reader[ \t]+rm|reader[ \t]+ls|reader[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|block[ \t]+add|block[ \t]+rm|block[ \t]+ls|logs|sudo[ \t]+ls|sudo[ \t]+watch|sudo[ \t]+approve|sudo[ \t]+reject|doctor|reload|uninstall)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Blocked for what it costs, not because it hides anything: the wrapper fails
 	// closed, so a stopped broker withholds every command's output in every

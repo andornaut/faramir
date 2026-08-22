@@ -84,12 +84,12 @@ sudo faramir sudo watch
 5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else `requisite` makes the non-zero exit fatal at once, and `sudo` reports its own authentication failure. That report is the same whichever no it was, so `faramir run` names it on the way out and the `run` record keeps it:
 
    ```text
-   faramir run: escalation denied: refused by root (pid 1000); log_id=w9yj6dda000005
+   faramir run: escalation rejected: refused by root (pid 1000); log_id=w9yj6dda000005
    faramir run: escalation expired: nobody answered within 120s; log_id=w9z1ec21000003
    ```
 
    Which one it was decides whether running the command again is worth anything, so `--quiet` does not suppress it.
-6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `run` record it belongs to. `outcome_code` says which ending it was in one word so a log can be read for `expired` apart from `denied` without matching English; `outcome` says it in a sentence. `faramir logs` renders the two as `timed out` and `refused`. The full set is in [protocol.md](protocol.md#escalations).
+6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `run` record it belongs to. `outcome_code` says which ending it was in one word so a log can be read for `expired` apart from `rejected` without matching English; `outcome` says it in a sentence. `faramir logs` prints the code itself, so what a row says and what a reader selects on are one word. The full set is in [protocol.md](protocol.md#escalations).
 7. `sudo watch` prints how an approved run ended, when it does:
 
    ```text
@@ -105,7 +105,7 @@ There is no password anywhere: what satisfies `sudo` is a decision, so nothing i
 
 **Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one typing. The agent runs as *your* account, and a terminal your account owns is one it can reach: `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `sudo watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention, so watch from a console, an ssh session on another machine, or a login as another account. The deny rules refuse every faramir subcommand from the agent's own shell except the ones it needs, the whole `sudo` group among them, which raises the cost rather than removing it.
 
-**Without a watcher.** `sudo faramir sudo ls` lists what is waiting and exits. Answering is a second command: `sudo faramir sudo approve 9f2a1c`, or `sudo faramir sudo deny`, which takes an id but does not need one, only one question ever being outstanding. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached. `--json` prints the questions as an array and carries the same status; a broker it could not reach prints nothing rather than an empty array, which would report a host as quiet when nothing was asked. `expires` is what is left of the question, and you are typing against it. If it expires, the `sudo` fails and a re-run asks afresh.
+**Without a watcher.** `sudo faramir sudo ls` lists what is waiting and exits. Answering is a second command: `sudo faramir sudo approve 9f2a1c`, or `sudo faramir sudo reject`, which takes an id but does not need one, only one question ever being outstanding. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached. `--json` prints the questions as an array and carries the same status; a broker it could not reach prints nothing rather than an empty array, which would report a host as quiet when nothing was asked. `expires` is what is left of the question, and you are typing against it. If it expires, the `sudo` fails and a re-run asks afresh.
 
 Approving from your own shell is the last resort: reaching root that way leaves a warm sudo timestamp in a shell the agent can use. Consider `Defaults:<you> timestamp_timeout=0`.
 

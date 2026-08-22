@@ -10,6 +10,6 @@
 #
 # It is run by sudo, as root, and its exit status is the whole authentication:
 # zero authenticates, anything else does not. So it must fail closed, which is
-# what `faramir pam-approve` does on every path: an unreachable broker, a
+# what `faramir pam-escalate` does on every path: an unreachable broker, a
 # request no run owns, a refusal and a timeout all exit non-zero.
-exec {{.BinDir}}/faramir pam-approve --account {{.ExecUser}}
+exec {{.BinDir}}/faramir pam-escalate --account {{.ExecUser}}

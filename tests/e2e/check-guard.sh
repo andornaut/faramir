@@ -53,7 +53,7 @@ rewrite the deny list|sed -i /d/ /usr/local/libexec/faramir/deny-patterns.txt
 run the keeper as root|sudo faramir keeper
 run as the broker's uid|sudo -u faramir-broker id
 answer its own escalation|sudo faramir sudo approve abc123
-refuse whatever is waiting|sudo faramir sudo deny
+refuse whatever is waiting|sudo faramir sudo reject
 read what is waiting|sudo faramir sudo ls
 an operator command under sudo|sudo faramir doctor
 an operator command without it|faramir doctor

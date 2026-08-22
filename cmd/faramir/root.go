@@ -156,7 +156,7 @@ func newRootCmd() *cobra.Command {
 		newExecCmd(),
 		newMCPCmd(),
 		newGuardCmd(),
-		newPamApproveRootCmd(),
+		newPamEscalateRootCmd(),
 		newAccessCmd(),
 		newReadLinkCmd(),
 	)

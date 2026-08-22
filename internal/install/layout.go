@@ -195,8 +195,8 @@ type Layout struct {
 }
 
 // PamHelper is what the PAM service execs, as root, to decide one sudo: a
-// wrapper beside the hook's own files that runs `faramir pam-approve`.
-func (l Layout) PamHelper() string { return filepath.Join(l.LibexecDir, "pam-approve") }
+// wrapper beside the hook's own files that runs `faramir pam-escalate`.
+func (l Layout) PamHelper() string { return filepath.Join(l.LibexecDir, "pam-escalate") }
 
 // PamService is the sudoers `pam_service` name, and so the file under
 // /etc/pam.d that sudo reads for the executor's account alone.
