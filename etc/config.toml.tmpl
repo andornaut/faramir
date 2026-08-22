@@ -148,9 +148,11 @@ type = {{quote .Type}}
 #
 # A path names one file on this host. A name names every file it matches,
 # wherever it turns up, which is what reaches a path this host does not have:
-# a container's own mount point, or a volume mounted somewhere else.
+# a container's own mount point, or a volume mounted somewhere else. A command
+# names something the agent's shell may not run, matched where a command starts.
 [[secret.block]]
 {{if .Name}}name = {{quote .Name}}
+{{else if .Command}}command = {{quote .Command}}
 {{else}}path = {{quote .Path}}
 {{end}}{{end}}
 [audit]

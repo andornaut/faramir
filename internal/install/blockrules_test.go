@@ -161,9 +161,22 @@ func TestNoRefusedPathsChangeNothing(t *testing.T) {
 // The round trip that makes config.toml the entries' home: init renders them
 // into the file it rewrites every run and reads them back on the next. Either
 // half alone would erase them, and erasing them drops the deny rules.
-func TestRefusedPathsRoundTripThroughTheRenderedConfig(t *testing.T) {
+//
+// Every form, because the template writes one branch per form and a form with
+// no branch is written as another form's empty key: the command branch was
+// missing, so `block add --command` rendered `path = ""` and produced a config
+// that would not load. A test that wrote its own TOML said the loader reads
+// the key, which was true and was not the question.
+func TestEveryBlockedFormRoundTripsThroughTheRenderedConfig(t *testing.T) {
 	layout := testLayout()
-	layout.Blocked = refusedAt("/etc/luks/volume.key", "/home/operator/.ssh")
+	layout.Blocked = []config.BlockedPath{
+		{Path: "/etc/luks/volume.key"},
+		{Path: "/home/operator/.ssh"},
+		{Name: "*.pem"},
+		{Name: ".storage/auth"},
+		{Command: "op read"},
+		{Command: "sops -d"},
+	}
 
 	body, err := render("etc/config.toml.tmpl", layout)
 	if err != nil {
@@ -182,11 +195,13 @@ func TestRefusedPathsRoundTripThroughTheRenderedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back) != 2 {
-		t.Fatalf("read back %+v, want the two entries", back)
+	if len(back) != len(layout.Blocked) {
+		t.Fatalf("read back %d entries, want %d:\n%s", len(back), len(layout.Blocked), body)
 	}
-	if back[0].Path != "/etc/luks/volume.key" || back[1].Path != "/home/operator/.ssh" {
-		t.Errorf("read back %+v", back)
+	for i, want := range layout.Blocked {
+		if back[i] != want {
+			t.Errorf("entry %d read back as %+v, want %+v", i, back[i], want)
+		}
 	}
 }
 
