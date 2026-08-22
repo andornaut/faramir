@@ -41,7 +41,6 @@ GH_TOKEN='«SECRET:gh/token»'
 
 
 faramir=/usr/local/bin/faramir
-UID_OP=$(id -u op)
 asop() { runuser -u op -- env HOME=/home/op "$faramir" "$@"; }
 # brokered runs a command through the broker as the agent's own uid, which is
 # the account an agent's tool call arrives as.
@@ -196,29 +195,25 @@ grep -q 'hosts.yml' <<<"$out" \
 
 # --------------------------------------------------------------------------
 head_ "5. the agent's own shell"
-# The bash path is not refused by name: a linked file is at a path faramir did
-# not choose, and the deny list only covers what somebody thought to name. What
-# covers it is the rewrite, so reading the file as the agent still yields the
-# token.
-rewrite=$(jq -cn --arg c "cat $GH" '{tool_name:"Bash",tool_input:{command:$c}}' \
-  | asop guard 2>/dev/null | jq -r '.hookSpecificOutput.updatedInput.command // empty')
-if [ -n "$rewrite" ]; then
-  # && rather than ;: a cd that failed would run the rewrite from runuser's own
-  # working directory, which is outside the tree the enrolment configured, and
-  # the check would be measuring a shell standing somewhere else.
-  out=$(runuser -u op -- env HOME=/home/op XDG_RUNTIME_DIR="/run/user/$UID_OP" \
-    bash -c "cd /home/op/project && $rewrite" 2>&1)
-  # The token, not merely the absence of the value: a rewrite that failed for
-  # any reason of its own prints neither, and reads as a wrapper doing its job.
-  if grep -qF "$GH_VALUE" <<<"$out"; then
-    bad "the agent's own shell read the value out of the linked file: $out"
-  elif grep -qF "$GH_TOKEN" <<<"$out"; then
-    ok "read through the wrapper, the value comes back as a token"
-  else
-    bad "the wrapper returned neither the value nor its token, so it is not what redacted this: $out"
-  fi
+# A linked path is a subject in the guard's rules as well as in the agents' own
+# deny rules, both being rendered from one set, so the shell is refused it the
+# way a file tool is. It was rewritten rather than refused before those were
+# unified, and the value came back as a token; refused is the stricter half of
+# the same cover, and it is what an operator declaring a path already assumes.
+decision=$(jq -cn --arg c "cat $GH" '{tool_name:"Bash",tool_input:{command:$c}}' \
+  | asop guard 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // empty')
+[ "$decision" = deny ] \
+  && ok "the agent's own shell is refused a read of the linked file" \
+  || bad "the guard answered '$decision' for a read of the linked file, want deny"
+# And the value is still covered where a command may reach it: through the
+# broker, which is what a link is for.
+out=$(brokered /bin/sh -c "cat $GH")
+if grep -qF "$GH_VALUE" <<<"$out"; then
+  bad "a brokered read of the linked file returned the value: ${out:0:120}"
+elif grep -qF "$GH_TOKEN" <<<"$out"; then
+  ok "and a brokered read of it comes back as a token"
 else
-  bad "the guard returned no rewrite for a read of the linked file"
+  note "a brokered read returned neither the value nor its token: ${out:0:120}"
 fi
 
 # The file tools are what the deny rules cover, and the linked path is in them.

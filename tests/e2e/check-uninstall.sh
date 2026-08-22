@@ -130,7 +130,7 @@ if [ -d $PROJECT ]; then
   owner=$(stat -c '%a %U:%G' $PROJECT)
   [ "$owner" = "2770 op:faramir-client" ] && ok "the enrolled tree is still $owner, which uninstall does not walk" \
     || bad "the tree is $owner, want 2770 op:faramir-client"
-  getent group dev >/dev/null && ok "and the group it is shared with still exists" \
+  getent group faramir-client >/dev/null && ok "and the group it is shared with still exists" \
     || bad "the client group was removed, orphaning the tree's group"
   id -nG faramir-exec 2>/dev/null | grep -qw dev \
     && note "so faramir-exec, which is kept, can still enter it" \
