@@ -19,7 +19,6 @@ import (
 // nothing. To run one, use `faramir run`, which asks the broker, which asks
 // this. Named for its account and unit (faramir-exec).
 type execFlags struct {
-	configPath  string
 	showVersion bool
 }
 
@@ -34,7 +33,6 @@ func newExecCmd() *cobra.Command {
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runExec(f)) },
 	}
-	c.Flags().StringVarP(&f.configPath, "config", "c", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().BoolVar(&f.showVersion, "version", false, "print the version and exit")
 	return c
 }
@@ -50,7 +48,7 @@ func runExec(f execFlags) int {
 		return 0
 	}
 
-	cfg, err := config.Load(resolveDaemonConfig(f.configPath))
+	cfg, err := config.Load(resolveDaemonConfig())
 	if err != nil {
 		log.Printf("%v", err)
 		return 2

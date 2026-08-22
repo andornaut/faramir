@@ -36,17 +36,19 @@ Four statuses: `ok`, `warn`, `failed`, and `n/a` for a check whose subject this 
 
 **Without the agent's account**, most boundary checks cannot be put at all: `access(2)` answers "no" for an account that cannot be named, which is the same answer a boundary that holds gives. Run from a root shell or cron, `doctor` takes that account from `SUDO_USER`, finds none, and reports those as unasked. Pass `--agent-user` for the whole thing.
 
-**Finding the install.** `doctor`, `init-project`, `uninstall`, `edit`, `reseal` and `logs` all act on an install they did not perform:
+**Finding the install.** `doctor`, `init-project`, `uninstall`, `link`, `block`, `edit`, `reseal` and `logs` all act on an install they did not perform. None of them takes the path: a caller cannot be expected to know where the config lives, and every one of them can ask.
 
 Order | Source
 --- | ---
-1 | `--config-dir`, or `--config` on `edit`, `reseal` and `logs`
-2 | `$FARAMIR_CONFIG`, on `edit`, `reseal` and `logs` only, short-circuiting the rest
-3 | the running broker's own answer, asked at `$FARAMIR_SOCKET`, else `/run/faramir/broker.sock`
-4 | the `FARAMIR_CONFIG=` its unit names, which covers a host whose config moved and whose broker is down
-5 | the compiled-in default
+1 | `$FARAMIR_CONFIG`, short-circuiting the rest
+2 | the running broker's own answer, asked at `$FARAMIR_SOCKET`, else `/run/faramir/broker.sock`
+3 | the `FARAMIR_CONFIG=` its unit names, which covers a host whose config moved and whose broker is down
 
-`init` follows the same chain and prints what it settled on before writing; naming `--config-dir` is still what puts an install somewhere new. The daemons skip step 3: each may be about to bind that socket, and connecting would activate the installed daemon and leave the two contending for the path. Under systemd none of this is reached, the units setting `FARAMIR_CONFIG` themselves; it is what makes `faramir broker --check` work from a shell on an install away from the default path.
+Nothing answering is an error naming both places that were asked, not a fall through to the compiled-in default: acting on the wrong install is worse than being told which install could not be found. `$FARAMIR_CONFIG` is the way out of that, and the only thing an operator has to say.
+
+`init` is the exception, and takes `--config-dir`: a host with no install has no broker to ask and no unit to read, which is the case `init` is for, and it is the one command whose caller decides where the config goes. It follows the same chain otherwise and prints what it settled on before writing.
+
+The daemons skip step 2: each may be about to bind that socket, and connecting would activate the installed daemon and leave the two contending for the path. Under systemd none of this is reached, the units setting `FARAMIR_CONFIG` themselves; it is what makes `faramir broker --check` work from a shell on an install away from the default path.
 
 ## The files an install writes into your agent's config
 
@@ -164,7 +166,7 @@ It validates the key, edits the rule, checks the keeper is still a reader, write
 - **`doctor` reports the disagreement** under `recipient drift`, so a drifted store is reported rather than met when a value will not decrypt.
 - **A `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. The count holds however the rules are written: keys in any order, flow style, `age:` as a string or a list. Use `sops updatekeys` per file, the only thing that can answer which rule governs which.
 - **A rule that splits the data key is refused too.** `shamir_threshold` means N key groups together, and re-encrypting to one list makes it any one of them.
-- **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from the current working directory, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `--config` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `reseal` stops: that file is where its recipients come from.
+- **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from the current working directory, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `$FARAMIR_CONFIG` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `reseal` stops: that file is where its recipients come from.
 - **A file no creation rule covers cannot be written back.** `edit` asks before opening the editor, so it costs a refusal rather than what you typed; `doctor` asks it of every managed file under `rule coverage`. Reachable only where the rule was narrowed, or the managed store names something the shipped `*.sops.yml` rule does not match.
 
 ## Backing up and restoring

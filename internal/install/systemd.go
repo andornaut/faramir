@@ -225,8 +225,12 @@ func parseInstalledConfig(run *runner) error {
 		// systemctl calls, which name it better.
 		return nil //nolint:nilerr // nothing installed is not a parse failure
 	}
+	// FARAMIR_CONFIG rather than a flag: no faramir command takes a config path,
+	// and runuser clears the environment, so the variable has to be set on the
+	// far side of it. The same variable the units give the daemons.
 	out, err := run.command("runuser", "-u", brokerUser, "--",
-		filepath.Join(DefaultBinDir, "faramir"), "broker", "-c", configFile, "--parse-only")
+		"env", "FARAMIR_CONFIG="+configFile,
+		filepath.Join(DefaultBinDir, "faramir"), "broker", "--parse-only")
 	if err != nil {
 		return fmt.Errorf("%s does not load as %s, so nothing was stopped and the "+
 			"daemons are still serving what they already have: %w\n%s",

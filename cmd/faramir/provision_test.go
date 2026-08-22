@@ -55,17 +55,28 @@ func TestResolveConfigDirAsksTheBroker(t *testing.T) {
 		"/home/op/.config/faramir/config.toml",
 		"/home/op/.config/faramir/config.d/a.toml",
 	})
-	if got := resolveConfigDir("", socket); got != "/home/op/.config/faramir" {
+	t.Setenv("FARAMIR_CONFIG", "")
+	got, err := resolveConfigDir(socket)
+	if err != nil {
+		t.Fatalf("resolveConfigDir: %v", err)
+	}
+	if got != "/home/op/.config/faramir" {
 		t.Errorf("resolveConfigDir = %q, want /home/op/.config/faramir", got)
 	}
 }
 
-// An operator who names one is examining that install, whatever a broker
-// says.
-func TestResolveConfigDirPrefersTheFlag(t *testing.T) {
+// The way out for a host whose broker is down and whose unit is gone. No
+// command takes a directory, so this is the only thing an operator can say,
+// and it is the same variable the units give the daemons.
+func TestResolveConfigDirPrefersTheEnvironment(t *testing.T) {
 	socket := statusBroker(t, []string{"/home/op/.config/faramir/config.toml"})
-	if got := resolveConfigDir("/etc/elsewhere", socket); got != "/etc/elsewhere" {
-		t.Errorf("resolveConfigDir = %q, want the flag to win", got)
+	t.Setenv("FARAMIR_CONFIG", "/etc/elsewhere/config.toml")
+	got, err := resolveConfigDir(socket)
+	if err != nil {
+		t.Fatalf("resolveConfigDir: %v", err)
+	}
+	if got != "/etc/elsewhere" {
+		t.Errorf("resolveConfigDir = %q, want the environment to win", got)
 	}
 }
 
@@ -89,28 +100,51 @@ func pointBrokerUnit(t *testing.T, body string) {
 func TestResolveConfigDirReadsTheUnitWhenTheBrokerIsSilent(t *testing.T) {
 	pointBrokerUnit(t, "[Service]\nUser=faramir-broker\n"+
 		"Environment=FARAMIR_CONFIG=/home/op/.config/faramir/config.toml\n")
+	t.Setenv("FARAMIR_CONFIG", "")
 	missing := filepath.Join(t.TempDir(), "absent.sock")
-	if got := resolveConfigDir("", missing); got != "/home/op/.config/faramir" {
+	got, err := resolveConfigDir(missing)
+	if err != nil {
+		t.Fatalf("resolveConfigDir: %v", err)
+	}
+	if got != "/home/op/.config/faramir" {
 		t.Errorf("resolveConfigDir = %q, want the directory the unit names", got)
 	}
 }
 
-// Nothing listening and no unit is a host with no install, which is the case
-// doctor exists for, so it carries on against the default.
-func TestResolveConfigDirFallsBackWhenTheBrokerIsSilent(t *testing.T) {
+// Nothing listening and no unit is a host with no install. The compiled-in
+// default is not the answer: it is a guess, and a command that acted on it
+// would report on, or delete, a directory that is not this host's install.
+func TestResolveConfigDirFailsWhenNothingAnswers(t *testing.T) {
 	pointBrokerUnit(t, "")
+	t.Setenv("FARAMIR_CONFIG", "")
 	missing := filepath.Join(t.TempDir(), "absent.sock")
-	if got := resolveConfigDir("", missing); got != install.DefaultConfigDir {
-		t.Errorf("resolveConfigDir = %q, want %q", got, install.DefaultConfigDir)
+	if _, err := resolveConfigDir(missing); err == nil {
+		t.Error("a host with no broker, no unit and no environment resolved a " +
+			"directory; nothing knows which install that would be")
 	}
 }
 
 // A broker that answers with something else is the same as one that does not.
-func TestResolveConfigDirFallsBackOnAnEmptyConfigList(t *testing.T) {
+func TestResolveConfigDirFailsOnAnEmptyConfigList(t *testing.T) {
 	pointBrokerUnit(t, "")
+	t.Setenv("FARAMIR_CONFIG", "")
 	socket := statusBroker(t, []string{})
-	if got := resolveConfigDir("", socket); got != install.DefaultConfigDir {
-		t.Errorf("resolveConfigDir = %q, want %q", got, install.DefaultConfigDir)
+	if _, err := resolveConfigDir(socket); err == nil {
+		t.Error("an empty config list resolved a directory")
+	}
+}
+
+// init is the exception: a host with no install has no broker to ask and no
+// unit to read, which is the case init is for.
+func TestInitConfigDirFallsBackToTheDefault(t *testing.T) {
+	pointBrokerUnit(t, "")
+	t.Setenv("FARAMIR_CONFIG", "")
+	missing := filepath.Join(t.TempDir(), "absent.sock")
+	if got := initConfigDir("", missing); got != install.DefaultConfigDir {
+		t.Errorf("initConfigDir = %q, want %q", got, install.DefaultConfigDir)
+	}
+	if got := initConfigDir("/etc/elsewhere", missing); got != "/etc/elsewhere" {
+		t.Errorf("initConfigDir = %q, want the flag to win", got)
 	}
 }
 
@@ -134,8 +168,13 @@ func TestTheUnitReaderTakesTheDropInTheDaemonsLoad(t *testing.T) {
 	if got := unitConfigFile(); got != "/srv/faramir/config.toml" {
 		t.Errorf("unitConfigFile = %q, want the drop-in's path", got)
 	}
+	t.Setenv("FARAMIR_CONFIG", "")
 	missing := filepath.Join(t.TempDir(), "absent.sock")
-	if got := resolveConfigDir("", missing); got != "/srv/faramir" {
+	got, err := resolveConfigDir(missing)
+	if err != nil {
+		t.Fatalf("resolveConfigDir: %v", err)
+	}
+	if got != "/srv/faramir" {
 		t.Errorf("resolveConfigDir = %q, want the directory the daemons load", got)
 	}
 }

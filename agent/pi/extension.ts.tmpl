@@ -53,8 +53,8 @@ const PROTECTED_PATHS = [
 ].map((source) => new RegExp(source))
 
 // This install's own directories, which are literal rather than patterns: a
-// config and store moved by --config-dir are the ones refused rather than the
-// defaults.
+// config and store moved by `faramir init --config-dir` are the ones refused
+// rather than the defaults.
 // filter(Boolean) is not decoration: an empty string here would make every
 // absolute path start with it, and refuse the whole filesystem.
 const PROTECTED_DIRS = [

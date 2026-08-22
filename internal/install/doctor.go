@@ -872,7 +872,8 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// every state below, so trusting the status alone would report all of them
 	// as one unexplained failure.
 	out, checkErr := run.command("runuser", "-u", brokerUser, "--",
-		filepath.Join(DefaultBinDir, "faramir"), "broker", "-c", configFile, "--check")
+		"env", "FARAMIR_CONFIG="+configFile,
+		filepath.Join(DefaultBinDir, "faramir"), "broker", "--check")
 	var check checkReport
 	if err := json.Unmarshal([]byte(out), &check); err != nil {
 		if checkErr != nil {

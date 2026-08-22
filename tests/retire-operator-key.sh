@@ -59,7 +59,7 @@ verify() {
   # SC2024: the redirect is the operator's on purpose. Only doctor needs root;
   # the transcript is theirs to read, and root-owning it in /tmp would be worse.
   # shellcheck disable=SC2024
-  if sudo faramir doctor --config-dir "$CONFIG_DIR" >"$out" 2>&1; then
+  if sudo env FARAMIR_CONFIG="$CONFIG_DIR/config.toml" faramir doctor >"$out" 2>&1; then
     ok "faramir doctor passes"
     rm -f "$out"
     return 0

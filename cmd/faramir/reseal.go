@@ -46,14 +46,14 @@ type storeContext struct {
 // naming no file yet is a reason to stop: it is for `reseal`, whose whole job
 // is files, and not for a recipient change, the rule governing what sops writes
 // from now on.
-func loadStore(label, configPath, socket string, named []string,
+func loadStore(label, socket string, named []string,
 	emptyStoreOK bool) (*storeContext, int) {
 	// Blocked rather than attempted, like edit: as the operator this fails on the
 	// age key with a bare permission error.
 	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
 		return nil, 1
 	}
-	cfg, err := config.Load(resolveConfig(configPath, socket))
+	cfg, err := config.Load(resolveConfig(socket))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return nil, 1

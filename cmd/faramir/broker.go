@@ -18,7 +18,6 @@ import (
 // brokerFlags is the secrets broker daemon: policy, redaction, the audit log
 // and the SSH keys. systemd runs it as its own uid, which is the boundary.
 type brokerFlags struct {
-	configPath  string
 	check       bool
 	parseOnly   bool
 	showVersion bool
@@ -33,7 +32,6 @@ func newBrokerCmd() *cobra.Command {
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runBroker(f)) },
 	}
-	c.Flags().StringVarP(&f.configPath, "config", "c", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().BoolVar(&f.check, "check", false, "validate config and exit")
 	// Whether a config parses, judged by the parser that will judge it later.
 	// Distinct from --check, which also opens the SSH keys and the secrets files
@@ -57,7 +55,7 @@ func runBroker(f brokerFlags) int {
 		return 0
 	}
 
-	cfg, err := config.Load(resolveDaemonConfig(f.configPath))
+	cfg, err := config.Load(resolveDaemonConfig())
 	if err != nil {
 		log.Printf("%v", err)
 		return 2

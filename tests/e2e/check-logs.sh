@@ -36,7 +36,7 @@ configFor() {
 # logsAt is logs() against that config.
 logsAt() {
   local cfg=$1; shift
-  /usr/local/bin/faramir logs --color never --config "$cfg" "$@" 2>&1
+  FARAMIR_CONFIG="$cfg" /usr/local/bin/faramir logs --color never "$@" 2>&1
 }
 
 # lastID is the id of the record written most recently.
@@ -63,7 +63,7 @@ grep -q "$SECRET" <<<"$out" && bad "the refusal carried a value" || ok "and it p
 # still refused, so a copy left somewhere permissive does not become a way in.
 cp "$LOG" /tmp/pub.log && chmod 0644 /tmp/pub.log
 PUBCFG=$(configFor /tmp/pub.log pub); chmod 0644 "$PUBCFG"
-out=$(runuser -u op -- /usr/local/bin/faramir logs --config "$PUBCFG" 2>&1); code=$?
+out=$(runuser -u op -- env FARAMIR_CONFIG="$PUBCFG" /usr/local/bin/faramir logs 2>&1); code=$?
 if [ $code -eq 1 ] && grep -q "must run as root" <<<"$out"; then
   ok "and refused even for a log that uid can read"
 else
@@ -332,10 +332,10 @@ grep -q 'no-newline-yet' <<<"$out" && bad "the half-written last line was shown"
 # The warning is the operator's, and must not be mistaken for a record. The
 # binary directly, not logs(): that helper merges the two streams, which is the
 # thing under test here.
-warn=$(/usr/local/bin/faramir logs --color never --config "$DMGCFG" 2>&1 >/dev/null)
+warn=$(FARAMIR_CONFIG="$DMGCFG" /usr/local/bin/faramir logs --color never 2>&1 >/dev/null)
 grep -q 'do not parse' <<<"$warn" && ok "the warning goes to stderr, clear of the listing" \
   || bad "nothing on stderr: [$warn]"
-body=$(/usr/local/bin/faramir logs --color never --config "$DMGCFG" 2>/dev/null)
+body=$(FARAMIR_CONFIG="$DMGCFG" /usr/local/bin/faramir logs --color never 2>/dev/null)
 grep -q 'do not parse' <<<"$body" && bad "the warning is mixed into the listing" \
   || ok "and stdout is records only, so a pipe into a parser stays clean"
 
@@ -537,16 +537,19 @@ out=$(logsAt "$(configFor /var/log/faramir dir)"); code=$?
 # would wait on that path for ever.
 cp /etc/faramir/config.toml /tmp/alt.toml
 sed -i 's#^log_path = .*#log_path = "'"$BIG"'"#' /tmp/alt.toml
-out=$(logs --config /tmp/alt.toml -n 1)
-grep -q 'record-1030' <<<"$out" && ok "--config sends it to that config's log" || bad "--config: [$out]"
 out=$(FARAMIR_CONFIG=/tmp/alt.toml logs -n 1)
-grep -q 'record-1030' <<<"$out" && ok "and FARAMIR_CONFIG does the same" || bad "FARAMIR_CONFIG: [$out]"
+grep -q 'record-1030' <<<"$out" && ok "FARAMIR_CONFIG sends it to that config's log" \
+  || bad "FARAMIR_CONFIG: [$out]"
+out=$(logs --config /tmp/alt.toml -n 1); code=$?
+[ $code -eq 2 ] && grep -q 'unknown flag: --config' <<<"$out" \
+  && ok "and there is no --config to name one, exit 2" \
+  || bad "--config: exit $code [$(head -c 100 <<<"$out")]"
 out=$(logs --path "$BIG" -n 1); code=$?
 [ $code -eq 2 ] && grep -q 'unknown flag: --path' <<<"$out" \
   && ok "and there is no --path to override either, exit 2" \
   || bad "--path: exit $code [$(head -c 100 <<<"$out")]"
 
-out=$(logs --config /tmp/nosuch.toml); code=$?
+out=$(FARAMIR_CONFIG=/tmp/nosuch.toml logs); code=$?
 [ $code -eq 1 ] && grep -q 'config' <<<"$out" && ok "a config that is not there is named as such" \
   || bad "missing config: exit $code [$out]"
 
@@ -619,7 +622,7 @@ synth() { printf '{"log_id":"w5vqeeee%06d","at":%d,"op":"run","cmd":["/bin/echo"
 # by writing the first record, so a watcher started before that waits for it
 # rather than exiting on a file that is about to exist.
 rm -f "$WATCH"
-/usr/local/bin/faramir logs --color never --config "$WATCHCFG" --watch -n 1 >"$OUT" 2>&1 &
+FARAMIR_CONFIG="$WATCHCFG" /usr/local/bin/faramir logs --color never --watch -n 1 >"$OUT" 2>&1 &
 watcher=$!
 sleep 2
 kill -0 "$watcher" 2>/dev/null && ok "a watcher on a host with no log yet keeps waiting" \
@@ -634,7 +637,7 @@ kill "$watcher" 2>/dev/null
 wait "$watcher" 2>/dev/null
 
 synth backlog 1 > "$WATCH"
-/usr/local/bin/faramir logs --color never --config "$WATCHCFG" --watch -n 1 >"$OUT" 2>&1 &
+FARAMIR_CONFIG="$WATCHCFG" /usr/local/bin/faramir logs --color never --watch -n 1 >"$OUT" 2>&1 &
 watcher=$!
 sleep 2
 
@@ -686,7 +689,7 @@ out=$(logsAt "$WATCHCFG" --watch w5vqeeee000004); code=$?
 
 # --json cannot close an array it has no last record for, so it streams values.
 synth streamed 5 >> "$WATCH"
-/usr/local/bin/faramir logs --config "$WATCHCFG" --watch --json -n 1 >"$OUT" 2>/dev/null &
+FARAMIR_CONFIG="$WATCHCFG" /usr/local/bin/faramir logs --watch --json -n 1 >"$OUT" 2>/dev/null &
 watcher=$!
 sleep 2
 synth also-streamed 6 >> "$WATCH"

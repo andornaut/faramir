@@ -19,9 +19,9 @@ CONFIG_DIR=/etc/faramir
 
 # check is the broker's own verdict on what is installed, as the broker's uid.
 # JSON on stdout; the reasons go to stderr and are read separately by why().
-check() { runuser -u faramir-broker -- /usr/local/bin/faramir broker -c $CFG --check 2>/dev/null; }
+check() { runuser -u faramir-broker -- env FARAMIR_CONFIG=$CFG /usr/local/bin/faramir broker --check 2>/dev/null; }
 # shellcheck disable=SC2069  # stderr to the capture, stdout to null: reading the reasons, not the report
-why()   { runuser -u faramir-broker -- /usr/local/bin/faramir broker -c $CFG --check 2>&1 >/dev/null; }
+why()   { runuser -u faramir-broker -- env FARAMIR_CONFIG=$CFG /usr/local/bin/faramir broker --check 2>&1 >/dev/null; }
 # reinit re-runs the installer with whatever flags it is given, and nothing else.
 # --agent-user because this runs as root with no SUDO_USER to carry it, and
 # --allow-sudo where the host already has a grant: that flag is a switch, so a

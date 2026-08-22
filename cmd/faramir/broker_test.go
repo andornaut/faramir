@@ -36,7 +36,8 @@ func TestCheckFailsWhenTheStoreWillNotLoad(t *testing.T) {
 	// No keeper is listening on that socket, which is the cold-start case: no
 	// previous value set to fall back on, so there is nothing to serve.
 	config := brokerConfig(t, `"`+filepath.Join(t.TempDir(), "*.sops.yml")+`"`)
-	if code := run([]string{"broker", "-c", config, "--check"}); code == 0 {
+	t.Setenv("FARAMIR_CONFIG", config)
+	if code := run([]string{"broker", "--check"}); code == 0 {
 		t.Error("--check passed with a secrets directory it could not load")
 	}
 }
@@ -46,7 +47,8 @@ func TestCheckFailsWhenTheStoreWillNotLoad(t *testing.T) {
 // must not start answering "no keeper" to a question about syntax.
 func TestParseOnlyDoesNotNeedAStoreThatLoads(t *testing.T) {
 	config := brokerConfig(t, `"`+filepath.Join(t.TempDir(), "*.sops.yml")+`"`)
-	if code := run([]string{"broker", "-c", config, "--parse-only"}); code != 0 {
+	t.Setenv("FARAMIR_CONFIG", config)
+	if code := run([]string{"broker", "--parse-only"}); code != 0 {
 		t.Errorf("--parse-only returned %d on a config that parses", code)
 	}
 }

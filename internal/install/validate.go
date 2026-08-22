@@ -96,7 +96,7 @@ func (r *runner) stepValidate() error {
 	}
 	broker := filepath.Join(r.layout.BinDir, "faramir")
 	out, checkErr := r.command("runuser", "-u", r.layout.BrokerUser, "--",
-		broker, "broker", "-c", r.layout.ConfigFile, "--check")
+		"env", "FARAMIR_CONFIG="+r.layout.ConfigFile, broker, "broker", "--check")
 	// Read before the exit code is judged: what the broker could not load decides
 	// whether this is a failure or a host without its secrets yet.
 	var report checkReport

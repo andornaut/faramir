@@ -32,19 +32,14 @@ func newLinkCmd() *cobra.Command {
 }
 
 type linkFlags struct {
-	configPath string
-	agentUser  string
-	kind       string
-	key        string
-	json       bool
+	agentUser string
+	kind      string
+	key       string
+	json      bool
 }
 
 func (f *linkFlags) register(c *cobra.Command) {
 	fl := c.Flags()
-	// A directory, not a file: everything below joins config.toml onto it, and
-	// the other provisioning commands that take one spell it this way.
-	fl.StringVar(&f.configPath, "config-dir", "",
-		"the install to act on (default: where the running broker says it is)")
 	fl.StringVar(&f.agentUser, "agent-user", "",
 		"account the coding agent runs as (default $SUDO_USER, then you)")
 }
@@ -83,8 +78,13 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 	if !requireRoot("link add", "it writes the config and regroups a file") {
 		return 1
 	}
+	dir, err := resolveConfigDir(socketDefault())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
+		return 1
+	}
 	link := config.Link{Ref: ref, Path: path, Type: f.kind, Key: f.key}
-	report, added, err := install.AddLink(installOptions(f), link)
+	report, added, err := install.AddLink(installOptions(f, dir), link)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
 	}
@@ -150,7 +150,12 @@ func runLinkRemove(f linkFlags, ref string) int {
 	if !requireRoot("link rm", "it writes the config") {
 		return 1
 	}
-	report, removed, err := install.RemoveLink(installOptions(f), ref)
+	dir, err := resolveConfigDir(socketDefault())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
+		return 1
+	}
+	report, removed, err := install.RemoveLink(installOptions(f, dir), ref)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 	}
@@ -201,7 +206,11 @@ func newLinkListCmd() *cobra.Command {
 }
 
 func runLinkList(f linkFlags) int {
-	dir := installConfigDir(f)
+	dir, err := resolveConfigDir(socketDefault())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)
+		return 1
+	}
 	links, err := install.Links(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)
@@ -247,12 +256,11 @@ func runLinkList(f linkFlags) int {
 	return 0
 }
 
-// installOptions is the install this command acts on. The config path resolves
-// the way every provisioning command's does, by asking a running broker where
-// the install is when no flag names it.
-func installOptions(f linkFlags) install.Options {
+// installOptions is the install this command acts on, at the directory the
+// caller has already resolved.
+func installOptions(f linkFlags, dir string) install.Options {
 	return install.Options{
-		ConfigDir: installConfigDir(f),
+		ConfigDir: dir,
 		AgentUser: operatorName(f.agentUser),
 		// Progress goes to stderr so --json owns stdout, and is suppressed under
 		// --json entirely, as `init` suppresses it: the steps are in the document.
@@ -266,10 +274,6 @@ func stepLog(asJSON bool) func(string) {
 		return nil
 	}
 	return func(line string) { fmt.Fprintln(os.Stderr, line) }
-}
-
-func installConfigDir(f linkFlags) string {
-	return resolveConfigDir(f.configPath, socketDefault())
 }
 
 // reportEntry is how `link` and `refuse` report an add or a remove: the whole

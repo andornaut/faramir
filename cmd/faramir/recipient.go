@@ -48,15 +48,12 @@ func newRecipientCmd() *cobra.Command {
 }
 
 type recipientFlags struct {
-	configPath string
-	dryRun     bool
-	json       bool
+	dryRun bool
+	json   bool
 }
 
 func (f *recipientFlags) register(c *cobra.Command, writes bool) {
 	fl := c.Flags()
-	fl.StringVarP(&f.configPath, "config", "c", "",
-		"config file (default $FARAMIR_CONFIG, then the installed one)")
 	if !writes {
 		fl.BoolVar(&f.json, "json", false, "print the recipients as JSON")
 		return
@@ -137,7 +134,7 @@ func newRecipientResealCmd() *cobra.Command {
 // stands and the store is brought to it.
 func runReseal(f recipientFlags, args []string) int {
 	const label = "recipient reseal"
-	store, code := loadStore(label, f.configPath, socketDefault(), args, false)
+	store, code := loadStore(label, socketDefault(), args, false)
 	if store == nil {
 		return code
 	}
@@ -172,7 +169,7 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		}
 	}
 
-	store, code := loadStore(label, f.configPath, socketDefault(), nil, true)
+	store, code := loadStore(label, socketDefault(), nil, true)
 	if store == nil {
 		return code
 	}
@@ -292,7 +289,7 @@ func listedOrNot(adding bool) string {
 // keys and a rule and no value. It reads that file rather than asking the
 // broker.
 func runRecipientList(f recipientFlags) int {
-	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
+	cfg, err := config.Load(resolveConfig(socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
 		return 1

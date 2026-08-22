@@ -114,33 +114,58 @@ func discoverConfigFile(st status) string {
 }
 
 // configDirFrom picks the install to act on, given an answer already asked for:
-// a flag first, so a host whose install is not the one on this machine can
-// still be named, and the compiled-in default last.
+// $FARAMIR_CONFIG, then the running broker, then the path its unit names. No
+// flag and no compiled-in default. A caller cannot be expected to know where
+// the config lives, and the default is a guess: acting on the wrong install is
+// worse than saying which install could not be found.
 //
 // The broker's answer is taken as it stands rather than required to hold a
 // file, unlike discoverConfigFile: the caller is about to report on the
 // directory or remove it, and one that is not there is the finding.
-func configDirFrom(explicit string, st status) string {
-	if explicit != "" {
-		return explicit
+func configDirFrom(st status) (string, error) {
+	// $FARAMIR_CONFIG first, the same variable the daemons are given by their
+	// units and the one config.Load reads. Not a way for a caller to name an
+	// install it happens to know about, but the way out of the case below: a
+	// host whose broker is down and whose unit is gone still has an operator who
+	// can say where the config is, without every command carrying a flag for it.
+	if path := os.Getenv("FARAMIR_CONFIG"); path != "" {
+		return filepath.Dir(path), nil
 	}
 	if st.configDir != "" {
-		return st.configDir
+		return st.configDir, nil
 	}
 	if path := unitConfigFile(); path != "" {
-		return filepath.Dir(path)
+		return filepath.Dir(path), nil
 	}
-	return install.DefaultConfigDir
+	return "", errNoInstall
 }
 
+// errNoInstall names both places that were asked, so the operator knows which
+// one to repair rather than which directory to pass.
+var errNoInstall = fmt.Errorf("no install found: the broker did not answer on "+
+	"its socket, and %s names no config file. Start the broker, set "+
+	"FARAMIR_CONFIG to the config file, or run `faramir init` if this host has "+
+	"no install", brokerUnit)
+
 // resolveConfigDir is configDirFrom for a caller with no other use for the
-// broker's answer. The flag is tested here too, so naming one costs no round
-// trip.
-func resolveConfigDir(explicit, socketPath string) string {
+// broker's answer.
+func resolveConfigDir(socketPath string) (string, error) {
+	return configDirFrom(askBroker(socketPath))
+}
+
+// initConfigDir is where init provisions to. Unlike every other command this
+// one takes a flag and falls back to the compiled-in default: a host with no
+// install has no broker to ask and no unit to read, which is the case init is
+// for, and it is the one command whose caller does decide where the config
+// goes.
+func initConfigDir(explicit, socketPath string) string {
 	if explicit != "" {
 		return explicit
 	}
-	return configDirFrom(explicit, askBroker(socketPath))
+	if dir, err := configDirFrom(askBroker(socketPath)); err == nil {
+		return dir
+	}
+	return install.DefaultConfigDir
 }
 
 type initFlags struct {
@@ -324,7 +349,7 @@ func runInit(f initFlags) int {
 		BrokerUser:    f.brokerUser,
 		KeeperUser:    f.keeperUser,
 		ExecUser:      f.execUser,
-		ConfigDir:     resolveConfigDir(f.configDir, socketDefault()),
+		ConfigDir:     initConfigDir(f.configDir, socketDefault()),
 		SSHKey:        f.sshKey,
 		KnownHosts:    f.knownHosts,
 		Agents:        f.initAgents,
@@ -395,7 +420,6 @@ func reportToOperator(report install.Report) {
 // host" and would otherwise enrol wherever it was run from.
 type initProjectFlags struct {
 	agentUser   string
-	configDir   string
 	clientGroup string
 	agents      []string
 	dryRun      bool
@@ -414,9 +438,6 @@ func newInitProjectCmd() *cobra.Command {
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
 		"account that works in the tree (default $SUDO_USER, then you)")
-	fl.StringVar(&f.configDir, "config-dir", "",
-		"where the installed config is, which is where the client group is read from "+
-			"(default: ask the broker, then read its unit)")
 	fl.StringVar(&f.clientGroup, "client-group", "",
 		"share the tree with this group instead of the one the installed config "+
 			"admits. It overrides that one value: the config still has to load, the "+
@@ -433,11 +454,16 @@ func newInitProjectCmd() *cobra.Command {
 }
 
 func runInitProject(f initProjectFlags, args []string) int {
+	dir, err := resolveConfigDir(socketDefault())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
+		return 1
+	}
 
 	opts := install.ProjectOptions{
 		Dir:         firstArg(args),
 		AgentUser:   operatorName(f.agentUser),
-		ConfigDir:   resolveConfigDir(f.configDir, socketDefault()),
+		ConfigDir:   dir,
 		ClientGroup: f.clientGroup,
 		Agents:      f.agents,
 		DryRun:      f.dryRun,
@@ -446,17 +472,17 @@ func runInitProject(f initProjectFlags, args []string) int {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
 	}
 
-	report, err := install.Project(opts)
+	report, projectErr := install.Project(opts)
 	// The failure before the document; see runInit.
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
+	if projectErr != nil {
+		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", projectErr)
 	}
 	if f.asJSON {
 		if code := printJSON("init-project", report); code != 0 {
 			return code
 		}
 	}
-	if err != nil {
+	if projectErr != nil {
 		return 1
 	}
 	if !f.asJSON {
@@ -475,7 +501,6 @@ func runInitProject(f initProjectFlags, args []string) int {
 }
 
 type doctorFlags struct {
-	configDir    string
 	agentUser    string
 	clientGroup  string
 	secretsGroup string
@@ -496,7 +521,6 @@ func newDoctorCmd() *cobra.Command {
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runDoctor(f)) },
 	}
 	fl := c.Flags()
-	fl.StringVar(&f.configDir, "config-dir", "", "where config.toml was installed (default: ask the broker)")
 	fl.StringVar(&f.agentUser, "agent-user", "", "account the coding agent runs as")
 	// Empty rather than the install defaults: doctor reads what this host runs
 	// out of the units, the config and the secrets directory, and a default here
@@ -530,9 +554,23 @@ func runDoctor(f doctorFlags) int {
 	sockets := install.SampleSockets()
 	// One round trip: the same answer decides which install this is and whether
 	// the daemons are running the code that was installed.
-	broker := askBroker(socketDefault())
+	//
+	// Skipped when $FARAMIR_CONFIG already says which install, because the round
+	// trip is not free: opening the socket activates the service, and a report on
+	// a stopped daemon would then describe the host doctor made rather than the
+	// one it met. The version goes unknown, which is what a host with no answer
+	// from its broker has anyway.
+	var broker status
+	if os.Getenv("FARAMIR_CONFIG") == "" {
+		broker = askBroker(socketDefault())
+	}
+	dir, err := configDirFrom(broker)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir doctor: %v\n", err)
+		return 1
+	}
 	report := install.Diagnose(install.DoctorOptions{
-		ConfigDir:     configDirFrom(f.configDir, broker),
+		ConfigDir:     dir,
 		BrokerVersion: broker.version,
 		SocketStates:  sockets,
 		AgentUser:     operatorName(f.agentUser),
@@ -703,7 +741,6 @@ func terminalWidth() int {
 }
 
 type uninstallFlags struct {
-	configDir string
 }
 
 func newUninstallCmd() *cobra.Command {
@@ -715,8 +752,6 @@ func newUninstallCmd() *cobra.Command {
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runUninstall(f)) },
 	}
-	c.Flags().StringVar(&f.configDir, "config-dir", "",
-		"where config.toml was installed (default: ask the broker, then read its unit)")
 	return c
 }
 
@@ -725,7 +760,18 @@ func runUninstall(f uninstallFlags) int {
 	if !requireRoot("uninstall", "it removes the units and the installed files") {
 		return 1
 	}
-	left, err := install.Uninstall(resolveConfigDir(f.configDir, socketDefault()))
+	// Nothing to find is nothing to remove, which is what this command is for:
+	// the postcondition already holds. Every other command errors here, because
+	// acting on the wrong install is the danger; removing nothing carries none of
+	// it, and an uninstall that failed the second time would break the converge
+	// loop that runs it after an interrupted first.
+	dir, err := resolveConfigDir(socketDefault())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "faramir uninstall: nothing installed: the broker "+
+			"did not answer on its socket and "+brokerUnit+" names no config file")
+		return 0
+	}
+	left, err := install.Uninstall(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir uninstall: %v\n", err)
 		return 1

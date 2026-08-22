@@ -46,8 +46,7 @@ var editors = []string{
 }
 
 type editFlags struct {
-	configPath string
-	editor     string
+	editor string
 }
 
 func newEditCmd() *cobra.Command {
@@ -58,7 +57,6 @@ func newEditCmd() *cobra.Command {
 		Args:  exactlyOneArg("file"),
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runEdit(f, args)) },
 	}
-	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().StringVar(&f.editor, "editor", "", "absolute path to the editor to run (default: the first of "+
 		strings.Join(editors, ", ")+" that exists)")
 	return c
@@ -72,7 +70,7 @@ func runEdit(f editFlags, args []string) int {
 		return 1
 	}
 
-	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
+	cfg, err := config.Load(resolveConfig(socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir vault edit: %v\n", err)
 		return 1
@@ -141,27 +139,29 @@ func runEdit(f editFlags, args []string) int {
 	return 0
 }
 
-// resolveConfig finds the config a client command has to agree with: --config,
-// then $FARAMIR_CONFIG, then whatever discoverConfigFile finds, then the
-// compiled default if it is there. An explicit $FARAMIR_CONFIG returns empty
-// like the rest, the variable being config.Load's to read.
-func resolveConfig(requested, socketPath string) string {
-	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
-		return requested
+// resolveConfig finds the config a client command has to agree with:
+// $FARAMIR_CONFIG, then whatever discoverConfigFile finds, then the compiled
+// default if it is there. No command takes a path: a caller cannot be expected
+// to know where the config lives, and every one of them can ask the broker.
+// An explicit $FARAMIR_CONFIG returns empty, the variable being config.Load's
+// to read.
+func resolveConfig(socketPath string) string {
+	if os.Getenv("FARAMIR_CONFIG") != "" {
+		return ""
 	}
 	return installedConfig(discoverConfigFile(askBroker(socketPath)))
 }
 
 // resolveDaemonConfig is resolveConfig for the three daemon entry points, which
-// under systemd are given no -c at all, the unit setting FARAMIR_CONFIG.
+// under systemd are pointed at their config by FARAMIR_CONFIG in the unit.
 //
 // The running broker is not a step here, unlike resolveConfig: this process may
 // be about to bind the broker's own socket, and connecting to it would
 // socket-activate the installed daemon and leave the two contending for the
 // path. The unit answers the same question without the round trip.
-func resolveDaemonConfig(requested string) string {
-	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
-		return requested
+func resolveDaemonConfig() string {
+	if os.Getenv("FARAMIR_CONFIG") != "" {
+		return ""
 	}
 	return installedConfig(unitConfigFile())
 }

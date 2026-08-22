@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,19 +14,20 @@ import (
 // slice marshals to `null`, which is not a document anything can iterate: the
 // list has to come back as an empty array.
 func TestListingNothingIsAnEmptyArray(t *testing.T) {
-	for name, run := range map[string]func(string) int{
-		"link ls": func(dir string) int { return runLinkList(linkFlags{json: true, configPath: dir}) },
+	for name, run := range map[string]func() int{
+		"link ls": func() int { return runLinkList(linkFlags{json: true}) },
 		// --declared, which is the half a configuration manager converges. The
 		// bare form carries the built-in rules, which are compiled in and are
 		// never none: TestRefuseLsCarriesTheBuiltInRules.
-		"block ls --declared": func(dir string) int {
-			return runBlockList(blockFlags{json: true, declared: true, configPath: dir})
+		"block ls --declared": func() int {
+			return runBlockList(blockFlags{json: true, declared: true})
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// A directory with no config at all, which is a host not provisioned
 			// yet: Links and BlockedPaths both read that as declaring none.
-			out, code := captureStdout(t, func() int { return run(t.TempDir()) })
+			atConfigDir(t, t.TempDir())
+			out, code := captureStdout(t, run)
 			if code != 0 {
 				t.Fatalf("exit %d, want 0: %s", code, out)
 			}
@@ -49,8 +51,9 @@ func TestListingNothingIsAnEmptyArray(t *testing.T) {
 // directories are the part an operator cannot otherwise ask about, being
 // derived from the layout rather than written anywhere they would read.
 func TestBlockLsCarriesTheInstallsOwnDirectories(t *testing.T) {
+	atConfigDir(t, t.TempDir())
 	out, code := captureStdout(t, func() int {
-		return runBlockList(blockFlags{json: true, configPath: t.TempDir()})
+		return runBlockList(blockFlags{json: true})
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, want 0: %s", code, out)
@@ -87,8 +90,9 @@ func TestBlockLsCarriesTheInstallsOwnDirectories(t *testing.T) {
 // are: an agent meets one as a refusal naming the rule that matched, never the
 // set, which is how a rule that covers something comes to be reported as a gap.
 func TestRefuseLsCarriesTheCommandRules(t *testing.T) {
+	atConfigDir(t, t.TempDir())
 	out, code := captureStdout(t, func() int {
-		return runBlockList(blockFlags{json: true, configPath: t.TempDir()})
+		return runBlockList(blockFlags{json: true})
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, want 0: %s", code, out)
@@ -116,9 +120,17 @@ func TestRefuseLsCarriesTheCommandRules(t *testing.T) {
 	}
 	// --declared is the config's own half, which no command rule is part of.
 	out, _ = captureStdout(t, func() int {
-		return runBlockList(blockFlags{json: true, declared: true, configPath: t.TempDir()})
+		return runBlockList(blockFlags{json: true, declared: true})
 	})
 	if strings.Contains(out, `"command"`) {
 		t.Errorf("--declared listed a command rule: %s", out)
 	}
+}
+
+// atConfigDir points discovery at a directory for the length of one test. The
+// commands no longer take one: they ask the broker and read its unit, and a
+// test that did neither would report on whatever install this machine has.
+func atConfigDir(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("FARAMIR_CONFIG", filepath.Join(dir, "config.toml"))
 }

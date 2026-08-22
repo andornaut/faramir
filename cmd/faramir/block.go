@@ -34,12 +34,11 @@ func newBlockCmd() *cobra.Command {
 }
 
 type blockFlags struct {
-	configPath string
-	agentUser  string
-	names      []string
-	commands   []string
-	declared   bool
-	json       bool
+	agentUser string
+	names     []string
+	commands  []string
+	declared  bool
+	json      bool
 }
 
 // entries is the refusals a command was asked for: every path given as an
@@ -74,8 +73,6 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 
 func (f *blockFlags) register(c *cobra.Command) {
 	fl := c.Flags()
-	fl.StringVar(&f.configPath, "config-dir", "",
-		"the install to act on (default: where the running broker says it is)")
 	fl.StringVar(&f.agentUser, "agent-user", "",
 		"account the coding agent runs as (default $SUDO_USER, then you)")
 }
@@ -137,7 +134,12 @@ func runBlockAdd(f blockFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	report, added, err := install.AddBlockedPaths(blockOptions(f), blocked)
+	dir, err := resolveConfigDir(socketDefault())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
+		return 1
+	}
+	report, added, err := install.AddBlockedPaths(blockOptions(f, dir), blocked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 	}
@@ -205,8 +207,13 @@ func runBlockRemove(f blockFlags, args []string) int {
 	// which needs no root either, because an entry the install declares is
 	// removable whatever else refuses the same file. Every one of them, so a list
 	// carrying a built-in is refused whole rather than halfway through.
+	dir, err := resolveConfigDir(socketDefault())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
+		return 1
+	}
 	for _, entry := range asked {
-		if err := install.BuiltInRuleError(blockConfigDir(f), entry); err != nil {
+		if err := install.BuiltInRuleError(dir, entry); err != nil {
 			fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 			return 1
 		}
@@ -214,7 +221,7 @@ func runBlockRemove(f blockFlags, args []string) int {
 	if !requireRoot("block rm", "it writes the config") {
 		return 1
 	}
-	report, removed, err := install.RemoveBlockedPaths(blockOptions(f), asked)
+	report, removed, err := install.RemoveBlockedPaths(blockOptions(f, dir), asked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 	}
@@ -393,7 +400,11 @@ const (
 )
 
 func runBlockList(f blockFlags) int {
-	dir := blockConfigDir(f)
+	dir, err := resolveConfigDir(socketDefault())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", err)
+		return 1
+	}
 	declared, err := install.BlockedPaths(dir)
 	if err != nil {
 		// The built-in rules are compiled in and hold whatever the config says, so
@@ -460,14 +471,10 @@ func errReason(err error) string {
 	return "stat failed"
 }
 
-func blockOptions(f blockFlags) install.Options {
+func blockOptions(f blockFlags, dir string) install.Options {
 	return install.Options{
-		ConfigDir: blockConfigDir(f),
+		ConfigDir: dir,
 		AgentUser: operatorName(f.agentUser),
 		Log:       stepLog(f.json),
 	}
-}
-
-func blockConfigDir(f blockFlags) string {
-	return resolveConfigDir(f.configPath, socketDefault())
 }

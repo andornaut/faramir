@@ -48,8 +48,7 @@ type managedFile struct {
 }
 
 type vaultListFlags struct {
-	configPath string
-	json       bool
+	json bool
 }
 
 func newVaultListCmd() *cobra.Command {
@@ -65,8 +64,6 @@ func newVaultListCmd() *cobra.Command {
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runVaultList(f)) },
 	}
-	c.Flags().StringVarP(&f.configPath, "config", "c", "",
-		"config file (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().BoolVar(&f.json, "json", false, "print the listing as JSON")
 	return c
 }
@@ -79,7 +76,7 @@ func runVaultList(f vaultListFlags) int {
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
 	}
-	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
+	cfg, err := config.Load(resolveConfig(socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
@@ -184,8 +181,7 @@ func refsIn(path string) ([]string, error) {
 }
 
 type vaultRemoveFlags struct {
-	configPath string
-	force      bool
+	force bool
 }
 
 func newVaultRemoveCmd() *cobra.Command {
@@ -205,8 +201,6 @@ func newVaultRemoveCmd() *cobra.Command {
 			return codeErr(runVaultRemove(f, args[0]))
 		},
 	}
-	c.Flags().StringVarP(&f.configPath, "config", "c", "",
-		"config file (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().BoolVar(&f.force, "force", false,
 		"do not ask; the file and every value in it go without confirmation")
 	return c
@@ -217,7 +211,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
 	}
-	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
+	cfg, err := config.Load(resolveConfig(socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1

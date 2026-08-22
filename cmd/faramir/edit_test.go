@@ -124,18 +124,11 @@ func TestTheCandidateEditorsAreRealEditors(t *testing.T) {
 	}
 }
 
-// An explicit --config wins over everything, including the unit.
-func TestAnExplicitConfigIsUsedAsGiven(t *testing.T) {
-	if got := resolveConfig("/somewhere/config.toml", socketDefault()); got != "/somewhere/config.toml" {
-		t.Errorf("resolveConfig returned %q for an explicit path", got)
-	}
-}
-
 // Left to config.Load, so the fallback cannot override a variable the caller
 // set.
 func TestAnEnvironmentConfigDefersToLoad(t *testing.T) {
 	t.Setenv("FARAMIR_CONFIG", "/from/env/config.toml")
-	if got := resolveConfig("", socketDefault()); got != "" {
+	if got := resolveConfig(socketDefault()); got != "" {
 		t.Errorf("resolveConfig returned %q instead of deferring to config.Load", got)
 	}
 }
@@ -164,15 +157,15 @@ func withUnit(t *testing.T, body string) {
 func TestTheBrokerUnitNamesTheLiveConfig(t *testing.T) {
 	want := "/home/op/" + ".config/faramir/config.toml"
 	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+want+"\n")
-	if got := resolveConfig("", socketDefault()); got != want {
-		t.Errorf("resolveConfig(\"\") = %q, want the path the unit names", got)
+	if got := resolveConfig(socketDefault()); got != want {
+		t.Errorf("resolveConfig() = %q, want the path the unit names", got)
 	}
 }
 
 // A unit naming no config leaves the decision to config.Load.
 func TestAUnitWithoutTheVariableFallsThrough(t *testing.T) {
 	withUnit(t, "[Service]\nUser=faramir-broker\n")
-	if got := resolveConfig("", socketDefault()); got != "" {
+	if got := resolveConfig(socketDefault()); got != "" {
 		t.Errorf("resolveConfig invented %q from a unit that names no config", got)
 	}
 }
@@ -184,14 +177,11 @@ func TestAUnitWithoutTheVariableFallsThrough(t *testing.T) {
 func TestADaemonTakesTheConfigTheUnitNames(t *testing.T) {
 	want := "/home/op/.config/faramir/config.toml"
 	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+want+"\n")
-	if got := resolveDaemonConfig(""); got != want {
-		t.Errorf("resolveDaemonConfig(\"\") = %q, want the path the unit names", got)
-	}
-	if got := resolveDaemonConfig("/somewhere/config.toml"); got != "/somewhere/config.toml" {
-		t.Errorf("resolveDaemonConfig returned %q for an explicit path", got)
+	if got := resolveDaemonConfig(); got != want {
+		t.Errorf("resolveDaemonConfig() = %q, want the path the unit names", got)
 	}
 	t.Setenv("FARAMIR_CONFIG", "/from/env/config.toml")
-	if got := resolveDaemonConfig(""); got != "" {
+	if got := resolveDaemonConfig(); got != "" {
 		t.Errorf("resolveDaemonConfig returned %q instead of deferring to config.Load", got)
 	}
 }
@@ -209,11 +199,11 @@ func TestADaemonDoesNotAskTheBroker(t *testing.T) {
 	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+unit+"\n")
 	t.Setenv("FARAMIR_SOCKET", statusBroker(t, []string{live}))
 
-	if got := resolveConfig("", socketDefault()); got != live {
-		t.Errorf("resolveConfig(\"\") = %q, want the running broker's own answer %q", got, live)
+	if got := resolveConfig(socketDefault()); got != live {
+		t.Errorf("resolveConfig() = %q, want the running broker's own answer %q", got, live)
 	}
-	if got := resolveDaemonConfig(""); got != unit {
-		t.Errorf("resolveDaemonConfig(\"\") = %q, want the unit's %q: a daemon asked the "+
+	if got := resolveDaemonConfig(); got != unit {
+		t.Errorf("resolveDaemonConfig() = %q, want the unit's %q: a daemon asked the "+
 			"socket it may be about to bind", got, unit)
 	}
 }

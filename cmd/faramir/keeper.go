@@ -19,7 +19,6 @@ import (
 // cmdKeeper holds the age key and serves decrypted values, as a uid of its own
 // that executes nothing but sops.
 type keeperFlags struct {
-	configPath  string
 	check       bool
 	showVersion bool
 }
@@ -33,7 +32,6 @@ func newKeeperCmd() *cobra.Command {
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runKeeper(f)) },
 	}
-	c.Flags().StringVarP(&f.configPath, "config", "c", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().BoolVar(&f.check, "check", false, "decrypt once and exit")
 	c.Flags().BoolVar(&f.showVersion, "version", false, "print the version and exit")
 	return c
@@ -50,7 +48,7 @@ func runKeeper(f keeperFlags) int {
 		return 0
 	}
 
-	cfg, err := config.Load(resolveDaemonConfig(f.configPath))
+	cfg, err := config.Load(resolveDaemonConfig())
 	if err != nil {
 		log.Printf("%v", err)
 		return 2

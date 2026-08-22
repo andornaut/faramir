@@ -164,10 +164,11 @@ probe "an outsider in the client group" "client group" warn \
 # The socket check, put to doctor two ways. Bare, doctor asks the broker where
 # the install is, and that connection socket-activates the units it is about to
 # examine: the fault is repaired by the examination and the finding describes
-# the host doctor made rather than the one it met. --config-dir is what stops
-# it asking.
+# the host doctor made rather than the one it met. FARAMIR_CONFIG is what stops
+# it asking; no command takes the directory as a flag.
 systemctl stop faramir-broker.service faramir-broker.socket faramir-keeper.socket >/dev/null 2>&1
-/usr/local/bin/faramir doctor --agent-user "$OP" --config-dir /etc/faramir --json >$JSON 2>/dev/null
+FARAMIR_CONFIG=/etc/faramir/config.toml \
+  /usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null
 if [[ "$(st sockets)" == *failed* ]]; then
   ok "a stopped socket is reported failed when doctor need not ask the broker"
 else
