@@ -261,3 +261,36 @@ func TestTheSudoGrantCheckReadsTheHelper(t *testing.T) {
 		t.Errorf("the failure does not name the helper it is about: %s", finding.Detail)
 	}
 }
+
+// Whether this setting decides anything on this host. Without an escalation
+// grant the executor unit carries SystemCallFilter=@system-service, which
+// excludes @mount, so a brokered command that unshares a namespace holds
+// capabilities with nothing to act on. A host that grants an escalation cannot
+// carry that filter, which is what makes the sysctls matter there.
+//
+// Reported as not applicable rather than as a pass: a pass would say the host
+// was checked and found closed, and nothing was read.
+func TestUserNamespacesDecideNothingWithoutAnEscalationGrant(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  *config.Config
+	}{
+		{"the config did not load", nil},
+		{"no [escalation] section", &config.Config{}},
+		{"an escalation section naming no account", &config.Config{
+			Escalation: config.EscalationConfig{},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var report DoctorReport
+			diagnoseUserns(&report, DoctorOptions{AgentUser: "op"}, tc.cfg)
+			got := only(t, report)
+			if got.Status != StatusNA {
+				t.Errorf("status is %q, want %q: %s", got.Status, StatusNA, got.Detail)
+			}
+			if !strings.Contains(got.Detail, "@mount") {
+				t.Errorf("the detail does not say what the filter excludes: %s", got.Detail)
+			}
+		})
+	}
+}
