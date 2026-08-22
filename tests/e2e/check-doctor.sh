@@ -159,11 +159,34 @@ probe "the config writable by the agent" "config ownership" failed \
   "chmod 0666 /etc/faramir/config.toml" "chmod $cfg_mode /etc/faramir/config.toml" \
   "executor runs"
 # The creation rule names the age recipients, so whoever writes it chooses who
-# can decrypt every value written after it.
-sops_mode=$(stat -c %a /etc/faramir/.sops.yaml 2>/dev/null || echo 0644)
-probe "the creation rule writable by the agent" "config ownership" failed \
-  "chmod 0666 /etc/faramir/.sops.yaml" "chmod $sops_mode /etc/faramir/.sops.yaml" \
-  "age recipients"
+# can decrypt every value written after it. Only checked where one exists: the
+# rule is kept if it is already there, so an install may carry none.
+if [ -f /etc/faramir/.sops.yaml ]; then
+  sops_mode=$(stat -c %a /etc/faramir/.sops.yaml)
+  probe "the creation rule writable by the agent" "config ownership" failed \
+    "chmod 0666 /etc/faramir/.sops.yaml" "chmod $sops_mode /etc/faramir/.sops.yaml" \
+    "age recipients"
+else
+  ok "no creation rule on this install, so there is none to be writable"
+fi
+# ProtectProc=invisible is set on all three units, and what it buys is that the
+# agent's account cannot read a daemon's environ: that is where a running
+# command's injected values are, so it is a disclosure boundary rather than a
+# hardening preference. Asserted directly as well as through the check, a
+# doctor that reports on itself proving only that it is consistent.
+BROKERPID=$(systemctl show faramir-broker.service -p MainPID --value)
+if [ -n "$BROKERPID" ] && [ "$BROKERPID" != 0 ]; then
+  runuser -u "$OP" -- cat "/proc/$BROKERPID/environ" >/dev/null 2>&1 \
+    && bad "*** $OP can read the broker's environ, where a run's values are ***" \
+    || ok "the agent's account cannot read the broker's environ"
+  snap
+  [ "$(st protectproc)" = ok ] \
+    && ok "and doctor reads the same boundary" \
+    || bad "protectproc is [$(st protectproc)]: $(dt protectproc)"
+else
+  ok "the broker is idle, which is its resting state, so protectproc goes unasked"
+fi
+
 # A config.d is not read, so the pass names the config and the creation rule and
 # not a drop-in nothing looked at.
 snap
