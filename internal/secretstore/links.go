@@ -12,31 +12,30 @@ import (
 )
 
 // loadLinks reads every [[secret.link]] file. Per-link failures are collected
-// rather than aborting, so one broken link does not blank the value set. The
-// two ways a link can fail mean opposite things, as they do for a managed sops
-// file:
+// rather than aborting, so one broken link does not blank the value set.
 //
-//   - A path that is not there is an entry naming nothing: the credential has
-//     left the machine, so there is nothing to leak and nothing to redact.
-//     Reported, not fatal.
-//   - A file that is there and will not read or parse is an error: the value is
-//     still on disk and the redactor does not have it, so the broker refuses to
-//     serve while it is set. The permission case is this kind.
+// A link that fails degrades one ref and no others. That is the whole of what
+// separates it from a managed sops file, which holds any number of refs and
+// names none of them until it decrypts: a file that did not load leaves the
+// broker knowing values are missing and not which, so it stops serving, while a
+// link that did not load is a ref it can name and refuse on its own.
+//
+// Two reasons come back for each failure. The short one is handed to whoever
+// asked for the ref, so it carries no path: a linked file is one of the
+// operator's own, refused to the agent's file tools, and naming it would give
+// away the location of a credential. The long one carries the path and goes to
+// the daemon log and the operator's report.
 func loadLinks(links []config.Link) (values map[string]string,
-	state []keeperclient.FileState, loadErrors, unresolved []string) {
+	state []keeperclient.FileState, degraded map[string]string, detail []string) {
 	values = map[string]string{}
 	state = []keeperclient.FileState{}
-	loadErrors = []string{}
-	unresolved = []string{}
+	degraded = map[string]string{}
+	detail = []string{}
 	for _, link := range links {
 		info, err := os.Stat(link.Path)
 		if err != nil {
-			if os.IsNotExist(err) {
-				unresolved = append(unresolved,
-					fmt.Sprintf("%s: %s: no such file", link.Ref, link.Path))
-				continue
-			}
-			loadErrors = append(loadErrors, linkError(link, err))
+			degraded[link.Ref] = reason(err)
+			detail = append(detail, linkError(link, err))
 			continue
 		}
 		// Fingerprinted whether or not it reads: statLinks records every file that
@@ -47,12 +46,32 @@ func loadLinks(links []config.Link) (values map[string]string,
 
 		value, err := secretlink.Read(link.Path, link.Type, link.Key)
 		if err != nil {
-			loadErrors = append(loadErrors, linkError(link, err))
+			degraded[link.Ref] = reason(err)
+			detail = append(detail, linkError(link, err))
 			continue
 		}
 		values[link.Ref] = value
 	}
-	return values, state, loadErrors, unresolved
+	return values, state, degraded, detail
+}
+
+// reason is what a caller asking for the ref is told: the kind of failure, in
+// terms of the entry rather than of the file, and never the path.
+//
+// The three are not the same fault. A file that is not there is a credential
+// that has left the machine or a home not yet mounted, and there is no
+// plaintext left to cover. A file that will not open is one whose plaintext is
+// still on disk, so the value it holds can still reach output with nothing
+// holding it. One that opens and yields nothing is a selector that no longer
+// matches what the owning tool writes.
+func reason(err error) string {
+	switch {
+	case os.IsNotExist(err):
+		return "the file it names is not there"
+	case os.IsPermission(err):
+		return "the broker cannot read the file it names"
+	}
+	return "the file it names yielded no value"
 }
 
 // statLinks fingerprints the linked files without reading them, which is what

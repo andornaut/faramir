@@ -712,6 +712,12 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		if response.Error != nil {
 			return 1
 		}
+		// The same status the plain form exits with. Without this a converge run
+		// reading --json cannot tell a broker with a degraded ref from a healthy
+		// one, and a brokered command's own exit status is lost the same way.
+		if response.ExitCode != nil {
+			return *response.ExitCode
+		}
 		return 0
 	}
 

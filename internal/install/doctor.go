@@ -923,6 +923,19 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			explained = true
 		}
 	}
+	// Links the broker could not load. Its own view rather than the mode check
+	// diagnoseLinkedAccess makes: this is what the running daemon holds, so it
+	// also catches a selector the owning tool stopped writing, which no mode says
+	// anything about. A failure: the ref answers nothing, and nothing else
+	// surfaces that until a command asks for it.
+	if len(check.Secrets.DegradedLinks) > 0 {
+		report.addf("linked refs", StatusFailed, "%d [[secret.link]] entry/entries "+
+			"did not load, so those refs answer nothing while every other ref is "+
+			"served: %s", len(check.Secrets.DegradedLinks), check.degradedRefs())
+		if check.onlyDegradedLinks() {
+			explained = true
+		}
+	}
 	// --check fails for reasons the switch does not cover: an unusable [ssh] key,
 	// a bound socket with world bits. Judged on whether this function accounted
 	// for the exit code rather than on whether anything else in the report

@@ -353,6 +353,58 @@ func TestOnlyNotRedactableSeparatesAValueFromAFault(t *testing.T) {
 	}
 }
 
+// The same distinction for a link that did not load. It is not about the
+// install either: the broker serves every other ref, and the file a link names
+// belongs to another tool, so an install cannot produce it.
+func TestOnlyDegradedLinksSeparatesALinkFromAFault(t *testing.T) {
+	loaded := func() checkReport {
+		var r checkReport
+		r.Secrets.Count = 3
+		r.Secrets.Files = []string{"app.sops.yml"}
+		r.Secrets.DegradedLinks = map[string]string{
+			"npm/token": "the file it names is not there"}
+		return r
+	}
+	for _, tc := range []struct {
+		name   string
+		report func() checkReport
+		want   bool
+	}{
+		{"a link that did not load and nothing else", loaded, true},
+		{"no degraded links at all", func() checkReport {
+			r := loaded()
+			r.Secrets.DegradedLinks = nil
+			return r
+		}, false},
+		{"a socket policy problem beside it", func() checkReport {
+			r := loaded()
+			r.Policy = []string{"[keeper] allowed_user names the wrong account"}
+			return r
+		}, false},
+		{"a managed file that did not load beside it", func() checkReport {
+			r := loaded()
+			r.Secrets.Errors = []string{"app.sops.yml: bad mac"}
+			return r
+		}, false},
+		{"a ref too short to cover beside it", func() checkReport {
+			r := loaded()
+			r.Secrets.NotRedactable = map[string]string{"short/pin": "shorter than 8 characters"}
+			return r
+		}, false},
+		{"an entry that named no file beside it", func() checkReport {
+			r := loaded()
+			r.Secrets.UnresolvedPatterns = []string{"/etc/faramir/secrets/*.sops.yml"}
+			return r
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.report().onlyDegradedLinks(); got != tc.want {
+				t.Errorf("onlyDegradedLinks() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // The refs are named in both messages, so the operator is told which value to
 // lengthen rather than that something is wrong.
 func TestRefusedRefsNamesEveryRefAndItsReason(t *testing.T) {

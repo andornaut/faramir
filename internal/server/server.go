@@ -356,6 +356,10 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 	}
 }
 
+// opStatus answers what the broker loaded and what it can reach. Non-zero when
+// a [[secret.link]] entry did not load, the body still printed: that ref answers
+// nothing while every other one is served, and without an exit code to read, the
+// first sign of it is a command failing later.
 func (s *Server) opStatus() protocol.Response {
 	// Whether, not where: any member of the client group can ask, including the
 	// coding agent, so what goes here lands in a model's context. It is also the
@@ -384,8 +388,12 @@ func (s *Server) opStatus() protocol.Response {
 		return protocol.ErrorResponse("internal", "the status could not be "+
 			"rendered: "+err.Error(), "")
 	}
+	code := 0
+	if len(s.Store.DegradedLinks()) > 0 {
+		code = 1
+	}
 	return protocol.Response{
-		"exit_code": 0, "output": string(body) + "\n",
+		"exit_code": code, "output": string(body) + "\n",
 		"truncated": false, "redactions": []any{}, "log_id": nil,
 	}
 }
@@ -991,6 +999,12 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		for _, problem := range policy {
 			log.Printf("socket policy: %s", problem)
 		}
+		code = 1
+	}
+	// A link that did not load: one ref refused, the broker still serving. Not
+	// logged for the reason below, and non-zero so `doctor` and a converge run
+	// see it rather than waiting for a command to ask for the ref.
+	if degraded, _ := secrets["degraded_links"].(map[string]string); len(degraded) > 0 {
 		code = 1
 	}
 	refused, _ := secrets["not_redactable"].(map[string]string)

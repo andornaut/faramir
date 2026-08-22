@@ -47,14 +47,23 @@ type Store struct {
 	retry     bool
 	checkedAt time.Time
 
-	// A configured file that is there and did not load. The redactor is missing
-	// a value it should have, so exec and redact refuse while this is set.
+	// A managed file that is there and did not load. The redactor is missing
+	// values it should have and cannot name which, one file holding any number of
+	// refs, so exec and redact refuse while this is set.
 	loadErrors []string
 
-	// A configured entry that named no file. Kept apart from loadErrors because
+	// A configured pattern that named no file. Kept apart from loadErrors because
 	// it is what a first install looks like, though both refuse exec and
 	// redact.
 	unresolvedPatterns []string
+
+	// A [[secret.link]] entry that did not load, by ref, with the reason a caller
+	// asking for that ref is given. It refuses that ref and nothing else: a link
+	// is one ref by construction, so what is missing is known by name and the
+	// rest of the set is unaffected. linkDetail is the same failures with their
+	// paths, for the log and the operator's report.
+	degradedLinks map[string]string
+	linkDetail    []string
 
 	// Held across a refresh-driven reload, not under mu, which Reload takes
 	// itself. Keeps concurrent requests from each starting a round trip.
@@ -68,8 +77,9 @@ func New(secrets config.SecretConfig, kc config.KeeperConfig) *Store {
 		Policy: redact.EligibilityPolicy{
 			MinLength: secrets.MinLength,
 		},
-		values:  map[string]string{},
-		refused: map[string]string{},
+		values:        map[string]string{},
+		refused:       map[string]string{},
+		degradedLinks: map[string]string{},
 	}
 }
 
@@ -96,12 +106,13 @@ func (s *Store) Reload() {
 	}
 	// The links, read here rather than asked of the keeper. Merged before the
 	// length gate, so a linked value is held to what a managed one is.
-	linkValues, linkState, linkErrors, linkUnresolved := loadLinks(s.config.Links)
+	linkValues, linkState, degradedLinks, linkDetail := loadLinks(s.config.Links)
 	for _, ref := range sortedKeys(linkValues) {
 		// Blocked rather than resolved: a link shadowing a managed value would
 		// leave one of them rotating with nothing reading it.
 		if _, ok := values[ref]; ok {
-			linkErrors = append(linkErrors, fmt.Sprintf("%s: a [[secret.link]] entry "+
+			degradedLinks[ref] = "it claims a ref the managed store already defines"
+			linkDetail = append(linkDetail, fmt.Sprintf("%s: a [[secret.link]] entry "+
 				"claims a ref the managed store already defines; one of the two is "+
 				"then rotated with nothing reading it, so rename the link or remove "+
 				"the managed value", ref))
@@ -109,8 +120,6 @@ func (s *Store) Reload() {
 		}
 		values[ref] = linkValues[ref]
 	}
-	errors = append(errors, linkErrors...)
-	unresolved = append(unresolved, linkUnresolved...)
 
 	// A value the redactor cannot cover is not loaded: serving it would put it in
 	// a child's environment with nothing to catch it on the way out.
@@ -132,11 +141,18 @@ func (s *Store) Reload() {
 	s.retry = false
 	s.loadErrors = errors
 	s.unresolvedPatterns = unresolved
+	s.degradedLinks = degradedLinks
+	s.linkDetail = linkDetail
 	s.checkedAt = time.Now()
 	s.mu.Unlock()
 
 	for _, err := range errors {
 		log.Printf("secret load: %s", err)
+	}
+	// Logged as what they are: one ref that answers nothing, on a broker that
+	// goes on serving every other one.
+	for _, err := range linkDetail {
+		log.Printf("linked secret did not load, so that ref is refused: %s", err)
 	}
 	for _, entry := range unresolved {
 		log.Printf("secret entry named nothing: %s", entry)
@@ -287,6 +303,13 @@ func (s *Store) Value(ref string) (string, error) {
 		return "", fmt.Errorf("secret %s was refused at load (%s); it cannot be "+
 			"redacted, so it is not injectable -- lengthen the value", ref, reason)
 	}
+	// Nor does a link that did not load. The path is left out deliberately: it is
+	// the location of a credential, and this answer reaches the caller.
+	if reason, ok := s.degradedLinks[ref]; ok {
+		return "", fmt.Errorf("secret %s is linked and did not load: %s. Every "+
+			"other ref is unaffected; `faramir status` names it and `sudo faramir "+
+			"doctor` says what to do about it", ref, reason)
+	}
 	return "", fmt.Errorf("unknown secret ref: %s", ref)
 }
 
@@ -339,6 +362,10 @@ func (s *Store) describeLocked() map[string]any {
 		// refused to the agent's file tools, so naming it here would hand over the
 		// location of a credential. DescribeForOperator carries the paths.
 		"links": len(s.config.Links),
+		// Refs and reasons, no paths, for the same reason and to the same rule:
+		// the ref names are already what the refs op answers with, and a caller
+		// that asks for one of these gets this reason back anyway.
+		"degraded_links": maps.Clone(s.degradedLinks),
 	}
 }
 
@@ -361,7 +388,23 @@ func (s *Store) DescribeForOperator() map[string]any {
 		linked[link.Ref] = link.Path
 	}
 	out["linked_files"] = linked
+	// The same failures with their paths, which the agent-facing summary leaves
+	// out.
+	out["degraded_link_detail"] = append([]string{}, s.linkDetail...)
 	return out
+}
+
+// DegradedLinks is the [[secret.link]] entries that did not load, by ref, with
+// the reason each is refused. Empty when every link resolved.
+//
+// Not part of Unreadable: what is missing is known by name, so it refuses that
+// ref and leaves the broker serving. `faramir status` and `sudo faramir doctor`
+// are what fail on it, this being a fault nothing else would surface until a
+// command asked for the ref.
+func (s *Store) DegradedLinks() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return maps.Clone(s.degradedLinks)
 }
 
 // LoadErrors is every configured file the broker could not load, each one a
@@ -399,6 +442,13 @@ func (s *Store) Count() int {
 // out of them does not enter into it. Called per request, a reload being able
 // to lose a file at any time.
 //
+// A managed file only. A [[secret.link]] entry that did not load is one ref the
+// broker can name, so it refuses that ref and serves the rest rather than
+// withholding the output of every command on the host; see DegradedLinks. The
+// distinction is what the two hold: a managed file names none of its refs until
+// it decrypts, so a file that went unread leaves the broker knowing values are
+// missing and not which.
+//
 // A keeper that could not be reached is the exception, but only once a set has
 // loaded: what is kept then is unconfirmed rather than short.
 func (s *Store) Unreadable() string {
@@ -419,6 +469,11 @@ func (s *Store) Unreadable() string {
 		return ""
 	case len(s.config.Patterns) == 0 && len(s.config.Links) == 0:
 		return "the store is empty and no [[secret.link]] entries are configured"
+	case len(s.config.Patterns) == 0:
+		// Links alone, and every one of them naming a file that is not there. There
+		// is no plaintext left on disk for the redactor to be missing, so this
+		// serves; the refs themselves are refused one by one.
+		return ""
 	}
 	return "no managed file was found: " + strings.Join(s.unresolvedPatterns, "; ")
 }

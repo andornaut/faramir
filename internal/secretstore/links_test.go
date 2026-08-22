@@ -76,9 +76,11 @@ func TestALinkedValueJoinsTheValueSet(t *testing.T) {
 	}
 }
 
-// The gate the operator chose: a link that is there and will not read is a
-// value the redactor is missing, so the broker refuses to serve.
-func TestAnUnreadableLinkRefusesTheStore(t *testing.T) {
+// A link that is there and will not read is a value the redactor is missing,
+// and the broker knows exactly which ref it is: that one is refused and every
+// other one goes on being served. Withholding the whole host's output over it
+// would take out commands that have no relationship to the credential.
+func TestAnUnreadableLinkRefusesItsOwnRefAlone(t *testing.T) {
 	path := writeLinked(t, "hosts.yml", "not: yaml: at: all: [")
 	managed := managedFile(t)
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"}, managed)
@@ -87,12 +89,22 @@ func TestAnUnreadableLinkRefusesTheStore(t *testing.T) {
 	}}, managed)
 	s.Reload()
 
-	reason := s.Unreadable()
-	if reason == "" {
-		t.Fatal("a link that would not parse left the store serving")
+	if reason := s.Unreadable(); reason != "" {
+		t.Fatalf("a link that would not parse stopped the broker: %s", reason)
 	}
-	if !strings.Contains(reason, "gh/token") {
-		t.Errorf("the refusal does not name the link: %s", reason)
+	degraded := s.DegradedLinks()
+	if _, named := degraded["gh/token"]; !named {
+		t.Errorf("the broken link is not reported: %v", degraded)
+	}
+	// The ref itself answers nothing, and says which kind of nothing.
+	_, err := s.Value("gh/token")
+	if err == nil || !strings.Contains(err.Error(), "linked and did not load") {
+		t.Errorf("error = %v, want the ref refused as a link that did not load", err)
+	}
+	// Not the path: this answer goes back to whoever asked for the ref, and a
+	// linked file is one the agent's file tools are refused.
+	if strings.Contains(err.Error(), path) {
+		t.Errorf("the refusal carries the file's path: %v", err)
 	}
 	// The managed value is still held: one broken link does not blank the set.
 	if _, err := s.Value("a/b"); err != nil {
@@ -101,7 +113,8 @@ func TestAnUnreadableLinkRefusesTheStore(t *testing.T) {
 }
 
 // A link whose file has gone is the other meaning: the credential is off the
-// machine, so there is nothing left to redact. Reported, not fatal.
+// machine, so there is nothing left to redact. Reported as a degraded ref, the
+// same as one that will not read, and fatal for neither.
 func TestALinkNamingNothingIsReportedAndNotFatal(t *testing.T) {
 	managed := managedFile(t)
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"}, managed)
@@ -114,9 +127,9 @@ func TestALinkNamingNothingIsReportedAndNotFatal(t *testing.T) {
 	if reason := s.Unreadable(); reason != "" {
 		t.Errorf("an absent link refused the store: %s", reason)
 	}
-	unresolved := strings.Join(s.UnresolvedPatterns(), "; ")
-	if !strings.Contains(unresolved, "gh/token") {
-		t.Errorf("an absent link went unreported: %v", s.UnresolvedPatterns())
+	degraded := s.DegradedLinks()
+	if got := degraded["gh/token"]; !strings.Contains(got, "not there") {
+		t.Errorf("an absent link is reported as %q, want the case named", got)
 	}
 }
 
@@ -182,12 +195,11 @@ func TestALinkShadowingAManagedRefIsRefused(t *testing.T) {
 	}}, managed)
 	s.Reload()
 
-	reason := s.Unreadable()
-	if reason == "" {
-		t.Fatal("a link shadowing a managed ref was accepted")
+	if reason := s.Unreadable(); reason != "" {
+		t.Fatalf("a link shadowing a managed ref stopped the broker: %s", reason)
 	}
-	if !strings.Contains(reason, "a/b") {
-		t.Errorf("the refusal does not name the ref: %s", reason)
+	if _, named := s.DegradedLinks()["a/b"]; !named {
+		t.Errorf("the shadowing link is not reported: %v", s.DegradedLinks())
 	}
 	// The managed value wins, so the redactor still covers what sops holds.
 	if got, err := s.Value("a/b"); err != nil || got != "hunter2-correct-horse" {

@@ -17,6 +17,8 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keepertest"
 	"github.com/andornaut/faramir/internal/protocol"
+	"github.com/andornaut/faramir/internal/secretlink"
+	"github.com/andornaut/faramir/internal/secretstore"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
@@ -245,6 +247,39 @@ func TestStatusNamesTheOneConfigItLoaded(t *testing.T) {
 	}
 	if body.Config != s.Config.Path {
 		t.Errorf("config = %q, want the loaded file %q", body.Config, s.Config.Path)
+	}
+}
+
+// A link that did not load refuses one ref and leaves the broker serving, so
+// nothing about a command's own failure says the host is degraded. The exit
+// code is what carries it, and the body still prints.
+func TestStatusExitsNonZeroOnADegradedLink(t *testing.T) {
+	managed := managedFile(t)
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"}, managed)
+	s := serverWith(t, k, managed)
+	s.Config.Secret.Links = []config.Link{{
+		Ref: "npm/token", Path: filepath.Join(t.TempDir(), "gone"),
+		Type: secretlink.KindText,
+	}}
+	s.Store = secretstore.New(s.Config.Secret, s.Config.Keeper)
+	s.Store.Reload()
+
+	response := s.opStatus()
+	if code, _ := response["exit_code"].(int); code == 0 {
+		t.Error("status exited 0 with a link that did not load")
+	}
+	body := output(t, response)
+	if !strings.Contains(body, "npm/token") {
+		t.Errorf("status does not name the degraded ref: %q", body)
+	}
+	// The path is the location of a credential, and this answer reaches the
+	// agent. DescribeForOperator is what carries it.
+	if strings.Contains(body, "gone") {
+		t.Errorf("status carries the linked file's path: %q", body)
+	}
+	// Serving, not refusing: every other ref is unaffected.
+	if reason := s.Store.Unreadable(); reason != "" {
+		t.Errorf("a degraded link stopped the broker: %s", reason)
 	}
 }
 

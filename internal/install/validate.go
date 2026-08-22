@@ -27,6 +27,9 @@ type checkReport struct {
 		// and reason. They load and are never injected, so each is a value to
 		// lengthen rather than anything about the install.
 		NotRedactable map[string]string `json:"not_redactable"`
+		// DegradedLinks is the [[secret.link]] entries that did not load, by ref.
+		// Each refuses that ref alone; the broker goes on serving the rest.
+		DegradedLinks map[string]string `json:"degraded_links"`
 		// Links is how many of Count came from [[secret.link]] entries rather than
 		// from a managed file. A count, not the paths, which are the operator's
 		// own files. An install whose whole value set is linked keeps no store,
@@ -51,10 +54,32 @@ func (c checkReport) onlyNotRedactable() bool {
 		c.Secrets.Count > 0
 }
 
+// onlyDegradedLinks reports whether a non-zero --check is accounted for by
+// links that did not load and nothing else. Like onlyNotRedactable, this is not
+// about the install: the store loaded, the daemons are serving every other ref,
+// and what is missing is a file another tool owns and this command cannot
+// write.
+func (c checkReport) onlyDegradedLinks() bool {
+	return len(c.Secrets.DegradedLinks) > 0 &&
+		len(c.Policy) == 0 &&
+		len(c.Secrets.Errors) == 0 &&
+		len(c.Secrets.NotRedactable) == 0 &&
+		len(c.Secrets.UnresolvedPatterns) == 0
+}
+
 // refusedRefs is the refused refs and their reasons, ordered, for a message.
 func (c checkReport) refusedRefs() string {
-	out := make([]string, 0, len(c.Secrets.NotRedactable))
-	for ref, reason := range c.Secrets.NotRedactable {
+	return refsWithReasons(c.Secrets.NotRedactable)
+}
+
+// degradedRefs is the same for the links that did not load.
+func (c checkReport) degradedRefs() string {
+	return refsWithReasons(c.Secrets.DegradedLinks)
+}
+
+func refsWithReasons(refs map[string]string) string {
+	out := make([]string, 0, len(refs))
+	for ref, reason := range refs {
 		out = append(out, fmt.Sprintf("%s (%s)", ref, reason))
 	}
 	slices.Sort(out)
@@ -131,6 +156,17 @@ func (r *runner) stepValidate() error {
 		// never injected so nothing is exposed by continuing, and an install cannot
 		// lengthen a secret. Failing here ends every future `init` on this host
 		// the same way, including the upgrade that would carry a fix.
+		// Links that did not load, and nothing else wrong. Reported and carried on
+		// from for the reason below: the broker serves every other ref, and the file
+		// a link names belongs to another tool, so an install cannot produce it.
+		if report.onlyDegradedLinks() {
+			r.warnf("%d [[secret.link]] entry/entries did not load, so those refs "+
+				"answer nothing while every other one is served: %s. `sudo faramir "+
+				"doctor` says what each needs",
+				len(report.Secrets.DegradedLinks), report.degradedRefs())
+			r.step("validate", false, "installed; links to fix")
+			return nil
+		}
 		if report.onlyNotRedactable() {
 			r.warnf("%d ref(s) are too short for [secret] min_length, so they are "+
 				"never injected and never redacted: %s. Lengthen them with `faramir "+

@@ -437,9 +437,11 @@ func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.
 			strings.Join(reachable, ", "))
 	case len(unreadable) > 0:
 		report.addf(name, StatusFailed, "%s cannot read a linked file, so its value "+
-			"is absent from the redactor and every brokered command is refused. A "+
-			"tool that replaces its own file rather than rewriting it takes the group "+
-			"with it; `faramir init` grants it again: %s", opts.BrokerUser,
+			"is absent from the redactor while the plaintext is still on disk: that "+
+			"ref is refused and anything that touches the file can print the value "+
+			"in the clear. A tool that replaces its own file rather than rewriting it "+
+			"takes the group with it, and `sudo chgrp %s PATH && sudo chmod g+r "+
+			"PATH` puts it back: %s", opts.BrokerUser, opts.BrokerUser,
 			strings.Join(unreadable, ", "))
 	case len(absent) > 0:
 		report.addf(name, StatusFailed, "%d linked file(s) are readable by %s "+

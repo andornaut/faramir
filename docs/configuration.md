@@ -107,7 +107,8 @@ Why it is shaped this way (one ref per entry rather than a whole-file flatten, t
 
 - **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi refuses them from its extension instead, having no account-wide rule file for one to be rendered into.
 - **A tool that replaces its own file rather than rewriting it takes the group with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file, and `init` and `link add` check it again on every converge. Putting it back is a `chgrp`, and it needs a reload after it: the broker fingerprints a linked file by mtime and size, which a `chgrp` leaves alone, so a store that already gave up on that file would go on refusing it.
-- **A link that is there and will not read stops the host**, being a value the redactor is missing while the plaintext is still on disk: `run` and `redact` refuse until it is fixed. A link whose *path* is gone is the other case and is not fatal, the credential having left the machine.
+- **A link that does not load refuses that ref and nothing else.** The broker goes on serving every other ref, and a command that asks for this one is refused by name. Both cases reach it: a file that is gone, and one that is there and will not read. `faramir status` names the ref and exits non-zero, and `faramir doctor` fails, which is what tells you before a command does.
+- **The unreadable case is the one that costs something.** The plaintext is still on disk while the redactor does not hold it, so that value can print in the clear through anything that touches the file. The broker cannot cover a value it does not have, and withholding every command's output over it takes out commands with no relationship to the credential, so it says which ref is missing instead of stopping. A file that is *gone* costs nothing: there is no plaintext left to cover.
 
 ## Blocked paths
 
@@ -201,11 +202,14 @@ An audit log that cannot be written | A command that cannot be recorded is not r
 
 **The daemon holds itself to the same rules, and on every request rather than at boot.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only ever described the host as it was at install time.
 
-For the secrets it is one rule, and `run` is held to it because a brokered command's output is redacted against the same set: **the broker serves `run` and `redact` only while no managed file went unread.** At least one managed file or one link read, and everything that was there loaded.
+For the managed store it is one rule, and `run` is held to it because a brokered command's output is redacted against the same set: **the broker serves `run` and `redact` only while no managed file went unread.** At least one managed file or one link read, and every managed file that was there loaded.
+
+**A `[[secret.link]]` entry is scoped to its own ref instead**, and that is the whole of the difference between them: a managed file holds any number of refs and names none of them until it decrypts, so one that did not load leaves the broker knowing values are missing and not which. A link is one ref by construction, so the broker refuses that ref and serves the rest.
 
 - What those files held does not enter into it. An install whose operator has not written a secret yet serves, and a ref no file defines is answered by `unknown_secret`.
 - Otherwise the broker refuses with `no_secrets`, naming why. It comes up either way, and `status` and `refs` answer regardless.
 - A keeper that could not be reached is the exception once a set has loaded, what is kept then being the last thing known to be true. A cold start has nothing to keep and refuses.
+- An install whose secrets are all linked and whose links have all gone serves: there is no plaintext left on disk for the redactor to be missing.
 
 - Secrets on a filesystem that is not mounted yet look exactly like ones never written, and both leave the broker redacting nothing. `--check` and `doctor` tell the two apart.
 - An `[ssh] key` the agent does not load is logged and not fatal, breaking only commands that reach a managed host, which fail at the point of use with `ssh`'s own error. Stopping the daemon over it would stop the commands that never touch SSH. An unset key does not stop the daemon either, for the same reason, but `faramir doctor` fails on one: `init` mints a key on every run whether or not the host turns out to need it, so an empty `key` is an edit to the file rather than a host that authenticates some other way.

@@ -362,6 +362,38 @@ snap
   && ok "doctor fails: an entry naming a file that is not there produces no value" \
   || bad "linked file access is $(st 'linked file access'): $(dt 'linked file access')"
 
+# A link that did not load refuses its own ref and nothing else. What this is
+# holding to is the blast radius: before it was scoped per ref, one linked file
+# the broker could not read withheld the output of every command on the host,
+# including commands with no relationship to the credential.
+waitfor 25 asop refs >/dev/null 2>&1
+out=$(brokered -- /bin/echo unrelated)
+grep -q 'unrelated' <<<"$out" \
+  && ok "a command that never asked for the missing ref still runs and prints" \
+  || bad "a link that did not load withheld an unrelated command: $out"
+out=$(brokered --env T=faramir://gh/token -- /bin/sh -c 'echo $T')
+grep -qF "$GH_TOKEN" <<<"$out" \
+  && ok "and every other ref is still injected and still redacted" \
+  || bad "a link that did not load took another ref with it: $out"
+# The one that is missing is refused by name, and the refusal does not say where
+# the file was: that path is the location of a credential.
+out=$(brokered --env T=faramir://npm/token -- /bin/sh -c 'echo $T')
+grep -q 'npm/token' <<<"$out" && grep -q 'did not load' <<<"$out" \
+  && ok "and the missing ref is refused by name" \
+  || bad "the missing ref was not refused as one: $out"
+grep -q "$NPMRC" <<<"$out" \
+  && bad "the refusal names the linked file's path: $out" \
+  || ok "and the refusal keeps the file's path out of it"
+
+# The exit code is the whole point of reporting it here: the broker serves, so
+# nothing else on this host says anything is wrong until a command asks.
+asop status >/dev/null 2>&1 \
+  && bad "faramir status exited 0 with a link that did not load" \
+  || ok "faramir status exits non-zero"
+jq -e '.secrets.degraded_links["npm/token"]' <<<"$(asop status 2>/dev/null)" >/dev/null \
+  && ok "and its body still prints, naming the ref" \
+  || bad "status does not name the degraded ref: $(asop status 2>&1 | tr '\n' ' ')"
+
 # --------------------------------------------------------------------------
 head_ "9. removing one"
 out=$("$faramir" link rm --agent-user op gh/token 2>&1)
