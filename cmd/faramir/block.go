@@ -284,6 +284,10 @@ type blockRow struct {
 	Covers string `json:"covers"`
 	// State is whether the path is there, for a path entry alone. A name is not
 	// asked of this filesystem at all.
+	//
+	// JSON only, as Detail is. The table is four columns of what is blocked and
+	// where; whether a file happens to exist today is a different question, and
+	// a fifth column answering it made the rows long enough to wrap.
 	State string `json:"state,omitempty"`
 	// Detail is what a built-in protects or what a pattern matches, whichever
 	// the row is.
@@ -419,18 +423,14 @@ func runBlockList(f blockFlags) int {
 	// patterns rather than scanned as a column.
 	var commands []blockRow
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "SOURCE\tKIND\tENTRY\tCOVERS\tNOTES")
+	_, _ = fmt.Fprintln(w, "SOURCE\tKIND\tENTRY\tCOVERS")
 	for _, row := range rows {
 		if row.Kind == kindCommand {
 			commands = append(commands, row)
 			continue
 		}
-		notes := row.Detail
-		if row.State != "" {
-			notes = row.State
-		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			row.Source, row.Kind, row.Entry, row.Covers, notes)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+			row.Source, row.Kind, row.Entry, row.Covers)
 	}
 	_ = w.Flush()
 	if len(commands) == 0 {

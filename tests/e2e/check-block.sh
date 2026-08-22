@@ -340,9 +340,10 @@ out=$(block ls)
 grep -q "$KEY" <<<"$out" && grep -q "$ABSENT" <<<"$out" \
   && ok "block ls lists the entries" \
   || bad "block ls: ${out:0:200}"
-grep -q 'not there' <<<"$out" \
-  && ok "and says which path is not there" \
-  || bad "block ls does not report the absent path's state: ${out:0:200}"
+block ls --json | jq -e --arg p "$ABSENT" \
+  'any(.[]; .entry == $p and .state == "not there")' >/dev/null \
+  && ok "and --json says which path is not there" \
+  || bad "block ls --json does not report the absent path's state"
 asop block ls >/dev/null 2>&1 \
   && ok "and needs no root, reading only the config" \
   || note "block ls as the agent's account was refused (the guard denies it in a shell)"
