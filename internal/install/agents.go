@@ -287,7 +287,10 @@ var agentTargets = map[string]*agentTarget{
 // link out of the tree would carry that group to a file the enrolment was never
 // pointed at. A home's decide neither, so an existing file keeps its group and
 // a link may land wherever the operator keeps their dotfiles.
-func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
+// configDir is where the record of what faramir last wrote lives, so a merge
+// can take out a rule the config no longer declares. Empty leaves the record
+// unread and unwritten, which is a merge that only ever adds.
+func writeAgentFiles(fs fsys, root, configDir string, uid, gid int, dirMode os.FileMode,
 	inTree bool, render func(agentFile) ([]byte, error),
 	files []agentFile) (bool, []string, error) {
 	changed := false
@@ -322,6 +325,10 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 		if inTree {
 			bound = root
 		}
+		// The rules this run renders into the file, for the record kept after the
+		// write. Nil where nothing was merged, which is a file faramir owns
+		// outright rather than one it writes into.
+		var rendered []string
 		spot, err := fs.editedFile(path, uid, bound)
 		if err != nil {
 			return changed, written, fmt.Errorf("%s: %w", path, err)
@@ -341,11 +348,15 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 				spot.close()
 				return changed, written, err
 			}
-			merged, err := mergeJSON(was, data)
+			// What an earlier run rendered into this file, so a rule the config
+			// no longer declares comes out rather than accumulating beside the
+			// new ones. See writtenrules.go.
+			merged, err := mergeJSON(was, data, readWrittenRules(configDir)[path])
 			if err != nil {
 				spot.close()
 				return changed, written, fmt.Errorf("%s: %w", path, err)
 			}
+			rendered = jsonStrings(data)
 			data = merged
 		}
 		// Ownership is set on a file this creates and left alone on one already
@@ -367,6 +378,14 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 		spot.close()
 		if err != nil {
 			return changed, written, err
+		}
+		// After the write and not before it: a record naming rules that never
+		// reached the file would have the next run trying to remove what is not
+		// there. Best-effort, because a record that could not be kept leaves
+		// that run removing nothing, which is how this behaved before there was
+		// a record at all.
+		if rendered != nil {
+			_ = recordWrittenRules(configDir, path, rendered)
 		}
 		changed = changed || made
 		written = append(written, path)

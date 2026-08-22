@@ -19,7 +19,7 @@ func enrolTree(t *testing.T, configDir string, names ...string) string {
 			return assetFor(target, file, configDir)
 		}
 		if _, _, err := writeAgentFiles(
-			fsys{}, tree, keep, keep, 0o2770|os.ModeSetgid, true, render, target.files); err != nil {
+			fsys{}, tree, "", keep, keep, 0o2770|os.ModeSetgid, true, render, target.files); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -102,7 +102,7 @@ func TestTreeConfigAcceptsTheProjectsOwnKeysBesideOurs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	theirs, err := mergeJSON(current, []byte(`{"model":"opus","env":{"X":"1"}}`+"\n"))
+	theirs, err := mergeJSON(current, []byte(`{"model":"opus","env":{"X":"1"}}`+"\n"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

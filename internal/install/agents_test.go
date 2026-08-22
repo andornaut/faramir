@@ -260,7 +260,7 @@ func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
 	  "mcp": {"theirs": {"type": "local", "command": ["their-server"]}},
 	  "permission": {"bash": {"*": "ask"}, "read": {"*": "allow", "src/*.key": "allow"}}
 	}`)
-	merged, err := mergeJSON(existing, ours)
+	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

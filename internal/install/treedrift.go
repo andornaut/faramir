@@ -91,7 +91,10 @@ func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir str
 	if !file.merge {
 		return bytes.Equal(onDisk, ours), nil
 	}
-	merged, err := mergeJSON(onDisk, ours)
+	// The same record the write uses: a rule this run would take out is a
+	// difference between the file and what a render produces, which is what
+	// drift means.
+	merged, err := mergeJSON(onDisk, ours, readWrittenRules(configDir)[path])
 	if err != nil {
 		return false, err
 	}

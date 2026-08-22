@@ -48,7 +48,7 @@ func TestMergeJSONKeepsOtherServers(t *testing.T) {
 	}`)
 	ours := []byte(`{"mcpServers":{"faramir":{"command":"/usr/local/bin/faramir","args":["mcp"]}}}`)
 
-	merged, err := mergeJSON(existing, ours)
+	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestMergeJSONReplacesStaleFaramirHook(t *testing.T) {
 	ours := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command",` +
 		`"command":"/usr/local/bin/faramir guard","timeout":10}]}]}}`)
 
-	merged, err := mergeJSON(existing, ours)
+	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestMergeJSONKeepsAHookUnderAFaramirPath(t *testing.T) {
 	ours := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":` +
 		`[{"type":"command","command":"/usr/local/bin/faramir guard"}]}]}}`)
 
-	merged, err := mergeJSON(existing, ours)
+	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestMergeJSONKeepsAHookSharingFaramirsGroup(t *testing.T) {
 	ours := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[` +
 		`{"type":"command","command":"/usr/local/bin/faramir guard"}]}]}}`)
 
-	merged, err := mergeJSON(existing, ours)
+	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestMergeJSONReplacesArgvRatherThanUnioningIt(t *testing.T) {
 	ours := []byte(`{"mcp":{"faramir":{"type":"local",` +
 		`"command":["/usr/local/bin/faramir","mcp"],"enabled":true}}}`)
 
-	merged, err := mergeJSON(existing, ours)
+	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestMergeJSONKeepsForeignHook(t *testing.T) {
 	ours := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":` +
 		`[{"type":"command","command":"/usr/local/bin/faramir guard"}]}]}}`)
 
-	merged, err := mergeJSON(existing, ours)
+	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestMergeJSONUnionsDenyRules(t *testing.T) {
 	existing := []byte(`{"permissions":{"deny":["Read(**/*.sops.yml)","Read(/srv/private/**)"]}}`)
 	ours := []byte(`{"permissions":{"deny":["Read(**/*.sops.yml)","Read(**/age.key)"]}}`)
 
-	merged, err := mergeJSON(existing, ours)
+	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,11 +224,11 @@ func TestMergeJSONIsIdempotent(t *testing.T) {
 		`"permissions":{"deny":["Read(**/age.key)"]}}`)
 	existing := []byte(`{"permissions":{"deny":["Read(/srv/private/**)"]},"model":"opus"}`)
 
-	once, err := mergeJSON(existing, ours)
+	once, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	twice, err := mergeJSON(once, ours)
+	twice, err := mergeJSON(once, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestMergeJSONIsIdempotent(t *testing.T) {
 // write after it and settle only on the second run.
 func TestMergeJSONAcceptsEmptyFileAndNormalisesIt(t *testing.T) {
 	ours := []byte(`{"mcpServers":{"faramir":{"command":"/usr/local/bin/faramir"}}}`)
-	merged, err := mergeJSON([]byte("  \n"), ours)
+	merged, err := mergeJSON([]byte("  \n"), ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestMergeJSONAcceptsEmptyFileAndNormalisesIt(t *testing.T) {
 	}
 	// And it is what merging into itself would produce, which is the property
 	// that makes a second run a no-op.
-	again, err := mergeJSON(merged, ours)
+	again, err := mergeJSON(merged, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestMergeJSONAcceptsEmptyFileAndNormalisesIt(t *testing.T) {
 // Blocked rather than overwritten: replacing it would lose the operator's whole
 // configuration to a stray comma.
 func TestMergeJSONRefusesUnparseableFile(t *testing.T) {
-	_, err := mergeJSON([]byte(`{"hooks": [},`), []byte(`{"a":1}`))
+	_, err := mergeJSON([]byte(`{"hooks": [},`), []byte(`{"a":1}`), nil)
 	if err == nil {
 		t.Fatal("no error merging into a file that does not parse")
 	}

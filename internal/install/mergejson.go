@@ -19,7 +19,12 @@ import (
 // mergeJSON returns ours merged into existing. An unparseable or empty file is
 // an error rather than something to overwrite, losing an agent's configuration
 // to a stray comma not being a repair this is entitled to make.
-func mergeJSON(existing, ours []byte) ([]byte, error) {
+//
+// wrote is what faramir last rendered into this file; see writtenrules.go. A
+// string in that list and not in ours is one an entry no longer backs, and it
+// comes out. A string nobody recorded is the operator's and stays, whatever it
+// looks like.
+func mergeJSON(existing, ours []byte, wrote []string) ([]byte, error) {
 	// An absent file still goes through the merge, so what is written the first
 	// time is what a merge would produce the second: returning the asset as it
 	// was authored leaves the next run re-serialising it with keys sorted, which
@@ -34,7 +39,7 @@ func mergeJSON(existing, ours []byte) ([]byte, error) {
 	if err := json.Unmarshal(ours, &from); err != nil {
 		return nil, fmt.Errorf("parsing what would be written: %w", err)
 	}
-	merged, err := mergeValue(into, from)
+	merged, err := mergeValue(into, from, wrote)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +60,7 @@ func mergeJSON(existing, ours []byte) ([]byte, error) {
 // and not an operator's.
 var argvKeys = map[string]bool{"command": true, "args": true}
 
-func mergeValue(into, from any) (any, error) {
+func mergeValue(into, from any, wrote []string) (any, error) {
 	fromMap, fromIsMap := from.(map[string]any)
 	intoMap, intoIsMap := into.(map[string]any)
 	if fromIsMap && intoIsMap {
@@ -63,7 +68,7 @@ func mergeValue(into, from any) (any, error) {
 		maps.Copy(out, intoMap)
 		for key, value := range fromMap {
 			if current, ok := out[key]; ok && !argvKeys[key] {
-				merged, err := mergeValue(current, value)
+				merged, err := mergeValue(current, value, wrote)
 				if err != nil {
 					return nil, fmt.Errorf("%s: %w", key, err)
 				}
@@ -78,7 +83,7 @@ func mergeValue(into, from any) (any, error) {
 	fromList, fromIsList := from.([]any)
 	intoList, intoIsList := into.([]any)
 	if fromIsList && intoIsList {
-		return mergeList(intoList, fromList), nil
+		return mergeList(intoList, fromList, wrote), nil
 	}
 
 	// A scalar, or the shapes disagree. faramir's value wins: a file holding a
@@ -90,11 +95,17 @@ func mergeValue(into, from any) (any, error) {
 // Objects are hook and server entries: what faramir wrote is taken out and
 // re-added, so a relocated or renamed binary is self-correcting rather than a
 // hook pointing at a path that no longer exists.
-func mergeList(into, from []any) []any {
+func mergeList(into, from []any, wrote []string) []any {
 	out := make([]any, 0, len(into)+len(from))
 	for _, element := range into {
-		if _, isString := element.(string); isString {
+		if text, isString := element.(string); isString {
 			if containsValue(from, element) {
+				continue
+			}
+			// Written by an earlier run and not rendered by this one, so the
+			// entry behind it is gone. An operator's own line is named by no
+			// record and stays.
+			if slices.Contains(wrote, text) {
 				continue
 			}
 			out = append(out, element)

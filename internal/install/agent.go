@@ -36,7 +36,7 @@ func (r *runner) stepAgentConfig() error {
 	var written, refused []string
 	for _, target := range targets {
 		// 0700: these sit in the agent account's home.
-		made, paths, err := writeAgentFiles(r.fs, r.operatorHome,
+		made, paths, err := writeAgentFiles(r.fs, r.operatorHome, r.layout.ConfigDir,
 			r.operatorUID, r.operatorGID, 0o700, false, asLayout, target.accountFiles)
 		written = append(written, paths...)
 		switch {

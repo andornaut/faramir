@@ -576,7 +576,7 @@ func (p *project) agentConfig() error {
 		// 0700 would make a directory created here the one place in an enrolled
 		// tree the client group cannot enter, until a later run's walk widened it
 		// and reported a change on what reads as a re-enrolment.
-		made, paths, err := writeAgentFiles(p.fs, p.opts.Dir,
+		made, paths, err := writeAgentFiles(p.fs, p.opts.Dir, p.opts.ConfigDir,
 			p.uid, p.gid, 0o2770|os.ModeSetgid, true, asTarget, target.files)
 		written = append(written, paths...)
 		if err != nil {

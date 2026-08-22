@@ -291,7 +291,7 @@ func TestWhatAnEnrolmentWritesIsWhatDoctorCompares(t *testing.T) {
 	// Through the merge, as writeAgentFiles writes it: the first write is
 	// byte-for-byte what a second would produce, and the asset as authored is
 	// not.
-	merged, err := mergeJSON(nil, body)
+	merged, err := mergeJSON(nil, body, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
