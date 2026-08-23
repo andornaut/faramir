@@ -673,17 +673,28 @@ func startFailure(program, cwd string, err error) string {
 	dir, openErr := os.Open(cwd)
 	if openErr == nil {
 		_ = dir.Close()
-		return detail
+		// The tree is enterable, so the refusal is about the program. Said rather
+		// than left as the raw fork/exec error: a caller reading "permission
+		// denied" against a path it can see cannot tell which uid was refused, and
+		// the one that matters is not its own.
+		return fmt.Sprintf("%s. The command runs as %s, not as you, and that account "+
+			"may not execute %s", detail, whoRuns(), program)
 	}
 	if !errors.Is(openErr, os.ErrPermission) {
 		return detail
 	}
-	who := strconv.Itoa(os.Getuid())
-	if u, lookupErr := user.LookupId(who); lookupErr == nil {
-		who = u.Username
-	}
 	return fmt.Sprintf("%s. The command runs as %s, which cannot enter %s, so the "+
 		"exec was refused before the program was reached. Share the tree with "+
 		"`sudo faramir init-project` in it, which grants the traversal a brokered "+
-		"command needs", detail, who, cwd)
+		"command needs", detail, whoRuns(), cwd)
+}
+
+// whoRuns names the account a brokered command runs as, which is this process's
+// own, falling back to the uid where the name cannot be read.
+func whoRuns() string {
+	who := strconv.Itoa(os.Getuid())
+	if u, err := user.LookupId(who); err == nil {
+		who = u.Username
+	}
+	return who
 }

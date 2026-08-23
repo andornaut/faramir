@@ -293,6 +293,23 @@ grep -qiE "denied|no such|cannot|refus" <<<"$out" && ok "a directory it cannot e
 out=$(run --cwd relative/path -- /bin/pwd)
 grep -qiE "absolute|invalid|refus" <<<"$out" && ok "a relative cwd is refused" || bad "relative cwd gave [$out]"
 
+head_ "6b. a cmd[0] that is not a program"
+# Three different things, and the caller has to be able to tell them apart: a
+# path with nothing at it, a path holding something that is not a program, and
+# a program this account may not run. All three came back as one sentence or as
+# the raw fork/exec error, which reads as the caller's own permissions.
+out=$(run -- /no/such/thing)
+grep -q "no such program" <<<"$out" && ok "a path with nothing at it is named as missing" \
+  || bad "a missing program gave [${out:0:110}]"
+out=$(run -- /etc)
+grep -q "not a program" <<<"$out" && grep -q "directory" <<<"$out" \
+  && ok "a directory is named as what it is, not as missing" \
+  || bad "a directory gave [${out:0:110}]"
+out=$(run -- /etc/hostname)
+grep -q "may not execute" <<<"$out" && grep -q "faramir-exec" <<<"$out" \
+  && ok "a file this account may not execute names the account it runs as" \
+  || bad "a non-executable file gave [${out:0:110}]"
+
 # --------------------------------------------------------------------------
 head_ "7. the kill path, which is the whole of the cgroup argument"
 before_strays=$(strays); before_cgroups=$(runCgroups)

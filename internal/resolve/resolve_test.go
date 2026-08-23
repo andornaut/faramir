@@ -94,6 +94,13 @@ func TestProgramResolvesAgainstTheChildsOwnPath(t *testing.T) {
 			why: "filepath.Join would produce /tmp/bin/sh; the child's own exec would not"},
 		{name: "a missing program is named",
 			arg: filepath.Join(dir, "nope"), cwd: dir, wants: []string{"no such program"}},
+		// Told apart from the one above. A path the caller can see, called "no
+		// such program", reads as a typo in the path rather than as a path that
+		// holds no program.
+		{name: "a directory is not a missing program",
+			arg: dir, cwd: dir, wants: []string{"not a program", "directory"}},
+		{name: "nor is a device",
+			arg: "/dev/null", cwd: dir, wants: []string{"not a program", "device"}},
 		// The executor's uid can hold permissions the broker does not, so the
 		// bit is not read here: its own EACCES is the honest answer.
 		{name: "a non-executable file is left to the executor",

@@ -56,7 +56,15 @@ func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 		resolved := realpath(join(cwd, argv0))
 		// Existence, not executability: the executor's uid can hold permissions the
 		// broker does not. Absence is the same answer from any uid.
+		//
+		// A directory, a device or a socket fails the same test and is not the same
+		// thing to be told about: "no such program" about a path the caller can see
+		// reads as a typo in the path rather than as a path that is not a program.
 		if !isFile(resolved) {
+			if there, err := os.Stat(resolved); err == nil {
+				return "", fmt.Errorf("%s: not a program: %s is a %s", argv0, resolved,
+					describeKind(there.Mode()))
+			}
 			return "", fmt.Errorf("%s: no such program (resolved to %s)", argv0, resolved)
 		}
 		return resolved, nil
@@ -89,4 +97,22 @@ func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 			"path in cmd[0]", argv0, path)
 	}
 	return realpath(found), nil
+}
+
+// describeKind names what is at a path that is not a regular file, in the words
+// somebody would use for it.
+func describeKind(mode os.FileMode) string {
+	switch {
+	case mode.IsDir():
+		return "directory"
+	case mode&os.ModeDevice != 0 && mode&os.ModeCharDevice != 0:
+		return "character device"
+	case mode&os.ModeDevice != 0:
+		return "block device"
+	case mode&os.ModeSocket != 0:
+		return "socket"
+	case mode&os.ModeNamedPipe != 0:
+		return "named pipe"
+	}
+	return "not a regular file"
 }
