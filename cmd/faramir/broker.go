@@ -81,17 +81,14 @@ func runBroker(f brokerFlags) int {
 	// take down the process `faramir status` and `doctor` ask.
 	if reason := s.Store.Unreadable(); reason != "" {
 		log.Printf("refusing exec and redact: %s", reason)
-		log.Printf("every command the agent hook wraps has its output withheld " +
-			"until this is fixed, which is what keeps an unread file from being " +
-			"read past. status and refs still answer; encrypt a file into " +
-			"the secrets directory, and no restart is needed")
+		log.Printf("every command the agent hook wraps has its output withheld until this is fixed. " +
+			"status and refs still answer; encrypt a file into the secrets directory, and no " +
+			"restart is needed")
 	} else if reason := s.Store.EmptySet(); reason != "" {
 		log.Printf("serving with an empty value set: %s", reason)
-		log.Printf("commands run and their output is redacted against nothing, " +
-			"there being nothing to redact. That is the right answer for a host " +
-			"that manages no credentials and the wrong one for a store on a " +
-			"filesystem that is not mounted, which looks the same from here: " +
-			"`faramir status` and `faramir doctor` report it either way")
+		log.Printf("commands run and their output is redacted against nothing, there being nothing to " +
+			"redact. That is right for a host managing no credentials and wrong for a store on " +
+			"a filesystem that is not mounted, which looks the same from here")
 	}
 
 	// Same shape: said at startup so an operator finds out here, and asked again
@@ -99,9 +96,8 @@ func runBroker(f brokerFlags) int {
 	if reason := s.Audit.Unwritable(); reason != "" {
 		log.Printf("refusing every brokered command: the audit log cannot be "+
 			"written: %s", reason)
-		log.Printf("a command that cannot be recorded is not run, so this is the " +
-			"whole install rather than one feature of it. Free space on that " +
-			"filesystem, or point [audit] log_path somewhere with room")
+		log.Printf("a command that cannot be recorded is not run, so this is the whole install rather " +
+			"than one feature of it. Free space, or point [audit] log_path somewhere with room")
 	}
 
 	sshErr := s.Ssh.Start()

@@ -149,10 +149,8 @@ func findConfigFile(st status) (string, error) {
 
 // errNoInstall names both places that were asked, so the operator knows which
 // one to repair rather than which directory to pass.
-var errNoInstall = fmt.Errorf("no install found: the broker did not answer on "+
-	"its socket, and %s names no config file. Start the broker, set "+
-	"FARAMIR_CONFIG to the config file, or run `faramir init` if this host has "+
-	"no install", brokerUnit)
+var errNoInstall = fmt.Errorf("no install found: the broker did not answer and %s names no config file. Start the "+
+	"broker, set FARAMIR_CONFIG, or run `faramir init`", brokerUnit)
 
 // resolveConfigDir is the directory holding this host's config, for the
 // commands that act on the install rather than read it.
@@ -302,9 +300,8 @@ func newInitCmd() *cobra.Command {
 			"(default: what the install uses, then id_ed25519 beside the age key; "+
 			"one is minted either way)")
 	fl.StringVar(&f.knownHosts, "known-hosts", "",
-		"a known_hosts file whose host keys are pinned for the executor, copied to "+
-			"<exec-home>/.ssh/known_hosts (default: none, a brokered ssh then verifying "+
-			"against /etc/ssh/ssh_known_hosts alone)")
+		"host keys pinned for the executor, copied to <exec-home>/.ssh/known_hosts "+
+			"(default: none, verifying against /etc/ssh/ssh_known_hosts alone)")
 	fl.StringArrayVar(&f.initAgents, "agent", nil,
 		"install the deny rules into this agent's own settings, repeatable. "+
 			"Default \""+install.AgentAuto+"\": whichever agents the agent account's home "+
@@ -312,30 +309,20 @@ func newInitCmd() *cobra.Command {
 			"and composes with auto. Known: "+
 			strings.Join(install.KnownAgents(), ", "))
 	fl.BoolVar(&f.allowSudo, "allow-sudo", false,
-		"let a brokered command ASK to sudo on this host; it cannot sudo on its own. "+
-			"The executor gets a password-required sudoers entry pointed at a PAM "+
-			"service whose auth step asks the broker, so no password exists anywhere "+
-			"and a human approves each command through 'faramir sudo approve'. Off by "+
-			"default, and re-running without it takes the grant away")
+		"let a brokered command ASK to sudo; it cannot sudo on its own. A human approves "+
+			"each through 'faramir sudo approve', and no password exists anywhere. Off by "+
+			"default; re-running without it takes the grant away")
 	fl.StringArrayVar(&f.notifyCommand, "notify-command", nil,
 		// The backquoted word is cobra's placeholder for the value, taken from the
 		// first one in the string; without it the help reads "stringArray".
-		"announce a waiting escalation: one `ARG` each, repeatable, "+
-			"--notify-command /usr/bin/wall --notify-command '{prompt}'. \"{prompt}\" "+
-			"is the line the broker builds and \"{id}\" the question to answer, and one "+
-			"of the two must appear. Keep \"{id}\" off anything that broadcasts: wall "+
-			"reaches every terminal on the host and the coding agent has one. The "+
-			"program is resolved on PATH here, being run as the account holding every "+
-			"decrypted value, inside the broker unit's sandbox: /tmp is the unit's "+
-			"own and nothing outside the broker's directories is writable. Needs "+
-			"--allow-sudo; unset, 'faramir sudo watch' is the only place a question "+
-			"shows up")
+		"announce a waiting escalation: one `ARG` each, repeatable, --notify-command "+
+			"/usr/bin/wall --notify-command '{prompt}'. One of \"{prompt}\" and \"{id}\" must "+
+			"appear; keep \"{id}\" off anything that broadcasts. The program is resolved on "+
+			"PATH and runs inside the broker unit's sandbox. Needs --allow-sudo")
 	fl.BoolVar(&f.moveConfig, "move-config", false,
-		"consent to point this host's daemons at a different --config-dir. There is "+
-			"one set of units, so the new directory replaces the old rather than "+
-			"standing beside it: the refs the old one served leave the value set and "+
-			"stop being redacted, while its age key and ciphertext stay on disk. "+
-			"Blocked without this")
+		"consent to point this host's daemons at a different --config-dir. The new "+
+			"directory replaces the old: the refs the old one served stop being redacted, "+
+			"while its age key and ciphertext stay on disk. Blocked without this")
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
 	// The tunables, named for what they bound rather than for the section they
@@ -396,10 +383,8 @@ func runInit(f initFlags) int {
 	// verification: a converge that changed nothing and reports failure, with
 	// nothing in the ending to point at the cause.
 	if why := install.NestedRun(); why != "" {
-		fmt.Fprintf(os.Stderr, "faramir init: %s, so init cannot finish here: it "+
-			"asks the broker what the agent holds and that question would be "+
-			"refused. Run it from a shell of your own rather than through "+
-			"`faramir run`\n", why)
+		fmt.Fprintf(os.Stderr, "faramir init: %s, so init cannot finish: it asks the broker what the agent holds "+
+			"and that question would be refused. Run it from a shell of your own\n", why)
 		return 1
 	}
 
@@ -508,10 +493,8 @@ func newInitProjectCmd() *cobra.Command {
 	fl.StringVar(&f.agentUser, "agent-user", "",
 		"account that works in the tree (default $SUDO_USER, then you)")
 	fl.StringVar(&f.clientGroup, "client-group", "",
-		"share the tree with this group instead of the one the installed config "+
-			"admits. It overrides that one value: the config still has to load, the "+
-			"linked and blocked paths in the deny rules an enrolment writes being "+
-			"only there")
+		"share the tree with this group instead of the one the installed config admits. It "+
+			"overrides that one value; the config still has to load")
 	fl.StringArrayVar(&f.agents, "agent", nil,
 		"coding agent to enrol, repeatable. Default \""+install.AgentAuto+"\": "+
 			"whichever agents this tree already carries configuration for. A name "+

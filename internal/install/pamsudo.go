@@ -129,10 +129,8 @@ func spliceSudoPamBlock(fs fsys, path string, block []byte) (bool, error) {
 	// markers can be read at all.
 	_, _, found, err := placePamBlock(current)
 	if err != nil {
-		return false, fmt.Errorf("%s: %w: nothing was written. Delete the stray "+
-			"marker and re-run, or edit the block by hand: the lines between "+
-			"%q and %q are faramir's, and everything else in that file is the "+
-			"distribution's", path, err, pamBlockBegin, pamBlockEnd)
+		return false, fmt.Errorf("%s: %w: nothing was written. Delete the stray marker and re-run, or edit by hand: "+
+			"the lines between %q and %q are faramir's", path, err, pamBlockBegin, pamBlockEnd)
 	}
 	// Always at the top, a replacement included. Leaving a block where it was
 	// found keeps whatever put it below an authenticating line there through every
@@ -266,10 +264,9 @@ func (r *runner) writeSudoPamBlock() (bool, error) {
 	// /etc/pam.d/other -- said here rather than left for the broker's own check,
 	// which reports it in a sentence about the broker.
 	if landed == 0 {
-		r.warnf("this host's sudo is sudo-rs, which reaches the service named "+
-			"`sudo` and nothing a caller may name, and neither %s exists to carry "+
-			"the stack that asks the broker: every escalation will fall to %s/other. "+
-			"Install sudo, then re-run this install",
+		r.warnf("this host's sudo is sudo-rs, which reaches the service named `sudo` and nothing a "+
+			"caller may name, and neither %s exists to carry the stack that asks the broker: "+
+			"every escalation falls to %s/other. Install sudo, then re-run this install",
 			strings.Join(r.layout.SudoPamFiles(), " nor "), pamDir)
 	}
 	return changed, nil
@@ -293,11 +290,9 @@ func (r *runner) warnForeignAuthModule(path string) {
 	if module == "" {
 		return
 	}
-	r.warnf("%s authenticates with a module of its own (%q) and faramir's branch "+
-		"goes above it, so %s reaches root without meeting it. Every other account "+
-		"still does: the branch falls through for them. Review this if that module "+
-		"is a second factor, and note that whatever installed it edits the same "+
-		"file faramir does", path, module, r.layout.ExecUser)
+	r.warnf("%s authenticates with a module of its own (%q) and faramir's branch goes above it, "+
+		"so %s reaches root without meeting it. Every other account still does. Review this "+
+		"if that module is a second factor", path, module, r.layout.ExecUser)
 }
 
 // foreignAuthModule is the first auth line naming a module rather than pulling
@@ -355,12 +350,10 @@ func sudoPamBranchProblem(execUser, helper string) string {
 				"what the block is cannot be read off it. Fix the markers by hand and "+
 				"re-run `faramir init --allow-sudo`", path)
 		case !found:
-			return fmt.Sprintf("%s carries no faramir block, so this host's sudo-rs "+
-				"sends %s to the stock stack, where its locked password refuses: every "+
-				"escalation fails. Either a package upgrade replaced that file, it being "+
-				"the distribution's, or this install was made when the `sudo` "+
-				"alternatives group pointed at the original sudo, which needs no block. "+
-				"Re-run `faramir init --allow-sudo`", path, execUser)
+			return fmt.Sprintf("%s carries no faramir block, so this host's sudo-rs sends %s to the stock stack, "+
+				"where its locked password refuses: every escalation fails. A package upgrade "+
+				"replaced that file, or the install was made when the `sudo` alternatives group "+
+				"pointed elsewhere. Re-run `faramir init --allow-sudo`", path, execUser)
 		}
 		block := string(current[start:])
 		if at := strings.Index(block, pamBlockEnd); at >= 0 {
@@ -368,9 +361,8 @@ func sudoPamBranchProblem(execUser, helper string) string {
 		}
 		switch {
 		case !strings.Contains(block, "pam_succeed_if.so"):
-			return fmt.Sprintf("%s's faramir block does not test which account is "+
-				"authenticating, so what it does it does to every account on this host "+
-				"rather than to %s alone. Re-run `faramir init --allow-sudo`",
+			return fmt.Sprintf("%s's faramir block does not test which account is authenticating, so it applies "+
+				"to every account rather than to %s alone. Re-run `faramir init --allow-sudo`",
 				path, execUser)
 		case execUser == "":
 			return fmt.Sprintf("which account runs the executor is not known here, so "+
@@ -398,10 +390,9 @@ func sudoPamBranchProblem(execUser, helper string) string {
 		}
 	}
 	if checked == 0 {
-		return fmt.Sprintf("this host's sudo is sudo-rs, which reaches the service "+
-			"named `sudo` and nothing a caller may name, and neither %s exists to "+
-			"carry the stack that asks the broker: every escalation falls to %s/other. "+
-			"Install sudo, then re-run `faramir init --allow-sudo`",
+		return fmt.Sprintf("this host's sudo is sudo-rs, which reaches the service named `sudo` alone, and "+
+			"neither %s exists to carry the stack that asks the broker: every escalation falls "+
+			"to %s/other. Install sudo, then re-run `faramir init --allow-sudo`",
 			strings.Join(sudoPamFiles(), " nor "), pamDir)
 	}
 	return ""
@@ -444,9 +435,9 @@ func branchJumpProblem(path, block string) string {
 		after++
 	}
 	if jump >= 0 && jump != after {
-		return fmt.Sprintf("%s's faramir block skips %d module(s) and has %d after "+
-			"the branch, so an account that is not the executor lands inside it and "+
-			"is authenticated without a password. Re-run `faramir init --allow-sudo`",
+		return fmt.Sprintf("%s's faramir block skips %d module(s) and has %d after the branch, so an account "+
+			"that is not the executor lands inside it and is authenticated without a password. "+
+			"Re-run `faramir init --allow-sudo`",
 			path, jump, after)
 	}
 	return ""

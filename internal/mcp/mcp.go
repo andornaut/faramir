@@ -91,7 +91,7 @@ var tools = []Tool{
 					"description":          "Map of ENV_VAR name -> faramir:// URI to inject.",
 				},
 				"cwd": map[string]any{
-					"type": typeString,
+					"type":        typeString,
 					"description": "Absolute working directory. Defaults to the working tree.",
 				},
 				"timeout_sec": map[string]any{

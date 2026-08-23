@@ -129,8 +129,8 @@ func (r *runner) keepSopsConfig(path string) {
 		// The file is the operator's to edit and sops is what parses it, so a shape
 		// this does not understand is a question that went unasked.
 		r.warnf("%s could not be read (%v), so who can decrypt the secrets directory went "+
-			"unchecked. sops is what has to parse this file: if it cannot either, "+
-			"encrypting a new value into the secrets directory fails", path, err)
+			"unchecked. sops has to parse this file too: where it cannot, encrypting a new "+
+			"value fails", path, err)
 		r.step("sops config", false, "keeping "+path)
 		return
 	}
@@ -139,15 +139,10 @@ func (r *runner) keepSopsConfig(path string) {
 	r.report.AgeRecipients = listed
 
 	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
-		r.warnf("%s does not list the keeper's own recipient (%s), so every value "+
-			"encrypted into the secrets directory from now on is one %s cannot "+
-			"decrypt: the broker starts, loads nothing, and redacts nothing. Put it "+
-			"back with:\n"+
-			"  sudo faramir reader add %s\n"+
-			"which writes the rule and re-seals the store to it in one pass. That "+
-			"works while the managed files still open with %s; where they do not, "+
-			"this is what replacing that key leaves behind, and only the key they "+
-			"were sealed to can read them",
+		r.warnf("%s does not list the keeper's own recipient (%s), so every value encrypted from "+
+			"now on is one %s cannot decrypt. Put it back with:\n  sudo faramir reader add "+
+			"%s\nwhich re-seals the store to it. That works while the managed files still open "+
+			"with %s",
 			path, r.keeperRecipient, r.layout.KeeperUser,
 			r.keeperRecipient, r.layout.AgeKeyPath)
 	}
@@ -230,12 +225,9 @@ func (r *runner) checkSSHKey(path string, uid, gid int) error {
 		// Both halves in the remedy, and the group in the chown: this compares uid
 		// and gid, so a remedy naming the owner alone would leave the same refusal
 		// standing.
-		return fmt.Errorf("%s is %s, and [ssh] key names it, so %s cannot "+
-			"load it and brokered commands reach no managed host. Hand both halves "+
-			"over, group as well as owner:\n"+
-			"    chown %s:%s %s %s\n"+
-			"    chmod 0600 %s && chmod 0644 %s\n"+
-			"Or unset [ssh] key, if it is not the broker's to hold",
+		return fmt.Errorf("%s is %s, and [ssh] key names it, so %s cannot load it and brokered commands "+
+			"reach no managed host. Hand both halves over:\n    chown %s:%s %s %s\n    chmod "+
+			"0600 %s && chmod 0644 %s\nOr unset [ssh] key",
 			half.path, ownsWithGroup(half.path), r.layout.BrokerUser,
 			r.layout.BrokerUser, r.brokerGroupName(), path, path+".pub",
 			path, path+".pub")

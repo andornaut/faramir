@@ -52,12 +52,10 @@ func requireRootToAnswer(command string) bool {
 	// Not "try sudo": reaching root that way from the account the agent runs as
 	// leaves a warm sudo timestamp in a shell the agent can use. The three places
 	// named here are the ones warnIfTypeable does not warn about.
-	fmt.Fprintf(os.Stderr, "faramir %s must run as root: an escalation has to "+
-		"be answered by an account the coding agent cannot become, and it runs as "+
-		"you. Answer from a console, an ssh session on another machine, or a login "+
-		"as another account. Reaching root with `sudo` from this shell warms a sudo "+
-		"timestamp the agent can spend, so it is the last resort rather than the "+
-		"first.\n", command)
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root: an escalation has to be answered by an account the "+
+		"coding agent cannot become, and it runs as you. Answer from a console, an ssh "+
+		"session on another machine, or a login as another account. `sudo` from this shell "+
+		"warms a timestamp the agent can spend.\n", command)
 	return false
 }
 
@@ -167,10 +165,9 @@ func newApproveCmd() *cobra.Command {
 		// whoever is asking, and the other two commands check in that order.
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) != 1 || args[0] == "" {
-				return usagef("faramir sudo approve: one id is required\n" +
-					"A yes names the command it is for, so there is no form that approves " +
-					"whatever is waiting. `faramir sudo ls` lists it; `faramir sudo reject` " +
-					"needs no id, one question being outstanding at a time")
+				return usagef("faramir sudo approve: one id is required\nA yes names the command it is for. " +
+					"`faramir sudo ls` lists it; `faramir sudo reject` needs no id, one question " +
+					"being outstanding at a time")
 			}
 			return nil
 		},
@@ -376,9 +373,8 @@ func watchEscalations(socketPath string, paint palette) int {
 				fmt.Printf("  %s %s %s\n", paint.dim(question.LogID), paint.bad("rejected:"),
 					strconv.Quote(strings.Trim(line, "\r\n")))
 			case 69:
-				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s could not be answered and is "+
-					"still open with nobody watching it; stopping rather than leaving it "+
-					"that way. Start this again once the broker is back.\n", question.ID)
+				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s could not be answered and is still open with nobody "+
+					"watching it. Start this again once the broker is back.\n", question.ID)
 				return 69
 			default:
 				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s was not approved and is now "+
@@ -481,9 +477,8 @@ func warnIfTypeable() {
 	for _, reason := range reasons {
 		fmt.Fprintln(os.Stderr, "  - "+reason)
 	}
-	fmt.Fprint(os.Stderr, "The coding agent runs as that account. Watch from a "+
-		"console, an ssh session on another machine, or a login as another account "+
-		"-- somewhere it cannot reach the keyboard.\n\n")
+	fmt.Fprint(os.Stderr, "The coding agent runs as that account. Watch from a console, an ssh session on "+
+		"another machine, or another login: somewhere it cannot reach the keyboard.\n\n")
 }
 
 // answers reads the operator's terminal a line at a time. One reader for the

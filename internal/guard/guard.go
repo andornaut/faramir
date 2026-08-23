@@ -135,39 +135,29 @@ var fallbackOwn = []string{
 	`\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`,
 }
 
-const advice = "Blocked: this command would put a credential (or an encrypted blob) into " +
-	"the conversation, where it would be sent to the model provider.\n\n" +
-	"Use the faramir_run tool instead: it runs the command as a separate uid " +
-	"that holds no keys of its own, and returns output with secrets replaced by " +
-	"«SECRET:ref» tokens. Secrets are named, never pasted:\n\n" +
-	"    faramir_run(cmd=[\"printenv\", \"ROUTER_PW\"],\n" +
-	"                env_refs={\"ROUTER_PW\": \"faramir://home/router/admin\"})\n\n" +
-	"Call faramir_refs to see the available names. You do not need the " +
-	"value of a secret to use it, and you will not be given one."
+const advice = "Blocked: this command would put a credential into the conversation.\n\nUse " +
+	"faramir_run instead: it runs the command as a uid holding no keys and returns " +
+	"output with secrets replaced by «SECRET:ref» tokens.\n\n    " +
+	"faramir_run(cmd=[\"printenv\", \"ROUTER_PW\"],\n                " +
+	"env_refs={\"ROUTER_PW\": \"faramir://home/router/admin\"})\n\nfaramir_refs lists " +
+	"the names. You do not need a value to use it."
 
 // adviceOperator is for a command that is the operator's to run. The account
 // this agent runs as could not have carried it out, so the refusal saves the
 // detour of finding that out from a permission error.
-const adviceOperator = "Blocked: this is an operator command. It acts on the faramir " +
-	"install rather than through it, so it is refused to this shell whether or not " +
-	"sudo is in front of it, and the account you run as could not carry it out " +
-	"either.\n\nAsk the operator to run it in their own terminal.\n\nWhat you can " +
-	"run: the faramir_run and faramir_refs tools, `faramir status`, and " +
-	"`faramir redact`. Between them they say what secrets exist and run " +
-	"commands that need them, which is the whole of what an agent needs faramir " +
-	"for."
+const adviceOperator = "Blocked: this is an operator command. It acts on the faramir install rather than " +
+	"through it, so it is refused whether or not sudo is in front, and your account " +
+	"could not carry it out either.\n\nAsk the operator to run it. What you can run: " +
+	"faramir_run, faramir_refs, `faramir status` and `faramir redact`."
 
 // adviceOwn is for the rules that are not about disclosure. Acting on
 // faramir's own files, accounts or units discloses nothing, and the disclosure
 // advice would offer faramir_run as the way to proceed: a brokered command runs
 // as an account with less reach rather than more.
-const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not " +
-	"because the command would disclose anything, but because it would change or " +
-	"stop what keeps credentials out of this conversation.\n\n" +
-	"faramir_run is not a way round it: a brokered command runs as an account " +
-	"with less reach than yours, not more.\n\n" +
-	"If this is deliberate, it is the operator's to do. Say what you were trying " +
-	"to achieve and let them decide."
+const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not because it would disclose " +
+	"anything, but because it would change or stop what keeps credentials out of this " +
+	"conversation. faramir_run is no way round it: a brokered command has less reach " +
+	"than you.\n\nIf this is deliberate, it is the operator's to do."
 
 // adviceMarkers map a substring of a pattern to the explanation that pattern
 // carries. Matched against the pattern's own text, which is the same string in
@@ -212,6 +202,19 @@ func adviceFor(pattern, command string) string {
 		return m.advice
 	}
 	return advice
+}
+
+// shortPattern is a rendered rule as much of it as identifies which one it was.
+// The whole of one runs past 600 characters of alternation, all of it going into
+// the transcript on every refusal, where nothing reads a regular expression: the
+// operator finds the rule in the file by its opening, and the model needs none
+// of it. `faramir block ls` prints them in full.
+func shortPattern(pattern string) string {
+	const keep = 60
+	if len(pattern) <= keep {
+		return pattern
+	}
+	return pattern[:keep] + "…"
 }
 
 // namesOwn reports whether the command names a directory belonging to this
@@ -480,7 +483,8 @@ func Run(args []string) int {
 	}
 
 	if pattern, denied := decide(command); denied {
-		return emit(activeHost.deny(adviceFor(pattern, command) + "\n\n(matched deny pattern: " + pattern + ")"))
+		return emit(activeHost.deny(adviceFor(pattern, command) +
+			"\n\n(matched deny pattern: " + shortPattern(pattern) + ")"))
 	}
 
 	// A deny list only covers what someone thought to name, so everything else is
@@ -508,16 +512,13 @@ func Run(args []string) int {
 // agent that is told to stop and why can say so, where one that meets a silent
 // refusal retries.
 const (
-	unreadablePayload = "Blocked: faramir's guard could not read this tool call, so it " +
-		"could not decide whether the command discloses a credential, and the " +
-		"command was not run.\n\nThis is not something to work around. Tell the " +
-		"operator that `faramir guard` did not understand its input: the agent " +
-		"and the install disagree about the shape of a hook payload, and until " +
-		"that is fixed nothing this tree runs is redacted."
-	noCommandString = "Blocked: faramir's guard was handed a shell tool call carrying no " +
-		"command, so there was nothing to check and the call was not made.\n\n" +
-		"Tell the operator: on a tool that runs commands this means the tool's " +
-		"input is not the shape `faramir guard` reads."
+	unreadablePayload = "Blocked: faramir's guard could not read this tool call, so it could not decide " +
+		"whether the command discloses a credential.\n\nTell the operator that `faramir " +
+		"guard` did not understand its input: until that is fixed nothing this tree runs is " +
+		"redacted."
+	noCommandString = "Blocked: faramir's guard was handed a shell tool call carrying no command, so " +
+		"there was nothing to check.\n\nTell the operator: the tool's input is not the " +
+		"shape `faramir guard` reads."
 )
 
 func emit(document map[string]any) int {

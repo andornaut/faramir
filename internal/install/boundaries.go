@@ -165,10 +165,9 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	// Named as unasked rather than run: each would otherwise report its boundary
 	// as holding on the strength of a question nobody could ask.
 	if opts.AgentUser == "" {
-		report.unaskedf("boundaries", len(aboutTheOperator), "the agent account is not named, so "+
-			"%d checks that ask what it can reach were not made: pass "+
-			"--agent-user, or run through sudo so SUDO_USER carries it. The rest "+
-			"of the examination is unaffected", len(aboutTheOperator))
+		report.unaskedf("boundaries", len(aboutTheOperator), "the agent account is not named, so %d check(s) that ask what it "+
+			"can reach were not made: pass --agent-user, or run through sudo so "+
+			"SUDO_USER carries it", len(aboutTheOperator))
 		return
 	}
 	for _, check := range aboutTheOperator {
@@ -281,10 +280,9 @@ func diagnoseConfigReadable(report *DoctorReport, opts DoctorOptions) {
 	// is usually world-readable and the refusal is a parent it cannot enter, so
 	// a report naming the file sends an operator to chmod the wrong thing.
 	if blocked := blockingDir(opts.BrokerUser, configFile); blocked != "" {
-		report.addf("config reach", StatusFailed, "%s cannot read %s: it cannot enter "+
-			"%s. The daemons are still serving what they loaded, and a reload will "+
-			"refuse rather than stop them. `faramir init` grants the group execute "+
-			"this needs", opts.BrokerUser, configFile, blocked)
+		report.addf("config reach", StatusFailed, "%s cannot read %s: it cannot enter %s. The daemons "+
+			"go on serving what they loaded and a reload will refuse; `faramir init` "+
+			"grants the traversal", opts.BrokerUser, configFile, blocked)
 		return
 	}
 	report.addf("config reach", StatusFailed, "%s cannot read %s, so a reload will "+
@@ -440,11 +438,8 @@ func reportDenyPatterns(report *DoctorReport, opts DoctorOptions, path string) {
 		}
 	}
 	if len(missing) > 0 {
-		report.addf("deny patterns", StatusFailed, "%s does not carry %d declared "+
-			"command(s), which are refused by nothing until it does: %s. `faramir "+
-			"block add` renders this file with the entry, so this is an entry "+
-			"written by hand or a run that stopped early; `faramir init` renders it "+
-			"again", path, len(missing), strings.Join(missing, ", "))
+		report.addf("deny patterns", StatusFailed, "%s does not carry %d declared command(s), so they are refused by nothing: %s. "+
+			"`faramir init` renders the file again", path, len(missing), strings.Join(missing, ", "))
 		return
 	}
 	// And the rest of it, against a re-render from this install's own layout.
@@ -470,11 +465,9 @@ func reportDenyPatterns(report *DoctorReport, opts DoctorOptions, path string) {
 	// right answer there and leaves the loss silent: what should have been three
 	// rules is however many of them compiled.
 	if broken := uncompilable(have); len(broken) > 0 {
-		report.addf("deny patterns", StatusFailed, "%d of the %d rule(s) in %s will "+
-			"not compile, and the hook skips a rule it cannot compile, so each one "+
-			"refuses nothing: %s. An entry carrying a control character renders a "+
-			"rule across two lines and breaks both halves; `faramir block ls "+
-			"--declared` names the entries",
+		report.addf("deny patterns", StatusFailed, "%d of the %d rule(s) in %s will not compile, and the hook skips those, so each "+
+			"refuses nothing: %s. A control character in an entry breaks the rule it renders; "+
+			"`faramir block ls --declared` names them",
 			len(broken), len(have), path, firstFew(broken))
 		return
 	}
@@ -486,10 +479,8 @@ func reportDenyPatterns(report *DoctorReport, opts DoctorOptions, path string) {
 			"for: %s. `faramir init` renders it again",
 			path, len(absent), len(want), firstFew(absent))
 	case len(spare) > 0:
-		report.addf("deny patterns", StatusWarn, "%s carries %d rule(s) this install "+
-			"does not render, left by an earlier version or added by hand: %s. Extra "+
-			"refusals, so untidy rather than unguarded; `faramir init` rewrites the "+
-			"file whole", path, len(spare), firstFew(spare))
+		report.addf("deny patterns", StatusWarn, "%s carries %d rule(s) this install does not render: %s. Extra refusals, so untidy "+
+			"rather than unguarded; `faramir init` rewrites the file", path, len(spare), firstFew(spare))
 	default:
 		report.addf("deny patterns", StatusOK, "%s is what this install renders: %d "+
 			"rule(s), naming its own directories and every command it declares",
@@ -867,10 +858,9 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 			"known here, so a NOPASSWD entry for it went unchecked. Pass --exec-user")
 		return
 	case nopasswd != "":
-		report.addf("sudo credential", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so "+
-			"a brokered command runs sudo without the broker, the question or a human "+
-			"in the way. Remove it: NOPASSWD skips PAM, which is where the escalation "+
-			"is asked for", opts.ExecUser, nopasswd)
+		report.addf("sudo credential", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so a brokered command sudoes without the "+
+			"broker or a human: NOPASSWD skips PAM, which is where the question is asked. "+
+			"Remove it", opts.ExecUser, nopasswd)
 		return
 	}
 	shadow, err := os.ReadFile(shadowFile)
@@ -899,10 +889,8 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 // host reports n/a.
 func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Escalation.ExecUser == "" {
-		report.addf("sudo grant", StatusNA, "no [escalation] section, so nothing here "+
-			"authenticates an escalation and there is no PAM service, helper or fallback "+
-			"to read. Brokered commands cannot sudo, which is the default arrangement; "+
-			"`faramir init --allow-sudo` is what writes the three")
+		report.addf("sudo grant", StatusNA, "no [escalation] section, so brokered commands cannot sudo. That is the default; "+
+			"`faramir init --allow-sudo` writes the arrangement")
 		return
 	}
 
@@ -968,12 +956,9 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	// left over. A failure rather than the crossed case above, because the grant
 	// beside it names settings written for the other sudo.
 	if present, err := sudoPamBlockPresent(); !sudoRs && !crossed && err == nil && present {
-		report.addf("sudo grant", StatusFailed, "a faramir block is still in %s "+
-			"while this host's sudo is the original, which selects %s with the "+
-			"grant's own pam_service: the block is left over from an install made "+
-			"when the `sudo` alternatives group pointed elsewhere, and the grant "+
-			"beside it may name settings this sudo does not read. Re-run `faramir "+
-			"init --allow-sudo`", strings.Join(sudoPamFiles(), " or "), pamFile)
+		report.addf("sudo grant", StatusFailed, "a faramir block is still in %s while this host's sudo is the original, which "+
+			"selects %s instead: the block is left from an install made when the `sudo` "+
+			"alternatives group pointed elsewhere. Re-run `faramir init --allow-sudo`", strings.Join(sudoPamFiles(), " or "), pamFile)
 		return
 	}
 	// The helper the stack execs, as root. It is named on a requisite line, so a
@@ -1009,9 +994,9 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	sudoEnv := filepath.Join(filepath.Dir(cfg.Escalation.Helper), "sudo-env")
 	names := pamFile + " reads it with pam_env"
 	if !strings.Contains(string(body), "pam_env.so") {
-		report.addf("sudo grant", StatusFailed, "%s has no pam_env line, so nothing "+
-			"puts %s into what a brokered command's sudo hands root: FARAMIR_OPERATOR "+
-			"and [command] env do not survive it. Re-run `faramir init --allow-sudo`",
+		report.addf("sudo grant", StatusFailed, "%s has no pam_env line, so %s does not reach a brokered "+
+			"command's sudo: FARAMIR_OPERATOR and [command] env do not survive it. "+
+			"Re-run `faramir init --allow-sudo`",
 			pamFile, sudoEnv)
 		return
 	}
@@ -1046,12 +1031,10 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		return
 	}
 	if crossed {
-		report.addf("sudo grant", StatusWarn, "%s may ask to sudo and %s asks the "+
-			"broker, so escalation works. The arrangement was written when the "+
-			"`sudo` alternatives group pointed at sudo-rs, which names no "+
-			"pam_service, and this host's sudo is the original, which then reads "+
-			"that same file as its default service. Re-run `faramir init "+
-			"--allow-sudo` to write the arrangement this sudo expects",
+		report.addf("sudo grant", StatusWarn, "%s may ask to sudo and %s asks the broker, so escalation works. The arrangement "+
+			"was written for sudo-rs and this host's sudo is the original, which reads that "+
+			"file as its default service. Re-run `faramir init --allow-sudo` for the "+
+			"arrangement this sudo expects",
 			opts.ExecUser, pamFile)
 		return
 	}
@@ -1133,11 +1116,9 @@ var usernsSwitches = []struct {
 // container and browser sandbox on the host depends on.
 func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Escalation.ExecUser == "" {
-		report.addf("user namespaces", StatusNA, "no [escalation] section, so the executor "+
-			"unit is rendered with SystemCallFilter=@system-service, which excludes "+
-			"@mount: a namespace confers capabilities with nothing to act on. A host "+
-			"that grants an escalation cannot carry that filter, which is what makes "+
-			"this setting decide something there")
+		report.addf("user namespaces", StatusNA, "no [escalation] section, so the executor unit carries "+
+			"SystemCallFilter=@system-service, which excludes @mount: a namespace confers "+
+			"capabilities with nothing to act on")
 		return
 	}
 	for _, control := range usernsSwitches {
@@ -1151,21 +1132,16 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 				"user namespace to hold capabilities in", control.path, value, opts.ExecUser)
 			return
 		}
-		report.addf("user namespaces", StatusWarn, "%s is %s, so a brokered command may "+
-			"unshare a user namespace and hold a full capability set inside it. The "+
-			"executor unit cannot refuse this: RestrictNamespaces= denies clone3(), "+
-			"which is how every run is spawned into its cgroup. The uid boundaries "+
-			"hold regardless, the namespace mapping only %s's own; what it reaches is "+
-			"the mount family, and this host grants an escalation so no seccomp filter "+
-			"is in the way. Close it with: sysctl -w %s=%s, and a line in /etc/sysctl.d",
-			control.path, value, opts.ExecUser, control.path, control.shut)
+		report.addf("user namespaces", StatusWarn, "%s is %s, so a brokered command may unshare a user namespace and hold a full "+
+			"capability set inside it. The unit cannot refuse it: RestrictNamespaces= denies "+
+			"clone3, which every run needs. The uid boundaries hold; what it reaches is "+
+			"the mount family. Close it: sysctl -w %s=%s, and a line in /etc/sysctl.d",
+			control.path, value, control.path, control.shut)
 		return
 	}
-	report.unaskedf("user namespaces", 1, "this kernel exposes no switch for "+
-		"unprivileged user namespaces, so whether a brokered command may unshare "+
-		"one was not asked. The executor unit cannot refuse it either: "+
-		"RestrictNamespaces= denies clone3(), which is how every run is spawned "+
-		"into its cgroup")
+	report.unaskedf("user namespaces", 1, "this kernel exposes no switch for unprivileged user namespaces, so whether a "+
+		"brokered command may unshare one was not asked. The unit cannot refuse it "+
+		"either: RestrictNamespaces= denies clone3, which every run needs")
 }
 
 // diagnosePtraceScope checks what stands between a brokered command and the
@@ -1187,30 +1163,25 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // SystemCallFilter=@system-service, which excludes @ptrace.
 func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 	if cfg == nil || cfg.Escalation.ExecUser == "" {
-		report.addf("ptrace scope", StatusNA, "no [escalation] section, so the executor unit is "+
-			"rendered with SystemCallFilter=@system-service, which excludes @ptrace: the "+
-			"syscall is refused whatever %s says. A host that grants an escalation cannot "+
-			"carry that filter, which is what makes this setting decide something there",
+		report.addf("ptrace scope", StatusNA, "no [escalation] section, so the executor unit carries "+
+			"SystemCallFilter=@system-service, which excludes @ptrace: the syscall is refused "+
+			"whatever %s says",
 			ptraceScopeFile)
 		return
 	}
 	raw, err := os.ReadFile(ptraceScopeFile)
 	if err != nil {
-		report.unaskedf("ptrace scope", 1, "%s cannot be read (%v), so it is not "+
-			"known whether one process running as %s can ptrace another. On a host "+
-			"that grants an escalation, that is the difference between a run's "+
-			"processes being separate and being one",
+		report.unaskedf("ptrace scope", 1, "%s cannot be read (%v), so whether one process running as %s can ptrace another "+
+			"is unknown. On a host granting an escalation that decides whether a run's "+
+			"processes are separate",
 			ptraceScopeFile, err, cfg.Escalation.ExecUser)
 		return
 	}
 	scope := strings.TrimSpace(string(raw))
 	if scope == "0" {
-		report.addf("ptrace scope", StatusWarn, "%s is 0, so any process running as %s "+
-			"may ptrace any other of that uid. This host grants an escalation, and the "+
-			"executor unit carries no seccomp filter to refuse it (a filter would "+
-			"force NoNewPrivileges= on, which makes sudo inert). Set it to 1 or "+
-			"higher: sysctl -w kernel.yama.ptrace_scope=1, and a line in "+
-			"/etc/sysctl.d to keep it", ptraceScopeFile, cfg.Escalation.ExecUser)
+		report.addf("ptrace scope", StatusWarn, "%s is 0, so any process running as %s may ptrace any other of that uid, and this "+
+			"host grants an escalation. Set it to 1 or higher: sysctl -w "+
+			"kernel.yama.ptrace_scope=1, and a line in /etc/sysctl.d", ptraceScopeFile, cfg.Escalation.ExecUser)
 		return
 	}
 	report.addf("ptrace scope", StatusOK, "%s is %s, so one process running as %s "+
@@ -1231,10 +1202,9 @@ func diagnoseCgroupDelegation(report *DoctorReport, _ DoctorOptions, _ *config.C
 		// checks already speak to that.
 		return
 	case !delegates:
-		report.addf("cgroup delegation", StatusFailed, "the executor unit does not set "+
-			"Delegate=, so it cannot confine a run and the executor refuses to run one: "+
-			"every brokered command fails until this is fixed. Reinstall with `faramir "+
-			"init` on a host running cgroup v2 (kernel >= 5.14)")
+		report.addf("cgroup delegation", StatusFailed, "the executor unit does not set Delegate=, so it cannot confine a run and refuses "+
+			"every brokered command. Reinstall with `faramir init` on a host running cgroup v2 "+
+			"(kernel >= 5.14)")
 	default:
 		report.addf("cgroup delegation", StatusOK, "the executor unit is delegated a "+
 			"cgroup subtree, so each run is confined and reaped and a setsid child "+
@@ -1276,13 +1246,13 @@ func pamStackProblem(body, helper string) string {
 		}
 		switch {
 		case !strings.Contains(line, "requisite"):
-			return "the helper is not `requisite`, so a refusal is not fatal and the " +
-				"stack falls through to whatever permits below: every escalation would " +
-				"be granted without asking. Re-run `faramir init --allow-sudo`"
+			return "the helper is not `requisite`, so a refusal falls through to whatever permits " +
+				"below and every escalation is granted without asking. Re-run `faramir init " +
+				"--allow-sudo`"
 		case !strings.Contains(line, "seteuid"):
-			return "the helper runs without `seteuid`, so pam_exec runs it as the " +
-				"executor rather than root: the broker answers the escalate op to root " +
-				"alone, so every escalation on this host fails. Re-run `faramir init --allow-sudo`"
+			return "the helper runs without `seteuid`, so pam_exec runs it as the executor rather " +
+				"than root, and the broker answers the escalate op to root alone: every " +
+				"escalation fails. Re-run `faramir init --allow-sudo`"
 		case helper != "" && !strings.Contains(line, helper):
 			return "the helper is not " + helper + ", so something other than faramir " +
 				"decides these escalations"

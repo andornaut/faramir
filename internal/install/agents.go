@@ -239,10 +239,9 @@ var agentTargets = map[string]*agentTarget{
 		// Nothing account-wide: its permission lists are the IDE's own state and
 		// its hooks can only decide, so no file an install writes would refuse a
 		// file tool anything.
-		withoutAccountRules: "has no file an install can write rules into, its " +
-			"permission lists being the IDE's own state, so nothing on this host " +
-			"refuses its file tools key material: it is told the policy and nothing " +
-			"enforces it",
+		withoutAccountRules: "has no file an install can write rules into, its permission lists being the " +
+			"IDE's own state, so nothing here refuses its file tools: it is told the " +
+			"policy and nothing enforces it",
 		// The workspace and legacy customization directories, named by the files in
 		// them rather than by the directory: .agents is a name other tools may keep
 		// their own things under.
@@ -266,11 +265,9 @@ var agentTargets = map[string]*agentTarget{
 		// Said on every enrolment: what is missing here is missing for as long as
 		// the tree is enrolled.
 		noteStands: true,
-		note: "nothing written here redacts what Antigravity runs. Its hooks decide " +
-			"and cannot rewrite a command, so the broker is a route it has to take " +
-			"rather than one it is put on: what was installed is the MCP tools and the " +
-			"instructions to use them, and a command it runs itself reaches the model " +
-			"with the value in it",
+		note: "nothing written here redacts what Antigravity runs: its hooks cannot rewrite a " +
+			"command, so the broker is a route it has to take rather than one it is put on. " +
+			"What was installed is the MCP tools and the instructions to use them",
 	},
 }
 
@@ -450,10 +447,9 @@ func refuseUnwritable(fs fsys, root string, uid int, within string, paths []stri
 // agent holding another agent's configuration. It names the path that claimed
 // the file first, neither half of the pair being wrong on its own.
 func oneFileTwice(first string) string {
-	return "this and " + first + " are one file, and each is written for the " +
-		"agent that reads it, so nothing was written: what one holds would be " +
-		"what was written for the other, and only the last write would survive. " +
-		"A link between them is what makes this, so point one at a file of its own"
+	return "this and " + first + "are one file, and each is written for the agent that reads it, so nothing was " +
+		"written: only the last write would survive. A link between them is what makes " +
+		"this, so point one at a file of its own"
 }
 
 // editedPaths are the files one agent's enrolment edits at this scope, relative
@@ -496,10 +492,9 @@ func homeEditedPaths(targets []*agentTarget) []string {
 func pluginNote(agent string) string {
 	const wrapper = "source " + DefaultLibexecDir + "/wrap.sh"
 	return agent + " matches its bash permission rules against the command text, and the " +
-		"guard rewrites every command into `" + wrapper + " '<command>'`. Whether those " +
-		"rules see the command or the rewrite is not documented: if commands start " +
-		"prompting as the wrapper rather than as themselves, they see the rewrite, and a " +
-		"rule naming `" + wrapper + " *` is what decides them from then on"
+		"guard rewrites every command into `" + wrapper + "'<command>'`. Whether those rules see the command or the rewrite is not " +
+		"documented: if commands prompt as the wrapper, they see the rewrite, and a rule " +
+		"naming `" + wrapper + " *` is what decides them from then on"
 }
 
 // AgentAuto is the --agent value that means "whichever ones are here", and the

@@ -499,9 +499,8 @@ func (r *runner) preflight() error {
 			"writes under /etc and installs systemd units")
 	}
 	if r.opts.AgentUser == "" || r.opts.AgentUser == "root" {
-		return errors.New("name the account the coding agent runs as: pass --agent-user, " +
-			"or run through sudo so SUDO_USER carries it. It must not be root: " +
-			"the operator owns the checkouts a brokered command runs in")
+		return errors.New("name the account the coding agent runs as: pass --agent-user, or run through " +
+			"sudo. It must not be root")
 	}
 	if !userExists(r.opts.AgentUser) {
 		return fmt.Errorf("no such user: %s", r.opts.AgentUser)
@@ -510,10 +509,9 @@ func (r *runner) preflight() error {
 	// alone: a value above it renders a config.toml the daemons then refuse,
 	// which is a host with no broker where the answer is one number.
 	if r.opts.CommandConcurrency > config.MaxConcurrentRuns {
-		return fmt.Errorf("--command-concurrency %d is above the %d the executor "+
-			"forks at once, so the surplus would be refused by the executor rather "+
-			"than by the broker: the run is registered and recorded as started "+
-			"before it meets that. Name %d or fewer",
+		return fmt.Errorf("--command-concurrency %d is above the %d the executor forks at once, so the "+
+			"surplus is refused by the executor after the run is recorded as started. Name %d "+
+			"or fewer",
 			r.opts.CommandConcurrency, config.MaxConcurrentRuns, config.MaxConcurrentRuns)
 	}
 	// Read before an account or a key exists: reporting a typo at the step would
@@ -527,9 +525,8 @@ func (r *runner) preflight() error {
 	// write lands in the backing directory and is shadowed the moment it mounts.
 	// The config directory answers for the secrets directory and the key too.
 	if home := homeOf(r.layout.ConfigDir); home != "" && looksEncrypted(home) && !homeIsMounted(home) {
-		return fmt.Errorf("%s is an encrypted home and is not mounted, and %s is "+
-			"inside it. Installing now would write plaintext to the backing directory, "+
-			"where it is hidden once the home mounts. Log in as its owner first",
+		return fmt.Errorf("%s is an encrypted home and is not mounted, and %s is inside it: installing now "+
+			"writes plaintext to the backing directory. Log in as its owner first",
 			home, r.layout.ConfigDir)
 	}
 	// The config directory is the one faramir creates whose parent can belong to
@@ -585,19 +582,15 @@ func (r *runner) refuseConfigMove() error {
 		// A dry run reports and writes nothing, so the move is what it has to
 		// report: refusing here would mean consenting to a move to preview it.
 		if r.opts.DryRun {
-			r.warnf("this host's daemons load %s, and this run names %s. A run that "+
-				"was not a dry run would be refused: pass --move-config to move them, "+
-				"or leave --config-dir out to provision the install this host has",
+			r.warnf("this host's daemons load %s, and this run names %s. A real run would be refused: "+
+				"pass --move-config to move them, or leave --config-dir out",
 				installed, r.layout.ConfigDir)
 			return nil
 		}
-		return fmt.Errorf("this host's daemons load %s, and this run names %s.\n"+
-			"There is one set of units, so the second does not stand beside the "+
-			"first: the daemons would move and %s would be left holding its age key "+
-			"and its ciphertext, with the refs it serves no longer in the value set "+
-			"and no longer redacted.\n"+
-			"Pass --move-config to move them, then retire %s yourself. To provision "+
-			"the install this host already has, leave --config-dir out",
+		return fmt.Errorf("this host's daemons load %s, and this run names %s.\nThere is one set of units, "+
+			"so the daemons would move and %s would be left holding its age key and its "+
+			"ciphertext, no longer redacted.\nPass --move-config to move them, then retire %s "+
+			"yourself. To provision the install this host has, leave --config-dir out",
 			installed, r.layout.ConfigDir, installed, installed)
 	}
 	// Consented to, and still worth naming: what is left behind is key material
@@ -748,10 +741,9 @@ func sudoRsNote(visudo string) string {
 		return ""
 	}
 	return "\nThis host reports " + banner + ". The grant needs " + floor +
-		" or newer, that being where noninteractive_auth arrived: without it " +
-		"`sudo -n` fails before the PAM stack runs, so no question is ever put. " +
-		"Upgrade sudo, or install without --allow-sudo, which grants nothing and " +
-		"is the default arrangement."
+		"or newer, that being where noninteractive_auth arrived: without it `sudo -n` fails " +
+		"before the PAM stack runs, so no question is put. Upgrade sudo, or install without " +
+		"--allow-sudo"
 }
 
 // olderThanFloor reports whether a version banner names a release without
@@ -840,11 +832,9 @@ func (r *runner) refuseSymlinks() error {
 			continue
 		}
 		target, _ := os.Readlink(path)
-		return fmt.Errorf("%s is a symlink to %s. faramir asserts the mode and owner "+
-			"of that path, and through a link they would land on the target instead, "+
-			"so nothing has been installed. Replace it with a regular file or "+
-			"directory. To keep the data elsewhere, move the install itself with "+
-			"--config-dir, or mount the directory rather than linking it",
+		return fmt.Errorf("%s is a symlink to %s, and faramir asserts the mode and owner of that path, which "+
+			"through a link would land on the target: nothing has been installed. Replace it "+
+			"with a real file or directory, or move the install with --config-dir",
 			path, target)
 	}
 	return nil

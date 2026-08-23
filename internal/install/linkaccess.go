@@ -67,9 +67,8 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	if len(fix) == 0 {
 		return "", nil
 	}
-	return fmt.Sprintf("%s (%s) is %s %04o, and a linked file has to be group %s "+
-		"and group-readable, and readable by nobody else: naming a value is not "+
-		"permission to read the file it came from.\n%s",
+	return fmt.Sprintf("%s (%s) is %s %04o, and a linked file has to be group %s and group-readable, and "+
+		"readable by nobody else:\n%s",
 		link.Path, link.Ref, fileGroup(info), mode, r.brokerGroupName(),
 		strings.Join(fix, " && ")), nil
 }
@@ -312,22 +311,17 @@ func (r *runner) refuseShadowedRef(configFile, ref string) error {
 	out, err := asUser(r.opts.AgentUser, "env",
 		"FARAMIR_SOCKET="+cfg.Server.SocketPath, selfPath(), "refs")
 	if err != nil {
-		return fmt.Errorf("the broker did not answer, so whether it already serves "+
-			"%s could not be asked, and an entry claiming a name it serves refuses "+
-			"every brokered command on this host. Start it and run this again "+
-			"(`systemctl start faramir-broker.socket`, and `faramir doctor` says "+
-			"what is wrong where it does not come up): %w", ref, err)
+		return fmt.Errorf("the broker did not answer, so whether it already serves %s could not be asked, "+
+			"and an entry claiming a name it serves refuses every brokered command. Start it "+
+			"and run this again (`systemctl start faramir-broker.socket`): %w", ref, err)
 	}
 	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if strings.TrimSpace(line) != "faramir://"+ref {
 			continue
 		}
-		return fmt.Errorf("the broker already serves %s, so a [[secret.link]] "+
-			"entry cannot claim that name: a ref has one definition, and a second "+
-			"file answering it is one nothing reads and nothing redacts, which the "+
-			"broker refuses every brokered command over. Choose another name, or take "+
-			"the value it serves now out of the managed store with `sudo faramir "+
-			"vault edit` first", ref)
+		return fmt.Errorf("the broker already serves %s, so a [[secret.link]] entry cannot claim that name: "+
+			"a ref has one definition. Choose another, or take the value out of the managed "+
+			"store with `sudo faramir vault edit` first", ref)
 	}
 	return nil
 }
@@ -346,10 +340,8 @@ func linkNamed(existing []config.Link, ref string) (config.Link, bool) {
 // names both sides: which credential a caller of that name receives is the
 // whole of what differs between them, and neither side is visible from the ref.
 func redefinedRef(configFile string, other, link config.Link) error {
-	return fmt.Errorf("%s already names %s, as %s (%s%s), and this asks for %s (%s%s). "+
-		"A ref has one definition, and a caller naming it cannot tell which file "+
-		"answered: remove that one with `faramir link rm %s` first, or choose another "+
-		"name", configFile, link.Ref, other.Path, other.Type, keySuffix(other.Key),
+	return fmt.Errorf("%s already names %s, as %s (%s%s), and this asks for %s (%s%s). A ref has one "+
+		"definition: remove that one with `faramir link rm %s`, or choose another name", configFile, link.Ref, other.Path, other.Type, keySuffix(other.Key),
 		link.Path, link.Type, keySuffix(link.Key), link.Ref)
 }
 
@@ -535,19 +527,14 @@ func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.
 			"without the redactor seeing it: %s", opts.ExecUser,
 			strings.Join(reachable, ", "))
 	case len(unreadable) > 0:
-		report.addf(name, StatusFailed, "%s cannot read a linked file, so its value "+
-			"is absent from the redactor while the plaintext is still on disk: that "+
-			"ref is refused and anything that touches the file can print the value "+
-			"in the clear. A tool that replaces its own file rather than rewriting it "+
-			"takes the group with it, and `sudo chgrp %s PATH && sudo chmod g+r "+
-			"PATH` puts it back: %s", opts.BrokerUser, groupNameOf(opts.BrokerUser),
+		report.addf(name, StatusFailed, "%s cannot read a linked file, so that ref is refused while the plaintext is still "+
+			"on disk. A tool that replaces its own file takes the group with it; `sudo chgrp "+
+			"%s PATH && sudo chmod g+r PATH` puts it back: %s", opts.BrokerUser, groupNameOf(opts.BrokerUser),
 			strings.Join(unreadable, ", "))
 	case len(absent) > 0:
-		report.addf(name, StatusFailed, "%d linked file(s) are readable by %s "+
-			"alone; %d not there, so the ref answers nothing and the value is "+
-			"absent from the redactor. Either the credential has left the machine, "+
-			"and the entry should go with `faramir link rm REF`, or the home "+
-			"holding it is not mounted: %s",
+		report.addf(name, StatusFailed, "%d linked file(s) are readable by %s alone; %d are not there, so those refs "+
+			"answer nothing. Either the credential has left the machine, and the entry should "+
+			"go with `faramir link rm REF`, or the home holding it is not mounted: %s",
 			len(cfg.Secret.Links)-len(absent), opts.BrokerUser, len(absent),
 			strings.Join(absent, ", "))
 	default:

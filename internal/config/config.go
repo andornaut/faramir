@@ -788,10 +788,9 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 		if shown == "" {
 			shown = "an empty component"
 		}
-		return fmt.Errorf("%s: [command] env PATH contains %s, which means the "+
-			"working directory. The broker resolves a bare program name from its own "+
-			"directory and the command runs in the request's, so the file checked "+
-			"would not be the file run. Name every directory absolutely", path, shown)
+		return fmt.Errorf("%s: [command] env PATH contains %s, which means the working directory. The broker "+
+			"resolves a bare name from its own and the command runs in the request's, so the "+
+			"file checked is not the file run. Name every directory absolutely", path, shown)
 	}
 	// Every request is clamped to max_timeout_sec, so a smaller one here would
 	// replace timeout_sec rather than cap it.
@@ -967,10 +966,9 @@ func validateBlocked(blocked BlockedPath, at string) error {
 	}
 	switch {
 	case len(named) > 1:
-		return fmt.Errorf("%s: names %s, and an entry is one of them: a path blocks "+
-			"that file on this host, a name blocks every file it matches wherever it "+
-			"is, and a command blocks a command from the agent's shell. Write an "+
-			"entry each", at, strings.Join(named, " and "))
+		return fmt.Errorf("%s: names %s, and an entry is one of them: a path blocks that file here, a name "+
+			"blocks every file it matches wherever it is, and a command blocks a command. "+
+			"Write an entry each", at, strings.Join(named, " and "))
 	case blocked.Name != "":
 		return validateBlockedName(blocked.Name, at)
 	case blocked.Command != "":
@@ -1002,16 +1000,12 @@ func refuseControl(form, value, at string) error {
 	for i := 0; i < len(value); {
 		r, size := utf8.DecodeRuneInString(value[i:])
 		if r == utf8.RuneError && size == 1 {
-			return fmt.Errorf("%s: %s %q carries a byte at offset %d that is not valid "+
-				"UTF-8. A rule is a regular expression, and one carrying such a byte "+
-				"does not compile; the hook skips a rule it cannot compile, so the "+
-				"entry would refuse nothing", at, form, value, i)
+			return fmt.Errorf("%s: %s %q carries a byte at offset %d that is not valid UTF-8, so the rule it "+
+				"renders does not compile and refuses nothing", at, form, value, i)
 		}
 		if termsafe.Actionable(r) {
-			return fmt.Errorf("%s: %s %q carries %q at offset %d. A rule is one line "+
-				"of a generated file, so a newline in an entry splits it and leaves "+
-				"neither half a working rule; the rest of the controls make a listing "+
-				"print something other than what is stored", at, form, value, r, i)
+			return fmt.Errorf("%s: %s %q carries %q at offset %d. A rule is one line of a generated file, so a "+
+				"newline splits it and leaves neither half working", at, form, value, r, i)
 		}
 		i += size
 	}

@@ -89,11 +89,9 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 			"faramir has stopped writing", read)
 		return
 	}
-	report.addf("agent rule drift", StatusWarn, "%d rule(s) faramir no longer writes "+
-		"are still in place, left rather than deleted because an entry carries no "+
-		"sign of who added it and yours would look the same. Remove the rules "+
-		"below from the file rather than the file itself, and only where they are "+
-		"not yours: %s", ruleCount, strings.Join(stale, "; "))
+	report.addf("agent rule drift", StatusWarn, "%d rule(s) faramir no longer writes are still in place, left rather than deleted "+
+		"because yours would look the same. Remove them from the file, not the file itself, "+
+		"and only where they are not yours: %s", ruleCount, strings.Join(stale, "; "))
 }
 
 // diagnoseLinkedFiles asks whether the account-wide deny rules refuse every
@@ -180,11 +178,8 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 		report.addf(name, StatusOK, "%d linked file(s) are refused to the agent's "+
 			"file tools in %d rule file(s)", len(links), files)
 	default:
-		report.addf(name, StatusFailed, "a linked file is not refused to the agent's "+
-			"file tools, so its value is in the redactor while the plaintext is still "+
-			"one read away. `faramir link add` renders the rules with the entry, so this "+
-			"is a link written by hand or a run that stopped early; `faramir init` "+
-			"renders them again: %s", strings.Join(uncovered, "; "))
+		report.addf(name, StatusFailed, "a linked file is not refused to the agent's file tools, so its plaintext is one "+
+			"read away: %s. `faramir init` renders the rules again", strings.Join(uncovered, "; "))
 	}
 }
 
@@ -234,10 +229,9 @@ func diagnoseInstallRules(report *DoctorReport, opts DoctorOptions) {
 		report.addf(name, StatusOK, "the %d path(s) this install writes are refused "+
 			"to the agent's file tools in %d rule file(s)", len(paths), files)
 	default:
-		report.addf(name, StatusFailed, "a path this install writes is not refused "+
-			"by the agent's rules, so its file tools can open the age key, the "+
-			"managed store or the audit log by name: %s. `faramir init` renders "+
-			"these on every run, so `sudo faramir init --agent NAME` restores them",
+		report.addf(name, StatusFailed, "a path this install writes is not refused by the agent's rules, so its file tools "+
+			"can open the age key, the managed store or the audit log by name: %s. `sudo "+
+			"faramir init --agent NAME` restores them",
 			strings.Join(uncovered, "; "))
 	}
 }
@@ -299,11 +293,8 @@ func reportBlockedPaths(report *DoctorReport, home string, paths []string) {
 		report.addf(name, StatusOK, "%d blocked path(s) are refused to the agent's "+
 			"file tools in %d rule file(s)", len(paths), files)
 	default:
-		report.addf(name, StatusFailed, "a path this install refuses is not refused "+
-			"by the agent's rules, which is the whole of what the entry does. "+
-			"`faramir block add` renders the rules with the entry, so this is an "+
-			"entry written by hand or a run that stopped early; `faramir init` "+
-			"renders them again: %s", strings.Join(uncovered, "; "))
+		report.addf(name, StatusFailed, "a path this install refuses is not refused by the agent's rules, which is the "+
+			"whole of what the entry does: %s. `faramir init` renders them again", strings.Join(uncovered, "; "))
 	}
 }
 

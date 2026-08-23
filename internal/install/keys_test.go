@@ -35,7 +35,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 			name:   "the file has drifted off the keeper's key",
 			listed: []string{backup},
 			keeper: keeper, want: []string{backup},
-			warns: []string{"does not list the keeper", keeper, "redacts nothing",
+			warns: []string{"does not list the keeper", keeper, "cannot decrypt",
 				"reader add"},
 		},
 		{

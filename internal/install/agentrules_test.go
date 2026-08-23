@@ -215,7 +215,7 @@ func TestTheMissingRulesFindingClaimsOnlyWhatTheRulesCover(t *testing.T) {
 	}
 	// It still has to say what is at stake, or it names a missing file and no
 	// reason to care.
-	for _, want := range []string{"this install protects", "as the operator"} {
+	for _, want := range []string{"this install protects", "no uid boundary"} {
 		if !strings.Contains(got.Detail, want) {
 			t.Errorf("the finding does not say %q: %s", want, got.Detail)
 		}

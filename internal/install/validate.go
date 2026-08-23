@@ -176,10 +176,9 @@ func (r *runner) stepValidate() error {
 			// What it does is refuse, not run bare. Said that way round: a warning
 			// that reads as an exposure teaches the wrong reflex for the day a value
 			// set really does fail to load.
-			r.warnf("the broker is configured for %s, which %s named no file yet, "+
-				"so it is serving nothing: with no value set it refuses every brokered "+
-				"command rather than running one unredacted. Write the secrets directory "+
-				"with sops and re-run",
+			r.warnf("the broker is configured for %s, which %s named no file yet, so it is serving "+
+				"nothing and refuses every brokered command. Write the secrets directory with "+
+				"sops and re-run",
 				strings.Join(absent, ", "),
 				map[bool]string{true: "has", false: "have"}[len(absent) == 1])
 			r.step("validate", false, "no secrets yet")
@@ -190,9 +189,9 @@ func (r *runner) stepValidate() error {
 		// this command called done. The file belongs to another tool, so the
 		// remedies are the operator's and are named rather than attempted.
 		if report.onlyDegradedLinks() {
-			return fmt.Errorf("%s did not load, so those refs answer nothing: %s\n"+
-				"Restore what each one names, fix its selector, or take the entry out "+
-				"with `sudo faramir link rm REF`, then run this again",
+			return fmt.Errorf("%s did not load, so those refs answer nothing: %s\nRestore what each names, fix "+
+				"its selector, or take the entry out with `sudo faramir link rm REF`, then run "+
+				"this again",
 				linkEntries(len(report.Secrets.DegradedLinks)), report.degradedRefs())
 		}
 		// Refs the redactor refused. Reported and carried on from, where a link
@@ -208,19 +207,16 @@ func (r *runner) stepValidate() error {
 		// this and `faramir status` exits non-zero over it, so a host in this state
 		// is not one anything calls healthy.
 		if report.onlyNotRedactable() {
-			r.warnf("%d ref(s) cannot be redacted, so they are never injected and "+
-				"never redacted: %s. Fix each with `sudo faramir vault edit` (the "+
-				"reason beside it says how); everything else on this host is installed "+
-				"and serving, and `faramir doctor` fails until they are",
+			r.warnf("%d ref(s) cannot be redacted, so they are never injected: %s. Fix each with "+
+				"`sudo faramir vault edit`; the reason beside it says how",
 				len(report.Secrets.NotRedactable), report.refusedRefs())
 			r.step("validate", false, "installed; refs to fix")
 			return nil
 		}
-		return fmt.Errorf("the installed config does not work for %s: %w\n"+
-			"A [secret] file named there is one the broker could not load. A ref "+
-			"reported under not_redactable needs fixing instead, and a "+
-			"[[secret.link]] entry named there is one claiming a ref the managed "+
-			"store already defines: remove it with `sudo faramir link rm REF`",
+		return fmt.Errorf("the installed config does not work for %s: %w\nA [secret] file named there is one "+
+			"the broker could not load. A ref under not_redactable needs fixing instead, and a "+
+			"[[secret.link]] entry there claims a ref the managed store defines: remove it "+
+			"with `sudo faramir link rm REF`",
 			r.layout.BrokerUser, checkErr)
 	}
 
@@ -283,9 +279,8 @@ func (r *runner) stepValidate() error {
 				agentErr, r.layout.BrokerUser)
 		}
 		if !strings.Contains(out, "SHA256") {
-			return fmt.Errorf("the broker's ssh-agent holds no usable key (%s), "+
-				"though [ssh] key names %s. Brokered commands can reach no managed "+
-				"host. Check that %s can read it and that it is not "+
+			return fmt.Errorf("the broker's ssh-agent holds no usable key (%s), though [ssh] key names %s: "+
+				"brokered commands reach no managed host. Check %s can read it and it is not "+
 				"passphrase-protected, then restart faramir-broker",
 				strings.TrimSpace(out), r.sshKey, r.layout.BrokerUser)
 		}
@@ -361,9 +356,8 @@ func storeFinding(c checkReport) (Status, string) {
 		// describe a store that is not being served.
 		return StatusFailed, loadErrorDetail(c.Secrets.Errors)
 	case len(c.Secrets.Patterns) == 0 && c.Secrets.Links == 0:
-		return StatusWarn, "no managed sops files and no [[secret.link]] entries " +
-			"are configured, so commands run with nothing injected and nothing " +
-			"redacted. That is the whole of what this host protects"
+		return StatusWarn, "no managed sops files and no [[secret.link]] entries are configured, so commands " +
+			"run with nothing injected and nothing redacted"
 	case len(c.Secrets.UnresolvedPatterns) > 0:
 		// A warning rather than a failure, because this cannot tell a host that
 		// keeps no store from one whose store went missing: the pattern is derived

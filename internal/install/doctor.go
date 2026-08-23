@@ -300,16 +300,13 @@ func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 		// is one it does not rule on, and a message that names one makes the
 		// default look more protective than it is.
 		case slices.Contains(enrolled, name):
-			report.addf("agent rules", StatusFailed, "a tree is enrolled for %s and %s "+
-				"is not there, so its file tools are refused nothing this install "+
-				"protects. This uid can read those paths and no uid boundary refuses "+
-				"them, the agent running as the operator. Run `sudo faramir init "+
-				"--agent %s`", name, strings.Join(missing, ", "), name)
+			report.addf("agent rules", StatusFailed, "a tree is enrolled for %s and %s is not there, so its file tools are refused "+
+				"nothing this install protects, and no uid boundary refuses them either. Run "+
+				"`sudo faramir init --agent %s`", name, strings.Join(missing, ", "), name)
 		case agentInUse(home, target):
-			report.addf("agent rules", StatusFailed, "%s is in this home and %s is "+
-				"not, so its file tools are refused nothing this install protects. This "+
-				"uid can read those paths and no uid boundary refuses them, the agent "+
-				"running as the operator. Run `sudo faramir init --agent %s`",
+			report.addf("agent rules", StatusFailed, "%s is in this home and %s is not, so its file tools are refused nothing this "+
+				"install protects, and no uid boundary refuses them either. Run `sudo faramir "+
+				"init --agent %s`",
 				name, strings.Join(missing, ", "), name)
 		default:
 			report.addf("agent rules", StatusNA, "%s: nothing here, so nobody runs it "+
@@ -410,11 +407,9 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 	// Warn, not failed: the values already in the secrets directory still decrypt,
 	// so this is a host that works today and cannot take a new value tomorrow.
 	if !slices.Contains(listed, keeper) {
-		report.addf("sops config", StatusWarn, "%s lists %s, none of which is the "+
-			"recipient of %s (%s). Every value encrypted into the secrets directory "+
-			"from now on is one %s cannot decrypt, and a broker that loads nothing "+
-			"still starts. Put it back with `sudo faramir reader add %s`, which "+
-			"writes the rule and re-seals the store to it",
+		report.addf("sops config", StatusWarn, "%s lists %s, none of which is %s's recipient (%s), so every value encrypted from "+
+			"now on is one %s cannot decrypt. Put it back with `sudo faramir reader add %s`, "+
+			"which re-seals the store to it",
 			path, strings.Join(listed, ", "), keyPath, keeper, opts.KeeperUser, keeper)
 		return
 	}
@@ -499,10 +494,9 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 		case matched:
 			covered++
 		default:
-			report.addf("rule coverage", StatusFailed, "%s has no creation rule "+
-				"matching %s, so `faramir vault edit` and `faramir reader reseal` cannot write it back: "+
-				"sops refuses a file no rule covers. Widen path_regex to reach it, or keep "+
-				"the store where the rule already looks", rulePath, target)
+			report.addf("rule coverage", StatusFailed, "%s has no creation rule matching %s, so `faramir vault edit` and `faramir reader "+
+				"reseal` cannot write it back. Widen path_regex to reach it, or keep the store "+
+				"where the rule looks", rulePath, target)
 		}
 	}
 	// Only where every file was asked about and answered yes: an unreadable
@@ -644,10 +638,8 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 			"`logrotate -d %s`", logrotateConfig, logPath, logrotateConfig)
 		return
 	case !logrotateCovers(named, logPath):
-		report.addf("log rotation", StatusFailed, "%s bounds %s and the broker appends "+
-			"to %s, so nothing bounds the log this host writes. Point [audit] "+
-			"log_path back at the rotated file, or re-run `faramir init` to rewrite "+
-			"the rule", logrotateConfig, strings.Join(named, ", "), logPath)
+		report.addf("log rotation", StatusFailed, "%s bounds %s and the broker appends to %s, so nothing bounds the log this host "+
+			"writes. Point [audit] log_path back at the rotated file, or re-run `faramir init`", logrotateConfig, strings.Join(named, ", "), logPath)
 		return
 	}
 
@@ -665,10 +657,8 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	rotated, err := logrotateStateLogs(statePath)
 	switch {
 	case os.IsPermission(err):
-		report.unaskedf("log rotation", 1, "run doctor as root to ask the rest: %s "+
-			"says which logs logrotate has processed and %s is the broker's, so "+
-			"whether the rule is being applied and how large the log has grown are "+
-			"both root's to read. %s does name %s",
+		report.unaskedf("log rotation", 1, "run doctor as root to ask the rest: %s says which logs logrotate has processed "+
+			"and %s is the broker's, both root's to read. %s does name %s",
 			statePath, logPath, logrotateConfig, logPath)
 		return
 	case err != nil:
@@ -677,11 +667,10 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 			statePath, err, logrotateConfig)
 		return
 	case !slices.Contains(rotated, logPath):
-		report.addf("log rotation", StatusWarn, "%s names %d logs and not %s, so "+
-			"logrotate has not applied the rule to it. A host whose first run has not "+
-			"come round yet is the ordinary reason; past that, %s is not being read. "+
-			"Check the logrotate timer or cron job",
-			statePath, len(rotated), logPath, logrotateConfig)
+		report.addf("log rotation", StatusWarn, "%s names %d logs and not %s, so logrotate has not applied the rule to it. A first "+
+			"run that has not come round yet is the ordinary reason; past that, check the "+
+			"logrotate timer or cron job",
+			statePath, len(rotated), logPath)
 		return
 	}
 
@@ -906,9 +895,8 @@ func reportMemoryBounds(report *DoctorReport, perProcess int64, havePer bool,
 	case perProcess >= maxMemory:
 		report.addf(check, StatusWarn, "one process may allocate %s while the "+
 			"executor as a whole is held to %s, so the per-process bound is out of "+
-			"reach: a runaway meets the OOM killer rather than the allocation "+
-			"failure it exists to hand back. Lower [command] max_process_memory_mb "+
-			"below %s, then `sudo faramir init`",
+			"reach and a runaway meets the OOM killer. Lower [command] "+
+			"max_process_memory_mb below %s, then `sudo faramir init`",
 			gib(perProcess), gib(maxMemory), gib(maxMemory))
 	default:
 		report.addf(check, StatusOK, "one brokered process may allocate %s, and "+
@@ -1013,10 +1001,9 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// one is not, which is why it is named rather than left to a daemon log line.
 	if len(check.Secrets.ShadowedRefs) > 0 {
 		report.addf("shadowed refs", StatusFailed, "%d ref(s) are defined with "+
-			"different values by more than one managed file. One value wins and the "+
-			"other is injected by nothing and redacted by nothing, so a command that "+
-			"prints it prints it in the clear: %s. Take the ref out of one of the "+
-			"files with `sudo faramir vault edit`",
+			"different values by more than one managed file, so one value is in no "+
+			"redactor and a command that prints it prints it in the clear: %s. Take "+
+			"the ref out of one file with `sudo faramir vault edit`",
 			len(check.Secrets.ShadowedRefs), refsWithReasons(check.Secrets.ShadowedRefs))
 		if check.onlyShadowedRefs() {
 			explained = true
@@ -1245,9 +1232,8 @@ func diagnoseGroupOutsiders(report *DoctorReport, label, name string, known []st
 		return
 	}
 	report.addf(label, StatusWarn, "%s has members this install does not use: %s. "+
-		"Membership is what lets them %s, so an account the install has stopped "+
-		"naming is a standing grant. Drop one with: gpasswd -d <account> %s, or "+
-		"usermod -g <other> <account> where it is the primary group",
+		"Membership is what lets them %s. Drop one with: gpasswd -d <account> %s, "+
+		"or usermod -g <other> <account> where it is the primary group",
 		name, strings.Join(outsiders, ", "), grants, name)
 }
 
