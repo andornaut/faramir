@@ -463,8 +463,15 @@ func Run(args []string) int {
 		if activeHost.anyShellTool {
 			return 0
 		}
+		// A tool the host names but does not run commands through: Claude Code's
+		// BashOutput, which reads a running command's buffer. It starts nothing,
+		// and what filled that buffer went through the redactor when it was
+		// started, so carrying no command is what it always looks like.
+		if !activeHost.wraps(p.ToolName) {
+			return 0
+		}
 		// A hook host answers only for the tools it runs commands through, so
-		// reaching here means one of those arrived carrying no command. Same
+		// reaching here means the one it wraps arrived carrying no command. Same
 		// reasoning as the unreadable payload above: the shape changed, and
 		// returning quietly leaves the tree unredacted.
 		return emit(activeHost.deny(noCommandString))

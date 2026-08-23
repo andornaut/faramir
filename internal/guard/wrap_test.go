@@ -248,6 +248,25 @@ func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
 	}
 }
 
+// The shape BashOutput actually arrives in: it names the shell it reads from
+// and carries no command at all. The host lists it among the tools it runs
+// commands through so the wrap step can skip it deliberately, and a shell tool
+// with no command is otherwise the shape-changed case this denies. Denying it
+// would stop the model reading anything a backgrounded command printed, which
+// the redactor has already been through.
+func TestBashOutputCarryingNoCommandIsLeftAlone(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"tool_name":  "BashOutput",
+		"tool_input": map[string]any{"bash_id": "bash_1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hook := hookOutput(t, string(payload)); hook != nil {
+		t.Errorf("BashOutput produced %v, want nothing said", hook)
+	}
+}
+
 // BashOutput reads an already-running command's buffer, so there is nothing to
 // wrap.
 func TestBashOutputIsNotRewritten(t *testing.T) {

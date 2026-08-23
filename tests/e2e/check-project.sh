@@ -143,6 +143,15 @@ if [ -n "$hook" ] && [ "$hook" != null ]; then
   grep -q 'wrap.sh\|faramir' <<<"$out" \
     && ok "and rewrites an ordinary command through the wrapper" \
     || bad "an ordinary command was not rewritten: ${out:0:120}"
+  # The other tool the host runs commands through, in the shape it arrives in:
+  # it names a running shell and carries no command. What filled that buffer
+  # went through the redactor when it started, so the hook has nothing to say;
+  # denying it would leave a backgrounded command's output unreadable.
+  out=$(printf '{"tool_name":"BashOutput","tool_input":{"bash_id":"bash_1"}}' \
+    | runuser -u $OP -- sh -c "cd /home/op/p-claude && $hook" 2>/dev/null)
+  [ -z "$(tr -d '[:space:]' <<<"$out")" ] \
+    && ok "and says nothing about a read of a running command's output" \
+    || bad "BashOutput was answered rather than left alone: ${out:0:120}"
 else
   bad "no PreToolUse command in the claude settings"
 fi
