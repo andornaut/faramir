@@ -104,6 +104,15 @@ func TestRefusedToolCalls(t *testing.T) {
 			reply: map[string]any{"exit_code": 0, "output": ""},
 			tool:  "faramir_run", args: map[string]any{"cmd": "echo hi"},
 			wants: []string{"array"}},
+		// Told apart from the string case: a call that carried no cmd at all was
+		// answered "not a shell string", which blames a string on a call that
+		// passed none.
+		{name: "no cmd at all",
+			tool: "faramir_run", args: map[string]any{},
+			wants: []string{"cmd is required"}},
+		{name: "an explicit null cmd",
+			tool: "faramir_run", args: map[string]any{"cmd": nil},
+			wants: []string{"cmd is required"}},
 		{name: "an empty argv",
 			reply: map[string]any{"exit_code": 0, "output": ""},
 			tool:  "faramir_run", args: map[string]any{"cmd": []any{}},

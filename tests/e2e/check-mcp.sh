@@ -265,7 +265,11 @@ cases = [
     ({"cmd": "ls -la"},               "must be an array",     "a shell string instead of an array"),
     ({"cmd": []},                     "must name a program",  "an empty array"),
     ({"cmd": ["ls", 7]},              "must be a string",     "a non-string element"),
-    ({},                              "must be an array",     "no cmd at all"),
+    # Told apart from the string case: a call carrying no cmd was answered
+    # "must be an array, not a shell string", which blames a string on a call
+    # that passed none.
+    ({},                              "cmd is required",      "no cmd at all"),
+    ({"cmd": None},                   "cmd is required",      "an explicit null cmd"),
 ]
 for args, expect, label in cases:
     out, is_err = s.text("faramir_run", args)

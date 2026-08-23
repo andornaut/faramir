@@ -489,6 +489,18 @@ func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.
 			"readable was not asked", len(cfg.Secret.Links))
 		return
 	}
+	// The question is put by being those accounts, which runuser needs root for.
+	// Unprivileged, runuser fails for every path, and reading that as the answer
+	// reported the broker unable to open files it was serving values from: a
+	// question that cannot be asked is unasked, not a verdict, which is the
+	// contract every other boundary check keeps.
+	if os.Geteuid() != 0 {
+		report.unaskedf(name, len(cfg.Secret.Links), "run doctor as root to ask "+
+			"this: whether the %d linked file(s) are readable by %s and not by %s "+
+			"is answered by being those accounts", len(cfg.Secret.Links),
+			opts.BrokerUser, opts.ExecUser)
+		return
+	}
 
 	var unreadable, reachable, absent []string
 	for _, link := range cfg.Secret.Links {

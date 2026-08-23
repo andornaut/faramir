@@ -321,8 +321,10 @@ func newInitCmd() *cobra.Command {
 			"of the two must appear. Keep \"{id}\" off anything that broadcasts: wall "+
 			"reaches every terminal on the host and the coding agent has one. The "+
 			"program is resolved on PATH here, being run as the account holding every "+
-			"decrypted value. Needs --allow-sudo; unset, 'faramir sudo watch' "+
-			"is the only place a question shows up")
+			"decrypted value, inside the broker unit's sandbox: /tmp is the unit's "+
+			"own and nothing outside the broker's directories is writable. Needs "+
+			"--allow-sudo; unset, 'faramir sudo watch' is the only place a question "+
+			"shows up")
 	fl.BoolVar(&f.moveConfig, "move-config", false,
 		"consent to point this host's daemons at a different --config-dir. There is "+
 			"one set of units, so the new directory replaces the old rather than "+

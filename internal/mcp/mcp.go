@@ -216,9 +216,16 @@ func callTool(name string, arguments map[string]any) map[string]any {
 	var request map[string]any
 	switch name {
 	case "faramir_run":
-		// The likeliest way to call this wrong: without it the broker gets a null
-		// argv and answers about a malformed request.
-		cmd, ok := arguments["cmd"].([]any)
+		// The two likeliest ways to call this wrong, told apart: a caller that
+		// passed nothing needs "cmd is required", and one that passed a shell
+		// string needs to be told there is no shell. One message for both blamed
+		// a string on a call that carried none.
+		raw, present := arguments["cmd"]
+		if !present || raw == nil {
+			return textResult("cmd is required: an array naming the program and its "+
+				`arguments, like cmd=["printenv","TOKEN"].`, true)
+		}
+		cmd, ok := raw.([]any)
 		if !ok {
 			return textResult("cmd must be an array of strings, not a shell string. "+
 				`Use cmd=["ansible-playbook","site.yml"], or `+

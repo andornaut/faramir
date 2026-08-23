@@ -413,3 +413,28 @@ func TestALinkOperationRendersTheSameConfigTheInstallDid(t *testing.T) {
 			"recovered:\n--- installed\n%s\n--- after a link operation\n%s", first, second)
 	}
 }
+
+// An unprivileged doctor cannot become the broker or the executor, so whether a
+// linked file is readable cannot be asked: runuser fails for every path, and
+// reading that failure as the answer reported the broker unable to open files
+// it was serving values from. Unasked, not a verdict. The suite runs without
+// root, which is exactly the condition under test.
+func TestLinkedAccessIsUnaskedWithoutRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, where the question can be asked for real")
+	}
+	var report DoctorReport
+	cfg := &config.Config{}
+	cfg.Secret.Links = []config.Link{{Ref: "gh/token", Path: "/tmp/nope", Type: "text"}}
+	diagnoseLinkedAccess(&report, DoctorOptions{
+		BrokerUser: "faramir-broker", ExecUser: "faramir-exec"}, cfg)
+
+	finding := findingFor(t, report, "linked file access")
+	if finding.Status == StatusOK || finding.Status == StatusFailed {
+		t.Errorf("status = %v, want neither a pass nor a verdict: %s",
+			finding.Status, finding.Detail)
+	}
+	if report.NotAsked == 0 {
+		t.Error("nothing was recorded as unasked")
+	}
+}
