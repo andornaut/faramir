@@ -463,6 +463,14 @@ func (r *runner) probeLink(link config.Link) error {
 	if detail == "" {
 		detail = err.Error()
 	}
+	if dir := blockingDir(r.layout.BrokerUser, link.Path); dir != "" {
+		return fmt.Errorf("%s cannot reach %s at %s: it cannot enter %s, so the mode "+
+			"on the file decides nothing. Open that directory to the broker, or keep "+
+			"the file somewhere it can already reach:\n"+
+			"sudo chgrp %s %s && sudo chmod g+x %s",
+			r.layout.BrokerUser, link.Ref, link.Path, dir,
+			groupNameOf(r.layout.BrokerUser), dir, dir)
+	}
 	return fmt.Errorf("%s cannot read %s as %s: %s",
 		r.layout.BrokerUser, link.Ref, link.Path, detail)
 }
@@ -508,7 +516,13 @@ func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.
 		case !exists(link.Path):
 			absent = append(absent, fmt.Sprintf("%s (%s)", link.Ref, link.Path))
 		case !canRead(opts.BrokerUser, link.Path):
-			unreadable = append(unreadable, fmt.Sprintf("%s (%s)", link.Ref, link.Path))
+			entry := fmt.Sprintf("%s (%s)", link.Ref, link.Path)
+			// The directory, where that is what refuses: the remedy below is about
+			// the file's own group and mode, and neither is the problem here.
+			if dir := blockingDir(opts.BrokerUser, link.Path); dir != "" {
+				entry += fmt.Sprintf(", which it cannot enter %s to reach", dir)
+			}
+			unreadable = append(unreadable, entry)
 		case canRead(opts.ExecUser, link.Path):
 			reachable = append(reachable, fmt.Sprintf("%s (%s)", link.Ref, link.Path))
 		}

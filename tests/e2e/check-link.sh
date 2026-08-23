@@ -134,6 +134,39 @@ grep -q "chgrp $brokergroup" <<<"$out" && grep -q 'chmod g+r' <<<"$out" \
   && ok "and it arranged nothing itself" \
   || bad "the refused add altered the file: $(stat -c %U:%G/%a $GH)"
 
+# The other way the broker cannot read it: the file is arranged and a directory
+# above it is not. The check above this one walks a home, so a credential kept
+# outside one reaches the read instead, and what came back was the helper's own
+# "permission denied" -- an operator who has just applied the group and mode the
+# refusal asked for meets the same errno with nothing new in it.
+SHUT=/opt/shut
+rm -rf $SHUT; install -d -m 0700 $SHUT/inner
+cp $GH $SHUT/inner/hosts.yml
+chgrp "$brokergroup" $SHUT/inner/hosts.yml; chmod 0640 $SHUT/inner/hosts.yml
+out=$(addlink gh/shut $SHUT/inner/hosts.yml --type yaml --key github.com/oauth_token)
+grep -q "cannot enter $SHUT" <<<"$out" \
+  && ok "a directory that blocks the walk is named" \
+  || bad "the refusal does not say which directory refuses: ${out:0:140}"
+grep -q "chmod g+x $SHUT" <<<"$out" \
+  && ok "  with the command that opens that directory" \
+  || bad "  the refusal offers no way to open it: ${out:0:140}"
+grep -q 'gh/shut' $CFG && bad "  and the entry was written anyway" \
+  || ok "  and no entry was written"
+# Each step names the outermost that still refuses, so opening the one it named
+# moves on to the next rather than repeating itself.
+chgrp "$brokergroup" $SHUT && chmod g+x $SHUT
+out=$(addlink gh/shut $SHUT/inner/hosts.yml --type yaml --key github.com/oauth_token)
+grep -q "cannot enter $SHUT/inner" <<<"$out" \
+  && ok "  and the next one down after that is opened" \
+  || bad "  the second refusal does not name $SHUT/inner: ${out:0:140}"
+chgrp "$brokergroup" $SHUT/inner && chmod g+x $SHUT/inner
+out=$(addlink gh/shut $SHUT/inner/hosts.yml --type yaml --key github.com/oauth_token)
+grep -q 'gh/shut' $CFG \
+  && ok "  and the link is taken once the walk is open" \
+  || bad "  the link was still refused with the walk open: ${out:0:140}"
+"$faramir" link rm --agent-user op gh/shut >/dev/null 2>&1
+rm -rf $SHUT
+
 # A ref the managed store already defines. Refused before the entry is written,
 # because the broker refuses every brokered command while one stands: callers
 # would go on getting the managed value while this file held a second one for
