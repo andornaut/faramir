@@ -818,3 +818,35 @@ func TestABareEnvIsHeldToBothNamespaces(t *testing.T) {
 		}
 	}
 }
+
+// The short form names the variable and the ref with one word, so it can only
+// serve a ref whose name is also a name a variable may have. Most are not:
+// `refs` prints faramir://api/token, and api/token is the obvious thing to
+// type. Being told it is not a usable variable name is true and leaves nowhere
+// to go, the long form being what serves it.
+func TestABareRefThatCannotBeAVariableNameNamesTheLongForm(t *testing.T) {
+	for _, ref := range []string{"api/token", "a-b", "1abc", "a.b"} {
+		err := checkRef(ref, "faramir://"+ref)
+		if err == nil {
+			t.Errorf("checkRef(%q) accepted a name no variable may have", ref)
+			continue
+		}
+		for _, want := range []string{"--env NAME=faramir://" + ref, "is a ref"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("checkRef(%q) does not offer %q: %v", ref, want, err)
+			}
+		}
+	}
+	// The long form itself is not this: the caller has already given the ref a
+	// variable, and a name that is neither is still just a bad name.
+	if err := checkRef("V", "faramir://api/token"); err != nil {
+		t.Errorf("the long form was refused: %v", err)
+	}
+	for _, name := range []string{"", "a b", "_x"} {
+		err := checkRef(name, "faramir://"+name)
+		if err != nil && strings.Contains(err.Error(), "is a ref") {
+			t.Errorf("checkRef(%q) offered the long form for something that is no ref: %v",
+				name, err)
+		}
+	}
+}

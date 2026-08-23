@@ -252,6 +252,17 @@ out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
   || bad "a literal value in an --env-file: exit $code"
 grep -q "$SECRET" <<<"$out" && bad "*** the refusal echoed the value ***" \
   || ok "and the refusal does not echo it back"
+# The short form names the variable and the ref with one word, so it cannot
+# serve a ref whose name is not also a name a variable may have -- which is
+# every one with a "/" in it, and so most of them. `refs` prints
+# faramir://db/password, and db/password is the obvious thing to type.
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
+  --env db/password -- /bin/true 2>&1); code=$?
+[ $code -eq 2 ] && ok "a bare ref that no variable could be named after is refused" \
+  || bad "--env db/password exited $code: ${out:0:90}"
+grep -q -- "--env NAME=faramir://db/password" <<<"$out" \
+  && ok "  and the refusal carries the form that does serve it" \
+  || bad "  the refusal offers no way to ask for it: ${out:0:120}"
 rm -f /tmp/refs.env /tmp/literal.env
 
 # And only the ones asked for. printenv on an unset name prints nothing and

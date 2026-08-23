@@ -209,6 +209,18 @@ func checkRef(name, uri string) error {
 			return fmt.Errorf("%q is not a usable environment variable name; "+
 				`drop the "export", this is not a shell script`, name)
 		}
+		// A bare name that is a usable ref and not a usable variable name, which
+		// is every ref with a "/" in it and so most of them. The shortcut cannot
+		// carry one: it names the variable and the ref with one word, and here
+		// they cannot be the same word. Said with the long form, that being what
+		// somebody reaching for the shortcut wanted.
+		if uri == "faramir://"+name {
+			if _, err := secretref.Parse(uri); err == nil {
+				return fmt.Errorf("%q is a ref, not a name a variable may have. The "+
+					"short form uses one word for both, so a ref spelled like this one "+
+					"needs a variable of its own: --env NAME=%s", name, uri)
+			}
+		}
 		return fmt.Errorf("%q is not a usable environment variable name", name)
 	}
 	if !strings.HasPrefix(uri, "faramir://") {
