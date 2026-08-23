@@ -276,9 +276,14 @@ rss=$(awk '/VmRSS/{print $2}' /proc/"$pid"/status 2>/dev/null)
   || bad "  the broker is ${rss:-gone}kB with one oversized value in the store"
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
   --env V=faramir://toobig -- /bin/true 2>&1)
-grep -q 'environment variable' <<<"$out" \
-  && ok "  and asking for it says why it cannot be had" \
-  || bad "  the refusal does not explain itself: ${out:0:110}"
+[ -n "$out" ] && ok "  and asking for it is refused" \
+  || bad "  asking for a value that was refused at load ran anyway"
+# The size and the reason, from the surface that carries them: an agent asking
+# for the ref may meet the wider refusal first, depending on what else on the
+# host is short of what its config asks.
+faramir doctor 2>/dev/null | tr -s '"'"'[:space:]'"'"' '"'"' '"'"' | grep -q 'one environment variable holds at most' \
+  && ok "  and doctor says why it cannot be had" \
+  || bad "  doctor does not give the reason: $(faramir doctor 2>/dev/null | grep -A3 'refused refs' | head -2)"
 faramir vault rm --force e2e-toobig >/dev/null 2>&1
 reload_daemons || bad "the daemons did not come back"
 

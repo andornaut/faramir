@@ -379,10 +379,14 @@ func (s *Store) Value(ref string) (string, error) {
 	if v, ok := s.values[ref]; ok {
 		return v, nil
 	}
-	// Named separately, so a refused ref does not read as a typo.
+	// Named separately, so a refused ref does not read as a typo. The reason
+	// carries the remedy: what to do about a value too short to redact is not
+	// what to do about one too large to inject, and a fixed "lengthen the value"
+	// was advice for one of them given to both.
 	if reason, ok := s.refused[ref]; ok {
-		return "", fmt.Errorf("secret %s was refused at load (%s); it cannot be "+
-			"redacted, so it is not injectable -- lengthen the value", ref, reason)
+		return "", fmt.Errorf("secret %s was refused at load: %s. It is neither "+
+			"injected nor redacted; `sudo faramir vault edit` is where it is fixed",
+			ref, reason)
 	}
 	// Nor does a link that did not load. The path is left out deliberately: it is
 	// the location of a credential, and this answer reaches the caller.
