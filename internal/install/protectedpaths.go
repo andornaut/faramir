@@ -463,7 +463,7 @@ func BlockedCommandRule(command string) string {
 	for _, word := range words {
 		quoted = append(quoted, regexp.QuoteMeta(word))
 	}
-	rule := commandPosition + strings.Join(quoted, `\s+`)
+	rule := commandPosition + commandPathPrefix + strings.Join(quoted, `\s+`)
 	if last := words[len(words)-1]; isWordByte(last[len(last)-1]) {
 		rule += `\b`
 	}
@@ -505,6 +505,16 @@ const commandPosition = `(?:^|[;&|(){}\n])\s*` +
 	// would put `grep -r 'op read' defaults.yml` back at a command position,
 	// which is the refusal of ordinary work this change exists to stop.
 	`|(?:ba|z|da|k)?sh\s+-\S*c\S*\s+['"` + "`" + `]?)*`
+
+// commandPathPrefix is a directory in front of the first word, which is the
+// same command spelled with its path: an operator writing `op read` means the
+// program, and `/usr/bin/op read` is it. Without this the one an agent reaches
+// for after meeting the refusal is the one that is not refused.
+//
+// The group has to end in a separator, so it takes a path and nothing else, and
+// the anchor in front of it still holds: a word inside an argument is no more a
+// command than it was, and `--ask-become-pass` carries no separator to match on.
+const commandPathPrefix = `(?:\S*/)?`
 
 // isWordByte reports whether \b means anything beside this byte. "\b-d" never
 // matches, a hyphen being a non-word character on both sides.

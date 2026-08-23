@@ -16,14 +16,17 @@ import (
 // second thing to get wrong in a file that decides what an agent may run, and
 // both failures are silent.
 func TestADeclaredCommandIsTheWords(t *testing.T) {
+	// The path prefix is part of the words: a command is the same command
+	// wherever the program it names is installed.
+	head := commandPosition + commandPathPrefix
 	for command, want := range map[string]string{
-		"op read":       commandPosition + `op\s+read\b`,
-		"sops -d":       commandPosition + `sops\s+-d\b`,
-		"pass show":     commandPosition + `pass\s+show\b`,
-		"terraform":     commandPosition + `terraform\b`,
-		"op  read":      commandPosition + `op\s+read\b`,
-		"a.b c":         commandPosition + `a\.b\s+c\b`,
-		"gh auth token": commandPosition + `gh\s+auth\s+token\b`,
+		"op read":       head + `op\s+read\b`,
+		"sops -d":       head + `sops\s+-d\b`,
+		"pass show":     head + `pass\s+show\b`,
+		"terraform":     head + `terraform\b`,
+		"op  read":      head + `op\s+read\b`,
+		"a.b c":         head + `a\.b\s+c\b`,
+		"gh auth token": head + `gh\s+auth\s+token\b`,
 	} {
 		if got := BlockedCommandRule(command); got != want {
 			t.Errorf("%q rendered %q, want %q", command, got, want)
@@ -60,6 +63,13 @@ func TestADeclaredCommandIsMatchedAtACommandPosition(t *testing.T) {
 		{"sh -c 'op read x'", true, "inside a shell's command string"},
 		{`bash -lc "op read x"`, true, "whichever shell and quote"},
 		{"pass personal/router", true, "a one-word entry at a command position"},
+		// The same command, spelled with the path the program is at. Without it
+		// the spelling an agent reaches for after meeting the refusal is the one
+		// that is not refused.
+		{"/usr/bin/op read x", true, "named by absolute path"},
+		{"./op read x", true, "named relative to the working directory"},
+		{"sudo /usr/local/bin/op read x", true, "by path behind a prefix"},
+		{"/usr/local/bin/pass personal/router", true, "a one-word entry by path"},
 
 		{"grep -r 'op read' defaults.yml", false, "a search naming it is not running it"},
 		{"echo op read", false, "and nor is echoing it"},
@@ -67,6 +77,9 @@ func TestADeclaredCommandIsMatchedAtACommandPosition(t *testing.T) {
 			"a flag carrying the word: the case a one-word entry could not be written for"},
 		{"vim notes-op-read.md", false, "and a file named after it"},
 		{"opera read", false, "a longer command starting the same way"},
+		{"/usr/bin/opera read", false, "and by path it is still a different program"},
+		{"cat /etc/op read", false, "the words as an argument, path or not"},
+		{"vim /home/me/develop read", false, "a path ending in a word that is not one"},
 		{"cat README.md", false, "ordinary work"},
 	} {
 		t.Run(tc.command, func(t *testing.T) {

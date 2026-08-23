@@ -527,6 +527,18 @@ guard_says "grep -rn 'e2e-probe read' /etc/faramir/config.toml" |
 guard_says "sudo e2e-probe read thing" | grep -q '"permissionDecision":"deny"' \
   && ok "and it is refused behind sudo, where a command still starts" \
   || bad "the guard allows the declared command behind sudo"
+# The same command, spelled with the path the program is at. An operator naming
+# `e2e-probe read` means the program, and the spelling an agent reaches for
+# after meeting the refusal must not be the one that is not refused.
+guard_says "/usr/local/bin/e2e-probe read thing" | grep -q '"permissionDecision":"deny"' \
+  && ok "and by absolute path, which is the same command" \
+  || bad "the guard allows the declared command named by path"
+guard_says "./e2e-probe read thing" | grep -q '"permissionDecision":"deny"' \
+  && ok "and relative to the working directory" \
+  || bad "the guard allows the declared command named relatively"
+guard_says "/usr/local/bin/e2e-probe-other read" | grep -q '"permissionDecision":"deny"' \
+  && bad "the path prefix widened onto a neighbouring command" \
+  || ok "while a neighbour by path is still a different program"
 grep -qF 'e2e-probe' $RULES \
   && bad "a command entry reached the agent's file-tool rules" \
   || ok "and it reaches no rule file, a command not being a path"
