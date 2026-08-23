@@ -987,9 +987,11 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	return execResponse(logID, judged, result)
 }
 
-// redactor builds a fresh matcher over the whole value set. Fresh because a
-// Redactor carries per-stream state and counts. The sudo grant adds nothing to
-// it: an escalation is a decision rather than a value.
+// redactor takes a redactor over the whole value set. Fresh each call because a
+// Redactor carries per-stream state and counts, but the matcher it scans with
+// is the store's, compiled once per load: building one here cost every command
+// the size of the value set. The sudo grant adds nothing to it: an escalation
+// is a decision rather than a value.
 func (s *Server) redactor() *redact.Redactor {
 	return s.Store.Redactor()
 }

@@ -196,9 +196,8 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 		return 0
 	}
 	if changed > 0 {
-		tellBrokerToReRead()
-		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) re-encrypted; the broker "+
-			"has re-read them\n", label, changed, len(targets))
+		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) re-encrypted; %s\n",
+			label, changed, len(targets), reReadNote(tellBrokerToReRead()))
 	}
 	return 0
 }

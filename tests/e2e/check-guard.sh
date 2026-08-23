@@ -205,14 +205,33 @@ route() { # tool command -> deny|rewrite|pass
 [ "$(route BashOutput 'ls')" = pass ] && ok "and is not rewritten, having no command to run" \
   || bad "BashOutput was rewritten"
 
-head_ "7. a payload it cannot use is answered with silence"
+head_ "7. a payload it cannot use is refused, not passed over"
+# A tool this host does not run commands through is none of the guard's
+# business, so it is answered with silence. A tool that does, arriving with
+# nothing runnable, is the payload having changed shape: returning quietly there
+# leaves every command in the tree unwrapped and unredacted, which is what the
+# plugin already refuses to do on the same input.
 try() { echo "$1" | runuser -u op -- "$GUARD" guard 2>/dev/null; echo "rc=$?"; }
-[ "$(try 'not json at all')" = "rc=0" ] && ok "malformed JSON: no decision, exit 0" || bad "malformed JSON was answered"
-[ "$(try '{}')" = "rc=0" ] && ok "an empty object: no decision" || bad "empty object was answered"
-[ "$(try '{"tool_name":"Bash","tool_input":{"command":""}}')" = "rc=0" ] \
-  && ok "an empty command: no decision" || bad "empty command was answered"
-[ "$(try '{"tool_name":"Bash","tool_input":{"command":null}}')" = "rc=0" ] \
-  && ok "a null command: no decision" || bad "null command was answered"
+decision() {
+  echo "$1" | runuser -u op -- "$GUARD" guard 2>/dev/null \
+    | jq -r '.hookSpecificOutput.permissionDecision // "none"'
+}
+[ "$(try '{}')" = "rc=0" ] && ok "a payload naming no tool: no decision" || bad "an empty object was answered"
+[ "$(decision 'not json at all')" = deny ] \
+  && ok "malformed JSON is denied rather than passed over" \
+  || bad "malformed JSON was passed over: [$(decision 'not json at all')]"
+[ "$(decision '{"tool_name":"Bash","tool_input":{"command":""}}')" = deny ] \
+  && ok "a shell tool with an empty command is denied" \
+  || bad "an empty command was passed over: [$(decision '{"tool_name":"Bash","tool_input":{"command":""}}')]"
+[ "$(decision '{"tool_name":"Bash","tool_input":{"command":null}}')" = deny ] \
+  && ok "a shell tool with a null command is denied" \
+  || bad "a null command was passed over: [$(decision '{"tool_name":"Bash","tool_input":{"command":null}}')]"
+# The refusal reaches the model, so it has to say what to tell the operator
+# rather than reading as the command being disallowed.
+echo 'not json at all' | runuser -u op -- "$GUARD" guard 2>/dev/null \
+  | grep -q "could not read this tool call" \
+  && ok "and says the guard could not read the call, not that the command was refused" \
+  || bad "the refusal does not say why: $(echo 'not json at all' | runuser -u op -- "$GUARD" guard 2>/dev/null | head -c 200)"
 # argv-array clients: the command is in args, not command.
 got=$(echo '{"tool_name":"Bash","tool_input":{"args":["cat","/etc/faramir/age.key"]}}' \
       | runuser -u op -- "$GUARD" guard | jq -r '.hookSpecificOutput.permissionDecision')

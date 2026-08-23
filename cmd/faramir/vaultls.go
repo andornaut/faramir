@@ -272,9 +272,12 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	tellBrokerToReRead()
-	fmt.Fprintf(os.Stderr, "faramir %s: removed %s and the %d ref(s) it held; the "+
-		"broker has stopped serving them\n", label, safe(target), len(refs))
+	stopped := "the broker has stopped serving them"
+	if !tellBrokerToReRead() {
+		stopped = "the broker did not answer, so it stops serving them within one refresh interval"
+	}
+	fmt.Fprintf(os.Stderr, "faramir %s: removed %s and the %d ref(s) it held; %s\n",
+		label, safe(target), len(refs), stopped)
 	return 0
 }
 

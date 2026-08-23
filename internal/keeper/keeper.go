@@ -251,7 +251,10 @@ func StatAll(secrets config.SecretConfig) ([]FileState, []string, []string) {
 // min_length, and reported the same way rather than left to a daemon log line.
 func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string, []string, map[string]string) {
 	values := map[string]string{}
+	// Every file that defined each ref, and whether any two of them disagreed
+	// about its value.
 	definedIn := map[string][]string{}
+	disagreed := map[string]bool{}
 	paths, errors, _ := Resolve(secrets.Patterns)
 
 	env := []string{
@@ -306,8 +309,14 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 			continue
 		}
 		for ref, value := range Flatten(tree) {
+			// Only a ref two files disagree about is shadowed. Two files holding the
+			// same value lose nothing: the one that does not win is byte for byte
+			// the one that does, so it is in the redactor and injected by the same
+			// ref, and reporting it would fail a converge on a host with nothing
+			// wrong with it.
 			if existing, ok := values[ref]; ok && existing != value {
 				log.Printf("secret ref %s defined more than once; last wins", ref)
+				disagreed[ref] = true
 			}
 			definedIn[ref] = append(definedIn[ref], path)
 			values[ref] = value
@@ -316,11 +325,12 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 	// Named by the files rather than by a count: the repair is to take the ref
 	// out of one of them, so the operator needs to know which two.
 	shadowed := map[string]string{}
-	for ref, in := range definedIn {
-		if len(in) > 1 {
-			shadowed[ref] = "defined in " + strings.Join(in, " and ") +
-				"; the last one read wins and the other value is in no redactor"
-		}
+	for ref := range disagreed {
+		// Every file that defines it, not only the two that differed: the repair is
+		// to take the ref out of one of them, so the operator needs the whole list.
+		shadowed[ref] = "defined in " + strings.Join(definedIn[ref], " and ") +
+			", and they do not all hold the same value; the last one read wins and " +
+			"the value it displaced is in no redactor"
 	}
 	return values, errors, shadowed
 }

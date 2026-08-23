@@ -359,8 +359,18 @@ cap=262144
 out=$(run -- /bin/sh -c "yes abcdefgh | head -c $(( cap * 2 ))")
 [ "${#out}" -lt "$(( cap * 2 ))" ] && ok "output past max_output_bytes ($cap) is cut at ${#out} chars" \
   || bad "no truncation: got ${#out} for a cap of $cap"
-grep -qi "truncat" <<<"$out" && ok "and the caller is told it was truncated" \
-  || bad "truncation was silent"
+grep -q "bytes of output dropped" <<<"$out" && ok "and the caller is told what was dropped" \
+  || bad "truncation was silent: $(tail -c 200 <<<"$out")"
+# What the cut keeps is the head and the tail. The end is the half a failing
+# command is read for: keeping the head alone returned the first half of the
+# noise and none of the reason, with the exit code the only sign of it.
+ends=$(run -- /bin/sh -c "yes abcdefgh | head -c $(( cap * 2 )); echo THE-LAST-LINE")
+grep -q "THE-LAST-LINE" <<<"$ends" \
+  && ok "and the end of a long run survives the cut" \
+  || bad "the end of the output was dropped: $(tail -c 200 <<<"$ends")"
+[ "${ends:0:8}" = "abcdefgh" ] \
+  && ok "as does the start of it" \
+  || bad "the start of the output was dropped: $(head -c 80 <<<"$ends")"
 
 # Output that is not text is altered rather than cut, and the caller is told the
 # same way. On stderr, unlike the truncation marker: stdout is intact in this

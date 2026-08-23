@@ -431,7 +431,11 @@ func Run(args []string) int {
 
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		return 0
+		// The same answer an unreadable payload gets below, and for the same
+		// reason. Allowing here and denying there had the more broken case pass:
+		// stdin that could not be read at all is no less a payload this cannot
+		// guard than one that arrived and would not parse.
+		return emit(activeHost.deny(unreadablePayload))
 	}
 	var p payload
 	if err := json.Unmarshal(data, &p); err != nil {

@@ -965,13 +965,36 @@ $(tail -1 /tmp/alice.right)"
       && ok "doctor passes the sudo-rs arrangement" \
       || bad "doctor says sudo grant is $(grant_status): $(/usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A1 'sudo grant' | head -2)"
 
-    # Switching back without re-running init is the drift doctor has to catch:
-    # the grant then names settings this sudo does not read, and whatever selects
-    # faramir's stack is the other implementation's.
+    # Switching back without re-running init leaves an arrangement written for
+    # $OTHER_NAME on a host running $HOME_SUDO, which is the drift doctor has to
+    # catch. The two directions do not have the same answer, so which one this
+    # stack is testing decides what to expect.
+    #
+    # Toward sudo-rs the grant is broken: sudo-rs reaches the service named
+    # `sudo` for everybody and there is no block in it, so faramir-exec meets the
+    # stock stack and its locked password refuses.
+    #
+    # Toward the original it still works. etc/sudoers.tmpl writes pam_service
+    # only for the original, so an arrangement written for sudo-rs names none,
+    # and the original sudo then uses its own default service -- the file
+    # faramir's block is in. Reporting that as failed said every escalation fails
+    # on a host where each one succeeds.
     update-alternatives --set sudo "$HOME_SUDO" >/dev/null 2>&1
-    [ "$(grant_status)" = failed ] \
-      && ok "and switching the alternatives group back without re-running init fails doctor" \
-      || bad "doctor says sudo grant is $(grant_status) on a host whose sudo no longer matches its grant"
+    if [ "$OTHER_IS_RS" = yes ]; then
+      [ "$(grant_status)" = warn ] \
+        && ok "and switching back to the original sudo warns: the grant works, the arrangement is sudo-rs's" \
+        || bad "doctor says sudo grant is $(grant_status) on a host back on the original sudo, want warn"
+      /usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A6 'sudo grant' | grep -q 'escalation works' \
+        && ok "and says so, rather than sending the operator after a break that is not there" \
+        || bad "the warning does not say the grant still works: $(/usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A6 'sudo grant' | head -4)"
+    else
+      [ "$(grant_status)" = failed ] \
+        && ok "and switching back to sudo-rs fails doctor: nothing asks the broker there" \
+        || bad "doctor says sudo grant is $(grant_status) on a host back on sudo-rs with the original's arrangement, want failed"
+      /usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A6 'sudo grant' | grep -q 'every escalation fails' \
+        && ok "and says every escalation fails, which is what it does" \
+        || bad "the failure does not say what it costs: $(/usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A6 'sudo grant' | head -4)"
+    fi
   fi
 
   # Back to where this stack started, with a grant written for it, so the next

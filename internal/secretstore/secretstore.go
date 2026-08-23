@@ -212,11 +212,13 @@ func (s *Store) Reload() {
 // returned, rather than up to [secret] min_refresh_sec later. Everything else
 // arrives through RefreshIfStale.
 func (s *Store) Refresh() {
-	// The same one-at-a-time gate the interval path uses. A caller that arrives
-	// while a refresh is under way returns: what it wanted was for the set to be
-	// re-read, and it is being.
-	if !s.refreshing.CompareAndSwap(false, true) {
-		return
+	// Waits for a refresh already under way rather than returning on its
+	// account. One that started before the caller's write took its fingerprints
+	// from before it too, so it will find nothing changed and return, and
+	// treating that as the re-read this promises would leave the new value
+	// outside the redactor while the command that wrote it says otherwise.
+	for !s.refreshing.CompareAndSwap(false, true) {
+		time.Sleep(time.Millisecond)
 	}
 	defer s.refreshing.Store(false)
 	s.Reload()

@@ -106,27 +106,44 @@ else
   ok "and exits non-zero, the report and the status agreeing"
 fi
 
-# Naming the operator is what lets the boundary checks run at all.
+# A root shell with no SUDO_USER and no flag is a container, `su -`, cron or a
+# configuration manager's become. The install recorded who the agent account is,
+# so the checks that ask what it can reach are put anyway rather than reported as
+# unasked with a flag naming what the config already said.
 snap; withOp=$(unasked)
 /usr/local/bin/faramir doctor --json >$JSON 2>/dev/null; without=$(unasked)
-[ "$withOp" -lt "$without" ] && ok "--agent-user turns $((without - withOp)) unasked checks into asked ones" \
-  || bad "naming the operator asked nothing more ($withOp vs $without)"
+[ "$withOp" = "$without" ] \
+  && ok "the recorded agent_user asks as much as --agent-user does ($withOp unasked either way)" \
+  || bad "naming the operator changed what was asked ($withOp with the flag, $without without it)"
+[ "$(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON)" = 0 ] \
+  && ok "and there is no boundaries warning, the account being known" \
+  || bad "boundaries reported $(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON) findings: $(dt boundaries)"
+# The boundary checks themselves, which is what those findings were standing in
+# for: run as root with nothing naming the operator, they are asked and answered.
+[ "$(st secrets)" = ok ] \
+  && ok "the boundary checks answer without being told the account" \
+  || bad "secrets is [$(st secrets)], want ok: the recorded account was not used"
 
-# And what the run without one reports, this being a root shell or a cron entry:
-# no SUDO_USER to take the account from, so the checks that ask what an account
-# can reach cannot be put. Read off the same run as the count above.
-[ "$(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON)" = 1 ] \
-  && ok "and without one they are one finding, not one apiece" \
-  || bad "boundaries reported $(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON) findings"
-[ "$(st boundaries)" = warn ] \
-  && ok "a question that cannot be put is a warning, not a verdict" \
-  || bad "boundaries is [$(st boundaries)], want warn: an unasked check must not read as a pass"
+# Degrading is still the answer where the config names no account, which is a
+# host provisioned before agent_user was recorded.
+cp /etc/faramir/config.toml /tmp/doctor.agentuser.bak
+sed -i 's/^agent_user = .*/agent_user = ""/' /etc/faramir/config.toml
+/usr/local/bin/faramir doctor --json >/tmp/doctor.noop.json 2>/dev/null
+noname=$(jq -r '[.findings[]|select(.check=="boundaries")|.status]|first // "missing"' /tmp/doctor.noop.json)
+[ "$noname" = warn ] \
+  && ok "a config naming no account degrades to a warning rather than a pass" \
+  || bad "boundaries is [$noname] with no account named anywhere, want warn"
 for want in "--agent-user" "SUDO_USER"; do
-  grep -qF -- "$want" <<<"$(dt boundaries)" && ok "and says how to ask it ($want)" \
-    || bad "the warning does not mention $want: $(dt boundaries)"
+  grep -qF -- "$want" <<<"$(jq -r '[.findings[]|select(.check=="boundaries")|.detail]|first // ""' /tmp/doctor.noop.json)" \
+    && ok "and says how to ask it ($want)" \
+    || bad "the warning does not mention $want: $(jq -r '[.findings[]|select(.check=="boundaries")|.detail]|first' /tmp/doctor.noop.json)"
 done
+cp /tmp/doctor.agentuser.bak /etc/faramir/config.toml
+rm -f /tmp/doctor.agentuser.bak /tmp/doctor.noop.json
+
 # The checks that never ask about an account still run, or a root shell would
 # report a clean host having examined nothing.
+/usr/local/bin/faramir doctor --json >$JSON 2>/dev/null
 [ "$(jq -r '[.findings[]|select(.check!="boundaries")]|length' $JSON)" -gt 1 ] \
   && ok "while the checks that ask about no account still ran" \
   || bad "nothing ran besides the warning: an age key left 0644 would go unreported"
