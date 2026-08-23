@@ -217,6 +217,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	diagnoseGroup(&report, opts)
 	diagnoseLogRotation(&report, cfg)
 	diagnoseUnits(&report, opts)
+	diagnoseMemoryBounds(&report)
 	diagnoseSSHAgent(&report, opts, cfg, serves)
 	diagnoseVersion(&report, opts)
 
@@ -833,6 +834,80 @@ func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 			continue
 		}
 		report.addf("sockets", StatusOK, "%s is listening", socket)
+	}
+}
+
+// gib renders a byte count the way an operator sizes one of these: the config
+// key is in MB and the unit resolves to bytes, and neither reads at a glance.
+func gib(bytes int64) string {
+	return fmt.Sprintf("%.1f GB", float64(bytes)/(1<<30))
+}
+
+// diagnoseMemoryBounds reads what the executor unit's two memory limits resolve
+// to and reports when the per-process one is out of reach.
+//
+// They answer different questions and are sized against different things, so
+// nothing stops an operator setting a per-process bound above the cgroup total.
+// Where that happens the cgroup is met first and the OOM killer picks a victim,
+// which is the outcome the per-process bound was chosen over: it hands the
+// process an allocation failure it can report instead. The defaults cross on a
+// host with less memory than four times the percentage, so a laptop reaches
+// this without anybody configuring anything.
+//
+// Read from systemd rather than computed from the config: the percentage
+// resolves against the cgroup's own limit, which inside a container is the
+// container's and not the machine's, and only systemd knows which.
+func diagnoseMemoryBounds(report *DoctorReport) {
+	const check = "memory bounds"
+	if !systemdRunning() {
+		report.unaskedf(check, 1, "systemd is not running here, so what the "+
+			"executor's memory limits resolve to was not asked")
+		return
+	}
+	run := &runner{}
+	limit := func(property string) (int64, bool) {
+		out, err := run.command("systemctl", "show", execUnit, "-p", property, "--value")
+		if err != nil {
+			return 0, false
+		}
+		value, convErr := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+		// "infinity" is systemd saying there is no limit, which parses as neither
+		// a number nor an error worth reporting: it is a bound nobody set.
+		return value, convErr == nil
+	}
+	maxMemory, haveMax := limit("MemoryMax")
+	perProcess, havePer := limit("LimitDATA")
+	reportMemoryBounds(report, perProcess, havePer, maxMemory, haveMax)
+}
+
+// reportMemoryBounds is the verdict on two resolved limits, apart from reading
+// them so the judgement can be asserted without systemd.
+func reportMemoryBounds(report *DoctorReport, perProcess int64, havePer bool,
+	maxMemory int64, haveMax bool) {
+	const check = "memory bounds"
+	switch {
+	case !haveMax && !havePer:
+		report.addf(check, StatusWarn, "%s bounds neither the executor's memory "+
+			"nor one process's, so a brokered command that runs away is bounded by "+
+			"the machine. `sudo faramir init` writes both", execUnit)
+	case !havePer:
+		report.addf(check, StatusWarn, "%s bounds the executor at %s and one "+
+			"process not at all, so a runaway is stopped by the OOM killer rather "+
+			"than by an allocation failure it can report", execUnit, gib(maxMemory))
+	case !haveMax:
+		report.addf(check, StatusOK, "one brokered process may allocate %s, and "+
+			"the executor as a whole is unbounded", gib(perProcess))
+	case perProcess >= maxMemory:
+		report.addf(check, StatusWarn, "one process may allocate %s while the "+
+			"executor as a whole is held to %s, so the per-process bound is out of "+
+			"reach: a runaway meets the OOM killer rather than the allocation "+
+			"failure it exists to hand back. Lower [command] max_process_memory_mb "+
+			"below %s, then `sudo faramir init`",
+			gib(perProcess), gib(maxMemory), gib(maxMemory))
+	default:
+		report.addf(check, StatusOK, "one brokered process may allocate %s, and "+
+			"every brokered command together %s",
+			gib(perProcess), gib(maxMemory))
 	}
 }
 
