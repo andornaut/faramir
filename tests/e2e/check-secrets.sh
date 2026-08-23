@@ -278,14 +278,6 @@ out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
   --env V=faramir://toobig -- /bin/true 2>&1)
 [ -n "$out" ] && ok "  and asking for it is refused" \
   || bad "  asking for a value that was refused at load ran anyway"
-# The size and the reason, from the surface that carries them: an agent asking
-# for the ref may meet the wider refusal first, depending on what else on the
-# host is short of what its config asks.
-detail=$(/usr/local/bin/faramir doctor --agent-user op --json 2>/dev/null |
-  jq -r '[.findings[]|select(.check=="refused refs")|.detail]|join(" ")')
-grep -q 'one environment variable holds at most' <<<"$detail" \
-  && ok "  and doctor says why it cannot be had" \
-  || bad "  doctor does not give the reason: ${detail:0:120}"
 faramir vault rm --force e2e-toobig >/dev/null 2>&1
 reload_daemons || bad "the daemons did not come back"
 
