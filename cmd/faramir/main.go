@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -652,15 +653,29 @@ const (
 
 // responseWait is how long to wait for this request's answer. A command's own
 // timeout is what makes the wait long, so it is what the bound is built from.
+//
+// Saturating. A caller may name any positive integer and the broker clamps it to
+// [command] max_timeout_sec, but multiplying an unclamped one into a Duration
+// overflows int64 nanoseconds somewhere past 292 years, and a deadline built
+// from a negative duration is one already past: the request then fails on the
+// write with "i/o timeout" and no command runs, which reads as a broker that is
+// not there rather than as a number nothing could wait that long for.
 func responseWait(request map[string]any) time.Duration {
 	if request["op"] != opRun {
 		return quickWait
 	}
 	if seconds, ok := request["timeout_sec"].(int); ok && seconds > 0 {
+		if seconds > maxWaitSeconds {
+			seconds = maxWaitSeconds
+		}
 		return time.Duration(seconds)*time.Second + execGrace
 	}
 	return execCeiling + execGrace
 }
+
+// maxWaitSeconds is the largest command timeout responseWait can add execGrace
+// to and still hold in a Duration.
+const maxWaitSeconds = int(math.MaxInt64/int64(time.Second)) - int(execGrace/time.Second)
 
 // errorExit is the status a refused request exits with. One code is separated
 // out: a broker at its concurrency limit refused nothing about the command and

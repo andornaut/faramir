@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"math"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -84,5 +86,31 @@ func TestACommandTakingOneOperandStillTakesOne(t *testing.T) {
 				t.Errorf("one operand was refused as a wrong invocation: %q", out.String())
 			}
 		})
+	}
+}
+
+// A command timeout is any positive integer the caller likes, clamped by the
+// broker to [command] max_timeout_sec. The wait built from it is a Duration,
+// and int64 nanoseconds run out somewhere past 292 years: an unsaturated
+// multiplication wraps negative there, the deadline is already past, and the
+// request fails on the write with "i/o timeout" before a command is run. That
+// reads as a broker that is not there.
+func TestTheResponseWaitDoesNotWrapOnAHugeTimeout(t *testing.T) {
+	for _, seconds := range []int{
+		1, 600, 3600, 1 << 30, maxWaitSeconds, maxWaitSeconds + 1,
+		1 << 62, math.MaxInt64,
+	} {
+		got := responseWait(map[string]any{"op": opRun, "timeout_sec": seconds})
+		if got <= 0 {
+			t.Errorf("responseWait(%d) = %v, which is a deadline already past", seconds, got)
+		}
+		if got < execGrace {
+			t.Errorf("responseWait(%d) = %v, shorter than the grace alone", seconds, got)
+		}
+	}
+	// And the ordinary values still get what they asked for plus the grace.
+	if got, want := responseWait(map[string]any{"op": opRun, "timeout_sec": 600}),
+		600*time.Second+execGrace; got != want {
+		t.Errorf("responseWait(600) = %v, want %v", got, want)
 	}
 }

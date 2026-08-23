@@ -313,12 +313,29 @@ func parseWaits(payload map[string]any, req *Request) error {
 	}
 	if raw, ok := payload["timeout_sec"]; ok && raw != nil {
 		n, isNum := toInt(raw)
-		if !isNum || n <= 0 {
+		switch {
+		// Told apart from a value that is not a number at all: one too large to
+		// hold as an integer is a positive integer, and being told it is not sends
+		// the caller looking at the wrong thing.
+		case !isNum && isNumber(raw):
+			return errors.New("'timeout_sec' is a number too large to hold as a " +
+				"whole number of seconds. Any value is clamped to '[command] " +
+				"max_timeout_sec', so naming one past that buys nothing")
+		case !isNum || n <= 0:
 			return errors.New("'timeout_sec' must be a positive integer")
 		}
 		req.TimeoutSec = n
 	}
 	return nil
+}
+
+// isNumber reports whether this arrived as a number, whatever its magnitude.
+func isNumber(raw any) bool {
+	switch raw.(type) {
+	case float64, json.Number, int64, int:
+		return true
+	}
+	return false
 }
 
 // toInt accepts an integral JSON number.

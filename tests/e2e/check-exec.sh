@@ -437,6 +437,24 @@ runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/sh -c 'kill -9
 got=$?
 [ "$got" = "137" ] && ok "a SIGKILLed command reports 137, as a shell does" || bad "signal exit = $got"
 
+head_ "10b. a timeout larger than anything can wait for"
+# The wait the caller holds the socket open for is built from the timeout it
+# named. Multiplied unsaturated it wraps negative somewhere past 292 years, and
+# the deadline is then already past: the request fails on the write and reports
+# a broker that did not answer, having never sent one. Any value the broker
+# takes is clamped to max_timeout_sec, so these all run.
+for t in 3600 9223372036 92233720368; do
+  out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t "$t" -- /bin/true 2>&1)
+  rc=$?
+  [ "$rc" = 0 ] && ok "  -t $t runs, clamped to what the broker allows" \
+    || bad "  -t $t exited $rc: ${out:0:100}"
+done
+# And one no whole number of seconds can hold is refused as that, rather than as
+# not being a positive integer, which it is.
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 9223372036854775807 -- /bin/true 2>&1)
+grep -q "too large" <<<"$out" && ok "  and one too large to hold is named as that" \
+  || bad "  -t 9223372036854775807 gave: ${out:0:110}"
+
 head_ "11. more commands at once than the broker will take"
 limit=$(grep -oP 'concurrency = \K[0-9]+' /etc/faramir/config.toml)
 rm -f /tmp/conc.*; for i in $(seq $(( limit + 3 ))); do
