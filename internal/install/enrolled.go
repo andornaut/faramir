@@ -1,7 +1,9 @@
 package install
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -84,6 +86,15 @@ func recordEnrolment(configDir string, tree EnrolledTree) error {
 	if tree.Dir == "" {
 		return nil
 	}
+	// The record as it stands, compared again at the write. Two enrolments each
+	// read it, add their own tree and write the whole file back, so one entry is
+	// lost and the enrolment that lost it reported success: a tree that is
+	// enrolled and unrecorded is one `faramir init` stops maintaining and
+	// `doctor` stops checking, with nothing said.
+	before, err := recordDigest(configDir)
+	if err != nil {
+		return err
+	}
 	trees := readEnrolled(configDir)
 	// Kept from the earlier entry, but only where the tree still shows the agent:
 	// enrolling one by name does not say the others have gone, and dropping them
@@ -120,8 +131,23 @@ func recordEnrolment(configDir string, tree EnrolledTree) error {
 	// doctor reads this, and a run interrupted partway through a truncating write
 	// leaves a record that does not parse, which readEnrolled takes for no
 	// enrolment at all.
-	_, err = fsys{}.writeFile(enrolledPath(configDir), append(body, '\n'), 0o600, keep, keep)
+	_, err = fsys{}.writeFileExpecting(
+		enrolledPath(configDir), append(body, '\n'), 0o600, keep, keep, before)
 	return err
+}
+
+// recordDigest is the record as it stands, or nil where there is none: a first
+// enrolment writes the file rather than editing it.
+func recordDigest(configDir string) ([]byte, error) {
+	body, err := os.ReadFile(enrolledPath(configDir))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(body)
+	return sum[:], nil
 }
 
 // enrolledAgents is every agent named by an enrolment whose tree is still

@@ -437,6 +437,32 @@ grep -q "Remove their entries" <<<"$out" \
   && ok "  with the remedy that fits, which is not to enrol it again" \
   || bad "  the warning offers the wrong remedy: ${out:0:140}"
 
+# Four enrolments at once. Each reads the record, adds its own tree and writes
+# the whole file back, so without a check one entry lands and the rest report a
+# success that left nothing behind: a tree that is enrolled and unrecorded is
+# one `faramir init` stops maintaining and `doctor` stops checking.
+rm -f /tmp/conc.*.rc
+for i in 1 2 3 4; do
+  C=/home/op/p-conc$i; rm -rf $C; install -d -o $OP -g $OP $C
+done
+for i in 1 2 3 4; do
+  ( /usr/local/bin/faramir init-project --agent-user $OP --agent claude \
+      "/home/op/p-conc$i" >/dev/null 2>&1; echo $? > /tmp/conc.$i.rc ) &
+done
+wait
+reported=$(cat /tmp/conc.*.rc | grep -c '^0$')
+recorded=$(jq '[.[]|select(.dir|startswith("/home/op/p-conc"))]|length' $REC)
+[ "$reported" = "$recorded" ] \
+  && ok "$reported of four concurrent enrolments reported success, and $recorded were recorded" \
+  || bad "$reported reported success and $recorded were recorded: the rest are enrolled and invisible"
+# The ones that lost say so rather than exiting 0: the tree is enrolled either
+# way, and the exit code is the only thing that says it needs doing again.
+out=$(/usr/local/bin/faramir init-project --agent-user $OP --agent claude /home/op/p-conc1 2>&1)
+grep -q 'p-conc1' <<<"$out" && ok "  and a serial re-run of one of them works" \
+  || bad "  a serial enrolment after the race failed: ${out:0:110}"
+for i in 1 2 3 4; do rm -rf "/home/op/p-conc$i"; done
+rm -f /tmp/conc.*.rc
+
 # A record that cannot be read is not a record naming nothing.
 printf '{ not json\n' > $REC
 out=$(/usr/local/bin/faramir init --agent-user $OP --dry-run 2>&1)

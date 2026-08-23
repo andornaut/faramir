@@ -116,7 +116,13 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		}
 	}
 	// Recorded last: `doctor` reads this rather than guessing which agents are in
-	// use from what is in a home. Not fatal, the enrolment having succeeded.
+	// use from what is in a home.
+	//
+	// Fatal, though the enrolment itself succeeded. A tree that is enrolled and
+	// unrecorded is one `faramir init` stops maintaining and `doctor` stops
+	// checking, and it looks like every other enrolled tree from the outside: an
+	// exit code is the only thing that tells whoever ran this that the tree needs
+	// enrolling again.
 	if !opts.DryRun {
 		names := make([]string, 0, len(run.targets))
 		for _, target := range run.targets {
@@ -125,8 +131,10 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		if err := recordEnrolment(opts.ConfigDir, EnrolledTree{
 			Dir: dir, AgentUser: opts.AgentUser, Agents: names,
 		}); err != nil {
-			run.warnf("could not record this enrolment in %s, so `faramir doctor` "+
-				"will not know this tree is enrolled: %v", enrolledPath(opts.ConfigDir), err)
+			return run.report, fmt.Errorf("%s is enrolled, and recording it in %s "+
+				"failed, so `faramir init` will not maintain it and `faramir doctor` "+
+				"will not check it: %w\nRun this again once whatever else is writing "+
+				"that file has finished", dir, enrolledPath(opts.ConfigDir), err)
 		}
 	}
 	return run.report, nil

@@ -249,3 +249,52 @@ func TestARecordedTreeIsHeldToWhatAnEnrolmentWouldAllow(t *testing.T) {
 		t.Errorf("a recorded project tree was refused: %v", err)
 	}
 }
+
+// Two enrolments each read the record, add their own tree and write the whole
+// file back, so one entry is lost. The tree is enrolled either way -- the share
+// and the agent files are already written by the time this runs -- so an entry
+// that never lands leaves a tree `faramir init` stops maintaining and `doctor`
+// stops checking, looking like every other enrolled tree from the outside.
+func TestRecordingIsRefusedWhenTheRecordMovedUnderIt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, enrolledFile)
+
+	// The first enrolment writes the record, there being none.
+	if err := recordEnrolment(dir, EnrolledTree{Dir: "/home/op/one", AgentUser: "op"}); err != nil {
+		t.Fatalf("the first enrolment could not record itself: %v", err)
+	}
+	if trees := readEnrolled(dir); len(trees) != 1 {
+		t.Fatalf("the record holds %d tree(s), want 1", len(trees))
+	}
+
+	// A second enrolment reading this record and writing it back is ordinary.
+	if err := recordEnrolment(dir, EnrolledTree{Dir: "/home/op/two", AgentUser: "op"}); err != nil {
+		t.Fatalf("a second enrolment was refused: %v", err)
+	}
+	if trees := readEnrolled(dir); len(trees) != 2 {
+		t.Fatalf("the record holds %d tree(s), want 2", len(trees))
+	}
+
+	// What a collision looks like: something wrote the record between this
+	// enrolment's read and its write. Simulated by moving the file after the
+	// digest is taken, which is what a parallel enrolment does.
+	before, err := recordDigest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("[]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`[{"dir":"/home/op/three","agent_user":"op","agents":null}]` + "\n")
+	_, err = (fsys{}).writeFileExpecting(path, body, 0o600, keep, keep, before)
+	if err == nil {
+		t.Fatal("a record write onto a record something else had written was accepted")
+	}
+	if !strings.Contains(err.Error(), "changed while this was working on it") {
+		t.Errorf("the refusal does not say what happened: %v", err)
+	}
+	// And it wrote nothing, so the record is what the other writer left.
+	if got, _ := os.ReadFile(path); string(got) != "[]\n" {
+		t.Errorf("the record is %q, so the refused write landed anyway", got)
+	}
+}

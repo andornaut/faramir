@@ -601,10 +601,6 @@ func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int
 
 // writeFileExpecting is writeFile for a file the caller read and is writing
 // back: the write is refused where something else has written it since.
-//
-// caller's is a surprise the next caller finds the hard way.
-//
-//nolint:unparam // mode mirrors writeFile's, and a helper that hardcodes one
 func (f fsys) writeFileExpecting(path string, data []byte, mode os.FileMode,
 	uid, gid int, expect []byte) (bool, error) {
 	if expect == nil {
