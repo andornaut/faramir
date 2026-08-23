@@ -329,3 +329,23 @@ func TestAnEditIsRefusedWhenTheFileMovedUnderIt(t *testing.T) {
 		t.Errorf("identical contents were refused: %v", err)
 	}
 }
+
+// The editor is one this process chose. It runs as root over the decrypted
+// store, so a variable in the invoking shell must not decide what that is:
+// sudo strips $EDITOR and $VISUAL for the same reason, and sudoedit exists
+// because letting them choose root's editor is an escalation path.
+//
+// Asserted rather than left to the comment: what made this worth checking is
+// that four surfaces claimed the opposite, so somebody reading the help would
+// set $EDITOR and get something else with no explanation.
+func TestNoEnvironmentVariableChoosesTheEditor(t *testing.T) {
+	t.Setenv("EDITOR", "/usr/bin/definitely-not-this")
+	t.Setenv("VISUAL", "/usr/bin/nor-this")
+	got, err := resolveEditor("")
+	if err != nil {
+		t.Skipf("this host has none of %v", editors)
+	}
+	if !slices.Contains(editors, got) {
+		t.Errorf("resolveEditor chose %q, which is not one of %v", got, editors)
+	}
+}

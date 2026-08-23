@@ -198,7 +198,7 @@ A fleet declares these where it declares everything else: every `block` command 
 
 ### Onboarding a project
 
-1. **Write the values**, one file per thing that consumes them. `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk. Nothing restarts: the next refresh picks the file up. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
+1. **Write the values**, one file per thing that consumes them. `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from an editor faramir picks, on a `0600` file in a tmpfs, so no plaintext reaches a disk. That editor runs as root over the decrypted value, so `$EDITOR` and `$VISUAL` are not read; `--editor` names one by absolute path. Nothing restarts: the next refresh picks the file up. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
 2. **Have the project read each credential from an environment variable** rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
 3. **Write the refs beside the project**, one per line, in a file that holds refs and never values: [the two line forms](docs/integrations.md#onboarding-in-three-steps).
 4. **`cd <project> && sudo faramir init-project`.** Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.

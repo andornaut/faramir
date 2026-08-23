@@ -7,8 +7,10 @@ package main
 //
 // Over running sops by hand it adds: plaintext that is 0600 root in a tmpfs
 // rather than readable by the uid the agent runs as; an editor this process
-// chose, never one $EDITOR named; a path argument that cannot leave the managed
-// set; and an audit record.
+// chose, never one $EDITOR or $VISUAL named -- it runs as root over the
+// decrypted value, and a variable in the invoking shell must not choose what
+// that is; a path argument that cannot leave the managed set; and an audit
+// record.
 
 import (
 	"bytes"

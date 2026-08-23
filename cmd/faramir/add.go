@@ -46,13 +46,17 @@ func newAddCmd() *cobra.Command {
 			".sops.yaml names.\n\n" +
 			"NAME is a name, relative to the secrets directory: `.sops.yml` is added\n" +
 			"for you, and a name that already carries it is taken as it stands.\n\n" +
-			"The content comes from $EDITOR on a 0600 file in a tmpfs, so no plaintext\n" +
-			"reaches a disk. --from encrypts a file you already have and leaves it\n" +
-			"cleartext where it is.",
+			"The content comes from an editor faramir picks, on a 0600 file in a\n" +
+			"tmpfs, so no plaintext reaches a disk. That editor runs as root over the\n" +
+			"decrypted value, so $EDITOR and $VISUAL are not read; --editor names one\n" +
+			"by absolute path.\n\n" +
+			"--from encrypts a file you already have and leaves it cleartext where it\n" +
+			"is.",
 		Args: exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runAdd(f, args[0])) },
 	}
-	c.Flags().StringVar(&f.editor, "editor", "", "editor to run (default $VISUAL, $EDITOR, then vi)")
+	c.Flags().StringVar(&f.editor, "editor", "", "absolute path to the editor to run (default: the first of "+
+		strings.Join(editors, ", ")+" that exists)")
 	c.Flags().StringVar(&f.from, "from", "",
 		"encrypt this plaintext `FILE` instead of opening an editor; it is left where it is")
 	return c
