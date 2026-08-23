@@ -600,12 +600,25 @@ func (r *runner) refuseConfigMove() error {
 			"the install this host already has, leave --config-dir out",
 			installed, r.layout.ConfigDir, installed, installed)
 	}
-	// Consented to, and still worth naming: what is left behind is key
-	// material.
-	r.warnf("the daemons now load %s. %s is left as it stands, including %s and "+
-		"the secrets directory: nothing there is managed or redacted from now on. "+
-		"Retire it when its values are re-encrypted where the daemons look",
-		r.layout.ConfigDir, installed, filepath.Join(installed, "age.key"))
+	// Consented to, and still worth naming: what is left behind is key material
+	// and every value it opens. Said once, here, and by nothing afterwards: the
+	// old directory is not part of the install any more, so no later command
+	// looks at it. That is the reason to name the files and the commands rather
+	// than the directory, since this is the only reading the operator gets.
+	managed, _ := filepath.Glob(filepath.Join(installed, "secrets", "*.sops.yml"))
+	key := filepath.Join(installed, "age.key")
+	store := filepath.Join(installed, "secrets")
+	width := max(len(key), len(store))
+	r.warnf("the daemons now load %s, and %s is no longer part of this install: "+
+		"nothing there is managed, nothing in it is redacted, and no later "+
+		"`faramir doctor` will mention it again.\n"+
+		"  %-*s  the key that opens what is beside it\n"+
+		"  %-*s  %d managed file(s), every value in them covered by nothing now\n"+
+		"Re-encrypt what you still need where the daemons now look, check it is "+
+		"served with `faramir refs`, and then remove the old directory:\n"+
+		"  sudo rm -rf %s",
+		r.layout.ConfigDir, installed,
+		width, key, width, store, len(managed), installed)
 	return nil
 }
 
