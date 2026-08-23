@@ -5,7 +5,9 @@ package install
 // directory safe to default to here and unsafe there.
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -181,7 +183,54 @@ func (p *project) preflight() error {
 		return err
 	}
 	p.warnMissingBinary(filepath.Join(DefaultBinDir, "faramir"))
-	return p.refuseUnwritableFiles()
+	if err := p.refuseUnwritableFiles(); err != nil {
+		return err
+	}
+	return p.refuseUnparsableAgentConfig()
+}
+
+// refuseUnparsableAgentConfig asks, before the share, the other question every
+// merge into this tree will ask. faramir writes its keys into the agent's own
+// file rather than replacing it, so a file that does not parse is refused, and
+// finding that out at the write is too late: the share has already handed the
+// client group read and write on every file in the tree, and the run then stops
+// without registering the hook that was the point of it, leaving a tree open
+// and guarded by nothing.
+//
+// Only a parse failure. A file that cannot be read or is not the operator's is
+// refuseUnwritableFiles's to name, and saying it twice would put one problem in
+// front of the operator under two headings.
+func (p *project) refuseUnparsableAgentConfig() error {
+	var refused []string
+	for _, target := range p.targets {
+		for _, file := range target.files {
+			if !file.merge {
+				continue
+			}
+			path := filepath.Join(p.opts.Dir, file.path)
+			spot, err := p.fs.editedFile(path, p.uid, p.opts.Dir)
+			if err != nil {
+				spot.close()
+				continue
+			}
+			data, readErr := spot.read()
+			spot.close()
+			if readErr != nil || len(bytes.TrimSpace(data)) == 0 {
+				continue
+			}
+			var into any
+			if err := json.Unmarshal(data, &into); err != nil {
+				refused = append(refused, fmt.Sprintf(
+					"%s: parsing the file already there: %v. faramir merges its keys "+
+						"into this file rather than replacing it, so nothing was written "+
+						"and the tree was not shared", path, err))
+			}
+		}
+	}
+	if len(refused) > 0 {
+		return errors.New(strings.Join(refused, "\n"))
+	}
+	return nil
 }
 
 // refuseUnreachable stops an enrolment that would share a tree nothing can

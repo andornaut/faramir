@@ -202,6 +202,23 @@ jq -e '.mcpServers.faramir != null' "$D/.mcp.json" >/dev/null \
 # A file the operator owns stays theirs after root has written to it.
 owned "$D/.claude/settings.local.json" "the merged file is still the operator's"
 
+# A file the merge cannot read is refused, and refused before the share: that
+# walk cannot be undone, so a refusal arriving at the write would leave the
+# client group holding a tree with no hook registered in it.
+B=/home/op/p-unparsable
+rm -rf $B; install -d -o $OP -g $OP $B
+runuser -u $OP -- mkdir -p "$B/.claude"
+runuser -u $OP -- tee "$B/.claude/settings.local.json" >/dev/null <<'JSON'
+{ not json
+JSON
+out=$(enrol "$B" --agent claude 2>&1)
+grep -q 'parsing the file already there' <<<"$out" \
+  && ok "an agent config that does not parse is refused" \
+  || bad "an unparseable agent config was not named: ${out:0:120}"
+mode=$(stat -c '%U:%G' "$B")
+[ "$mode" = "$OP:$OP" ] && ok "and the tree was not shared on the way to refusing" \
+  || bad "the tree is $mode after a refused enrolment: the share ran anyway"
+
 # --------------------------------------------------------------------------
 head_ "5. enrolling twice changes nothing"
 
