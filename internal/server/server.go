@@ -369,10 +369,15 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 // later. Store.Degraded is the whole of that question; `faramir doctor` answers
 // the same one and says what to do about each.
 func (s *Server) opStatus() protocol.Response {
-	// Whether, not where: any member of the client group can ask, including the
-	// coding agent, so what goes here lands in a model's context. It is also the
-	// whole answer, a configured key that did not load looking identical to a
+	// Whether, never a value: any member of the client group can ask, including
+	// the coding agent, so what goes here lands in a model's context. It is also
+	// the whole answer, a configured key that did not load looking identical to a
 	// working one from the config's side.
+	//
+	// Describe carries the store's patterns and resolved files, which is where
+	// rather than whether, and deliberately so: the config path below is 0644 and
+	// its [secret] patterns already name the directory, so the file list is which
+	// of those globs matched, not anything the agent could not already reach.
 	configured, usable := s.Config.Ssh.Key != "", false
 	if configured {
 		data, err := os.ReadFile(s.Config.Ssh.Key)
