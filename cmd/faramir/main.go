@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -343,12 +344,8 @@ func redactChild(socketPath string, argv []string) int {
 	}
 	err = cmd.Wait()
 
-	code := 0
-	var exitErr *exec.ExitError
-	switch {
-	case errors.As(err, &exitErr):
-		code = exitErr.ExitCode()
-	case err != nil:
+	code := childExitCode(err)
+	if code < 0 {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
 		code = 1
 	}
@@ -433,6 +430,27 @@ func (s *streamer) feed(line []byte, err error) (done bool, retErr error) {
 		return true, err
 	}
 	return false, nil
+}
+
+// childExitCode is the status faramir should exit with for a child that has
+// finished. Nil is a clean exit. An exit status is kept as it is. A signal
+// death has no exit status -- ExitError.ExitCode answers -1, which os.Exit
+// renders as 255 -- so it is mapped to 128+signal, which is what a shell
+// reports and what `faramir run` returns for the same death. A -1 return means
+// the error was not a child exit at all, for the caller to report and treat as
+// its own failure.
+func childExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return -1
+	}
+	if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return 128 + int(status.Signal())
+	}
+	return exitErr.ExitCode()
 }
 
 // redactStream sends the input through the broker a chunk at a time, breaking
