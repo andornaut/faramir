@@ -45,13 +45,15 @@ raw | anything
 base64, padded and unpadded | `\| base64`, JSON payloads, `Authorization: Basic`
 base64 URL-safe, padded and unpadded | JWTs, signed URLs
 base32, padded and unpadded | TOTP seeds, `otpauth://` URIs, some token formats
-hex, lower and upper case | `xxd -p`, `od -An -tx1`, `hexdump`, `openssl`, hex BLOB columns
+hex, lower and upper case, contiguous | `xxd -p`, `hexdump -ve '/1 "%02x"'`, Python's `bytes.hex()`, hex BLOB columns
 percent-encoded, in the `quote(safe="")`, `encodeURIComponent` and `encodeURI` safe sets, each in upper and lower hex, and with `%20` or `+` for a space | any URL or form body carrying a credential
 JSON string-escaped, and with `\/` | `-vvv` output, API responses, PHP `json_encode`
 shell single-quoted, both the `'\''` and `'"'"'` escapes | `set -x` traces, Python's `shlex.quote`
 shell double-quoted (`\\`, `\$`, `` \` ``, `\"`) | `set -x` traces
 
 Outside it and always will be: `printf %q`'s backslash re-quoting, and any deliberate transform (`\| rev`, `\| tr a-z A-Z`, a hash), because the child chooses its own output encoding.
+
+The hex row is the contiguous rendering, one byte after another. A dump that separates the bytes is a different string and is not covered: `od -An -tx1` and `hexdump -C` space them, `hexdump` with no arguments writes byte-swapped 16-bit words, and `openssl x509 -text` colons them. What they have in common is a separator chosen by the tool, which is the same unbounded space the paragraph below describes.
 
 HTML and XML entity escaping is outside it deliberately. Every encoding above has one spelling or a closed set of them, which is what makes enumerating it possible. Entity escaping has a named, a decimal and a hexadecimal form per character, and the encoder chooses which characters to escape at all, so `&#112;` for a plain `p` is as valid as leaving it alone: a list of renderings would cover whichever producer it was written against and read as covering the rest.
 
