@@ -221,6 +221,42 @@ reload_daemons || bad "the daemons did not come back"
 runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
   && ok "and the broker still decrypts it" || bad "the file is no longer readable"
 
+# Two edits of one file each decrypt their own copy, so whichever encrypts last
+# would replace the other's work with a copy that never had it -- both reporting
+# the file written, and a secret just saved gone with nothing said.
+cat > /usr/local/sbin/slow-editor <<'EOF'
+#!/bin/bash
+sleep 3
+printf 'raced: aaaaaaaaaaaa
+' >> "$1"
+EOF
+cat > /usr/local/sbin/quick-editor <<'EOF'
+#!/bin/bash
+printf 'wonrace: bbbbbbbbbbbb
+' >> "$1"
+EOF
+chmod 0755 /usr/local/sbin/slow-editor /usr/local/sbin/quick-editor
+( faramir vault edit --editor /usr/local/sbin/slow-editor "$MANAGED" >/tmp/edit-slow.log 2>&1
+  echo $? > /tmp/edit-slow.rc ) &
+sleep 1
+faramir vault edit --editor /usr/local/sbin/quick-editor "$MANAGED" >/tmp/edit-quick.log 2>&1
+echo $? > /tmp/edit-quick.rc
+wait
+slow=$(cat /tmp/edit-slow.rc); quick=$(cat /tmp/edit-quick.rc)
+[ "$slow" = 0 ] && [ "$quick" = 0 ] \
+  && bad "both concurrent edits reported success, so one was lost silently" \
+  || ok "concurrent edits do not both report success (slow=$slow quick=$quick)"
+# Whichever was refused says why, and the file is one of the two edits rather
+# than a mix or a truncation.
+cat /tmp/edit-slow.log /tmp/edit-quick.log | grep -qE "changed while the editor was open|was not saved" \
+  && ok "  and the one that lost says the file moved under it" \
+  || bad "  neither refusal explains itself: $(tail -1 /tmp/edit-slow.log)"
+reload_daemons || bad "the daemons did not come back"
+runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
+  && ok "  and the store still decrypts afterwards" || bad "  the store is unreadable after the race"
+rm -f /usr/local/sbin/slow-editor /usr/local/sbin/quick-editor \
+  /tmp/edit-slow.log /tmp/edit-quick.log /tmp/edit-slow.rc /tmp/edit-quick.rc
+
 # --------------------------------------------------------------------------
 # The shapes below are the ones a reader would not think to try: a .sops.yaml
 # written in a way an earlier version read differently from sops, and a rule

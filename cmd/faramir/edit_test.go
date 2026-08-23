@@ -288,3 +288,44 @@ func TestRecipientsOfRefusesAFileWithNone(t *testing.T) {
 		t.Fatal("a file naming no recipient was accepted")
 	}
 }
+
+// Two edits of one managed file each decrypt their own copy. Whichever encrypts
+// last would otherwise replace the other's work with a copy that never had it,
+// and both would report the file written: a secret an operator had just saved,
+// gone, with nothing said.
+func TestAnEditIsRefusedWhenTheFileMovedUnderIt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.sops.yml")
+	if err := os.WriteFile(path, []byte("first\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := digestOf(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unchangedSince(path, before); err != nil {
+		t.Errorf("a file nothing touched was refused: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte("second\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = unchangedSince(path, before)
+	if err == nil {
+		t.Fatal("a file something else wrote was accepted")
+	}
+	for _, want := range []string{path, "changed while the editor was open", "again"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
+		}
+	}
+
+	// Same bytes written again is the same file: an editor that rewrites without
+	// changing anything must not read as somebody else's write.
+	if err := os.WriteFile(path, []byte("first\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := unchangedSince(path, before); err != nil {
+		t.Errorf("identical contents were refused: %v", err)
+	}
+}

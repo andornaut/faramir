@@ -11,7 +11,9 @@ package main
 // set; and an audit record.
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -337,6 +339,15 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 		return false, err
 	}
 
+	// The ciphertext as it stands now, compared again before the write. Two edits
+	// of one file each decrypt their own copy, and whichever encrypts last would
+	// otherwise replace the other's work with a copy that never had it, both
+	// having reported the file written.
+	before, err := digestOf(target)
+	if err != nil {
+		return false, err
+	}
+
 	decrypted, err := runSops(keyPath, rulePath, "--decrypt", target)
 	if err != nil {
 		return false, fmt.Errorf("decrypt %s: %w", target, err)
@@ -370,7 +381,36 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 		return false, fmt.Errorf("encrypt: %w. The edit was not saved and the "+
 			"decrypted copy has been removed, so make it again once this is fixed", err)
 	}
+	if err := unchangedSince(target, before); err != nil {
+		return false, err
+	}
 	return true, writeBack(target, reencrypted)
+}
+
+// digestOf is the file's contents hashed, which is what says whether it is the
+// one this started from.
+func digestOf(path string) ([]byte, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(body)
+	return sum[:], nil
+}
+
+// unchangedSince refuses a write onto a file something else has written since
+// this read it. The edit is lost either way; what this decides is whose.
+func unchangedSince(path string, before []byte) error {
+	now, err := digestOf(path)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(now, before) {
+		return fmt.Errorf("%s changed while the editor was open, so this edit was "+
+			"not saved: another `faramir vault edit`, or something writing the file "+
+			"directly, got there first. Make the edit again", path)
+	}
+	return nil
 }
 
 // writeBack replaces the managed file without changing who owns it, written
