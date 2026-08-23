@@ -931,11 +931,11 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// difference is that a short value is knowingly outside the redactor and this
 	// one is not, which is why it is named rather than left to a daemon log line.
 	if len(check.Secrets.ShadowedRefs) > 0 {
-		report.addf("shadowed refs", StatusFailed, "%d ref(s) are defined by more "+
-			"than one managed file. One value wins and the other is injected by "+
-			"nothing and redacted by nothing, so a command that prints it prints it "+
-			"in the clear: %s. Take the ref out of one of the files with `sudo "+
-			"faramir vault edit`",
+		report.addf("shadowed refs", StatusFailed, "%d ref(s) are defined with "+
+			"different values by more than one managed file. One value wins and the "+
+			"other is injected by nothing and redacted by nothing, so a command that "+
+			"prints it prints it in the clear: %s. Take the ref out of one of the "+
+			"files with `sudo faramir vault edit`",
 			len(check.Secrets.ShadowedRefs), refsWithReasons(check.Secrets.ShadowedRefs))
 		if check.onlyShadowedRefs() {
 			explained = true

@@ -245,10 +245,12 @@ func StatAll(secrets config.SecretConfig) ([]FileState, []string, []string) {
 // errors rather than aborting, so one broken file does not blank the value
 // set.
 //
-// The third return is the refs two files both defined. One value wins and the
-// other leaves the value set entirely, so it is injected by nothing and
-// redacted by nothing: the same consequence as a value below [secret]
-// min_length, and reported the same way rather than left to a daemon log line.
+// The third return is the refs two files define with different values. One
+// value wins and the other leaves the value set entirely, so it is injected by
+// nothing and redacted by nothing: the same consequence as a value below
+// [secret] min_length, and reported the same way rather than left to a daemon
+// log line. Two files holding the same value are not this, nothing being lost
+// when the one that does not win is byte for byte the one that does.
 func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string, []string, map[string]string) {
 	values := map[string]string{}
 	// Every file that defined each ref, and whether any two of them disagreed

@@ -93,7 +93,7 @@ One call, end to end:
 ### Redaction
 
 - The value set is **every managed secret**, not only the injected ones, so a host printing a credential nothing injected is still covered. A `[[secret.link]]` entry adds a credential another tool owns, read where that tool keeps it.
-- Children run on a PTY, so programs behave normally and writes to `/dev/tty` are captured. The cost is that stdout and stderr arrive merged.
+- Children run on a PTY, so programs behave normally, and they get no controlling terminal, so `/dev/tty` cannot be opened at all: a prompt that would have gone there falls back to stderr, which the redactor is reading. The cost is that stdout and stderr arrive merged.
 - ANSI escapes are stripped before matching; base64, base32, hex, URL, JSON and shell quoting are matched as encodings; a streaming overlap buffer catches a value split across reads.
 - Tokens are stable, so the model can reason about a secret across turns.
 - Two things are outside the value set: a value shorter than `[secret] min_length`, refused at load because it would match inside ordinary words, and the age key, which no child can obtain. `--allow-sudo` adds nothing, escalation minting no credential.

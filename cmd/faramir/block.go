@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -602,7 +603,9 @@ func errReason(err error) string {
 func blockOptions(f blockFlags, dir string) install.Options {
 	return install.Options{
 		ConfigDir: dir,
-		AgentUser: operatorName(f.agentUser),
+		// The recorded agent_user behind the flag and SUDO_USER, for the reason
+		// link's installOptions gives.
+		AgentUser: doctorOperator(f.agentUser, filepath.Join(dir, "config.toml")),
 		Log:       stepLog(f.json),
 	}
 }

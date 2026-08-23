@@ -109,8 +109,8 @@ func runAdd(f addFlags, name string) int {
 		return 1
 	}
 
-	fmt.Fprintf(os.Stderr, "faramir %s: wrote %s; %s\n",
-		label, target, reReadNote(tellBrokerToReRead()))
+	fmt.Fprintf(os.Stderr, "faramir %s: wrote %s; %s\n", label, target,
+		reReadNote(tellBrokerToReRead(), "it picks this up within one refresh interval"))
 	if f.from != "" {
 		// Said rather than done: removing somebody's file is not this command's to
 		// decide, and a plaintext copy nobody remembers is what this exists to keep

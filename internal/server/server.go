@@ -496,13 +496,25 @@ func (s *Server) opRefresh(peer *sockutil.Peer) protocol.Response {
 			"refresh is root's: it is what writes the managed store that asks for "+
 				"it, and everything else is served by the refresh interval", "")
 	}
-	s.Store.Refresh()
+	if !s.Store.Refresh(refreshWait) {
+		// A reload already under way that did not finish in time. Refused rather
+		// than answered, so the caller reports the interval it is now waiting on
+		// instead of telling an operator the store has been re-read.
+		return protocol.ErrorResponse("busy", fmt.Sprintf(
+			"a reload was already running and did not finish within %s, so this "+
+				"did not re-read the store; the refresh interval covers it", refreshWait), "")
+	}
 	refs := s.Store.Refs()
 	return protocol.Response{
 		"exit_code": 0, "output": "", "truncated": false,
 		"redactions": []any{}, "log_id": nil, "refs": refs,
 	}
 }
+
+// refreshWait bounds what the refresh op waits for a reload already in flight.
+// Under the caller's own deadline, so a caller that gives up first is the
+// unusual case rather than the ordinary one.
+const refreshWait = 90 * time.Second
 
 // opEscalate is what sudo's PAM helper asks, and the only thing that decides
 // whether a brokered command becomes root. It blocks until a human answers.
@@ -1065,12 +1077,13 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	if absent := s.Store.UnresolvedPatterns(); len(absent) > 0 {
 		log.Printf("%d configured entry(ies) named no file: %v", len(absent), absent)
 	}
-	// A ref two managed files both defined. The loser is on disk and in no
+	// A ref two managed files define differently. The loser is on disk and in no
 	// redactor, so a command that prints it prints it in the clear: the same
 	// consequence as a ref too short to cover, and counted the same way.
 	if shadowed := s.Store.ShadowedRefs(); len(shadowed) > 0 {
-		log.Printf("%d ref(s) are defined by more than one managed file; one value "+
-			"wins and the other is in no redactor: %v", len(shadowed), shadowed)
+		log.Printf("%d ref(s) are defined with different values by more than one "+
+			"managed file; one value wins and the other is in no redactor: %v",
+			len(shadowed), shadowed)
 		code = 1
 	}
 	// Every value the broker failed to load is one it cannot redact.

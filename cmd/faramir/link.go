@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -286,7 +287,11 @@ func runLinkList(f linkFlags) int {
 func installOptions(f linkFlags, dir string) install.Options {
 	return install.Options{
 		ConfigDir: dir,
-		AgentUser: operatorName(f.agentUser),
+		// The recorded agent_user behind the flag and SUDO_USER, as doctor reads
+		// it: these commands re-render the agent's rule files, and a root shell
+		// with no SUDO_USER was told to pass a flag naming what the config already
+		// said.
+		AgentUser: doctorOperator(f.agentUser, filepath.Join(dir, "config.toml")),
 		// Progress goes to stderr so --json owns stdout, and is suppressed under
 		// --json entirely, as `init` suppresses it: the steps are in the document.
 		Log: stepLog(f.json),

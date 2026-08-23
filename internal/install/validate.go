@@ -27,9 +27,10 @@ type checkReport struct {
 		// and reason. They load and are never injected, so each is a value to
 		// lengthen rather than anything about the install.
 		NotRedactable map[string]string `json:"not_redactable"`
-		// ShadowedRefs is the refs more than one managed file defined, by ref and
-		// by which files. The value that lost is on disk and in no redactor, which
-		// is what NotRedactable is too, so the two are reported alike.
+		// ShadowedRefs is the refs more than one managed file defines with
+		// different values, by ref and by which files. The value that lost is on
+		// disk and in no redactor, which is what NotRedactable is too, so the two
+		// are reported alike.
 		ShadowedRefs map[string]string `json:"shadowed_refs"`
 		// DegradedLinks is the [[secret.link]] entries that did not load, by ref.
 		// Each refuses that ref alone; the broker goes on serving the rest.

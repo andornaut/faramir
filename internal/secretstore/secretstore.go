@@ -21,7 +21,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -76,7 +75,11 @@ type Store struct {
 
 	// Held across a refresh-driven reload, not under mu, which Reload takes
 	// itself. Keeps concurrent requests from each starting a round trip.
-	refreshing atomic.Bool
+	// refreshing serialises reloads: one runs at a time and the callers differ in
+	// what they do about it. A buffered channel rather than a flag, so the forced
+	// path can wait for the one in flight with a deadline instead of spinning on
+	// a compare-and-swap, which held a connection goroutine through a shutdown.
+	refreshing chan struct{}
 }
 
 func New(secrets config.SecretConfig, kc config.KeeperConfig) *Store {
@@ -89,6 +92,7 @@ func New(secrets config.SecretConfig, kc config.KeeperConfig) *Store {
 		values:        map[string]string{},
 		refused:       map[string]string{},
 		degradedLinks: map[string]string{},
+		refreshing:    make(chan struct{}, 1),
 	}
 }
 
@@ -211,17 +215,28 @@ func (s *Store) Reload() {
 // so a rotated value is in the redactor before the command that rotated it has
 // returned, rather than up to [secret] min_refresh_sec later. Everything else
 // arrives through RefreshIfStale.
-func (s *Store) Refresh() {
+func (s *Store) Refresh(wait time.Duration) bool {
 	// Waits for a refresh already under way rather than returning on its
 	// account. One that started before the caller's write took its fingerprints
 	// from before it too, so it will find nothing changed and return, and
 	// treating that as the re-read this promises would leave the new value
 	// outside the redactor while the command that wrote it says otherwise.
-	for !s.refreshing.CompareAndSwap(false, true) {
-		time.Sleep(time.Millisecond)
+	//
+	// Bounded, and it says whether it got in. A reload of a large store execs
+	// sops once per file and may run for minutes, and a caller that waited on it
+	// without a limit would be a connection goroutine the broker cannot shut
+	// down. Answering false is the honest outcome there: the caller reports what
+	// it could not promise rather than promising it anyway.
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case s.refreshing <- struct{}{}:
+	case <-timer.C:
+		return false
 	}
-	defer s.refreshing.Store(false)
+	defer func() { <-s.refreshing }()
 	s.Reload()
+	return true
 }
 
 // RefreshIfStale asks the keeper for the managed files' fingerprints, and
@@ -233,10 +248,12 @@ func (s *Store) Refresh() {
 func (s *Store) RefreshIfStale() {
 	// One refresh at a time, whichever half triggers it. A caller that arrives
 	// while another is working returns rather than queueing behind it.
-	if !s.refreshing.CompareAndSwap(false, true) {
+	select {
+	case s.refreshing <- struct{}{}:
+	default:
 		return
 	}
-	defer s.refreshing.Store(false)
+	defer func() { <-s.refreshing }()
 
 	// The links, on every request and not on the interval: they are the
 	// operator's own files and this uid can stat them, so the cost is a stat per
@@ -537,9 +554,9 @@ func (s *Store) LoadErrors() []string {
 	return append([]string{}, s.loadErrors...)
 }
 
-// ShadowedRefs is the refs more than one managed file defined, by ref and by
-// which files defined them. The loser is in no redactor, so this names a value
-// on this host that a command could print in the clear.
+// ShadowedRefs is the refs more than one managed file defines with different
+// values, by ref and by which files define them. The loser is in no redactor,
+// so this names a value on this host that a command could print in the clear.
 func (s *Store) ShadowedRefs() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

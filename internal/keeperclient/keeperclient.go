@@ -53,9 +53,9 @@ type response struct {
 	// like, and a file that is there and will not open is a value the redactor is
 	// missing.
 	UnresolvedPatterns []string `json:"unresolved_patterns"`
-	// ShadowedRefs is the refs more than one managed file defined, by ref and by
-	// which files. One value wins and the other is in no redactor, so this is a
-	// repair list rather than a diagnostic.
+	// ShadowedRefs is the refs more than one managed file defines with different
+	// values, by ref and by which files. One value wins and the other is in no
+	// redactor, so this is a repair list rather than a diagnostic.
 	ShadowedRefs map[string]string `json:"shadowed_refs"`
 	Error        *struct {
 		Code    string `json:"code"`
@@ -118,10 +118,11 @@ type Loaded struct {
 	State              []FileState
 	Errors             []string
 	UnresolvedPatterns []string
-	// ShadowedRefs is the refs more than one managed file defined. One value wins
-	// and the other reaches no redactor, which is the same missing as a value too
-	// short to cover rather than a file that would not open, so it is carried
-	// apart from Errors and does not stop the broker serving.
+	// ShadowedRefs is the refs more than one managed file defines with different
+	// values. One value wins and the other reaches no redactor, which is the same
+	// missing as a value too short to cover rather than a file that would not
+	// open, so it is carried apart from Errors and does not stop the broker
+	// serving.
 	ShadowedRefs map[string]string
 }
 

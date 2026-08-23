@@ -24,17 +24,17 @@ import (
 // The caller says what happened, because "the broker has re-read it" on a host
 // where nothing answered is the sentence that sends somebody to run the command
 // this exists to make safe.
-func tellBrokerToReRead() bool {
+func tellBrokerToReRead() string {
 	conn, err := (&net.Dialer{Timeout: refreshDialWait}).DialContext(
 		context.Background(), "unix", socketDefault())
 	if err != nil {
-		return false
+		return ""
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(refreshWait))
 	if err := sockutil.Send(conn, map[string]any{
 		"op": "refresh", "version": version.Version}); err != nil {
-		return false
+		return ""
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
 		_ = uc.CloseWrite()
@@ -45,26 +45,43 @@ func tellBrokerToReRead() bool {
 	// says it landed: an older broker refuses the op it does not know.
 	line, err := sockutil.ReadLine(conn, 1<<20)
 	if err != nil || len(line) == 0 {
-		return false
+		return ""
 	}
 	var reply struct {
 		Error *struct {
-			Code string `json:"code"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(line, &reply); err != nil {
-		return false
+		return ""
 	}
-	return reply.Error == nil
+	if reply.Error != nil {
+		// A broker that answered and said no. The commonest is version skew, the
+		// binary having been replaced before the daemon was restarted, and
+		// reporting that as silence sends an operator to look at a daemon that is
+		// answering.
+		return reply.Error.Message
+	}
+	return reReadOK
 }
 
-// reReadNote is what a command that wrote the store says about the broker,
-// which depends on whether it answered.
-func reReadNote(reread bool) string {
-	if reread {
+// reReadOK is what tellBrokerToReRead returns when the broker re-read the
+// store: a sentinel rather than a bool, so the refusals it can answer with are
+// carried back with it.
+const reReadOK = "ok"
+
+// reReadNote is what a command that wrote the store says about the broker. It
+// stands next to "wrote the file", so it has to say whether the value is
+// covered yet rather than leaving that to be assumed.
+func reReadNote(answer, waiting string) string {
+	switch answer {
+	case reReadOK:
 		return "the broker has re-read it"
+	case "":
+		return "the broker did not answer, so " + waiting
 	}
-	return "the broker did not answer, so it picks this up within one refresh interval"
+	return "the broker refused to re-read it (" + answer + "), so " + waiting
 }
 
 const (

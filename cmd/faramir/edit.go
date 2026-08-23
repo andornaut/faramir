@@ -134,8 +134,8 @@ func runEdit(f editFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "faramir vault edit: unchanged")
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "faramir vault edit: wrote %s; %s\n",
-		target, reReadNote(tellBrokerToReRead()))
+	fmt.Fprintf(os.Stderr, "faramir vault edit: wrote %s; %s\n", target,
+		reReadNote(tellBrokerToReRead(), "it picks this up within one refresh interval"))
 	return 0
 }
 

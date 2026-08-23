@@ -817,6 +817,15 @@ grant_status() {
   /usr/local/bin/faramir doctor --agent-user op --json 2>/dev/null \
     | jq -r '[.findings[]|select(.check=="sudo grant")|.status]|first // "missing"'
 }
+# The finding's own text. Read out of --json rather than grepped off the
+# terminal: the printed report wraps at the terminal width less an indent that
+# follows the longest check name, so a phrase to match for can fall across a
+# line break and a check written against one width silently stops checking at
+# another.
+grant_detail() {
+  /usr/local/bin/faramir doctor --agent-user op --json 2>/dev/null \
+    | jq -r '[.findings[]|select(.check=="sudo grant")|.detail]|first // ""'
+}
 restore_sudo() {
   update-alternatives --set sudo "$HOME_SUDO" >/dev/null 2>&1
   /usr/local/bin/faramir init --allow-sudo --agent-user op \
@@ -963,7 +972,7 @@ $(tail -1 /tmp/alice.right)"
     # doctor asks the same questions of this arrangement.
     [ "$(grant_status)" = ok ] \
       && ok "doctor passes the sudo-rs arrangement" \
-      || bad "doctor says sudo grant is $(grant_status): $(/usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A1 'sudo grant' | head -2)"
+      || bad "doctor says sudo grant is $(grant_status): $(grant_detail)"
 
     # Switching back without re-running init leaves an arrangement written for
     # $OTHER_NAME on a host running $HOME_SUDO, which is the drift doctor has to
@@ -984,16 +993,16 @@ $(tail -1 /tmp/alice.right)"
       [ "$(grant_status)" = warn ] \
         && ok "and switching back to the original sudo warns: the grant works, the arrangement is sudo-rs's" \
         || bad "doctor says sudo grant is $(grant_status) on a host back on the original sudo, want warn"
-      /usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A6 'sudo grant' | grep -q 'escalation works' \
+      grep -q 'escalation works' <<<"$(grant_detail)" \
         && ok "and says so, rather than sending the operator after a break that is not there" \
-        || bad "the warning does not say the grant still works: $(/usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A6 'sudo grant' | head -4)"
+        || bad "the warning does not say the grant still works: $(grant_detail)"
     else
       [ "$(grant_status)" = failed ] \
         && ok "and switching back to sudo-rs fails doctor: nothing asks the broker there" \
         || bad "doctor says sudo grant is $(grant_status) on a host back on sudo-rs with the original's arrangement, want failed"
-      /usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A6 'sudo grant' | grep -q 'every escalation fails' \
+      grep -q 'every escalation fails' <<<"$(grant_detail)" \
         && ok "and says every escalation fails, which is what it does" \
-        || bad "the failure does not say what it costs: $(/usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A6 'sudo grant' | head -4)"
+        || bad "the failure does not say what it costs: $(grant_detail)"
     fi
   fi
 
