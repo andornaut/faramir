@@ -450,11 +450,20 @@ for i in 1 2 3 4; do
       "/home/op/p-conc$i" >/dev/null 2>&1; echo $? > /tmp/conc.$i.rc ) &
 done
 wait
-reported=$(cat /tmp/conc.*.rc | grep -c '^0$')
-recorded=$(jq '[.[]|select(.dir|startswith("/home/op/p-conc"))]|length' $REC)
-[ "$reported" = "$recorded" ] \
-  && ok "$reported of four concurrent enrolments reported success, and $recorded were recorded" \
-  || bad "$reported reported success and $recorded were recorded: the rest are enrolled and invisible"
+# Per tree, not by count: what must never happen is an enrolment that reported
+# success and is not in the record, which is a tree `faramir init` stops
+# maintaining and `doctor` stops checking with nothing said.
+lost=0; recorded=0
+for i in 1 2 3 4; do
+  if jq -e --arg d "/home/op/p-conc$i" '[.[]|select(.dir==$d)]|length > 0' $REC >/dev/null 2>&1; then
+    recorded=$((recorded + 1))
+    continue
+  fi
+  [ "$(cat /tmp/conc.$i.rc)" = 0 ] && lost=$((lost + 1))
+done
+[ "$lost" -eq 0 ] \
+  && ok "every concurrent enrolment that reported success is recorded ($recorded of four)" \
+  || bad "$lost enrolment(s) reported success and are not in the record"
 # The ones that lost say so rather than exiting 0: the tree is enrolled either
 # way, and the exit code is the only thing that says it needs doing again.
 out=$(/usr/local/bin/faramir init-project --agent-user $OP --agent claude /home/op/p-conc1 2>&1)

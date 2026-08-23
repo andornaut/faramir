@@ -552,12 +552,21 @@ for i in 1 2 3 4 5 6; do
   ( block add --path "/srv/e2e-conc$i" >/dev/null 2>&1; echo $? > /tmp/conc.$i.rc ) &
 done
 wait
-reported=$(cat /tmp/conc.*.rc | grep -c '^0$')
-present=$(block ls --declared 2>/dev/null | grep -c '/srv/e2e-conc')
-[ "$reported" = "$present" ] \
-  && ok "$reported of six concurrent adds reported success, and $present landed" \
-  || bad "$reported concurrent adds reported success and $present landed: the rest were lost silently"
-[ "$present" -ge 1 ] && ok "  and one of them got through" \
+# Per entry, not by count. An add writes config.toml and then re-renders the
+# deny patterns and the agent's rule files, so one that collides on those exits
+# non-zero with its entry already written: more may land than reported success,
+# and a retry of that one is a no-op. What must never happen is the other way
+# round -- an add that reported success and left nothing.
+declared=$(block ls --declared 2>/dev/null)
+lost=0; landed=0
+for i in 1 2 3 4 5 6; do
+  grep -q '/srv/e2e-conc'"$i"'$' <<<"$declared" && landed=$((landed + 1)) && continue
+  [ "$(cat /tmp/conc.$i.rc)" = 0 ] && lost=$((lost + 1))
+done
+[ "$lost" -eq 0 ] \
+  && ok "every concurrent add that reported success left its entry ($landed of six landed)" \
+  || bad "$lost concurrent add(s) reported success and left nothing behind"
+[ "$landed" -ge 1 ] && ok "  and at least one got through" \
   || bad "  none of six concurrent adds landed"
 out=$(block add --path /srv/e2e-conc1 2>&1)
 grep -qE 'already there|changed while this was working' <<<"$out" \
