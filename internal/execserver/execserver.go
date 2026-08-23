@@ -31,6 +31,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/fserr"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -664,29 +665,29 @@ func (c *Client) Close() {
 // answer is about. Only on a permission error, and only to add a sentence: what
 // the exec reported is still what is returned.
 func startFailure(program, cwd string, err error) string {
-	detail := fmt.Sprintf("%s: %v", program, err)
+	// The path once and the errno on its own: exec wraps both in "fork/exec",
+	// which names the call rather than the reason.
+	detail := fserr.At(program, err).Error()
 	if cwd == "" || !errors.Is(err, os.ErrPermission) {
 		return detail
 	}
-	// Opening it is the same permission the exec needs, and it is one syscall on
-	// a path the caller already named.
+	// Which of the two permissions was missing, said rather than left to the
+	// caller: "permission denied" against a path they can read is about a uid
+	// that is not theirs, and the cwd and the program are different fixes.
+	//
+	// Opening the directory is the same permission the exec needs, and it is one
+	// syscall on a path the caller already named.
 	dir, openErr := os.Open(cwd)
 	if openErr == nil {
 		_ = dir.Close()
-		// The tree is enterable, so the refusal is about the program. Said rather
-		// than left as the raw fork/exec error: a caller reading "permission
-		// denied" against a path it can see cannot tell which uid was refused, and
-		// the one that matters is not its own.
-		return fmt.Sprintf("%s. The command runs as %s, not as you, and that account "+
-			"may not execute %s", detail, whoRuns(), program)
+		return fmt.Sprintf("%s may not execute %s, and a brokered command runs as "+
+			"that account rather than as you", whoRuns(), program)
 	}
 	if !errors.Is(openErr, os.ErrPermission) {
 		return detail
 	}
-	return fmt.Sprintf("%s. The command runs as %s, which cannot enter %s, so the "+
-		"exec was refused before the program was reached. Share the tree with "+
-		"`sudo faramir init-project` in it, which grants the traversal a brokered "+
-		"command needs", detail, whoRuns(), cwd)
+	return fmt.Sprintf("%s cannot enter %s, so %s was never reached. Share the "+
+		"tree with `sudo faramir init-project` in it", whoRuns(), cwd, program)
 }
 
 // whoRuns names the account a brokered command runs as, which is this process's

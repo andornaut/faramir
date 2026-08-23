@@ -25,6 +25,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/fserr"
 )
 
 // opAdd is the audit record a creation writes. Distinct from an edit: when a
@@ -223,7 +224,7 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 	if from != "" {
 		body, err := os.ReadFile(from)
 		if err != nil {
-			return fmt.Errorf("read %s: %w", from, err)
+			return fserr.At(from, err)
 		}
 		if len(bytes.TrimSpace(body)) == 0 {
 			return fmt.Errorf("%s holds nothing, and an encrypted file with nothing in "+

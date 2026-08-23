@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/fserr"
 	"github.com/andornaut/faramir/internal/secretlink"
 	"github.com/andornaut/faramir/internal/sharetree"
 )
@@ -229,9 +230,9 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	// Blocked rather than recorded: a link nothing could verify may refuse every
 	// brokered command later, at a moment nobody chose.
 	if _, err := os.Stat(link.Path); err != nil {
-		return Report{}, false, fmt.Errorf("%s: %w\nA link is checked when it is added, so "+
+		return Report{}, false, fmt.Errorf("%w\nA link is checked when it is added, so "+
 			"the file has to be there. If this is an encrypted home, mount it first",
-			link.Path, err)
+			fserr.At(link.Path, err))
 	}
 	// What the file itself answers, asked before anything is altered: the wrong
 	// --type, or a --key naming nothing, is a link that was never going to work,

@@ -65,6 +65,10 @@ func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 				return "", fmt.Errorf("%s: not a program: %s is a %s", argv0, resolved,
 					describeKind(there.Mode()))
 			}
+			// Where resolving changed nothing, saying so names the same path twice.
+			if resolved == argv0 {
+				return "", fmt.Errorf("%s: no such program", argv0)
+			}
 			return "", fmt.Errorf("%s: no such program (resolved to %s)", argv0, resolved)
 		}
 		return resolved, nil

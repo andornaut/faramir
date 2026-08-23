@@ -39,13 +39,14 @@ func TestProgramResolvesAgainstTheChildsOwnPath(t *testing.T) {
 	dir, script := fixture(t)
 
 	for _, tc := range []struct {
-		name  string
-		arg   string
-		cwd   string
-		cfg   config.CommandConfig
-		want  string   // the resolved path; "" means the call must fail
-		wants []string // substrings the failure has to carry
-		why   string
+		name     string
+		arg      string
+		cwd      string
+		cfg      config.CommandConfig
+		want     string   // the resolved path; "" means the call must fail
+		wants    []string // substrings the failure has to carry
+		unwanted []string // substrings it must not
+		why      string
 	}{
 		// -- bare names: looked up on the PATH the child will actually get ---
 		{name: "a bare name resolves on the configured PATH",
@@ -92,8 +93,13 @@ func TestProgramResolvesAgainstTheChildsOwnPath(t *testing.T) {
 		{name: "an absolute path ignores the cwd",
 			arg: "/bin/sh", cwd: "/tmp", want: realpath("/bin/sh"),
 			why: "filepath.Join would produce /tmp/bin/sh; the child's own exec would not"},
+		// Named once: resolving an absolute path that is nowhere changes nothing,
+		// so saying what it resolved to repeats what was typed.
 		{name: "a missing program is named",
-			arg: filepath.Join(dir, "nope"), cwd: dir, wants: []string{"no such program"}},
+			arg: filepath.Join(dir, "nope"), cwd: dir,
+			wants: []string{"no such program"}, unwanted: []string{"resolved to"}},
+		{name: "and a relative one says where it looked",
+			arg: "./nope", cwd: dir, wants: []string{"no such program", "resolved to"}},
 		// Told apart from the one above. A path the caller can see, called "no
 		// such program", reads as a typo in the path rather than as a path that
 		// holds no program.
@@ -113,6 +119,11 @@ func TestProgramResolvesAgainstTheChildsOwnPath(t *testing.T) {
 			if tc.want == "" {
 				if err == nil {
 					t.Fatalf("resolved to %q, want a failure: %s", got, tc.why)
+				}
+				for _, unwanted := range tc.unwanted {
+					if strings.Contains(err.Error(), unwanted) {
+						t.Errorf("the message carries %q: %v", unwanted, err)
+					}
 				}
 				for _, want := range tc.wants {
 					if !strings.Contains(err.Error(), want) {

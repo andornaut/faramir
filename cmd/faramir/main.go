@@ -23,6 +23,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/fserr"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/secretref"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -350,7 +351,9 @@ func redactChild(socketPath string, argv []string) int {
 	}
 	cmd.Stderr = cmd.Stdout
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
+		// The path once and what the kernel said: exec.Error carries the name and
+		// wraps it in "fork/exec", which is Go's plumbing rather than the reader's.
+		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", fserr.At(argv[0], err))
 		return 127
 	}
 	streamErr := redactStream(socketPath, output, os.Stdout)

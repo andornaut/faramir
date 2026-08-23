@@ -28,6 +28,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/fserr"
 	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
@@ -252,7 +253,7 @@ func resolveEditor(requested string) (string, error) {
 		}
 		info, err := os.Stat(requested)
 		if err != nil {
-			return "", fmt.Errorf("editor %s: %w", requested, err)
+			return "", fmt.Errorf("editor %w", fserr.At(requested, err))
 		}
 		if reason := unsafeToRunAsRoot(requested, info); reason != "" {
 			return "", fmt.Errorf("editor %s: %s", requested, reason)
