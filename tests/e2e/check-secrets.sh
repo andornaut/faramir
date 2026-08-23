@@ -257,6 +257,31 @@ runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
 rm -f /usr/local/sbin/slow-editor /usr/local/sbin/quick-editor \
   /tmp/edit-slow.log /tmp/edit-quick.log /tmp/edit-slow.rc /tmp/edit-quick.rc
 
+# A value at or over the kernel's cap on one environment variable. It could
+# never be injected -- `run` fails it with the exec's own "argument list too
+# long" -- and holding one is not free: the value set costs about 19 KB of
+# memory per byte of secret, so a value this size takes the broker to several
+# gigabytes and then to the OOM killer, at which point nothing is redacted.
+python3 -c "open('/tmp/huge.yml','w').write('toobig: %s\n' % ('x' * 200000))"
+faramir vault add --from /tmp/huge.yml e2e-toobig >/dev/null 2>&1
+rm -f /tmp/huge.yml
+reload_daemons || bad "the daemons did not come back after a huge value"
+runuser -u op -- faramir refs 2>/dev/null | grep -q 'faramir://toobig' \
+  && bad "a value too large to inject is served" \
+  || ok "a value too large to inject is refused at load"
+pid=$(systemctl show -p MainPID --value faramir-broker.service)
+rss=$(awk '/VmRSS/{print $2}' /proc/"$pid"/status 2>/dev/null)
+[ -n "$rss" ] && [ "$rss" -lt 1000000 ] \
+  && ok "  and the broker is ${rss}kB rather than gigabytes" \
+  || bad "  the broker is ${rss:-gone}kB with one oversized value in the store"
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
+  --env V=faramir://toobig -- /bin/true 2>&1)
+grep -q 'environment variable' <<<"$out" \
+  && ok "  and asking for it says why it cannot be had" \
+  || bad "  the refusal does not explain itself: ${out:0:110}"
+faramir vault rm --force e2e-toobig >/dev/null 2>&1
+reload_daemons || bad "the daemons did not come back"
+
 # --------------------------------------------------------------------------
 # The shapes below are the ones a reader would not think to try: a .sops.yaml
 # written in a way an earlier version read differently from sops, and a rule

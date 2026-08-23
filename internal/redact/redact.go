@@ -367,6 +367,20 @@ type EligibilityPolicy struct {
 	MinLength int
 }
 
+// MaxValueBytes is the largest value the broker will hold, and it is the
+// kernel's number rather than a policy: Linux caps one environment variable at
+// MAX_ARG_STRLEN, 128 KiB including the name and the "=", so a value at or over
+// this can never be injected into a command. `faramir run` fails such a value
+// with the exec's own "argument list too long".
+//
+// Refused rather than carried, because holding one is not free. Every value
+// enters an Aho-Corasick automaton whose states carry a dense transition table,
+// so the set costs about 19 KB of memory per byte of secret: a 200 KB value
+// takes the broker to 3.7 GB and the OOM killer takes it from there, at which
+// point nothing is redacted at all. A value this size is one faramir could not
+// have used, so refusing it costs the operator nothing it could have had.
+const MaxValueBytes = 128 << 10
+
 func DefaultPolicy() EligibilityPolicy {
 	return EligibilityPolicy{MinLength: 8}
 }
@@ -375,6 +389,10 @@ func DefaultPolicy() EligibilityPolicy {
 func (p EligibilityPolicy) Check(value string) string {
 	if len([]rune(value)) < p.MinLength {
 		return fmt.Sprintf("shorter than %d characters", p.MinLength)
+	}
+	if len(value) >= MaxValueBytes {
+		return fmt.Sprintf("%d bytes, and one environment variable holds at most "+
+			"%d, so it could not be injected into a command", len(value), MaxValueBytes)
 	}
 	// A value that is faramir's own token, guillemets and all. The redactor
 	// emits that shape for another ref, and the streaming buffer redacts the

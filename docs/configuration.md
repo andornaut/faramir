@@ -8,7 +8,7 @@ Setting | Effect
 --- | ---
 `[command.env] PATH` | Where a bare name is looked up, and the only `PATH` the child gets.
 `[command] max_timeout_sec` | How long a command may run.
-`[secret] min_length` | A value too short to redact is refused at load, so nothing can inject it.
+`[secret] min_length` | A value too short to redact is refused at load, so nothing can inject it. There is no matching maximum: a value at or over 128 KiB is refused whatever this says, one environment variable being unable to carry it.
 the executor's uid | The real bound.
 
 ## What a flag sets

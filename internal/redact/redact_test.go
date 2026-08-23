@@ -354,3 +354,38 @@ func TestEveryValueIsOneAutomaton(t *testing.T) {
 		t.Errorf("out = %q, want %q", out, want)
 	}
 }
+
+// A value at or over the kernel's cap on one environment variable is one
+// faramir could never inject, and holding it is not free: the automaton costs
+// about 19 KB of memory per byte, so a 200 KB value takes the broker to several
+// gigabytes and the OOM killer takes it from there, at which point nothing on
+// the host is redacted.
+func TestAValueTooLargeToInjectIsRefused(t *testing.T) {
+	policy := DefaultPolicy()
+	for _, tc := range []struct {
+		name    string
+		size    int
+		refused bool
+	}{
+		{"an ordinary token", 40, false},
+		{"a private key", 3000, false},
+		{"a kubeconfig", 20000, false},
+		{"just under the cap", MaxValueBytes - 1, false},
+		{"at the cap", MaxValueBytes, true},
+		{"far over it", MaxValueBytes * 2, true},
+	} {
+		why := policy.Check(strings.Repeat("a", tc.size))
+		if refused := why != ""; refused != tc.refused {
+			t.Errorf("%s (%d bytes): refused = %v (%q), want %v",
+				tc.name, tc.size, refused, why, tc.refused)
+		}
+	}
+	// The reason says which limit and why it matters, or an operator is told a
+	// size and no reason to care about it.
+	why := policy.Check(strings.Repeat("a", MaxValueBytes))
+	for _, want := range []string{"environment variable", "injected"} {
+		if !strings.Contains(why, want) {
+			t.Errorf("the reason does not mention %q: %s", want, why)
+		}
+	}
+}
