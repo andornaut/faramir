@@ -791,6 +791,39 @@ fi
 quiesce
 
 # --------------------------------------------------------------------------
+head_ "15c. a watcher does not hold the broker open"
+
+# `faramir sudo watch` blocks in a long poll on the broker, and that poll is a
+# channel rather than the socket: closing the connection under it does not end
+# it. If a shutdown does not release it, every restart while somebody is
+# watching waits out the poll and systemd kills the unit at TimeoutStopSec,
+# which on this host means an install leaves it failed.
+/usr/local/bin/faramir sudo watch >/tmp/hold.watch 2>&1 </dev/null &
+WATCHER=$!
+for _ in $(seq 30); do
+  grep -q 'waiting for escalation requests' /tmp/hold.watch && break
+  sleep 1
+done
+if ! grep -q 'waiting for escalation requests' /tmp/hold.watch; then
+  bad "the watcher never started, so the check below has no subject"
+else
+  start=$(date +%s)
+  systemctl stop faramir-broker.service >/dev/null 2>&1
+  took=$(( $(date +%s) - start ))
+  result=$(systemctl show faramir-broker.service -p Result --value)
+  systemctl start faramir-broker.service >/dev/null 2>&1
+  sleep 1
+  [ "$result" = success ] \
+    && ok "the broker stops cleanly with a watcher connected (${took}s)" \
+    || bad "stopping took ${took}s and ended as '$result': a watcher held it open"
+  [ "$took" -lt 10 ] && ok "  and does not wait out the poll" \
+    || bad "  the stop took ${took}s, so it waited for the poll rather than being released"
+fi
+kill $WATCHER 2>/dev/null
+wait $WATCHER 2>/dev/null
+quiesce
+
+# --------------------------------------------------------------------------
 head_ "16. the other sudo, and switching to it"
 
 # Ubuntu ships two implementations behind one alternatives group, and they take

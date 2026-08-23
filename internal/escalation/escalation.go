@@ -774,7 +774,7 @@ func (s *Server) questionsLocked() []Question {
 // a spin.
 func (s *Server) Poll(wait time.Duration, awaitLogID string) ([]Question, *Outcome) {
 	s.mu.Lock()
-	if s.waiting != nil || s.finishedLocked(awaitLogID) != nil {
+	if s.stopped || s.waiting != nil || s.finishedLocked(awaitLogID) != nil {
 		defer s.mu.Unlock()
 		return s.questionsLocked(), s.finishedLocked(awaitLogID)
 	}
@@ -913,6 +913,12 @@ func (s *Server) Stop() {
 	s.stopped = true
 	clear(s.runs)
 	pending := s.waiting
+	// A watcher's long poll is parked on this and on nothing else: it is not
+	// socket I/O, so closing the connection under it does not end it and the
+	// broker would wait out the poll before it could exit. Woken whether or not
+	// there is a question to finish below, a watcher with nothing waiting being
+	// the ordinary case.
+	s.wakeLocked()
 	s.mu.Unlock()
 	if pending != nil {
 		// Outside the lock: finish takes it.

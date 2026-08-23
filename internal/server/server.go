@@ -152,6 +152,13 @@ func (s *Server) Serve() error {
 // inside the executor rather than in socket I/O, and shutdown waits for it.
 // Safe to call twice, which the daemon does.
 func (s *Server) Close() error {
+	// Before the deadlines below, and not left to the daemon's own defer: a
+	// watcher's long poll is parked on a channel rather than on the socket, so a
+	// deadline does not end it and Serve would wait out the poll. The defer runs
+	// after Serve returns, which is too late to be what releases it.
+	if s.Escalation != nil {
+		s.Escalation.Stop()
+	}
 	s.connsMu.Lock()
 	s.closing = true
 	live := make([]net.Conn, 0, len(s.conns))
