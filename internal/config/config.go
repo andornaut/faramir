@@ -90,6 +90,7 @@ func DefaultCommand() CommandConfig {
 			"LC_ALL": "C.UTF-8", "DEBIAN_FRONTEND": "noninteractive",
 		},
 		TimeoutSec: 600, MaxTimeoutSec: 3600, Concurrency: 10,
+		MaxMemoryPercent: 50,
 	}
 }
 
@@ -283,6 +284,16 @@ type CommandConfig struct {
 	// harder to get: a sudo is refused while any other brokered command is in
 	// flight.
 	Concurrency int
+	// MaxMemoryPercent is how much of the machine's memory every brokered
+	// command together may hold, as the executor unit's MemoryMax. A percentage
+	// rather than a size: it is the one form with a default that means the same
+	// thing on a laptop and on a build host, and nothing here knows how much
+	// memory the host has.
+	//
+	// Read by `faramir init`, which renders it into the unit. The daemons do not
+	// enforce it; the kernel does, and it chooses a victim inside the executor's
+	// own cgroup rather than across the whole machine.
+	MaxMemoryPercent int
 }
 
 // KeeperConfig describes the process that holds the age key: separate uid,
@@ -578,8 +589,9 @@ var (
 	keeperKeys = []string{keySocketPath, "allowed_user",
 		"age_key_credential", "age_key_file"}
 	executorKeys = []string{keySocketPath, "allowed_user"}
-	commandKeys  = []string{"env", "timeout_sec", "max_timeout_sec", "concurrency"}
-	sshKeys      = []string{"key", "agent_socket", "exec_group",
+	commandKeys  = []string{"env", "timeout_sec", "max_timeout_sec", "concurrency",
+		"max_memory_percent"}
+	sshKeys = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
 	escalationKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
 		"notify_command", "timeout_sec"}
@@ -719,6 +731,13 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 	}
 	// 1, not 0: an unbuffered channel refuses every request as busy.
 	if out.Concurrency, err = intInRange(sec, "concurrency", where, out.Concurrency, 1, MaxConcurrentRuns); err != nil {
+		return err
+	}
+	// A floor of 10: below that a converge is killed for doing its job, and a
+	// bound nobody can live with is turned off rather than lowered. 100 is the
+	// whole machine, which is the same as no bound and is spelled as one.
+	if out.MaxMemoryPercent, err = intInRange(sec, "max_memory_percent", where,
+		out.MaxMemoryPercent, 10, 100); err != nil {
 		return err
 	}
 	// Merged over the built-in table rather than replacing it, so a file that

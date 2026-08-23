@@ -66,13 +66,14 @@ type Options struct {
 
 	// The tunables, each named for what it bounds rather than for the section it
 	// lands in.
-	CommandEnv           map[string]string
-	CommandTimeoutSec    int
-	CommandMaxTimeoutSec int
-	CommandConcurrency   int
-	EscalationTimeoutSec int
-	SecretMinLength      int
-	SecretMinRefreshSec  int
+	CommandEnv              map[string]string
+	CommandTimeoutSec       int
+	CommandMaxTimeoutSec    int
+	CommandConcurrency      int
+	CommandMaxMemoryPercent int
+	EscalationTimeoutSec    int
+	SecretMinLength         int
+	SecretMinRefreshSec     int
 
 	// links is the [[secret.link]] entries, read off the installed config's base
 	// file during adoption. Unexported: no flag names one, and `faramir link` is
@@ -393,6 +394,9 @@ func (o *Options) applyDefaults() {
 	if o.CommandConcurrency == 0 {
 		o.CommandConcurrency = command.Concurrency
 	}
+	if o.CommandMaxMemoryPercent == 0 {
+		o.CommandMaxMemoryPercent = command.MaxMemoryPercent
+	}
 	if o.EscalationTimeoutSec == 0 {
 		o.EscalationTimeoutSec = config.DefaultEscalationTimeoutSec
 	}
@@ -460,6 +464,7 @@ func (o *Options) layout() (Layout, error) {
 	layout.CommandTimeoutSec = o.CommandTimeoutSec
 	layout.CommandMaxTimeoutSec = o.CommandMaxTimeoutSec
 	layout.CommandConcurrency = o.CommandConcurrency
+	layout.CommandMaxMemoryPercent = o.CommandMaxMemoryPercent
 	layout.EscalationTimeoutSec = o.EscalationTimeoutSec
 	layout.SecretMinLength = o.SecretMinLength
 	layout.SecretMinRefreshSec = o.SecretMinRefreshSec

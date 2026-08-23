@@ -170,9 +170,14 @@ type Layout struct {
 	CommandTimeoutSec    int
 	CommandMaxTimeoutSec int
 	CommandConcurrency   int
-	EscalationTimeoutSec int
-	SecretMinLength      int
-	SecretMinRefreshSec  int
+	// CommandMaxMemoryPercent renders into the executor unit's MemoryMax, which
+	// is what keeps a brokered command that runs away from taking the host with
+	// it: the kernel then chooses inside that cgroup rather than across every
+	// process on the machine.
+	CommandMaxMemoryPercent int
+	EscalationTimeoutSec    int
+	SecretMinLength         int
+	SecretMinRefreshSec     int
 
 	// AllowSudo is the switch for the whole arrangement: unset renders no
 	// [escalation] section, writes no sudoers file and no PAM service, so nothing

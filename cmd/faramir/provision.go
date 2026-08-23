@@ -228,6 +228,7 @@ type initFlags struct {
 	commandTimeoutSec    int
 	commandMaxTimeoutSec int
 	commandConcurrency   int
+	commandMaxMemoryPct  int
 	escalationTimeoutSec int
 	secretMinLength      int
 	secretMinRefreshSec  int
@@ -238,12 +239,13 @@ type initFlags struct {
 // install every run.
 func (f *initFlags) tunables() map[string]func() {
 	return map[string]func(){
-		"command-timeout-sec":     func() { f.commandTimeoutSec = 0 },
-		"command-max-timeout-sec": func() { f.commandMaxTimeoutSec = 0 },
-		"command-concurrency":     func() { f.commandConcurrency = 0 },
-		"escalation-timeout-sec":  func() { f.escalationTimeoutSec = 0 },
-		"secret-min-length":       func() { f.secretMinLength = 0 },
-		"secret-min-refresh-sec":  func() { f.secretMinRefreshSec = 0 },
+		"command-timeout-sec":        func() { f.commandTimeoutSec = 0 },
+		"command-max-timeout-sec":    func() { f.commandMaxTimeoutSec = 0 },
+		"command-concurrency":        func() { f.commandConcurrency = 0 },
+		"command-max-memory-percent": func() { f.commandMaxMemoryPct = 0 },
+		"escalation-timeout-sec":     func() { f.escalationTimeoutSec = 0 },
+		"secret-min-length":          func() { f.secretMinLength = 0 },
+		"secret-min-refresh-sec":     func() { f.secretMinRefreshSec = 0 },
 	}
 }
 
@@ -344,6 +346,8 @@ func newInitCmd() *cobra.Command {
 		"the most a caller may ask for, and the idle bound on a redact stream")
 	fl.IntVar(&f.commandConcurrency, "command-concurrency", command.Concurrency,
 		"how many brokered commands run at once; the rest are refused busy. Held to what the executor forks at once")
+	fl.IntVar(&f.commandMaxMemoryPct, "command-max-memory-percent", command.MaxMemoryPercent,
+		"how much of this machine's memory every brokered command together may hold, as MemoryMax on the executor unit (10 to 100). The kernel then chooses a victim inside that cgroup rather than across the host; 100 is the whole machine, which is no bound")
 	fl.IntVar(&f.escalationTimeoutSec, "escalation-timeout-sec", config.DefaultEscalationTimeoutSec,
 		"how long a sudo question waits for a human before it is refused (1 to 600)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
@@ -405,15 +409,16 @@ func runInit(f initFlags) int {
 		AllowSudo:     f.allowSudo,
 		NotifyCommand: f.notifyCommand,
 
-		CommandEnv:           env,
-		CommandTimeoutSec:    f.commandTimeoutSec,
-		CommandMaxTimeoutSec: f.commandMaxTimeoutSec,
-		CommandConcurrency:   f.commandConcurrency,
-		EscalationTimeoutSec: f.escalationTimeoutSec,
-		SecretMinLength:      f.secretMinLength,
-		SecretMinRefreshSec:  f.secretMinRefreshSec,
-		MoveConfig:           f.moveConfig,
-		DryRun:               f.dryRun,
+		CommandEnv:              env,
+		CommandTimeoutSec:       f.commandTimeoutSec,
+		CommandMaxTimeoutSec:    f.commandMaxTimeoutSec,
+		CommandConcurrency:      f.commandConcurrency,
+		CommandMaxMemoryPercent: f.commandMaxMemoryPct,
+		EscalationTimeoutSec:    f.escalationTimeoutSec,
+		SecretMinLength:         f.secretMinLength,
+		SecretMinRefreshSec:     f.secretMinRefreshSec,
+		MoveConfig:              f.moveConfig,
+		DryRun:                  f.dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
 	// --json entirely.

@@ -58,6 +58,18 @@ max_timeout_sec = {{.CommandMaxTimeoutSec}}
 # escalation needs. See docs/design.md on serialising escalations.
 concurrency = {{.CommandConcurrency}}
 
+# How much of this machine's memory every brokered command together may hold,
+# as MemoryMax on the executor unit. A percentage rather than a size: nothing
+# here knows how much memory the host has, and a default has to mean the same
+# thing on a laptop and on a build host.
+#
+# The kernel enforces it, not the daemons, and it chooses a victim inside the
+# executor's cgroup rather than across every process on the machine: a converge
+# that runs away is then a failed command instead of a host that fell over. Read
+# by `faramir init`, so a change here needs `sudo faramir init` to reach the
+# unit. 100 is the whole machine, which is the same as no bound.
+max_memory_percent = {{.CommandMaxMemoryPercent}}
+
 # The child's entire environment; the broker's own is never inherited. Naming
 # one variable keeps the rest, so a line here adds rather than replaces.
 [command.env]

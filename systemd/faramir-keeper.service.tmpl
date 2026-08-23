@@ -59,6 +59,13 @@ ProtectHome=tmpfs
 ProtectHome=true
 {{- end}}
 PrivateTmp=true
+# No core dump: this process holds the age key and every decrypted value in memory, and a dump is that
+# memory written to a file that outlives the crash. Where
+# systemd-coredump is installed it goes to a central store and is kept
+# for days; elsewhere it lands wherever the working directory is
+# writable. Nothing here is debugged from a core on a host that manages
+# credentials.
+LimitCORE=0
 PrivateDevices=true
 # Somewhere for sops to put ~/.config.
 StateDirectory={{.KeeperUser}}

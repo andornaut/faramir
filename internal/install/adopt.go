@@ -124,6 +124,7 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 		{&o.CommandTimeoutSec, cfg.Command.TimeoutSec},
 		{&o.CommandMaxTimeoutSec, cfg.Command.MaxTimeoutSec},
 		{&o.CommandConcurrency, cfg.Command.Concurrency},
+		{&o.CommandMaxMemoryPercent, cfg.Command.MaxMemoryPercent},
 		{&o.EscalationTimeoutSec, cfg.Escalation.TimeoutSec},
 		{&o.SecretMinLength, cfg.Secret.MinLength},
 		{&o.SecretMinRefreshSec, cfg.Secret.MinRefreshSec},

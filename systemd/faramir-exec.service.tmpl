@@ -25,6 +25,20 @@ RestartSec=2
 # inherited, and the same 30s the broker gets, so one restart does not sit at
 # two different limits.
 TimeoutStopSec=30
+# What keeps a brokered command that runs away from taking the host with it. The
+# kernel then chooses a victim inside this cgroup rather than among every
+# process on the machine, so the failure is the command rather than the box.
+# One ceiling for every brokered command at once, matching the concurrency
+# limit: what is bounded here is the executor, not one child.
+#
+# A cgroup counts page cache toward this, so a command that reads or writes a
+# lot reaches the limit without holding anything. That is not the failure it
+# looks like: cache is reclaimable and the kernel reclaims it before it kills
+# anything, so a source build meets this as reclaim and a process that has
+# actually allocated the memory meets it as the OOM killer. Size it against
+# what a command allocates, not against a cgroup's memory.peak, which is a
+# total over every process in it and is mostly cache.
+MemoryMax={{.CommandMaxMemoryPercent}}%
 
 # {{.ClientGroup}}, because brokered commands run in the working tree and write to it:
 # ansible drops .retry files and fact caches. The tree is agent-owned and
@@ -82,6 +96,13 @@ AmbientCapabilities=
 # ReadWritePaths= is then unnecessary: nothing is mounted read-only to name an
 # exception to.
 PrivateTmp=true
+# No core dump: this process holds the values injected into the command it runs in memory, and a dump is that
+# memory written to a file that outlives the crash. Where
+# systemd-coredump is installed it goes to a central store and is kept
+# for days; elsewhere it lands wherever the working directory is
+# writable. Nothing here is debugged from a core on a host that manages
+# credentials.
+LimitCORE=0
 # Children run on a PTY. The device ACL is dropped rather than narrowed: an
 # approved root task that touches a disk or a tty other than its own is one the
 # human said yes to.
