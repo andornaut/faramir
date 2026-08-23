@@ -2,6 +2,7 @@ package install
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -463,13 +464,14 @@ func (f fsys) writeEdited(e *edited, data []byte, mode os.FileMode, uid, gid int
 	if e.root == nil {
 		return f.writeFile(e.path, data, mode, uid, gid)
 	}
-	return f.writeInto(e.root, e.name, data, mode, uid, gid)
+	return f.writeInto(e.root, e.name, data, mode, uid, gid, nil)
 }
 
 // writeInto is writeFile relative to an open directory: same comparison, same
 // temp-and-rename, and no path resolved twice. The temp is created O_EXCL, so
 // one already sitting there is an error rather than something to truncate.
-func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
+func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMode,
+	uid, gid int, expect []byte) (bool, error) {
 	current, err := root.ReadFile(name)
 	if err == nil && bytes.Equal(current, data) {
 		info, statErr := root.Stat(name)
@@ -516,6 +518,14 @@ func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMod
 			_ = root.Remove(tmp)
 		}
 	}()
+	// Asked while the temporary name is held, which is what makes it decide
+	// something: O_EXCL admits one writer at a time, so a second either fails
+	// above or gets here after the first has renamed and sees the change. Asked
+	// before the write rather than after, so nothing is written for a rename that
+	// is not going to happen.
+	if err := unchangedFrom(root, name, expect); err != nil {
+		return false, err
+	}
 	if _, err := handle.Write(data); err != nil {
 		_ = handle.Close()
 		return false, err
@@ -537,6 +547,26 @@ func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMod
 	}
 	renamed = true
 	return true, nil
+}
+
+// unchangedFrom refuses a write onto a file something else has written since the
+// caller read what it is writing back. expect is nil for a write that is not an
+// edit of what was read, which is most of them.
+func unchangedFrom(root *os.Root, name string, expect []byte) error {
+	if expect == nil {
+		return nil
+	}
+	body, err := root.ReadFile(name)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(body)
+	if bytes.Equal(sum[:], expect) {
+		return nil
+	}
+	return fmt.Errorf("%s changed while this was working on it, so nothing was "+
+		"written: another faramir command edited it. Run them one at a time, then "+
+		"run this again", filepath.Join(root.Name(), name))
 }
 
 // ownerOf is a file's uid and gid, or keep for both where they cannot be read.
@@ -566,7 +596,26 @@ func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int
 		return false, err
 	}
 	defer func() { _ = root.Close() }()
-	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid)
+	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid, nil)
+}
+
+// writeFileExpecting is writeFile for a file the caller read and is writing
+// back: the write is refused where something else has written it since.
+//
+// caller's is a surprise the next caller finds the hard way.
+//
+//nolint:unparam // mode mirrors writeFile's, and a helper that hardcodes one
+func (f fsys) writeFileExpecting(path string, data []byte, mode os.FileMode,
+	uid, gid int, expect []byte) (bool, error) {
+	if expect == nil {
+		return f.writeFile(path, data, mode, uid, gid)
+	}
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = root.Close() }()
+	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid, expect)
 }
 
 // copyFile writes src's contents to dst under dst's own mode and ownership.

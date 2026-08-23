@@ -1,6 +1,7 @@
 package install
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -394,5 +395,59 @@ func TestAFinishedWriteDoesNotRemoveAnotherWritersTemporaryFile(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(body), "written by ") {
 		t.Errorf("the file is %q, which is no writer's whole output", body)
+	}
+}
+
+// An edit of a file's contents is a read-modify-write: the caller reads it,
+// changes what it carries and writes the whole thing back. Two of those leave
+// one change, and without this both report the one they made as written.
+//
+// Asked while the temporary name is held, so it decides something: O_EXCL admits
+// one writer at a time, and a second either fails on that or gets here after the
+// first has renamed and sees the file it read is gone.
+func TestAWriteExpectingWhatItReadIsRefusedWhenThatChanged(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("first\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	digest := func() []byte {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(body)
+		return sum[:]
+	}
+	was := digest()
+	if _, err := realFS.writeFileExpecting(path, []byte("edited\n"), 0o644,
+		keep, keep, was); err != nil {
+		t.Fatalf("a write onto the file it read was refused: %v", err)
+	}
+
+	// The same expectation again, now stale.
+	_, err := realFS.writeFileExpecting(path, []byte("second edit\n"), 0o644,
+		keep, keep, was)
+	if err == nil {
+		t.Fatal("a write onto a file something else had changed was accepted")
+	}
+	for _, want := range []string{path, "changed while this was working on it"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
+		}
+	}
+	// And it wrote nothing: the loser must not leave half an edit behind.
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "edited\n" {
+		t.Errorf("the file is %q, so the refused write landed anyway", body)
+	}
+
+	// A write that expects nothing is every other write this install makes.
+	if _, err := realFS.writeFileExpecting(path, []byte("third\n"), 0o644,
+		keep, keep, nil); err != nil {
+		t.Errorf("a write expecting nothing was refused: %v", err)
 	}
 }

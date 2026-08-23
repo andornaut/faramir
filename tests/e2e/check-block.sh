@@ -544,6 +544,27 @@ grep -qF 'e2e-probe' $RULES \
   || ok "and it reaches no rule file, a command not being a path"
 block rm --command 'e2e-probe read' >/dev/null 2>&1
 
+# Six `block add` at once. Each reads config.toml, adds its entry and writes the
+# whole file back, so without a check the last writer wins and the other five
+# report an entry they did not leave behind.
+rm -f /tmp/conc.*.rc
+for i in 1 2 3 4 5 6; do
+  ( block add --path "/srv/e2e-conc$i" >/dev/null 2>&1; echo $? > /tmp/conc.$i.rc ) &
+done
+wait
+reported=$(cat /tmp/conc.*.rc | grep -c '^0$')
+present=$(block ls --declared 2>/dev/null | grep -c '/srv/e2e-conc')
+[ "$reported" = "$present" ] \
+  && ok "$reported of six concurrent adds reported success, and $present landed" \
+  || bad "$reported concurrent adds reported success and $present landed: the rest were lost silently"
+[ "$present" -ge 1 ] && ok "  and one of them got through" \
+  || bad "  none of six concurrent adds landed"
+out=$(block add --path /srv/e2e-conc1 2>&1)
+grep -qE 'already there|changed while this was working' <<<"$out" \
+  || ok "  a serial add after them is unaffected"
+for i in 1 2 3 4 5 6; do block rm --path "/srv/e2e-conc$i" >/dev/null 2>&1; done
+rm -f /tmp/conc.*.rc
+
 # A path the install's own layout also covers. Taking the entry back leaves the
 # path blocked, and saying nothing would read as the file becoming readable.
 INSIDE=/etc/faramir/secrets/e2e-inside.sops.yml

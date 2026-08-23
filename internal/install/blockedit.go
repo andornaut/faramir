@@ -95,6 +95,9 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 	}
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
+	if err := recordConfigDigest(&opts, configFile); err != nil {
+		return Report{}, nil, err
+	}
 	existing, err := config.BaseBlocked(configFile)
 	if err != nil {
 		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
@@ -234,6 +237,9 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 	configFile := filepath.Join(configDir, "config.toml")
 	if len(refused) == 0 {
 		return Report{}, nil, errors.New("name a path or a pattern to stop refusing")
+	}
+	if err := recordConfigDigest(&opts, configFile); err != nil {
+		return Report{}, nil, err
 	}
 	existing, err := config.BaseBlocked(configFile)
 	if err != nil {

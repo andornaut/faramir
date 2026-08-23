@@ -289,8 +289,13 @@ func (r *runner) stepConfig() error {
 			"was written: %w", err)
 	}
 	// root:root wherever it sits: this file decides what the executor runs.
+	//
+	// Expecting what the caller read, where it read one: an edit of the entries
+	// this file carries is a read-modify-write, and another landing in between is
+	// refused rather than overwritten.
 	owner, group := 0, 0
-	changed, err := r.fs.writeFile(r.layout.ConfigFile, body, 0o644, owner, group)
+	changed, err := r.fs.writeFileExpecting(
+		r.layout.ConfigFile, body, 0o644, owner, group, r.opts.configDigest)
 	if err != nil {
 		return err
 	}

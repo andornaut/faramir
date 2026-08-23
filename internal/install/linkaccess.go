@@ -212,6 +212,9 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		return Report{}, false, err
 	}
 	configFile := filepath.Join(configDirOr(opts.ConfigDir), "config.toml")
+	if err := recordConfigDigest(&opts, configFile); err != nil {
+		return Report{}, false, err
+	}
 	existing, err := config.BaseLinks(configFile)
 	if err != nil {
 		return Report{}, false, fmt.Errorf("%s: %w", configFile, err)
@@ -399,6 +402,9 @@ func reassertLink(opts Options, existing []config.Link, link config.Link) (Repor
 // apart.
 func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	configFile := filepath.Join(configDirOr(opts.ConfigDir), "config.toml")
+	if err := recordConfigDigest(&opts, configFile); err != nil {
+		return Report{}, config.Link{}, err
+	}
 	existing, err := config.BaseLinks(configFile)
 	if err != nil {
 		return Report{}, config.Link{}, fmt.Errorf("%s: %w", configFile, err)

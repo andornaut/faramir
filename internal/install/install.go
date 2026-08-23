@@ -3,6 +3,7 @@ package install
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"maps"
@@ -90,6 +91,13 @@ type Options struct {
 	blocked []config.BlockedPath
 	// blockedSet says the list above is deliberate, empty included.
 	blockedSet bool
+
+	// configDigest is config.toml as it was when the caller read the entries it
+	// is about to write back, or nil where this run is not editing what it read.
+	// Checked before the file is written: two commands each reading the config,
+	// adding their own entry and writing the whole file back leave one entry, and
+	// both would otherwise report the one they added as written.
+	configDigest []byte
 
 	// MoveConfig is consent to point this host's daemons at a different ConfigDir.
 	// Required because the units are one set with fixed names, so a second
@@ -197,6 +205,23 @@ type Report struct {
 	// read back on every run but the one that writes the file, which reports what
 	// it just sealed the store to. Empty when the file could not be read.
 	AgeRecipients []string `json:"age_recipients,omitempty"`
+}
+
+// recordConfigDigest remembers config.toml as it stands, for a run that is
+// about to write back entries it has just read out of it.
+func recordConfigDigest(opts *Options, configFile string) error {
+	body, err := os.ReadFile(configFile)
+	if errors.Is(err, os.ErrNotExist) {
+		// Nothing read, so nothing to be overwritten: a first install writes the
+		// file rather than editing it.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(body)
+	opts.configDigest = sum[:]
+	return nil
 }
 
 type runner struct {
