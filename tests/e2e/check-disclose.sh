@@ -71,6 +71,14 @@ else
     grep -q "$ref" <<<"$st"   && bad "status names the refused ref $ref"   || ok "status does not name $ref"
     grep -q "$ref" <<<"$refs" && bad "refs names the refused ref $ref" || ok "refs does not name $ref"
   done
+  # It does say one exists. Without that, `status` exits 1 on this host and
+  # nothing on any surface gives a reason: not the document, not stderr.
+  jq -e '.degraded | test("cannot be redacted")' <<<"$st" >/dev/null 2>&1 \
+    && ok "while saying how many there are, which the exit status already said" \
+    || bad "status exits non-zero with no reason in it: $(jq -r '.degraded // "(no field)"' <<<"$st")"
+  jq -e '.degraded | test("doctor")' <<<"$st" >/dev/null 2>&1 \
+    && ok "  and where each of them is named" \
+    || bad "  the reason does not say where to look"
 fi
 
 # And the agent cannot simply run the operator's view itself: it may execute the

@@ -252,6 +252,47 @@ func TestStatusDoesNotNameARefusedRef(t *testing.T) {
 	if !strings.Contains(body, "count") {
 		t.Errorf("status is missing count: %q", body)
 	}
+	// It says a ref like that exists, which is what the exit status already
+	// says: without it, status exits 1 and nothing anywhere gives a reason.
+	// Counted, so what it adds is the number and not the name.
+	if !strings.Contains(body, "cannot be redacted") {
+		t.Errorf("status gives no reason for the status it exits with: %q", body)
+	}
+}
+
+// The field that carries that reason: every state that leaves a configured ref
+// not working or a configured value uncovered, counted. A caller reading it
+// knows what is wrong and how much of it; `doctor` is where each is named.
+func TestStatusSaysWhyItIsDegradedWithoutNamingARef(t *testing.T) {
+	s := newServer(t, map[string]string{
+		"good": "hunter2-correct-horse", "tiny": "abc",
+	})
+	var body struct {
+		Degraded string `json:"degraded"`
+	}
+	if err := json.Unmarshal([]byte(output(t, s.opStatus())), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Degraded == "" {
+		t.Fatal("a degraded store reports no reason")
+	}
+	for _, ref := range []string{"tiny", "good"} {
+		if strings.Contains(body.Degraded, ref) {
+			t.Errorf("the reason names %q: %s", ref, body.Degraded)
+		}
+	}
+	if !strings.Contains(body.Degraded, "doctor") {
+		t.Errorf("the reason does not say where the refs are named: %s", body.Degraded)
+	}
+	// And a store doing its whole job says nothing, so the field is a reason or
+	// it is empty, never a sentence about being fine.
+	healthy := newServer(t, map[string]string{"good": "hunter2-correct-horse"})
+	if err := json.Unmarshal([]byte(output(t, healthy.opStatus())), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Degraded != "" {
+		t.Errorf("a healthy store reports %q", body.Degraded)
+	}
 }
 
 // One file is loaded, so status names it rather than reporting a list of one.

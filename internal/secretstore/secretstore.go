@@ -567,6 +567,42 @@ func (s *Store) Degraded() string {
 	return strings.Join(why, "; ")
 }
 
+// DegradedCounts is Degraded with the refs counted rather than named, for the
+// one surface the agent reads. Same states and same consequences, so a caller
+// reading it knows what is wrong and how much of it, and `sudo faramir doctor`
+// is where each is named.
+//
+// Counted rather than named because a ref that is in no redactor is a value
+// nothing tokenizes, and handing the agent its name is handing it something
+// worth targeting. The counts say a value like that exists, which the exit
+// status already said: without them, `status` exits 1 and nothing anywhere says
+// why.
+func (s *Store) DegradedCounts() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var why []string
+	if len(s.degradedLinks) > 0 {
+		why = append(why, fmt.Sprintf("%d linked ref(s) did not load", len(s.degradedLinks)))
+	}
+	if len(s.refused) > 0 {
+		why = append(why, fmt.Sprintf("%d ref(s) cannot be redacted, so they are "+
+			"never injected", len(s.refused)))
+	}
+	if len(s.shadowedRefs) > 0 {
+		why = append(why, fmt.Sprintf("%d ref(s) are defined with different values "+
+			"by more than one managed file, so one value is in no redactor",
+			len(s.shadowedRefs)))
+	}
+	if len(s.loadErrors) > 0 {
+		why = append(why, fmt.Sprintf("%d managed file(s) did not load", len(s.loadErrors)))
+	}
+	if len(why) == 0 {
+		return ""
+	}
+	return strings.Join(why, "; ") +
+		". `sudo faramir doctor` names each of them and says what to do about it"
+}
+
 // LoadErrors is every configured file the broker could not load, each one a
 // value the redactor is missing.
 func (s *Store) LoadErrors() []string {

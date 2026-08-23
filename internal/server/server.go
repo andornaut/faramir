@@ -390,7 +390,12 @@ func (s *Server) opStatus() protocol.Response {
 		data, err := os.ReadFile(s.Config.Ssh.Key)
 		usable = err == nil && unusableReason(data) == ""
 	}
-	body, err := json.MarshalIndent(map[string]any{
+	// Why the exit status below is what it is. Counted, never named: a ref in no
+	// redactor is a value nothing tokenizes, and its name is what would make it
+	// worth targeting. Empty on a store doing its whole job, so the field is
+	// there either way and a caller reads one thing rather than inferring from a
+	// status code with nothing beside it.
+	document := map[string]any{
 		"version": version.Version,
 		// Which build, for the versions that do not name one. Empty for a
 		// release, where the version is the answer.
@@ -403,7 +408,12 @@ func (s *Server) opStatus() protocol.Response {
 		// know: without it a playbook touching this host has to leave it out.
 		// Whether, not how.
 		"sudo": map[string]any{"enabled": s.Escalation.Enabled()},
-	}, "", "  ")
+		// Named apart from secrets.errors, which is what a managed file said when
+		// it did not load: this is every state that leaves a configured ref not
+		// working or a configured value uncovered, which is the wider question.
+		"degraded": s.Store.DegradedCounts(),
+	}
+	body, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
 		return protocol.ErrorResponse("internal", "the status could not be "+
 			"rendered: "+err.Error(), "")
