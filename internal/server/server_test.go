@@ -782,3 +782,53 @@ func TestTheUnreadableRefusalAdvisesOnlyWhatCouldHaveCausedIt(t *testing.T) {
 		}
 	}
 }
+
+// A refusal is what the operator reads when they ask why nothing ran, and the
+// first thing they want from it is who was refused. Every other record carries
+// the peer; this one did not, and a store that cannot be read produces a run of
+// them, so the log filled with refusals attributed to nobody.
+func TestTheUnreadableRefusalRecordsWhoWasRefused(t *testing.T) {
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	file := managedFile(t)
+	k.SetFiles([]string{file})
+	k.SetErrors([]string{"/etc/faramir/secrets/other.sops.yml: could not decrypt"})
+	s := serverWith(t, k, file)
+	s.Store.Reload()
+
+	peer := &sockutil.Peer{UID: 4242, GID: 4243, PID: 4244}
+	if got := handle(s, map[string]any{
+		"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir(),
+	}, peer); got["error"] == nil {
+		t.Fatal("the run was not refused")
+	}
+
+	body, err := os.ReadFile(s.Config.Audit.LogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for line := range strings.Lines(string(body)) {
+		var record struct {
+			Refused string `json:"refused"`
+			Peer    *struct {
+				UID int `json:"uid"`
+			} `json:"peer"`
+		}
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			continue
+		}
+		if record.Refused != "no_secrets" {
+			continue
+		}
+		found = true
+		if record.Peer == nil {
+			t.Error("the refusal was recorded with no peer, so it says what happened " +
+				"and not to whom")
+		} else if record.Peer.UID != 4242 {
+			t.Errorf("the record names uid %d, want 4242", record.Peer.UID)
+		}
+	}
+	if !found {
+		t.Errorf("no no_secrets record was written: %s", body)
+	}
+}

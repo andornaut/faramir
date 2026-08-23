@@ -445,7 +445,7 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer,
 		stream = &redactStream{}
 	}
 	if stream.redactor == nil {
-		if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID()); refused != nil {
+		if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID(), peer); refused != nil {
 			return *refused
 		}
 		// Built once for the whole stream, so every chunk of one command's output
@@ -648,7 +648,7 @@ func (s *Server) opListSecrets() protocol.Response {
 // daemon down just when `faramir status` and `doctor` would explain why.
 // status and refs stay available, neither producing output that depends on the
 // set.
-func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
+func (s *Server) refuseUnreadable(op, phrase, logID string, peer *sockutil.Peer) *protocol.Response {
 	reason := s.Store.Unreadable()
 	if reason == "" {
 		return nil
@@ -658,6 +658,10 @@ func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	// when they ask why nothing ran.
 	s.Audit.Write(map[string]any{
 		"log_id": logID, "op": op, "refused": "no_secrets", "reason": reason,
+		// Who was refused, as every other record carries it. Without it this is
+		// the one refusal in the log that says what happened and not to whom, and
+		// a store that cannot be read produces a run of them.
+		"peer": peer,
 	}, audit.Output{})
 	// The remedies are for the states that reach here, which are a managed file
 	// that was found and did not load, and a keeper that never answered. A store
@@ -816,7 +820,7 @@ func (s *Server) execFields(a execAudit) map[string]any {
 func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	execCfg := s.Config.Command
 	logID := audit.NewLogID()
-	if refused := s.refuseUnreadable("run", "this command", logID); refused != nil {
+	if refused := s.refuseUnreadable("run", "this command", logID, peer); refused != nil {
 		return *refused
 	}
 	if refused := s.refuseUnauditable("this command", logID); refused != nil {
