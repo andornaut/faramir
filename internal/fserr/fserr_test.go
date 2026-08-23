@@ -2,6 +2,7 @@ package fserr
 
 import (
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,5 +53,28 @@ func TestCauseUnwrapsOnlyWhatCarriesThePath(t *testing.T) {
 	_ = wrapped
 	if got := Cause(&os.PathError{Op: "open", Path: "/x", Err: os.ErrPermission}); !errors.Is(got, os.ErrPermission) {
 		t.Errorf("Cause did not reach the errno: %v", got)
+	}
+}
+
+// A dial carries the network and the address as well as the errno, so a caller
+// that names the socket produces "/run/x.sock: dial unix /run/x.sock: connect:
+// no such file or directory": the path twice and two layers of plumbing.
+func TestADialSaysOnlyWhatWentWrong(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "absent.sock")
+	_, err := net.Dial("unix", sock)
+	if err == nil {
+		t.Fatal("dialling a socket that is not there did not fail")
+	}
+	got := At(sock, err).Error()
+	if strings.Count(got, sock) != 1 {
+		t.Errorf("the path appears %d times: %s", strings.Count(got, sock), got)
+	}
+	for _, unwanted := range []string{"dial ", "connect:"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("the message carries %q: %s", unwanted, got)
+		}
+	}
+	if !strings.Contains(got, "no such file or directory") {
+		t.Errorf("the message drops what the kernel said: %s", got)
 	}
 }

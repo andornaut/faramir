@@ -9,6 +9,7 @@ package fserr
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 )
@@ -24,6 +25,14 @@ func Cause(err error) error {
 	}
 	if execErr, ok := errors.AsType[*exec.Error](err); ok {
 		return execErr.Err
+	}
+	// A dial carries the address and the network as well: "dial unix /run/x.sock:
+	// connect: no such file or directory" is four things around one.
+	if opErr, ok := errors.AsType[*net.OpError](err); ok {
+		return Cause(opErr.Err)
+	}
+	if callErr, ok := errors.AsType[*os.SyscallError](err); ok {
+		return callErr.Err
 	}
 	return err
 }

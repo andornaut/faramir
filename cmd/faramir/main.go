@@ -715,7 +715,7 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 	conn, err := (&net.Dialer{Timeout: dialWait}).DialContext(
 		context.Background(), "unix", socketPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", prog, socketPath, err)
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, fserr.At(socketPath, err))
 		return 69 // EX_UNAVAILABLE
 	}
 	defer func() { _ = conn.Close() }()
