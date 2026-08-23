@@ -532,7 +532,9 @@ func (s *Store) Degraded() string {
 			len(s.degradedLinks), strings.Join(sortedKeys(s.degradedLinks), ", ")))
 	}
 	if len(s.refused) > 0 {
-		why = append(why, fmt.Sprintf("%d ref(s) are too short to redact, so they "+
+		// Named, never the reason each carries: length is one of them and the
+		// operator-facing surfaces are where the rest are said.
+		why = append(why, fmt.Sprintf("%d ref(s) cannot be redacted, so they "+
 			"are never injected: %s", len(s.refused), strings.Join(sortedKeys(s.refused), ", ")))
 	}
 	if len(s.loadErrors) > 0 {
