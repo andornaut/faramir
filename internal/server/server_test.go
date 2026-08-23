@@ -711,3 +711,33 @@ func TestRedactIsNotRateLimited(t *testing.T) {
 		}
 	}
 }
+
+// The refusal's remedies have to be for the states that reach it. A store
+// nobody has written yet is served rather than refused, so advice about writing
+// a first file was advice for a condition this message cannot carry, and an
+// operator whose age key had gone unreadable was told to create a secret.
+func TestTheUnreadableRefusalAdvisesOnlyWhatCouldHaveCausedIt(t *testing.T) {
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	file := managedFile(t)
+	k.SetFiles([]string{file})
+	k.SetErrors([]string{"/etc/faramir/secrets/other.sops.yml: could not decrypt"})
+	s := serverWith(t, k, file)
+	s.Store.Reload()
+
+	got := handle(s, map[string]any{
+		"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir(),
+	}, &sockutil.Peer{UID: 1000})
+	failure, ok := got["error"].(map[string]string)
+	if !ok || failure["code"] != "no_secrets" {
+		t.Fatalf("wanted the no_secrets refusal, got %v", got)
+	}
+	if strings.Contains(failure["message"], "vault add") {
+		t.Errorf("the refusal advises writing a first file, which is not a state "+
+			"that reaches it: %q", failure["message"])
+	}
+	for _, want := range []string{"named above", "faramir doctor", "secret.link"} {
+		if !strings.Contains(failure["message"], want) {
+			t.Errorf("the refusal does not mention %q: %q", want, failure["message"])
+		}
+	}
+}

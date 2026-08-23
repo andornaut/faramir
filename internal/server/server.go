@@ -632,15 +632,6 @@ func (s *Server) opListSecrets() protocol.Response {
 	}
 }
 
-// secretsDir is where a first file goes, taken from the configured pattern
-// rather than a default: --config-dir moves it.
-func (s *Server) secretsDir() string {
-	if patterns := s.Config.Secret.Patterns; len(patterns) > 0 {
-		return filepath.Dir(patterns[0])
-	}
-	return "the directory the managed store names"
-}
-
 // refuseUnreadable is the gate on the two ops whose output is redacted against
 // the value set; see Store.Unreadable. Asked here rather than at startup: a
 // startup check judges the host as it was at boot, and exiting would take the
@@ -658,14 +649,19 @@ func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	s.Audit.Write(map[string]any{
 		"log_id": logID, "op": op, "refused": "no_secrets", "reason": reason,
 	}, audit.Output{})
+	// The remedies are for the states that reach here, which are a managed file
+	// that was found and did not load, and a keeper that never answered. A store
+	// nobody has written yet is not one of them: Store.Unreadable serves that
+	// case rather than refusing it, so advice about writing a first file was
+	// advice for a condition this message cannot carry.
 	out := protocol.ErrorResponse("no_secrets", fmt.Sprintf(
 		"the broker does not hold every managed value, so %s would run with "+
-			"redaction covering less than the config asks for: %s. Where the store "+
-			"has not been written yet, write a first file into %s with `sudo faramir "+
-			"vault add NAME`, or `sudo faramir vault edit` once one is there; where "+
-			"the reason above names a [[secret.link]] ref, that entry claims a name "+
-			"the managed store already defines and `sudo faramir link rm REF` is what "+
-			"clears it", phrase, reason, s.secretsDir()), logID)
+			"redaction covering less than the config asks for: %s. What did not load "+
+			"is named above and `sudo faramir doctor` says what to do about each; a "+
+			"file the keeper cannot decrypt is usually its age key or its "+
+			"recipients. Where the reason names a [[secret.link]] ref, that entry "+
+			"claims a name the managed store already defines and `sudo faramir link "+
+			"rm REF` is what clears it", phrase, reason), logID)
 	return &out
 }
 
