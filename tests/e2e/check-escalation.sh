@@ -140,6 +140,15 @@ grep -q 'must run as root' <<<"$out" && ok "faramir sudo approve as the agent is
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo ran 2>&1)
 grep -q escalation_in_progress <<<"$out" && ok "and a brokered command cannot run at all to try" \
   || bad "a brokered command ran beside a question: ${out:0:110}"
+# The refusal names the command holding it, in a sentence. The reason it names
+# is a whole clause, so framing it as a noun phrase spliced two sentences
+# together: "held for sudo -n id is waiting to be approved".
+grep -q 'held for' <<<"$out" \
+  && bad "the refusal splices two sentences: ${out:0:140}" \
+  || ok "  and says so in one sentence"
+grep -qE 'is waiting to be approved|holds an escalation' <<<"$out" \
+  && ok "  naming which of the two states the other command is in" \
+  || bad "the refusal does not say what the other command is doing: ${out:0:140}"
 [ "$(q)" = "$ID" ] && ok "the question survived every attempt" || bad "the question is gone after those attempts"
 /usr/local/bin/faramir sudo reject "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null

@@ -899,8 +899,11 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	// a caller poll the one window in which the host must be quiet, landing its
 	// retries against the exact interval the serialisation protects.
 	if heldBy != "" {
-		return s.refuse("escalation_in_progress", "an escalation is being decided or "+
-			"held for "+heldBy+", and no other brokered command runs while one is: "+
+		// heldBy is a whole clause, naming the command and which of the two states
+		// it is in: waiting to be approved, or holding an approval already given.
+		// Framing it as a noun phrase spliced a second sentence into the first.
+		return s.refuse("escalation_in_progress", heldBy+
+			", and no other brokered command runs while one is: "+
 			"a second could ride it. Not run and not queued; run it again once that "+
 			"one has finished", logID, peer, cmd, cwd)
 	}
