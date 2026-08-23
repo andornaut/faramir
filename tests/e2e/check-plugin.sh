@@ -74,13 +74,20 @@ trap restore_binary EXIT
 # Every stub drains stdin before it answers, as the real guard does. A guard
 # that exits without reading the payload leaves the plugin's write to it
 # unfinished, and node reports that as an error on a child that ran and exited
-# 0: the plugin then takes its could-not-run branch and the case is judged on
-# the wrong message. It needs load to show, so the stub has to hold the shape
-# the guard has rather than the shortest one that answers.
+# 0. The plugin decides on the exit status alone, so that no longer changes what
+# it does, but a case about what the guard said is measured against a stub that
+# received it. The one case that is about the unfinished write uses rawStub.
 withStub() { # shell-body, plugin-path, case
+  rawStub "cat >/dev/null
+$1" "$2" "$3"
+}
+
+# rawStub is withStub without the drain, for the one case about a guard that
+# answers before it has read its payload.
+rawStub() { # shell-body, plugin-path, case
   local body=$1 plugin=$2 name=$3
   mv "$REAL" "$ASIDE"
-  printf '#!/bin/sh\ncat >/dev/null\n%s\n' "$body" > "$REAL"
+  printf '#!/bin/sh\n%s\n' "$body" > "$REAL"
   chmod 0755 "$REAL"
   run "$plugin" "$name"
   rm -f "$REAL"
@@ -123,6 +130,10 @@ for agent in opencode kilocode; do
   # but the silent one, which is how the guard says it has nothing to change.
   withStub 'exit 3' "$plugin" guard-nonzero-throws
   withStub 'printf %s "not json"' "$plugin" guard-garbage-throws
+  # The one stub that deliberately does not drain stdin, which is the whole
+  # case: it answers and exits while the payload is still being written.
+  rawStub 'printf %s "{\"decision\":\"deny\",\"reason\":\"refused-by-the-stub\"}"' \
+    "$plugin" guard-answering-without-reading-is-obeyed
   withStub 'printf %s ""' "$plugin" guard-silent-allows
   withStub 'printf %s "{\"decision\":\"maybe\"}"' "$plugin" unknown-decision-throws
   # A rewrite is the one answer that changes the call, so an incomplete one has

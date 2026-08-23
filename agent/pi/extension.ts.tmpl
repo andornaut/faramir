@@ -115,6 +115,19 @@ function refusedPath(input) {
   return ""
 }
 
+// whyNot is what to add to the message when the guard did not answer: what
+// stopped it running, what it said on stderr, or the status it exited with.
+// Without one of these the operator is told a command was not run and nothing
+// about why, which is the same sentence for a missing binary and a guard that
+// refused the payload.
+function whyNot(result) {
+  const said = result.stderr ? String(result.stderr).trim() : ""
+  if (result.error) return `: ${result.error.message || result.error}`
+  if (said) return `: ${said}`
+  if (result.signal) return `: killed by ${result.signal}`
+  return `: it exited ${result.status}`
+}
+
 // runCLI is one faramir invocation and its raw output.
 function runCLI(args) {
   const result = spawnSync(CLI, args, { encoding: "utf8", timeout: 600000 })
@@ -242,12 +255,19 @@ export default function faramir(pi) {
 
     // Fail closed: running the command without a decision would print whatever
     // it found straight into the transcript.
-    if (result.error || result.status !== 0) {
+    //
+    // On the exit status alone. A child that never started has none, so null
+    // covers a guard that is not there, one killed by the timeout above and one
+    // killed by a signal. `result.error` does not mean the same thing: it is also
+    // set when this end's write to the guard's stdin does not finish, which a
+    // guard that answers without draining its payload causes on a run that
+    // worked. What it says instead is why, where there is a why to give.
+    if (result.status !== 0) {
       return {
         block: true,
         reason:
           `faramir: the guard did not answer, so this command was not run (${CLI} guard --host ${HOST})` +
-          (result.stderr ? `: ${String(result.stderr).trim()}` : ""),
+          whyNot(result),
       }
     }
 

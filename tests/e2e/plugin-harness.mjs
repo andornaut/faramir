@@ -113,6 +113,22 @@ switch (name) {
     pass("a guard exiting non-zero fails closed")
     break
   }
+  // A guard that answers and exits without reading its payload. The write to it
+  // does not finish, and node reports that as an error on a child that ran and
+  // exited 0: taking that for a guard that could not run would refuse a command
+  // the guard decided on. Deterministic because the payload is larger than a
+  // pipe buffer, so the write cannot have completed before the child exited.
+  case "guard-answering-without-reading-is-obeyed": {
+    const { input, output } = shell("echo " + "a".repeat(200000))
+    const r = await call(input, output)
+    if (!r.threw) fail("a deny from a guard that did not read its payload was ignored")
+    if (/did not answer/i.test(r.message)) {
+      fail(`a guard that answered was reported as silent: ${r.message.slice(0, 80)}`)
+    }
+    if (!/refused-by-the-stub/.test(r.message)) fail(`unclear: ${r.message.slice(0, 80)}`)
+    pass("a guard that answers without draining its payload is obeyed")
+    break
+  }
   case "guard-garbage-throws": {
     const { input, output } = shell("echo hello")
     const r = await call(input, output)
