@@ -235,7 +235,13 @@ cmd_up() {
     "$MANAGED_IMAGE" >/dev/null
   # Privileged with the host's cgroup namespace: systemd inside a container
   # needs a writable cgroup tree, and a private namespace leaves it exiting 255.
+  #
+  # Capped well above what the suites need. A brokered command that runs away is
+  # a fault this is here to find, and without a limit the container has the whole
+  # machine to take with it: the kernel's OOM killer then chooses among every
+  # process on the host rather than among the ones in here.
   docker run -d --name "$NAME" --privileged --cgroupns=host --network "$NETWORK" \
+    --memory 4g --memory-swap 4g \
     -v /sys/fs/cgroup:/sys/fs/cgroup:rw "$IMAGE" >/dev/null
   for _ in $(seq 30); do
     [ "$(docker exec "$NAME" systemctl is-system-running 2>/dev/null)" = running ] && break

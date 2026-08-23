@@ -6,6 +6,7 @@
 package sopstest
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,20 +60,31 @@ func SopsBinary(t *testing.T) string {
 		return installed
 	}
 	stubOnce.Do(func() {
-		// Not t.TempDir: the stub is built once and used by every test after this
-		// one, and a directory removed when this test ends takes the binary with
-		// it.
-		dir, err := os.MkdirTemp("", "faramir-sops-stub-") //nolint:usetesting // outlives this test on purpose
+		// One directory, reused by every run on this machine, rather than one per
+		// test binary: the stub outlives the test that built it, so nothing here
+		// can remove it, and a fresh temporary directory each time leaves a 60MB
+		// binary behind on every `go test`. The user's cache rather than a name in
+		// /tmp that any account could have made first.
+		dir, err := stubDir()
 		if err != nil {
 			errStub = err
 			return
 		}
 		out := filepath.Join(dir, "sops")
-		cmd := exec.CommandContext(t.Context(), "go", "build", "-o", out,
+		// Built under a name of this process's own and moved into place, so two
+		// `go test` runs at once do not write the same file. The rename is atomic
+		// and a run already executing the old binary keeps it.
+		staged := fmt.Sprintf("%s.%d", out, os.Getpid())
+		cmd := exec.CommandContext(t.Context(), "go", "build", "-o", staged,
 			"github.com/andornaut/faramir/internal/sopstest/stub")
 		if combined, err := cmd.CombinedOutput(); err != nil {
 			errStub = err
 			t.Logf("building sops stub: %s", combined)
+			return
+		}
+		if err := os.Rename(staged, out); err != nil {
+			errStub = err
+			_ = os.Remove(staged)
 			return
 		}
 		stubPath = out
@@ -81,6 +93,21 @@ func SopsBinary(t *testing.T) string {
 		t.Skipf("no sops binary and the stub would not build: %v", errStub)
 	}
 	return stubPath
+}
+
+// stubDir is where the stub binary lives between runs: one directory per user,
+// so a machine holds one copy however many times the suite runs. os.TempDir is
+// the fallback, and only there because a cache directory is not guaranteed.
+func stubDir() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return os.MkdirTemp("", "faramir-sops-stub-")
+	}
+	dir := filepath.Join(cache, "faramir", "sops-stub")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 // DecryptCommand is the [secret] decrypt_command for a test, pointed at
