@@ -314,7 +314,7 @@ func TestAnEditIsRefusedWhenTheFileMovedUnderIt(t *testing.T) {
 	if err == nil {
 		t.Fatal("a file something else wrote was accepted")
 	}
-	for _, want := range []string{path, "changed while the editor was open", "again"} {
+	for _, want := range []string{path, "changed while this was working on it", "again"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not say %q: %v", want, err)
 		}

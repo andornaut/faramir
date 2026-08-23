@@ -406,9 +406,9 @@ func unchangedSince(path string, before []byte) error {
 		return err
 	}
 	if !bytes.Equal(now, before) {
-		return fmt.Errorf("%s changed while the editor was open, so this edit was "+
-			"not saved: another `faramir vault edit`, or something writing the file "+
-			"directly, got there first. Make the edit again", path)
+		return fmt.Errorf("%s changed while this was working on it, so nothing was "+
+			"written: another `faramir vault edit`, `reader` or `reseal`, or something "+
+			"writing the file directly, got there first. Run this again", path)
 	}
 	return nil
 }

@@ -248,7 +248,7 @@ slow=$(cat /tmp/edit-slow.rc); quick=$(cat /tmp/edit-quick.rc)
   || ok "concurrent edits do not both report success (slow=$slow quick=$quick)"
 # Whichever was refused says why, and the file is one of the two edits rather
 # than a mix or a truncation.
-cat /tmp/edit-slow.log /tmp/edit-quick.log | grep -qE "changed while the editor was open|was not saved" \
+cat /tmp/edit-slow.log /tmp/edit-quick.log | grep -qE "changed while this was working on it|was not saved" \
   && ok "  and the one that lost says the file moved under it" \
   || bad "  neither refusal explains itself: $(tail -1 /tmp/edit-slow.log)"
 reload_daemons || bad "the daemons did not come back"

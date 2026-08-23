@@ -299,6 +299,13 @@ func keeperStaysAReader(keyPath string, wanted []string, rulePath string) error 
 // Which creation rule governs it is settled by --filename-override; see
 // sealTo.
 func reencrypt(keyPath, rulePath string, recipients []string, target string) error {
+	// The ciphertext as it stands now, compared again before the write: this
+	// decrypts a copy of its own, and an edit that lands in between would be
+	// replaced by one that never had it. See editManaged.
+	before, err := digestOf(target)
+	if err != nil {
+		return err
+	}
 	decrypted, err := runSops(keyPath, rulePath, "--decrypt", target)
 	if err != nil {
 		return fmt.Errorf("decrypt: %w", err)
@@ -318,6 +325,9 @@ func reencrypt(keyPath, rulePath string, recipients []string, target string) err
 	sealed, err := sealTo(keyPath, rulePath, target, recipients, plain)
 	if err != nil {
 		return fmt.Errorf("encrypt: %w", err)
+	}
+	if err := unchangedSince(target, before); err != nil {
+		return err
 	}
 	return writeBack(target, sealed)
 }
