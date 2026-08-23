@@ -114,3 +114,29 @@ func TestTheResponseWaitDoesNotWrapOnAHugeTimeout(t *testing.T) {
 		t.Errorf("responseWait(600) = %v, want %v", got, want)
 	}
 }
+
+// --command-env takes a name as well as a value. A name no shell can reference
+// reached the rendered config either as a TOML key that would not parse, so the
+// run failed with a line number and nothing about the flag, or as one that
+// parsed and left every brokered command holding a variable nothing in it could
+// read.
+func TestCommandEnvHoldsTheNameToWhatAShellCanRead(t *testing.T) {
+	for _, pair := range []string{"=value", "A B=c", "1ABC=x", "A-B=c", "a.b=c"} {
+		if _, err := namedValues([]string{pair}); err == nil {
+			t.Errorf("--command-env %q was accepted, and no shell can read that name", pair)
+		}
+	}
+	for _, pair := range []string{"OK=fine", "_ok=1", "A1_B=x", "EMPTY="} {
+		if _, err := namedValues([]string{pair}); err != nil {
+			t.Errorf("--command-env %q was refused: %v", pair, err)
+		}
+	}
+	// A value may hold "=", and only the first one separates.
+	got, err := namedValues([]string{"K=a=b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["K"] != "a=b" {
+		t.Errorf("K = %q, want %q", got["K"], "a=b")
+	}
+}

@@ -21,6 +21,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/termsafe"
 	"github.com/andornaut/faramir/internal/version"
@@ -374,6 +375,15 @@ func namedValues(pairs []string) (map[string]string, error) {
 			// something, and accepting it would leave the child without it and no
 			// reason given.
 			return nil, fmt.Errorf("--command-env %q names no value; write it as NAME=VALUE", pair)
+		}
+		// The name as well as the shape. A name no shell can reference reached the
+		// config either as a TOML key that would not parse, so the run failed with
+		// a line number and no mention of the flag, or as one that parsed and left
+		// the child holding a variable nothing in it could read.
+		if !protocol.ValidEnvName(name) {
+			return nil, fmt.Errorf("--command-env %q is not a usable environment "+
+				"variable name: a letter or underscore, then letters, digits and "+
+				"underscores", name)
 		}
 		out[name] = value
 	}

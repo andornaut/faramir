@@ -132,6 +132,17 @@ grep -q '^PATH = ' $CFG && ok "and PATH is still there beside it" \
 settle || bad "the host did not come back"
 out=$(runuser -u op -- /usr/local/bin/faramir run -- printenv ANSIBLE_NOCOWS 2>/dev/null)
 [ "$out" = "1" ] && ok "a brokered command gets it" || bad "the child did not get it: $out"
+# A name no shell can reference is refused where it is written. Some of these
+# reached the config as a TOML key that would not parse, so the run failed with
+# a line number and no mention of the flag; the rest parsed and left the child
+# holding a variable nothing in it could read.
+for bad_name in "=v" "A B=c" "1ABC=x" "A-B=c"; do
+  out=$(/usr/local/bin/faramir init --agent-user op --command-env "$bad_name" --dry-run 2>&1)
+  code=$?
+  [ $code -eq 2 ] && grep -q "command-env" <<<"$out" \
+    && ok "  --command-env $bad_name is refused at the flag" \
+    || bad "  --command-env $bad_name exited $code: ${out##*$'\n'}"
+done
 
 # --------------------------------------------------------------------------
 head_ "6. a config.d beside the file is not read"
