@@ -202,12 +202,26 @@ func homeSection(accountRules bool) (string, error) {
 // config and the home are written either way, and doctor reports a tree that
 // still does not carry what an enrolment writes.
 func (r *runner) stepEnrolledTrees() error {
-	trees := readEnrolled(r.layout.ConfigDir)
-	var written, skipped []string
+	trees, unreadable := readEnrolledWhy(r.layout.ConfigDir)
+	var written, skipped, refused []string
 	changed := false
 	for _, tree := range trees {
 		if !exists(tree.Dir) {
 			skipped = append(skipped, tree.Dir)
+			continue
+		}
+		// The same question `init-project` asks before it enrols one. The record
+		// is advisory and is written by more than one release, so a directory it
+		// names is not proof that enrolling it would be allowed today: without
+		// this, an entry for one of faramir's own directories has every `init`
+		// writing an agent's settings back into it after an operator has cleaned
+		// them out.
+		if err := refuseInstallDirs(tree.Dir, r.layout.ConfigDir); err != nil {
+			refused = append(refused, tree.Dir)
+			continue
+		}
+		if err := refuseOversharing(tree.Dir, tree.AgentUser); err != nil {
+			refused = append(refused, tree.Dir)
 			continue
 		}
 		uid, gid := r.operatorUID, r.operatorGID
@@ -236,12 +250,29 @@ func (r *runner) stepEnrolledTrees() error {
 		}
 	}
 	switch {
+	case unreadable != "":
+		// Said rather than reported as an empty record: the trees are enrolled
+		// either way, and nothing here or in doctor will look at them again until
+		// the file is readable.
+		r.step(labelEnrolledTrees, false, "the record of what is enrolled could not "+
+			"be read, so no enrolled tree was rewritten and `faramir doctor` reports "+
+			"none of them: "+unreadable)
 	case len(trees) == 0:
 		r.step(labelEnrolledTrees, false, "no tree is recorded as enrolled")
 	case len(written) == 0 && len(skipped) == 0:
 		r.step(labelEnrolledTrees, false, "nothing to write into "+treeCount(len(trees)))
 	default:
 		r.step(labelEnrolledTrees, changed, strings.Join(written, ", "))
+	}
+	if len(refused) > 0 {
+		// A different remedy from the one below: this tree is not one an
+		// enrolment would make now, so re-running init-project in it would be
+		// refused too. The entry is what has to go.
+		r.warnf("%d recorded tree(s) are directories `faramir init-project` would "+
+			"refuse to enrol, so nothing was written into them: %s. Remove their "+
+			"entries from %s, and anything an earlier enrolment left in them",
+			len(refused), strings.Join(refused, ", "),
+			enrolledPath(r.layout.ConfigDir))
 	}
 	if len(skipped) > 0 {
 		r.warnf("%d enrolled tree(s) were not rewritten, so what an enrolment "+

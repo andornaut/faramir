@@ -418,6 +418,34 @@ enrol "$D" --agent opencode >/dev/null 2>&1
   && ok "the entries are sorted by tree, so a second run does not churn the file" \
   || bad "the entries are not sorted: $(jq -c '[.[].dir]' $REC)"
 
+# The record is advisory and is written by more than one release, so a directory
+# it names is not proof that enrolling it would be allowed now. An entry for one
+# of faramir's own directories had every `init` writing an agent's settings back
+# into it, after an operator had cleaned them out.
+cp $REC /tmp/rec.bak
+jq '. + [{"dir":"/var/lib/faramir-broker","agent_user":"'$OP'","agents":["claude"]}]' /tmp/rec.bak > $REC
+out=$(/usr/local/bin/faramir init --agent-user $OP 2>&1)
+grep -q "would refuse to enrol" <<<"$out" \
+  && ok "a recorded tree an enrolment would refuse is skipped and named" \
+  || bad "init wrote into a recorded tree it would not enrol: ${out:0:140}"
+[ -e /var/lib/faramir-broker/.claude ] \
+  && bad "init created .claude inside the broker's own home" \
+  || ok "  and nothing was written into it"
+# Told apart from a tree that has simply gone: re-running init-project there is
+# the remedy for that one and is refused for this one.
+grep -q "Remove their entries" <<<"$out" \
+  && ok "  with the remedy that fits, which is not to enrol it again" \
+  || bad "  the warning offers the wrong remedy: ${out:0:140}"
+
+# A record that cannot be read is not a record naming nothing.
+printf '{ not json\n' > $REC
+out=$(/usr/local/bin/faramir init --agent-user $OP --dry-run 2>&1)
+grep -q "could not be read" <<<"$out" \
+  && ok "an unreadable record is reported as that" \
+  || bad "an unreadable record was read as an empty one: $(grep -i 'enrolled trees' <<<"$out" | head -1)"
+cp /tmp/rec.bak $REC; rm -f /tmp/rec.bak
+/usr/local/bin/faramir init --agent-user $OP >/dev/null 2>&1
+
 # Nothing to tell doctor about, and an entry with no agents would report as
 # though there were.
 D=$(tree /home/op/p-noagent)

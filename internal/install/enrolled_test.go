@@ -194,3 +194,58 @@ func TestAnEnrolledAgentIsAFaultEvenWithNothingInTheHome(t *testing.T) {
 		t.Error("the report does not fail for an enrolled agent with no rules")
 	}
 }
+
+// A record that could not be read is not a record naming nothing. Reported as
+// the second, an operator with an enrolled fleet is told they have none, and
+// the step that says so is an "ok".
+func TestAnUnreadableRecordIsToldApartFromAnEmptyOne(t *testing.T) {
+	dir := t.TempDir()
+	// No file at all: the ordinary state of a host that has enrolled nothing.
+	if trees, why := readEnrolledWhy(dir); trees != nil || why != "" {
+		t.Errorf("a host with no record reported %v / %q, want nothing and no reason", trees, why)
+	}
+	path := filepath.Join(dir, enrolledFile)
+	if err := os.WriteFile(path, []byte("{ not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trees, why := readEnrolledWhy(dir)
+	if trees != nil {
+		t.Errorf("an unreadable record produced trees: %v", trees)
+	}
+	if why == "" || !strings.Contains(why, path) {
+		t.Errorf("the reason does not name the file: %q", why)
+	}
+	// And a record that reads is still read.
+	body := `[{"dir":"/home/op/project","agent_user":"op","agents":["claude"]}]`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if trees, why := readEnrolledWhy(dir); len(trees) != 1 || why != "" {
+		t.Errorf("a good record read as %v / %q", trees, why)
+	}
+}
+
+// The record is advisory and is written by more than one release, so a
+// directory it names is not proof that enrolling it would be allowed today. An
+// entry for one of faramir's own directories had every `init` writing an
+// agent's settings back into it, after an operator had cleaned them out and
+// after `init-project` had started refusing to make such an entry at all.
+func TestARecordedTreeIsHeldToWhatAnEnrolmentWouldAllow(t *testing.T) {
+	for _, dir := range []string{
+		"/var/lib/" + DefaultBrokerUser,
+		"/var/lib/" + DefaultKeeperUser,
+		"/var/lib/" + DefaultExecUser,
+		"/etc/faramir",
+		"/etc/faramir/secrets",
+		"/var/log/faramir",
+	} {
+		if err := refuseInstallDirs(dir, "/etc/faramir"); err == nil {
+			t.Errorf("a recorded %s would be written into: init-project refuses to "+
+				"enrol it, and the step that reads the record asks the same question", dir)
+		}
+	}
+	// The ordinary case the check must not reach.
+	if err := refuseInstallDirs("/home/op/project", "/etc/faramir"); err != nil {
+		t.Errorf("a recorded project tree was refused: %v", err)
+	}
+}

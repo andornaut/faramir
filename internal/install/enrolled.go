@@ -43,15 +43,31 @@ func enrolledPath(configDir string) string {
 // parse reads as empty: refusing to examine an install over it would make this
 // record matter more than it is.
 func readEnrolled(configDir string) []EnrolledTree {
-	body, err := os.ReadFile(enrolledPath(configDir))
-	if err != nil {
-		return nil
+	trees, _ := readEnrolledWhy(configDir)
+	return trees
+}
+
+// readEnrolledWhy is readEnrolled and why it came back empty, for the two
+// places that say so out loud. A record that could not be read is not the same
+// as one naming nothing, and reporting the first as the second tells an
+// operator with 25 enrolled trees that they have none.
+//
+// Empty where the file is simply not there: a host that has enrolled nothing
+// has no record, and that is the ordinary state rather than a fault.
+func readEnrolledWhy(configDir string) ([]EnrolledTree, string) {
+	path := enrolledPath(configDir)
+	body, err := os.ReadFile(path)
+	switch {
+	case os.IsNotExist(err):
+		return nil, ""
+	case err != nil:
+		return nil, err.Error()
 	}
 	var trees []EnrolledTree
 	if err := json.Unmarshal(body, &trees); err != nil {
-		return nil
+		return nil, path + ": " + err.Error()
 	}
-	return trees
+	return trees, ""
 }
 
 // recordEnrolment adds or updates this tree's entry. One entry per directory,
