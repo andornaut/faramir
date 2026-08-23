@@ -179,6 +179,19 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	var report DoctorReport
 	configFile := filepath.Join(opts.ConfigDir, "config.toml")
 
+	// Before anything is examined. Every check that asks what the agent account
+	// can reach answers about a uid that is not there, so the report reads as an
+	// examination of a host rather than of a name nothing on it has.
+	if opts.AgentUser != "" {
+		if _, err := lookupUser(opts.AgentUser); err != nil {
+			report.addf(labelConfig, StatusFailed, "there is no account %q on this "+
+				"host, so what the agent can reach was not examined. Name the account "+
+				"the coding agent runs as, or leave --agent-user out to skip those "+
+				"checks", opts.AgentUser)
+			return report
+		}
+	}
+
 	if !exists(configFile) {
 		report.addf(labelConfig, StatusFailed, "%s is missing; the daemons read it at "+
 			"startup and exit without one", configFile)

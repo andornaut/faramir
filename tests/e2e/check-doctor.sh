@@ -138,6 +138,17 @@ for want in "--agent-user" "SUDO_USER"; do
     && ok "and says how to ask it ($want)" \
     || bad "the warning does not mention $want: $(jq -r '[.findings[]|select(.check=="boundaries")|.detail]|first' /tmp/doctor.noop.json)"
 done
+# An account that is not on the host. Without this every check that asks what
+# the agent can reach answers about a uid nothing has, and the report reads as
+# an examination of the host rather than of a name.
+out=$(/usr/local/bin/faramir doctor --agent-user nosuchuser-e2e --json 2>/dev/null)
+n=$(jq '.findings|length' <<<"$out" 2>/dev/null)
+[ "$n" = 1 ] && ok "an account that is not there stops the examination" \
+  || bad "doctor made $n finding(s) about an account that does not exist"
+jq -r '.findings[0].detail' <<<"$out" 2>/dev/null | grep -q 'nosuchuser-e2e' \
+  && ok "  and the refusal names it" \
+  || bad "  the refusal does not name the account: $(jq -r '.findings[0].detail // ""' <<<"$out" | head -c 100)"
+
 cp /tmp/doctor.agentuser.bak /etc/faramir/config.toml
 rm -f /tmp/doctor.agentuser.bak /tmp/doctor.noop.json
 

@@ -971,3 +971,32 @@ func TestTheVersionCheckSeesTwoBuildsOfOneVersion(t *testing.T) {
 		})
 	}
 }
+
+// An account that is not on the host makes every check that asks what the agent
+// can reach answer about a uid nothing has: "the keeper socket is closed to
+// nosuchuser" is true and says nothing. The report then reads as an examination
+// of the host rather than of a name.
+func TestDoctorRefusesAnAccountThatIsNotThere(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report := Diagnose(DoctorOptions{ConfigDir: dir, AgentUser: "nosuchuser-uxqz"})
+	if !report.Failed {
+		t.Fatal("an account that is not there did not fail the report")
+	}
+	if len(report.Findings) != 1 {
+		t.Errorf("the report carries %d finding(s), want the one refusal: %v",
+			len(report.Findings), report.Findings)
+	}
+	for _, want := range []string{"nosuchuser-uxqz", "--agent-user"} {
+		if !strings.Contains(report.Findings[0].Detail, want) {
+			t.Errorf("the refusal does not say %q: %s", want, report.Findings[0].Detail)
+		}
+	}
+	// Naming none is not the same thing: those checks are skipped and the rest
+	// of the examination is made.
+	if quiet := Diagnose(DoctorOptions{ConfigDir: dir}); len(quiet.Findings) < 2 {
+		t.Errorf("naming no account stopped the examination: %v", quiet.Findings)
+	}
+}
