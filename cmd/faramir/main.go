@@ -160,7 +160,8 @@ func newRunCmd() *cobra.Command {
 	c.Flags().BoolVar(&quiet, "quiet", false, "suppress the redaction summary")
 	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory for the command (default: the caller's)")
 	c.Flags().IntVarP(&timeout, "timeout", "t", 0, "timeout in seconds")
-	c.Flags().StringArrayVar(&envRefs, "env", nil, "NAME=faramir://ref (repeatable)")
+	c.Flags().StringArrayVar(&envRefs, "env", nil,
+		"NAME=faramir://ref, or a bare NAME for the ref of that name (repeatable)")
 	c.Flags().StringArrayVar(&envFiles, "env-file", nil,
 		"file of NAME=faramir://ref lines, or a bare NAME for the ref of that name (repeatable)")
 	return c
@@ -182,7 +183,11 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 	for _, pair := range envRefs {
 		name, uri, ok := strings.Cut(pair, "=")
 		if !ok {
-			return nil, errors.New("--env expects NAME=faramir://ref")
+			// A name on its own, the same shortcut a bare --env-file line is. Not
+			// taken on trust: checkRef holds it to what an environment variable may
+			// be called and to what a ref may be, so a word that is neither is
+			// refused rather than becoming a ref nothing serves.
+			name, uri = pair, "faramir://"+pair
 		}
 		if err := checkRef(name, uri); err != nil {
 			return nil, fmt.Errorf("--env %w", err)

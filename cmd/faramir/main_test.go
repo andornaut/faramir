@@ -793,3 +793,28 @@ func TestNoTwoCommandsShareADescription(t *testing.T) {
 		t.Fatalf("only %d description(s) collected; the root was not assembled", len(seen))
 	}
 }
+
+// A bare --env is the shortcut a bare --env-file line already was: the variable
+// takes the ref of its own name, so `--env FOO` is `--env FOO=faramir://FOO`.
+func TestABareEnvNamesTheRefOfThatName(t *testing.T) {
+	refs, err := execRefs(nil, []string{"FOO", "BAR=faramir://home/router/admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := refs["FOO"], "faramir://FOO"; got != want {
+		t.Errorf("FOO = %q, want %q", got, want)
+	}
+	if got, want := refs["BAR"], "faramir://home/router/admin"; got != want {
+		t.Errorf("BAR = %q, want %q", got, want)
+	}
+}
+
+// The shortcut is not a way past either namespace: the word has to be a usable
+// variable name and a ref a store can hold.
+func TestABareEnvIsHeldToBothNamespaces(t *testing.T) {
+	for _, name := range []string{"db/password", "_LEADING", "has space", "9", ""} {
+		if _, err := execRefs(nil, []string{name}); err == nil {
+			t.Errorf("--env %q was accepted", name)
+		}
+	}
+}
