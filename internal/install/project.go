@@ -528,10 +528,16 @@ func warnMissingAccountRules(p *project, target *agentTarget) {
 	if len(missing) == 0 {
 		return
 	}
+	// What those rules cover is what this install writes, plus whatever a
+	// [[secret.link]] or [[secret.block]] entry names: see protectedpaths.go,
+	// which renders the same set into the bash deny list. Named that way rather
+	// than by example, a rule for a path faramir did not choose being the thing
+	// that design refuses to compile in.
 	p.warnf("%s's deny rules are not in the agent account's home (%s), so its file "+
-		"tools are refused nothing: they cover the keys under ~/.ssh and "+
-		"~/.config/sops, which this enrolment does not reach. Run `sudo faramir "+
-		"init --agent %s`", target.name, strings.Join(missing, ", "), target.name)
+		"tools are refused nothing this install protects. The agent runs as the "+
+		"operator, so no uid boundary refuses them either, and this enrolment "+
+		"does not reach that far. Run `sudo faramir init --agent %s`",
+		target.name, strings.Join(missing, ", "), target.name)
 }
 
 // agentHomeFor is the account's home directory.

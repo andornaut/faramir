@@ -294,17 +294,23 @@ func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 		case len(missing) == 0:
 			report.addf("agent rules", StatusOK, "%s: %s", name,
 				strings.Join(accountPaths(target), ", "))
+		// The rules cover what this install writes and what a [[secret.link]] or
+		// [[secret.block]] entry names, which is protectedpaths.go's set. Said that
+		// way rather than by naming a key elsewhere: a path faramir did not choose
+		// is one it does not rule on, and a message that names one makes the
+		// default look more protective than it is.
 		case slices.Contains(enrolled, name):
 			report.addf("agent rules", StatusFailed, "a tree is enrolled for %s and %s "+
-				"is not there, so its file tools are refused nothing in that tree. Those "+
-				"rules cover the keys under ~/.ssh and ~/.config/sops, which this uid "+
-				"can read. Run `sudo faramir init --agent %s`",
-				name, strings.Join(missing, ", "), name)
+				"is not there, so its file tools are refused nothing this install "+
+				"protects. This uid can read those paths and no uid boundary refuses "+
+				"them, the agent running as the operator. Run `sudo faramir init "+
+				"--agent %s`", name, strings.Join(missing, ", "), name)
 		case agentInUse(home, target):
 			report.addf("agent rules", StatusFailed, "%s is in this home and %s is "+
-				"not, so its file tools are refused nothing. Those rules cover the keys "+
-				"under ~/.ssh and ~/.config/sops, which this uid can read. Run `sudo "+
-				"faramir init --agent %s`", name, strings.Join(missing, ", "), name)
+				"not, so its file tools are refused nothing this install protects. This "+
+				"uid can read those paths and no uid boundary refuses them, the agent "+
+				"running as the operator. Run `sudo faramir init --agent %s`",
+				name, strings.Join(missing, ", "), name)
 		default:
 			report.addf("agent rules", StatusNA, "%s: nothing here, so nobody runs it "+
 				"from this account", name)

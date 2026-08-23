@@ -96,9 +96,9 @@ func TestAgentRulesNamesTheFilesWhenTheyAreThere(t *testing.T) {
 }
 
 // The one state that is a fault: the agent is in this home and the rules that
-// refuse its file tools are not, so the keys under ~/.ssh and ~/.config/sops
-// are refused nothing. Half an arrangement, and the half that is gone is the
-// half that was doing the work.
+// refuse its file tools are not, so what this install protects is refused
+// nothing. Half an arrangement, and the half that is gone is the half that was
+// doing the work.
 func TestAgentRulesFailWhenTheAgentIsHereAndItsRulesAreNot(t *testing.T) {
 	home := t.TempDir()
 	// Its own directory and none of the rules: the shape an operator who
@@ -190,5 +190,34 @@ func TestAgentRulesAreUnaskedWithoutAnOperator(t *testing.T) {
 	}
 	if len(report.Findings) != 1 || !strings.Contains(report.Findings[0].Detail, "--agent-user") {
 		t.Errorf("finding does not say how to ask it: %+v", report.Findings)
+	}
+}
+
+// The rules an install writes name the paths this install writes, plus what a
+// [[secret.link]] or [[secret.block]] entry declares: see protectedpaths.go,
+// which refuses to compile in a rule for a file faramir did not choose because
+// it "makes the default look more protective than it is". A finding that names
+// one anyway makes the same claim in prose, and an operator reading it believes
+// running the command it advises protects a key it will not touch.
+func TestTheMissingRulesFindingClaimsOnlyWhatTheRulesCover(t *testing.T) {
+	home := t.TempDir()
+	touch(t, home, ".claude/some-state.json")
+
+	var report DoctorReport
+	reportAgentRules(&report, home, nil)
+
+	got := finding(t, report, "claude")
+	for _, path := range []string{"~/.ssh", ".config/sops"} {
+		if strings.Contains(got.Detail, path) {
+			t.Errorf("the finding names %s, which the default install does not "+
+				"cover: %s", path, got.Detail)
+		}
+	}
+	// It still has to say what is at stake, or it names a missing file and no
+	// reason to care.
+	for _, want := range []string{"this install protects", "as the operator"} {
+		if !strings.Contains(got.Detail, want) {
+			t.Errorf("the finding does not say %q: %s", want, got.Detail)
+		}
 	}
 }
