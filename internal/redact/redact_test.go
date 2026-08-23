@@ -301,3 +301,56 @@ func BenchmarkRedactorFeed(b *testing.B) {
 		})
 	}
 }
+
+// A value carrying bytes stage 1 rewrites is still a value the output has to
+// come back without. Stage 1 normalises the text before any matching, so the
+// value as it appears in the store is not the value as it appears in the
+// output, and the matcher carries both.
+func TestAValueStage1RewritesIsStillRedacted(t *testing.T) {
+	for _, c := range []struct{ name, value string }{
+		{"a CRLF, as a file written on Windows holds", "line-one\r\nline-two-secret"},
+		{"a C0 control", "abc\x01defghij"},
+		{"a DEL", "abcdef\x7fghijkl"},
+		{"an escape sequence", "abcd\x1b[0mefghij"},
+		{"a bare CR, which stage 1 keeps", "abcdef\rghijkl"},
+	} {
+		r := New([]Secret{{Ref: "a/b", Value: c.value}}, DefaultPolicy())
+		got := r.RedactText("before " + c.value + " after")
+		if want := "before " + TokenFor("a/b") + " after"; got != want {
+			t.Errorf("%s: got %q, want %q", c.name, got, want)
+		}
+	}
+}
+
+// And the bound on that: a value that is mostly control characters strips to
+// something too short to search output for, and adding it would blank
+// unrelated text. The policy decides, as it does for the value itself.
+func TestAValueThatStripsUnderTheFloorIsNotAdded(t *testing.T) {
+	r := New([]Secret{{Ref: "a/b", Value: strings.Repeat("\x01", 10) + "ab"}}, DefaultPolicy())
+	const text = "a table of abbreviations"
+	if got := r.RedactText(text); got != text {
+		t.Errorf("a value that strips to %q ate the output: %q", "ab", got)
+	}
+}
+
+// One pass over the output whatever the number of values, so the scan does not
+// cost the number of refs times the size of what a command printed.
+func TestEveryValueIsOneAlternation(t *testing.T) {
+	secrets := []Secret{
+		{Ref: "a/one", Value: "hunter2-correct-horse"},
+		{Ref: "b/two", Value: "tok_live_0PENSESAME_9911"},
+	}
+	r := New(secrets, DefaultPolicy())
+	if r.pattern == nil {
+		t.Fatal("no pattern was built")
+	}
+	for _, s := range secrets {
+		if r.tokenOf[s.Value] != TokenFor(s.Ref) {
+			t.Errorf("%s does not map to its own token: %q", s.Ref, r.tokenOf[s.Value])
+		}
+	}
+	out := r.RedactText(secrets[0].Value + " and " + secrets[1].Value)
+	if want := TokenFor("a/one") + " and " + TokenFor("b/two"); out != want {
+		t.Errorf("out = %q, want %q", out, want)
+	}
+}

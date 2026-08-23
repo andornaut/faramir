@@ -74,17 +74,19 @@ func TestACarriageReturnHeldAtAChunkBoundaryIsStillNormalised(t *testing.T) {
 	}
 }
 
-// One value under two refs is one entry. Every entry runs its own pattern over
-// every chunk, so a store that names the same value twice would double the work
-// of the whole pass; the second would also match nothing, the first having
-// already replaced it, which leaves a token nobody can account for.
+// One value under two refs is carried once. Every rendering is an alternative
+// in one pattern, so a store naming the same value twice would put each
+// rendering in twice; the second copy would also match nothing, the first
+// having already replaced it, which leaves a token nobody can account for.
 func TestOneValueUnderTwoRefsIsCompiledOnce(t *testing.T) {
 	const value = "hunter2-correct-horse"
 	r := New([]Secret{{Ref: "first/ref", Value: value}, {Ref: "second/ref", Value: value}},
 		DefaultPolicy())
 
-	if len(r.entries) != 1 {
-		t.Fatalf("entries = %d, want 1", len(r.entries))
+	for text, token := range r.tokenOf {
+		if token == TokenFor("second/ref") {
+			t.Fatalf("%q is carried under the second ref's token as well", text)
+		}
 	}
 	out := r.RedactText("value: " + value + "\n")
 	if strings.Contains(out, value) {
@@ -103,8 +105,11 @@ func TestOneValueUnderTwoRefsIsCompiledOnce(t *testing.T) {
 func TestARefusedValueCompilesToNothing(t *testing.T) {
 	r := New([]Secret{{Ref: "short/ref", Value: "abc"}}, DefaultPolicy())
 
-	if len(r.entries) != 0 {
-		t.Fatalf("entries = %d, want none", len(r.entries))
+	if r.pattern != nil {
+		t.Fatalf("a refused value still compiled to a pattern: %v", r.pattern)
+	}
+	if len(r.tokenOf) != 0 {
+		t.Fatalf("renderings = %d, want none", len(r.tokenOf))
 	}
 	if out := r.RedactText("value: abc\n"); out != "value: abc\n" {
 		t.Errorf("out = %q, want the text unchanged", out)

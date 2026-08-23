@@ -204,7 +204,9 @@ func variants(value string) map[string]bool {
 	for v := range base32Variants(value) {
 		out[v] = true
 	}
-	// Hex, both cases: xxd -p, od -An -tx1, hexdump, openssl, DB BLOB dumps.
+	// Hex, both cases, contiguous: xxd -p, bytes.hex(), DB BLOB dumps. A
+	// dump that separates the bytes is a different string and is not this: see
+	// docs/redaction.md.
 	h := hex.EncodeToString([]byte(value))
 	out[h] = true
 	out[strings.ToUpper(h)] = true
@@ -265,12 +267,10 @@ func TokenFor(ref string) string { return "«SECRET:" + ref + "»" }
 // Stage 4: the streaming redactor
 // --------------------------------------------------------------------------
 
-type entry struct {
-	ref     string
-	token   string
-	pattern *regexp.Regexp
-	wrapped *regexp.Regexp
-	longest int
+// rendering is one spelling of one value, and the token it stands for.
+type rendering struct {
+	text  string
+	token string
 }
 
 // Count is one row of the wire response's "redactions" field.
@@ -286,8 +286,15 @@ type Redactor struct {
 	Policy  EligibilityPolicy
 	Overlap int
 
-	counts    map[string]int
-	entries   []entry
+	counts map[string]int
+	// One alternation over every rendering of every value, rather than one
+	// pattern per value: the scan is the cost paid on every byte of every
+	// command's output, and a pattern per value made it the number of refs times
+	// the size of the output.
+	pattern *regexp.Regexp
+	// The token a matched rendering stands for. A match is a string the
+	// alternation produced, so this is a lookup rather than a search.
+	tokenOf   map[string]string
 	ansiCarry []rune
 	buf       []rune
 	// Bytes that were not valid UTF-8, counted rather than acted on; see Feed.
@@ -303,36 +310,54 @@ type Secret struct {
 // New builds a redactor over the given secrets. A value the policy refuses is
 // not matched; naming it is the secretstore package's job.
 func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
-	r := &Redactor{Policy: policy, counts: map[string]int{}}
+	r := &Redactor{Policy: policy, counts: map[string]int{}, tokenOf: map[string]string{}}
 	seen := map[string]bool{}
+	var kept []Secret
 	for _, s := range secrets {
-		if seen[s.Value] {
-			continue
-		}
-		if policy.Check(s.Value) != "" {
+		if seen[s.Value] || policy.Check(s.Value) != "" {
 			continue
 		}
 		seen[s.Value] = true
-		r.entries = append(r.entries, compile(s.Ref, s.Value))
+		kept = append(kept, s)
 	}
-	// Longest first, so a secret that contains another wins.
-	sort.SliceStable(r.entries, func(i, j int) bool {
-		return r.entries[i].longest > r.entries[j].longest
+	// Longest value first, so where two values render the same string the one
+	// that contains the other owns it.
+	sort.SliceStable(kept, func(i, j int) bool {
+		return len([]rune(kept[i].Value)) > len([]rune(kept[j].Value))
 	})
+
+	var all []rendering
 	longest := 0
-	for _, e := range r.entries {
-		if e.longest > longest {
-			longest = e.longest
+	for _, s := range kept {
+		token := TokenFor(s.Ref)
+		for _, text := range renderings(s.Value, policy) {
+			if _, taken := r.tokenOf[text]; taken {
+				continue
+			}
+			r.tokenOf[text] = token
+			all = append(all, rendering{text: text, token: token})
+			if n := len([]rune(text)); n > longest {
+				longest = n
+			}
 		}
+	}
+	if len(all) > 0 {
+		r.pattern = alternation(all)
 	}
 	// x2 for base64 line wrapping, +16 for quoting expansion at a boundary.
 	r.Overlap = longest*2 + 16
 	return r
 }
 
-// alternation builds a pattern matching any of vs, longest first: Go's regexp
-// is leftmost-first, so that is what makes the longest rendering win.
-func alternation(vs []string) *regexp.Regexp {
+// alternation builds one pattern matching any rendering, longest first: Go's
+// regexp is leftmost-first, so that is what makes the longest rendering at a
+// position win over a shorter one starting there.
+func alternation(all []rendering) *regexp.Regexp {
+	vs := make([]string, len(all))
+	for i, r := range all {
+		vs[i] = r.text
+	}
+	sort.Strings(vs) // deterministic before the length sort
 	sort.SliceStable(vs, func(i, j int) bool { return len(vs[i]) > len(vs[j]) })
 	quoted := make([]string, len(vs))
 	for i, v := range vs {
@@ -341,34 +366,29 @@ func alternation(vs []string) *regexp.Regexp {
 	return regexp.MustCompile(strings.Join(quoted, "|"))
 }
 
-func compile(ref, value string) entry {
-	encodings := variants(value)
-	vs := make([]string, 0, len(encodings))
-	for v := range encodings {
-		vs = append(vs, v)
-	}
-	sort.Strings(vs) // deterministic before the length sort
-	pattern := alternation(vs)
-
-	// The wrapped pass matches against a newline-free view of the output, so it
-	// catches a rendering a formatter split across lines: base64 wraps at 76
-	// columns, and `fold` wraps every variant the same way. The newline guard in
-	// subWrapped keeps this pass to genuinely line-spanning matches, so the plain
-	// pass still owns everything on a single line.
-	//
-	// Newlines only: a continuation the formatter indents still has whitespace
-	// between the fragments and is not caught. Collapsing the indentation too
-	// would join any two words straddling an indented line break, which corrupts
-	// more output than the wrapping it would catch.
-	wrapped := pattern
-
-	longest := 0
-	for _, v := range vs {
-		if n := len([]rune(v)); n > longest {
-			longest = n
+// renderings is every spelling of one value the matcher recognises, sorted so
+// the set is the same on every process.
+//
+// Stage 1 rewrites the text before any of this is matched against it, so the
+// value as stage 1 would leave it is a rendering of its own: a value carrying a
+// CRLF, a C0 control or an escape sequence never appears in the output the way
+// it appears in the store, and a pattern built only from the store's spelling
+// would not meet it. Added only where it is still long enough to search for,
+// a value that is mostly control characters collapsing to something that would
+// eat the output.
+func renderings(value string, policy EligibilityPolicy) []string {
+	set := variants(value)
+	if stripped := stripANSI(value); stripped != value && policy.Check(stripped) == "" {
+		for v := range variants(stripped) {
+			set[v] = true
 		}
 	}
-	return entry{ref: ref, token: TokenFor(ref), pattern: pattern, wrapped: wrapped, longest: longest}
+	out := make([]string, 0, len(set))
+	for v := range set {
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Feed absorbs a chunk of raw output and returns the part that is safe to emit.
@@ -437,38 +457,38 @@ func (r *Redactor) Summary() []Count {
 }
 
 func (r *Redactor) redact(text string) string {
-	if text == "" {
+	if text == "" || r.pattern == nil {
 		return text
 	}
-	// Built at most once per distinct text, not once per secret: every entry needs
-	// the same newline-free view, and building it per entry makes the pass
-	// quadratic in the size of the value set. Invalidated only when an entry
-	// replaced something, which is why the plain pass keeps the old string on a
-	// miss.
-	var view *collapsedView
-	for i := range r.entries {
-		e := &r.entries[i]
-		if e.wrapped != nil {
-			if view == nil {
-				view = newCollapsedView(text)
-			}
-			if out, changed := r.subWrapped(view, e); changed {
-				text = out
-				view = nil
-			}
+	// The wrapped pass first, against a newline-free view of the output, so it
+	// catches a rendering a formatter split across lines: base64 wraps at 76
+	// columns, and `fold` wraps every rendering the same way. The newline guard
+	// in subWrapped keeps it to genuinely line-spanning matches, so the plain
+	// pass below still owns everything on a single line.
+	//
+	// Newlines only: a continuation the formatter indents still has whitespace
+	// between the fragments and is not caught. Collapsing the indentation too
+	// would join any two words straddling an indented line break, which corrupts
+	// more output than the wrapping it would catch.
+	if out, changed := r.subWrapped(newCollapsedView(text)); changed {
+		text = out
+	}
+	// One pass, whatever the number of values: the alternation carries every
+	// rendering and the match says which value it was.
+	n := 0
+	replaced := r.pattern.ReplaceAllStringFunc(text, func(match string) string {
+		token, ok := r.tokenOf[match]
+		if !ok {
+			return match // unreachable: the alternation is built from these keys
 		}
-		n := 0
-		replaced := e.pattern.ReplaceAllStringFunc(text, func(string) string {
-			n++
-			return e.token
-		})
-		// Assigned only on a hit: ReplaceAllStringFunc allocates a copy even when
-		// it matched nothing, and taking it would throw the view away.
-		if n > 0 {
-			text = replaced
-			r.counts[e.token] += n
-			view = nil
-		}
+		n++
+		r.counts[token]++
+		return token
+	})
+	// Taken only on a hit: ReplaceAllStringFunc allocates a copy even when it
+	// matched nothing.
+	if n > 0 {
+		text = replaced
 	}
 	return text
 }
@@ -512,23 +532,30 @@ func newCollapsedView(text string) *collapsedView {
 	return v
 }
 
-// subWrapped replaces every line-wrapped rendering of one secret, and reports
-// whether it changed anything.
-func (r *Redactor) subWrapped(v *collapsedView, e *entry) (string, bool) {
+// subWrapped replaces every line-wrapped rendering, and reports whether it
+// changed anything.
+func (r *Redactor) subWrapped(v *collapsedView) (string, bool) {
 	if !v.collapsed {
 		return "", false
 	}
-	type span struct{ start, end int }
+	type span struct {
+		start, end int
+		token      string
+	}
 	var spans []span
-	for _, loc := range e.wrapped.FindAllStringIndex(v.view, -1) {
+	for _, loc := range r.pattern.FindAllStringIndex(v.view, -1) {
 		if loc[1] <= loc[0] {
 			continue
+		}
+		token, ok := r.tokenOf[v.view[loc[0]:loc[1]]]
+		if !ok {
+			continue // unreachable: the alternation is built from these keys
 		}
 		// byteStart is indexed by byte, so the end comes from the match's last byte
 		// rather than the offset after it.
 		start, end := v.byteStart[loc[0]], v.byteStart[loc[1]-1]+1
 		if strings.ContainsAny(string(v.runes[start:end]), "\n\r") {
-			spans = append(spans, span{start, end})
+			spans = append(spans, span{start: start, end: end, token: token})
 		}
 	}
 	if len(spans) == 0 {
@@ -542,8 +569,8 @@ func (r *Redactor) subWrapped(v *collapsedView, e *entry) (string, bool) {
 			continue
 		}
 		b.WriteString(string(v.runes[cursor:s.start]))
-		b.WriteString(e.token)
-		r.counts[e.token]++
+		b.WriteString(s.token)
+		r.counts[s.token]++
 		cursor = s.end
 	}
 	b.WriteString(string(v.runes[cursor:]))
