@@ -157,7 +157,9 @@ status=$(runuser -u op -- faramir status)
 grep -q 'count' <<<"$status" || bad "status answered nothing, so the check below has no subject"
 grep -q 'short/pin' <<<"$status" && bad "the agent-facing status op names a refused ref" \
   || ok "the agent-facing status op does not name it"
-doctor=$(faramir doctor 2>&1)
+# Collapsed to one line: the report wraps at a column, so a phrase can carry a
+# newline in the middle of it and a line-oriented grep would miss what is there.
+doctor=$(faramir doctor 2>&1 | tr -s '[:space:]' ' ')
 grep -q 'short/pin' <<<"$doctor" && ok "but doctor does, so the operator is not left guessing" \
   || bad "no operator-facing surface names the refused ref"
 grep -q 'shorter than' <<<"$doctor" && ok "and says why it was refused" || bad "no reason given"

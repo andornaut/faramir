@@ -208,17 +208,17 @@ func (r *runner) stepValidate() error {
 		// this and `faramir status` exits non-zero over it, so a host in this state
 		// is not one anything calls healthy.
 		if report.onlyNotRedactable() {
-			r.warnf("%d ref(s) are shorter than [secret] min_length, so they are "+
-				"never injected and never redacted: %s. Lengthen them with `sudo "+
-				"faramir vault edit`; everything else on this host is installed and "+
-				"serving, and `faramir doctor` fails until they are",
+			r.warnf("%d ref(s) cannot be redacted, so they are never injected and "+
+				"never redacted: %s. Fix each with `sudo faramir vault edit` (the "+
+				"reason beside it says how); everything else on this host is installed "+
+				"and serving, and `faramir doctor` fails until they are",
 				len(report.Secrets.NotRedactable), report.refusedRefs())
-			r.step("validate", false, "installed; refs to lengthen")
+			r.step("validate", false, "installed; refs to fix")
 			return nil
 		}
 		return fmt.Errorf("the installed config does not work for %s: %w\n"+
 			"A [secret] file named there is one the broker could not load. A ref "+
-			"reported under not_redactable needs lengthening instead, and a "+
+			"reported under not_redactable needs fixing instead, and a "+
 			"[[secret.link]] entry named there is one claiming a ref the managed "+
 			"store already defines: remove it with `sudo faramir link rm REF`",
 			r.layout.BrokerUser, checkErr)

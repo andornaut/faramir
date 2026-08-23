@@ -917,9 +917,9 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// over, and doctor saying warn where status says fail would leave the two
 	// describing different hosts.
 	if len(check.Secrets.NotRedactable) > 0 {
-		report.addf("ref length", StatusFailed, "%d ref(s) are shorter than [secret] "+
-			"min_length, so they are never injected and never redacted: %s. Lengthen "+
-			"them with `sudo faramir vault edit`",
+		report.addf("ref length", StatusFailed, "%d ref(s) cannot be redacted, so "+
+			"they are never injected and never redacted: %s. Fix each with `sudo "+
+			"faramir vault edit`; the reason beside it says how",
 			len(check.Secrets.NotRedactable), check.refusedRefs())
 		if check.onlyNotRedactable() {
 			explained = true

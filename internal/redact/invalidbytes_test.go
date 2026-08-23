@@ -118,3 +118,30 @@ func TestARefusedValueCompilesToNothing(t *testing.T) {
 		t.Errorf("Summary() = %+v, want nothing counted", summary)
 	}
 }
+
+// A value that is faramir's own token shape is refused, the way a short value
+// is: the streaming buffer redacts the tail it already redacted, so a stored
+// token would be matched there and re-wrapped, and a real value's output would
+// carry the token-value's ref instead of its own. Refusing it keeps it out of
+// the matcher, so the emitted token is stable.
+func TestATokenShapedValueIsRefused(t *testing.T) {
+	p := DefaultPolicy()
+	if reason := p.Check(TokenFor("api")); reason == "" {
+		t.Error("a value equal to a token was not refused")
+	}
+	// A value that merely mentions the token prefix mid-string is not the token
+	// shape, so it is not refused: only a value that could BE an emitted token is.
+	if reason := p.Check("prefix «SECRET:api» and more text after"); reason != "" {
+		t.Errorf("a value containing but not equal to a token was refused: %s", reason)
+	}
+
+	// End to end: with the token-shaped value refused, redacting the ordinary
+	// value's plaintext yields its own token, not the token-value's ref.
+	api := Secret{Ref: "api", Value: "an-ordinary-credential-value"}
+	spoof := Secret{Ref: "spoof", Value: TokenFor("api")}
+	r := New([]Secret{api, spoof}, DefaultPolicy())
+	if got := r.RedactText(api.Value); got != TokenFor("api") {
+		t.Errorf("RedactText(apiValue) = %q, want %q: the token-shaped value was not kept out of the matcher",
+			got, TokenFor("api"))
+	}
+}

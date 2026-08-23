@@ -256,12 +256,30 @@ func (p EligibilityPolicy) Check(value string) string {
 	if len([]rune(value)) < p.MinLength {
 		return fmt.Sprintf("shorter than %d characters", p.MinLength)
 	}
+	// A value that is faramir's own token, guillemets and all. The redactor
+	// emits that shape for another ref, and the streaming buffer redacts the
+	// tail it already redacted, so a stored token would be matched there and
+	// re-wrapped: a real value's output would carry this ref's token instead of
+	// its own. Refused the way a short value is, being a value the redactor
+	// cannot represent rather than one it will not hold. No real credential is
+	// this shape; it is faramir's reserved output format.
+	if strings.HasPrefix(value, tokenOpen) && strings.HasSuffix(value, tokenClose) {
+		return "is shaped like faramir's own " + tokenOpen + "…" + tokenClose +
+			" token, which the redactor emits and would re-wrap"
+	}
 	return ""
 }
 
+// The delimiters of the token a secret is replaced with. Named so Check refuses
+// exactly the shape TokenFor produces.
+const (
+	tokenOpen  = "«SECRET:"
+	tokenClose = "»"
+)
+
 // TokenFor is the placeholder a secret is replaced with, stable across turns
 // and processes so the model can reason about a value without seeing it.
-func TokenFor(ref string) string { return "«SECRET:" + ref + "»" }
+func TokenFor(ref string) string { return tokenOpen + ref + tokenClose }
 
 // --------------------------------------------------------------------------
 // Stage 4: the streaming redactor
