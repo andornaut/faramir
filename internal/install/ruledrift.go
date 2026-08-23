@@ -321,10 +321,10 @@ func ruleLayout(configDir string) Layout {
 		Blocked:   configuredBlocked(configDir),
 	}
 	// The service accounts, read off the installed units the way `doctor` reads
-	// them. Without these, installDirs leaves out the three state directories
-	// and a re-render is compared against fewer rules than the host carries.
-	// A unit that cannot be read leaves the account empty, which installDirs
-	// skips: a rule missing from both sides is not drift.
+	// them, so a host that renamed one has its state directories rendered at the
+	// names it uses. A unit that cannot be read leaves the account empty and
+	// installDirs falls back to the standard name, which is what an install that
+	// named nothing used.
 	layout.BrokerUser, _ = unitUser(brokerUnit)
 	layout.KeeperUser, _ = unitUser(keeperUnit)
 	layout.ExecUser, _ = unitUser(execUnit)

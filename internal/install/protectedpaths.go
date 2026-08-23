@@ -189,6 +189,14 @@ func (k pathKind) String() string {
 // Defaults are filled in for a Layout that carries only some of them: an empty
 // string would become a rule matching "" and then every path under it, which
 // fails closed and still breaks the agent.
+// orDefault is the value, or the fallback where it is unset.
+func orDefault(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
 func installDirs(layout Layout) []string {
 	if layout.ConfigDir == "" {
 		layout.ConfigDir = DefaultConfigDir
@@ -199,19 +207,27 @@ func installDirs(layout Layout) []string {
 	if layout.LibexecDir == "" {
 		layout.LibexecDir = DefaultLibexecDir
 	}
-	dirs := []string{
-		layout.ConfigDir, layout.SecretsDir(), layout.LogDir, layout.LibexecDir,
-	}
+	dirs := make([]string, 0, 7)
+	dirs = append(dirs,
+		layout.ConfigDir, layout.SecretsDir(), layout.LogDir, layout.LibexecDir)
 	// The three service accounts' own directories, which systemd creates from
 	// StateDirectory= and the units use as those accounts' homes: the broker's
 	// and the executor's .ssh among them. Derived from the account names the way
 	// systemd derives them, so a --broker-user of another name moves with it.
+	//
+	// Defaulted like the directories above, and for the same reason: a caller
+	// that knows where the config is and not what the accounts are called still
+	// has to be told these are faramir's. Dropping them left `init-project`
+	// refusing two of this install's five directories and enrolling the other
+	// three, which hands a daemon's own home to the client group and regroups the
+	// .ssh inside it. A renamed account is covered only where the caller carries
+	// the name.
 	for _, account := range []string{
-		layout.BrokerUser, layout.KeeperUser, layout.ExecUser,
+		orDefault(layout.BrokerUser, DefaultBrokerUser),
+		orDefault(layout.KeeperUser, DefaultKeeperUser),
+		orDefault(layout.ExecUser, DefaultExecUser),
 	} {
-		if account != "" {
-			dirs = append(dirs, filepath.Join(stateDirRoot, account))
-		}
+		dirs = append(dirs, filepath.Join(stateDirRoot, account))
 	}
 	return dirs
 }

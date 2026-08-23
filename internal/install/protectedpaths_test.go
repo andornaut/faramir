@@ -308,3 +308,28 @@ func TestWhatAnEnrolmentWritesIsWhatDoctorCompares(t *testing.T) {
 			"compares it, so doctor would report every enrolled tree")
 	}
 }
+
+// A caller that knows where the config is and not what the accounts are called
+// still has to be told the daemons' own homes are faramir's. init-project and
+// doctor both build a Layout out of the config directory alone, and with these
+// dropped `init-project /var/lib/faramir-keeper` was an ordinary enrolment: the
+// home goes to the operator at 2770, and the walk regroups the .ssh inside it
+// from 0700 to the client group.
+func TestInstallDirsNamesTheDaemonHomesWithoutBeingToldTheAccounts(t *testing.T) {
+	dirs := installDirs(Layout{ConfigDir: "/etc/faramir"})
+	for _, want := range []string{
+		"/var/lib/" + DefaultBrokerUser,
+		"/var/lib/" + DefaultKeeperUser,
+		"/var/lib/" + DefaultExecUser,
+	} {
+		if !slices.Contains(dirs, want) {
+			t.Errorf("installDirs does not name %s: %v", want, dirs)
+		}
+	}
+	// And a name it was given still wins, or renaming an account would protect
+	// the directory the install stopped using and not the one it moved to.
+	named := installDirs(Layout{ConfigDir: "/etc/faramir", ExecUser: "faramir-runner"})
+	if !slices.Contains(named, "/var/lib/faramir-runner") {
+		t.Errorf("installDirs ignores a named exec account: %v", named)
+	}
+}

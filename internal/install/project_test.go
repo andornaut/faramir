@@ -72,6 +72,15 @@ func TestEnrollingFaramirsOwnDirectoriesIsRefused(t *testing.T) {
 		{DefaultBinDir, true},
 		{DefaultLibexecDir, true},
 		{DefaultLogDir, true},
+		// The three daemons' own homes, which systemd creates from StateDirectory=
+		// and the units use as those accounts' homes. The caller here knows where
+		// the config is and not what the accounts are called, so these are the
+		// directories a list built from the config alone drops: enrolling one hands
+		// it to the client group at 2770 and regroups the .ssh inside it.
+		{"/var/lib/" + DefaultBrokerUser, true},
+		{"/var/lib/" + DefaultKeeperUser, true},
+		{"/var/lib/" + DefaultExecUser, true},
+		{"/var/lib/" + DefaultBrokerUser + "/project", true},
 		// The ordinary case, which none of the refusals may reach.
 		{"/home/someone/src/project", false},
 		{"/srv/project", false},

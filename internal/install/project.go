@@ -398,7 +398,11 @@ var systemRoots = []string{
 func refuseInstallDirs(dir, configDir string) error {
 	// BinDir with them: it holds the binary every hook and plugin execs, and
 	// group write there is a brokered command replacing what the agent runs.
-	dirs := append(installDirs(Layout{ConfigDir: configDir}), DefaultBinDir)
+	//
+	// ruleLayout rather than the config directory alone: it reads the service
+	// accounts off the installed units, so a host that renamed one has the
+	// directory it moved to refused rather than the one it left.
+	dirs := append(installDirs(ruleLayout(configDir)), DefaultBinDir)
 	for _, installed := range dirs {
 		installed = filepath.Clean(installed)
 		holds := encloses(dir, installed)

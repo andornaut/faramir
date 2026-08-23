@@ -314,6 +314,24 @@ out=$(runuser -u $OP -- /usr/local/bin/faramir run --quiet -t 20 -C "$U" -- /bin
 [ "$(tail -1 <<<"$out")" = "$U" ] && ok "and enrolling it is what admits the executor" \
   || bad "enrolment did not open the private tree: ${out:0:110}"
 
+# Every directory this install owns, asked of the real layout rather than a
+# list in a test. The refusal is built from the config directory alone, so the
+# three the accounts' names derive are the ones a caller that does not carry
+# them drops: enrolling a daemon's own home hands it to the client group at 2770
+# and regroups the .ssh inside it.
+for own in /etc/faramir /etc/faramir/secrets /var/log/faramir \
+           /usr/local/libexec/faramir /usr/local/bin \
+           /var/lib/faramir-broker /var/lib/faramir-keeper /var/lib/faramir-exec; do
+  mode=$(stat -c '%U:%G %a' "$own" 2>/dev/null)
+  out=$(/usr/local/bin/faramir init-project --agent-user $OP --agent claude "$own" 2>&1)
+  if grep -q "which is faramir's own" <<<"$out"; then
+    ok "  $own is refused"
+  else
+    bad "  $own was enrolled: ${out##*$'\n'}"
+  fi
+  [ "$(stat -c '%U:%G %a' "$own" 2>/dev/null)" = "$mode" ] || bad "  and $own was changed anyway"
+done
+
 # --------------------------------------------------------------------------
 head_ "8. --dry-run writes nothing"
 
