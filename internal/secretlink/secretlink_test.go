@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestExtractTextTakesTheWholeFileTrimmed(t *testing.T) {
@@ -404,5 +406,66 @@ func TestASingleINIKeyStillReads(t *testing.T) {
 				t.Errorf("got %q, want %q", got, "only")
 			}
 		})
+	}
+}
+
+// A link names a credential file. Anything else is refused as soon as it is
+// known: this runs in the broker's load path, and opening a FIFO for reading
+// waits for a writer that never comes, which leaves the daemon starting
+// forever rather than serving without one ref.
+func TestAPathThatIsNotARegularFileIsRefusedRatherThanWaitedOn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "fifo")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Skipf("this filesystem will not hold a fifo: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := Read(path, KindText, ""); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a named pipe was read as a credential file")
+		}
+		if !strings.Contains(err.Error(), "named pipe") {
+			t.Errorf("the refusal does not say what it found: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Read on a named pipe blocks, so the broker's load blocks with it")
+	}
+}
+
+func TestADirectoryAndADeviceAreRefusedByName(t *testing.T) {
+	for path, want := range map[string]string{os.TempDir(): "directory", "/dev/zero": "character device"} {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		_, err := Read(path, KindText, "")
+		if err == nil {
+			t.Errorf("%s was read as a credential file", path)
+			continue
+		}
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want it named as a %s", path, err, want)
+		}
+	}
+}
+
+// The offers are names out of a file another tool writes, and the message goes
+// to a terminal. A key carrying an escape sequence would make the row read as
+// something other than what the file holds.
+func TestTheOfferedSelectorsAreRenderedBeforeTheyAreShown(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "npmrc")
+	body := "ok_key=value\nfirst\rSECOND=value\n\x1b]0;pwned\x07title=value\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, cause := Read(path, KindINI, "no-such-key")
+	got := Refusal(path, KindINI, cause).Error()
+	for _, raw := range []string{"\x1b", "\r", "\x07"} {
+		if strings.Contains(got, raw) {
+			t.Errorf("the offers carry %q into the terminal: %q", raw, got)
+		}
+	}
+	if !strings.Contains(got, "ok_key") {
+		t.Errorf("the ordinary selector is not offered: %q", got)
 	}
 }

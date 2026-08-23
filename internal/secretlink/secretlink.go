@@ -23,10 +23,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 	yaml "go.yaml.in/yaml/v3"
+
+	"github.com/andornaut/faramir/internal/termsafe"
 )
 
 // The kinds, which are how a file is read rather than what it is called.
@@ -77,12 +80,27 @@ func Read(path, kind, key string) (string, error) {
 
 // readBounded reads at most MaxBytes plus one byte, so a file over the cap is
 // reported rather than truncated into the value set.
+//
+// O_NONBLOCK and a regular-file check, because this runs in the broker's load
+// path and a path that blocks on open blocks the daemon with it: opening a FIFO
+// for reading waits for a writer that never comes, and the unit never finishes
+// starting. Refused as soon as it is known rather than waited on: a link names
+// a credential file, and a FIFO or a device is not one. O_NONBLOCK is a no-op
+// on a regular file, so this costs the ordinary case nothing.
 func readBounded(path string) ([]byte, error) {
-	fh, err := os.Open(path)
+	fh, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = fh.Close() }()
+	info, err := fh.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("is a %s rather than a regular file, and a link names "+
+			"the file a credential is written in", kindOf(info.Mode()))
+	}
 	data, err := io.ReadAll(io.LimitReader(fh, MaxBytes+1))
 	if err != nil {
 		return nil, err
@@ -92,6 +110,23 @@ func readBounded(path string) ([]byte, error) {
 			"file this link meant to name", MaxBytes)
 	}
 	return data, nil
+}
+
+// kindOf names what a path turned out to be, for a refusal that says which.
+func kindOf(mode os.FileMode) string {
+	switch {
+	case mode&os.ModeNamedPipe != 0:
+		return "named pipe"
+	case mode&os.ModeSocket != 0:
+		return "socket"
+	case mode&os.ModeDevice != 0 && mode&os.ModeCharDevice != 0:
+		return "character device"
+	case mode&os.ModeDevice != 0:
+		return "block device"
+	case mode.IsDir():
+		return "directory"
+	}
+	return "special file"
 }
 
 // Extract pulls the value out of a file's bytes.
@@ -152,8 +187,21 @@ func Refusal(path, kind string, cause error) error {
 	if err != nil || len(keys) == 0 {
 		return cause
 	}
-	return fmt.Errorf("%w\nthis file offers: %s", cause, strings.Join(keys, ", "))
+	// Rendered, not printed: these are names out of a file another tool writes,
+	// and this message goes to a terminal. A key carrying a carriage return or
+	// an escape sequence would make the row read as something other than what
+	// the file holds, which is the same reason an entry carrying one is refused
+	// where it is written.
+	shown := make([]string, len(keys))
+	for i, key := range keys {
+		shown[i] = termsafe.Field(key, maxKeyChars)
+	}
+	return fmt.Errorf("%w\nthis file offers: %s", cause, strings.Join(shown, ", "))
 }
+
+// maxKeyChars bounds one offered selector, a file being able to hold a line as
+// long as it likes and the offers being a list rather than a value.
+const maxKeyChars = 120
 
 // KeysIn is Keys against a file, read through the same bound Read uses.
 func KeysIn(path, kind string) ([]string, error) {
