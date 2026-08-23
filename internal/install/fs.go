@@ -125,7 +125,7 @@ func refuseUnenterableDirs(root string, mode os.FileMode, uid, gid int, paths []
 	ask := fsys{dryRun: true}
 	for _, rel := range paths {
 		dir := filepath.Dir(filepath.Join(root, rel))
-		if err := ask.ensureDirsIn(root, dir, mode, uid, gid); err != nil {
+		if err := ask.ensureDirsIn(root, dir, mode, mode, uid, gid); err != nil {
 			refused = append(refused, err.Error())
 		}
 	}
@@ -133,7 +133,9 @@ func refuseUnenterableDirs(root string, mode os.FileMode, uid, gid int, paths []
 }
 
 // ensureDirsIn creates every missing directory between root and path, each with
-// mode and owner, and leaves the ones already there alone.
+// mode and owner, and leaves the ones already there alone. The last component
+// gets leafMode instead: it is the one that ends up holding a file, and in a
+// tree that means the sticky bit, which the intermediate levels do not carry.
 //
 // Pinned to root rather than walked by path, unlike ensureDir: this runs as
 // root in a tree the account the agent runs as can write, so a symlinked
@@ -143,7 +145,7 @@ func refuseUnenterableDirs(root string, mode os.FileMode, uid, gid int, paths []
 //
 // A dry run answers the same question and writes nothing, which is what lets
 // preflight ask it before the share that cannot be undone.
-func (f fsys) ensureDirsIn(root, path string, mode os.FileMode, uid, gid int) error {
+func (f fsys) ensureDirsIn(root, path string, mode, leafMode os.FileMode, uid, gid int) error {
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
 		return err
@@ -161,9 +163,14 @@ func (f fsys) ensureDirsIn(root, path string, mode os.FileMode, uid, gid int) er
 	defer func() { _ = handle.Close() }()
 
 	at := ""
-	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+	parts := strings.Split(rel, string(filepath.Separator))
+	for i, part := range parts {
 		at = filepath.Join(at, part)
 		here := filepath.Join(root, at)
+		want := mode
+		if i == len(parts)-1 {
+			want = leafMode
+		}
 		// Lstat, so a symlink is seen as itself rather than as what it points at.
 		info, err := handle.Lstat(at)
 		switch {
@@ -185,11 +192,11 @@ func (f fsys) ensureDirsIn(root, path string, mode os.FileMode, uid, gid int) er
 			// ask.
 			return nil
 		}
-		if err := handle.Mkdir(at, mode.Perm()); err != nil {
+		if err := handle.Mkdir(at, want.Perm()); err != nil {
 			return err
 		}
-		// Mkdir applies the umask and ignores setgid, as MkdirAll does.
-		if err := handle.Chmod(at, mode); err != nil {
+		// Mkdir applies the umask and ignores setgid and sticky, as MkdirAll does.
+		if err := handle.Chmod(at, want); err != nil {
 			return err
 		}
 		if uid != keep || gid != keep {

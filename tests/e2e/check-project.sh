@@ -253,6 +253,21 @@ if runuser -u faramir-exec -- rm -f "$D/.claude/settings.local.json" 2>/dev/null
 else
   ok "and the executor cannot delete the settings naming the hook"
 fi
+# On a tree enrolled once, which is the state an operator leaves one in. The
+# walk that sets the sticky bit runs before the enrolment writes anything, so a
+# directory the enrolment creates is the case the tree above cannot show: it has
+# been enrolled twice, and the second walk found the directory there.
+F=/home/op/p-once
+rm -rf $F; install -d -o $OP -g $OP $F
+enrol "$F" --agent claude >/dev/null 2>&1
+mode=$(stat -c '%a' "$F/.claude")
+[ "$mode" = "3770" ] && ok "one enrolment is enough to make it sticky" \
+  || bad ".claude is $mode after a single enrolment, want 3770: until a second run it can be unlinked"
+if runuser -u faramir-exec -- rm -f "$F/.claude/settings.local.json" 2>/dev/null; then
+  bad "the executor deleted the hook settings in a tree enrolled once"
+else
+  ok "and the executor cannot delete the hook settings there either"
+fi
 id -nG faramir-exec | grep -qw faramir-client && ok "and the executor is in that group" \
   || bad "the executor is not in the tree's group"
 # Which is what lets a brokered command run there at all.

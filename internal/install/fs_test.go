@@ -304,3 +304,47 @@ func TestAHomeAcceptsAnAgentDirectoryThatIsNotThereYet(t *testing.T) {
 		t.Errorf("a directory the write would create was refused: %s", refused[0])
 	}
 }
+
+// The directory an enrolled file lands in is where the sticky bit belongs: the
+// tree is group-writable by the account brokered commands run as, unlink is a
+// permission on the directory, and without it that account can delete the rules
+// file and put its own there. sharetree's walk sets it on the directories a kept
+// file sits in, but it runs before an enrolment writes anything, so a directory
+// created here has to carry it from the start or the tree stays open until a
+// second enrolment settles it.
+func TestADirectoryCreatedForAnEnrolledFileIsSticky(t *testing.T) {
+	root := t.TempDir()
+	const (
+		mode = os.FileMode(0o770) | os.ModeSetgid
+		leaf = mode | os.ModeSticky
+	)
+	if err := realFS.ensureDirsIn(root, filepath.Join(root, ".pi", "extensions"),
+		mode, leaf, keep, keep); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the last component. sharetree names the directory the file sits in and
+	// no level above it, so a level made sticky here would be one the next run's
+	// walk clears, and the enrolment would report a change every time.
+	for _, tc := range []struct {
+		rel  string
+		want os.FileMode
+	}{
+		{".pi", mode},
+		{filepath.Join(".pi", "extensions"), leaf},
+	} {
+		info, err := os.Stat(filepath.Join(root, tc.rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := chmodBitsOf(info.Mode()); got != tc.want {
+			t.Errorf("%s is %v, want %v", tc.rel, got, tc.want)
+		}
+	}
+}
+
+// chmodBitsOf is the bits a chmod applies, ModeDir and the rest of the type
+// being no part of what was asked for.
+func chmodBitsOf(mode os.FileMode) os.FileMode {
+	return mode & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+}

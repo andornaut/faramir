@@ -310,8 +310,18 @@ func writeAgentFiles(fs fsys, root, configDir string, uid, gid int, dirMode os.F
 				return err
 			}
 			if inTree {
+				// The sticky bit on the directory this file lands in, applied as it is
+				// created rather than left to the share's walk: that walk runs before
+				// this writes anything, so a directory created here would sit
+				// group-writable with no sticky bit until a second enrolment settled
+				// it, and in that window the account brokered commands run as can
+				// unlink the rules file and put its own there. Only the last
+				// component: sharetree.stickyDirs names the directory a kept file sits
+				// in and no level above it, and a level this made sticky that the walk
+				// does not would be cleared on the next run.
 				ensure = func() error {
-					return fs.ensureDirsIn(root, parent, dirMode, uid, gid)
+					return fs.ensureDirsIn(root, parent, dirMode, dirMode|os.ModeSticky,
+						uid, gid)
 				}
 			}
 			if err := ensure(); err != nil {

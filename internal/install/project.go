@@ -750,9 +750,11 @@ func (p *project) writeSections(section string) (bool, []string, []string, error
 		// Shared and setgid at every level, as the walk leaves the rest of the
 		// tree: see agentConfig and ensureDirs. An agent whose rules file sits
 		// under a directory none of its config files do -- antigravity's
-		// .agents/rules -- has this as the only thing that creates it.
+		// .agents/rules -- has this as the only thing that creates it, and it
+		// holds a file this wrote, so it is sticky like the rest of them.
 		if err := p.fs.ensureDirsIn(p.opts.Dir, filepath.Dir(file.path),
-			0o2770|os.ModeSetgid, p.uid, p.gid); err != nil {
+			0o2770|os.ModeSetgid, 0o2770|os.ModeSetgid|os.ModeSticky,
+			p.uid, p.gid); err != nil {
 			return changed, written, stale, err
 		}
 		made, err := p.fs.sectionFile(
