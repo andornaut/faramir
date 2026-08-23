@@ -75,7 +75,21 @@ stop the broker|systemctl stop faramir-broker.socket
 read the audit log|cat /var/log/faramir/audit.log
 delete the opencode plugin|rm .opencode/plugins/faramir.js
 edit the pi extension|sed -i s/x/y/ .pi/extensions/faramir.ts
+read the age key by the GNU build's own name|gnucat /etc/faramir/age.key
+page a managed file that way|gnuhead -c1 /etc/faramir/secrets/app.sops.yml
+copy the key that way|gnucp /etc/faramir/age.key /tmp/k
+delete the config that way|gnurm /etc/faramir/config.toml
 CASES
+
+# The prefix takes the tool and nothing else. A rule fires only where one of
+# these words meets a path this host protects, so a name nobody installed
+# refuses nothing an agent does; a word that merely starts with one was never
+# matched and must not start being.
+for cmd in "gnuplot /etc/faramir/notes.txt" "concat /etc/faramir/notes.txt"; do
+  got=$(verdict "$cmd")
+  [ "$got" = deny ] && bad "the prefix widened past the vocabulary: $cmd" \
+    || ok "left alone: ${cmd%% *} is no tool in the list"
+done
 
 # --------------------------------------------------------------------------
 head_ "2. ordinary work is rewritten, not refused"

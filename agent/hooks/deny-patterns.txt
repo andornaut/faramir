@@ -62,6 +62,10 @@
 # five rules at run time for a config directory a rendered file did not name.
 # Readers carry interpreters and copiers as well as pagers. "sed" is a writer
 # only, and "grep" is neither, so naming a file in a search is not refused.
+#
+# Each name also matches with a "gnu" in front of it: where uutils is the
+# default `cat`, the GNU build is installed as `gnucat`, and a word boundary
+# does not fall inside that.
 {{range commandRules .}}{{.}}
 {{end}}
 # The broker's own key by path, not left to the config directory: `--ssh-key`

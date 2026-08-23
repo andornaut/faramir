@@ -190,10 +190,12 @@ var adviceMarkers = []struct {
 	{`\bsystemctl\b`, adviceOwn, false},              // stopping or masking a unit
 	{`/usr/local/bin/faramir\b`, adviceOwn, false},   // the binary
 	{`\.opencode/plugins/faramir`, adviceOwn, false}, // the plugin an enrolment writes
-	// A prefix of denyrules.WriteCommands rather than the constant, the shipped
-	// file carrying the expansion rather than the name.
-	{`(?-i:rm|shred|truncate`, adviceOwn, true}, // editing or destroying a path
-	{`>\s*\S*`, adviceOwn, true},                // a redirect into one
+	// The head of denyrules.WriteCommands's word list rather than the constant,
+	// the shipped file carrying the expansion rather than the name. The words
+	// alone, not what wraps them: the group around them has changed shape once
+	// already, and a marker carrying it silently stops matching when it does.
+	{`rm|shred|truncate`, adviceOwn, true}, // editing or destroying a path
+	{`>\s*\S*`, adviceOwn, true},           // a redirect into one
 }
 
 // adviceFor picks the explanation that matches why the command was refused.

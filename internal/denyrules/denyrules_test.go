@@ -242,3 +242,48 @@ func TestNoSubjectsIsNoRulesRatherThanARuleMatchingEverything(t *testing.T) {
 		}
 	}
 }
+
+// The name a tool has where it is not the default one. Ubuntu 26.04 ships
+// uutils as `cat` and the GNU build as `gnucat`, for 104 programs, 18 of them
+// in this vocabulary. A word boundary does not fall inside `gnucat`, so every
+// one of those walked past these rules on that release.
+func TestTheGnuPrefixedNamesAreTheSameTools(t *testing.T) {
+	re := compiled(t, Dir("/etc/faramir"))
+	refused := func(cmd string) bool {
+		for _, rule := range re.all() {
+			if rule.MatchString(cmd) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, cmd := range []string{
+		"gnucat /etc/faramir/age.key",
+		"gnuhead -c1 /etc/faramir/secrets/app.sops.yml",
+		"gnubase64 /etc/faramir/age.key",
+		"gnucp /etc/faramir/age.key /tmp/k",
+		"gnurm /etc/faramir/config.toml",
+		"gnutee /etc/faramir/config.toml",
+		// And the ordinary names, which the prefix must not have displaced.
+		"cat /etc/faramir/age.key",
+		"rm /etc/faramir/config.toml",
+	} {
+		if !refused(cmd) {
+			t.Errorf("%q is allowed: the prefixed name is the same tool", cmd)
+		}
+	}
+	// Only that prefix, and only where the rest is a word this list already
+	// knows. A rule fires where one of these meets a protected path, so a name
+	// nobody installed refuses nothing; a name that merely starts with one of
+	// these words was never matched and still is not.
+	for _, cmd := range []string{
+		"gnuplot /etc/faramir/notes.txt",
+		"concat /etc/faramir/notes.txt",
+		"category /etc/faramir/notes.txt",
+		"uucat /etc/faramir/age.key",
+	} {
+		if refused(cmd) {
+			t.Errorf("%q is refused, and it names no tool in the vocabulary", cmd)
+		}
+	}
+}

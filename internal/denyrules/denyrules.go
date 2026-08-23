@@ -32,15 +32,28 @@ import (
 // `find DIR -exec` reaches every file under it. A hash is deliberately absent,
 // a transform of a value being the exfiltration the design says it cannot cover.
 const (
-	ReadCommands = `\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|` +
-		`hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|` +
-		`tar|scp|rsync|sops|age|ansible-vault|sort|uniq|comm|join|paste|column|` +
-		`fold|expand|unexpand|fmt|pr|shuf|split|csplit|diff|find|install|cpio|` +
-		`zcat|gunzip|bzcat|xzcat|zstdcat|openssl)\b`
-	WriteCommands = `\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|` +
-		`setfacl|ln|sops|age|ansible-vault|install|split|csplit|cpio|gzip|bzip2|` +
-		`xz|zstd)\b`
+	ReadCommands = `\b(?-i:` + gnuPrefix + `(?:cat|less|more|head|tail|bat|xxd|od|` +
+		`strings|base64|base32|hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|` +
+		`python3?|perl|ruby|tee|cp|tar|scp|rsync|sops|age|ansible-vault|sort|` +
+		`uniq|comm|join|paste|column|fold|expand|unexpand|fmt|pr|shuf|split|` +
+		`csplit|diff|find|install|cpio|zcat|gunzip|bzcat|xzcat|zstdcat|` +
+		`openssl))\b`
+	WriteCommands = `\b(?-i:` + gnuPrefix + `(?:rm|shred|truncate|mv|cp|tee|dd|sed|` +
+		`chmod|chown|chgrp|setfacl|ln|sops|age|ansible-vault|install|split|` +
+		`csplit|cpio|gzip|bzip2|xz|zstd))\b`
 )
+
+// gnuPrefix takes the name a tool has where it is not the default one. Ubuntu
+// 26.04 ships uutils as `cat` and the GNU build as `gnucat`, and does that for
+// 104 programs, 18 of which are in the vocabulary above. A word boundary does
+// not fall inside `gnucat`, so every one of those walked past these rules on
+// that release: `gnucat /etc/faramir/age.key` reached the EACCES the deny list
+// exists to answer instead of.
+//
+// Optional, so the ordinary names still match, and only this prefix: a rule
+// fires only where one of these words meets a path this host protects, so
+// taking a name that is not installed refuses nothing an agent does elsewhere.
+const gnuPrefix = `(?:gnu)?`
 
 // NormalizePaths rewrites the path-looking words of a command into their
 // shortest spelling, so a rule written for /home/you/.aws also refuses
