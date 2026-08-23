@@ -70,6 +70,17 @@ concurrency = {{.CommandConcurrency}}
 # unit. 100 is the whole machine, which is the same as no bound.
 max_memory_percent = {{.CommandMaxMemoryPercent}}
 
+# What one brokered process may allocate, as LimitDATA on the executor unit.
+# The bound the percentage above cannot be: a command that runs away is one
+# process asking for far more than a real one, and a parallel build is twenty
+# asking for a little, which a cgroup total reads the same way.
+#
+# Anonymous memory only, so a command that reads or writes a great deal is not
+# charged for the page cache it leaves, and a process that reaches it gets an
+# allocation failure it can report rather than the OOM killer. Read by
+# `faramir init`, so a change here needs `sudo faramir init` to reach the unit.
+max_process_memory_mb = {{.CommandMaxProcessMemoryMB}}
+
 # The child's entire environment; the broker's own is never inherited. Naming
 # one variable keeps the rest, so a line here adds rather than replaces.
 [command.env]

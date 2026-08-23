@@ -194,6 +194,38 @@ cp /tmp/config.good $CFG
 settle || bad "the host did not come back"
 
 # --------------------------------------------------------------------------
+head_ "8b. the two memory settings reach the unit"
+#
+# Neither is enforced by a daemon: they are rendered into the executor unit and
+# the kernel holds them, so a key in the file that never reached systemd is a
+# bound nobody has.
+
+unit_value() { systemctl show faramir-exec.service -p "$1" --value; }
+maxmem=$(unit_value MemoryMax)
+limitdata=$(unit_value LimitDATA)
+[ "$maxmem" != infinity ] && [ -n "$maxmem" ] \
+  && ok "MemoryMax is set on the executor ($maxmem bytes)" \
+  || bad "MemoryMax is [$maxmem]: the cgroup backstop is not there"
+[ "$limitdata" != infinity ] && [ -n "$limitdata" ] \
+  && ok "and LimitDATA bounds one process ($limitdata bytes)" \
+  || bad "LimitDATA is [$limitdata]: a single command is unbounded"
+# The bound is the one that has to refuse a runaway, so it is exercised rather
+# than read: a value in the unit that the kernel does not apply is the failure
+# this catches.
+over=$(( limitdata * 2 / 1048576 ))
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -- /usr/bin/python3 -c \
+  "b = bytearray($over * 1024 * 1024); print(len(b))" 2>&1)
+grep -qi 'memoryerror\|cannot allocate' <<<"$out" \
+  && ok "and a process asking for ${over}MB is refused by it" \
+  || bad "a process asking for ${over}MB was not refused: $(tail -c 120 <<<"$out")"
+# And an ordinary allocation is untouched, or the bound is one nobody can work
+# under.
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -- /usr/bin/python3 -c \
+  "b = bytearray(256 * 1024 * 1024); print(len(b))" 2>&1)
+grep -q '268435456' <<<"$out" && ok "while an ordinary 256MB allocation still runs" \
+  || bad "256MB was refused, so the bound is too tight to work under: $(tail -c 120 <<<"$out")"
+
+# --------------------------------------------------------------------------
 head_ "9. put the host back"
 #
 # Every section above changed a value, and the suites after this one run on

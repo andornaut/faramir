@@ -39,6 +39,14 @@ TimeoutStopSec=30
 # what a command allocates, not against a cgroup's memory.peak, which is a
 # total over every process in it and is mostly cache.
 MemoryMax={{.CommandMaxMemoryPercent}}%
+# And what one of them may allocate, inherited by every child. This is the bound
+# the cgroup total above cannot be: a command that runs away is one process
+# asking for far more than a real one, while a parallel build is twenty
+# processes each asking for a little, and a total reads those the same. Counted
+# against anonymous memory, so nothing here is charged for page cache, and a
+# process that reaches it is handed an allocation failure it can report rather
+# than being chosen by the OOM killer.
+LimitDATA={{.CommandMaxProcessMemoryMB}}M
 
 # {{.ClientGroup}}, because brokered commands run in the working tree and write to it:
 # ansible drops .retry files and fact caches. The tree is agent-owned and

@@ -170,14 +170,16 @@ type Layout struct {
 	CommandTimeoutSec    int
 	CommandMaxTimeoutSec int
 	CommandConcurrency   int
-	// CommandMaxMemoryPercent renders into the executor unit's MemoryMax, which
-	// is what keeps a brokered command that runs away from taking the host with
-	// it: the kernel then chooses inside that cgroup rather than across every
-	// process on the machine.
-	CommandMaxMemoryPercent int
-	EscalationTimeoutSec    int
-	SecretMinLength         int
-	SecretMinRefreshSec     int
+	// CommandMaxMemoryPercent renders into the executor unit's MemoryMax and
+	// CommandMaxProcessMemoryMB into its LimitDATA. The second is the bound and
+	// the first the backstop: a runaway is one process asking for far more than
+	// a real one, which LimitDATA refuses, and fan-out is many processes each
+	// asking for a little, which only a cgroup total sees.
+	CommandMaxMemoryPercent   int
+	CommandMaxProcessMemoryMB int
+	EscalationTimeoutSec      int
+	SecretMinLength           int
+	SecretMinRefreshSec       int
 
 	// AllowSudo is the switch for the whole arrangement: unset renders no
 	// [escalation] section, writes no sudoers file and no PAM service, so nothing

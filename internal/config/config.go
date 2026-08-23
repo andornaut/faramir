@@ -90,7 +90,7 @@ func DefaultCommand() CommandConfig {
 			"LC_ALL": "C.UTF-8", "DEBIAN_FRONTEND": "noninteractive",
 		},
 		TimeoutSec: 600, MaxTimeoutSec: 3600, Concurrency: 10,
-		MaxMemoryPercent: 50,
+		MaxMemoryPercent: 25, MaxProcessMemoryMB: 4096,
 	}
 }
 
@@ -290,10 +290,26 @@ type CommandConfig struct {
 	// thing on a laptop and on a build host, and nothing here knows how much
 	// memory the host has.
 	//
+	// The backstop rather than the bound. It is a cgroup total, so it cannot tell
+	// one process holding everything from twenty holding a fair share each, and
+	// it counts page cache besides. What it catches is fan-out, which no
+	// per-process limit can see.
+	//
 	// Read by `faramir init`, which renders it into the unit. The daemons do not
 	// enforce it; the kernel does, and it chooses a victim inside the executor's
 	// own cgroup rather than across the whole machine.
 	MaxMemoryPercent int
+	// MaxProcessMemoryMB is what one brokered process may allocate, as the
+	// executor unit's LimitDATA. Every child inherits it.
+	//
+	// The bound that matches the failure: a command that runs away is one process
+	// asking for far more than any real one, while a parallel build is many
+	// processes each asking for a little. A cgroup total cannot separate those
+	// and this does. It counts anonymous memory only, so a command that reads or
+	// writes a great deal is not charged for the page cache it leaves behind, and
+	// a process that reaches it gets an allocation failure it can report rather
+	// than the OOM killer.
+	MaxProcessMemoryMB int
 }
 
 // KeeperConfig describes the process that holds the age key: separate uid,
@@ -590,7 +606,7 @@ var (
 		"age_key_credential", "age_key_file"}
 	executorKeys = []string{keySocketPath, "allowed_user"}
 	commandKeys  = []string{"env", "timeout_sec", "max_timeout_sec", "concurrency",
-		"max_memory_percent"}
+		"max_memory_percent", "max_process_memory_mb"}
 	sshKeys = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
 	escalationKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
@@ -738,6 +754,13 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 	// whole machine, which is the same as no bound and is spelled as one.
 	if out.MaxMemoryPercent, err = intInRange(sec, "max_memory_percent", where,
 		out.MaxMemoryPercent, 10, 100); err != nil {
+		return err
+	}
+	// A floor of 256MB: below that ordinary commands fail to start, and a bound
+	// that breaks `ansible-playbook` is turned off rather than lowered. The
+	// ceiling is a sanity bound, a terabyte being past any host this runs on.
+	if out.MaxProcessMemoryMB, err = intInRange(sec, "max_process_memory_mb", where,
+		out.MaxProcessMemoryMB, 256, 1<<20); err != nil {
 		return err
 	}
 	// Merged over the built-in table rather than replacing it, so a file that
