@@ -114,31 +114,15 @@ func newBlockAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add [options] (--path PATH | --name PATTERN | --command COMMAND)...",
 		Short: "Block a path, a name or a command from the agent",
-		Long: "Adds a [[secret.block]] entry per --path, --name and --command given, and\n" +
-			"re-renders your agent's deny rules, so each is blocked from its file tools.\n" +
-			"For a credential faramir has no use for the value of: a LUKS keyfile, an\n" +
-			"SSH identity.\n\n" +
-			"The file is never opened: nothing is granted, the mode is left alone, and\n" +
-			"no value enters the redactor. So this stops the agent's own file tools and\n" +
-			"nothing else. A command the broker runs may still read the file if its\n" +
-			"mode allows, and prints it in the clear. `faramir link` covers both, at\n" +
-			"the price of faramir reading the value.\n\n" +
-			"None of the three is the default, so a bare argument is refused: an\n" +
-			"operator who means every file of a name and types it as an argument would\n" +
-			"otherwise get a rule about one file on this host.\n\n" +
-			"A path that is not there is still recorded, an unmounted volume being one\n" +
-			"of the cases this exists for. You are told, since a typo looks the same.\n\n" +
-			"A path this install already blocks is not an error: the entry stands, the\n" +
-			"rules are rendered again, which is what restores one an agent's settings\n" +
-			"dropped, and --json reports changed=false.\n\n" +
-			"Any number of each, in one command, and the three mix: each is its own\n" +
-			"entry, and the config and your agent's rule files are\n" +
-			"written once rather than once per entry.\n\n" +
-			"--name blocks a name rather than a path, matched against what the agent\n" +
-			"names rather than against this host: a container mounts a directory\n" +
-			"somewhere of its own, and only the name reaches the path it runs against.\n" +
-			"It is the wider form and nothing announces one that matches too much, so\n" +
-			"what a pattern will match is printed as it is written.",
+		Long: "Adds a [[secret.block]] entry per --path, --name and --command, and\n" +
+			"re-renders the agent's deny rules. For a credential faramir has no use for\n" +
+			"the value of: a LUKS keyfile, an SSH identity.\n\n" +
+			"The file is never opened, so this stops the agent's file tools and nothing\n" +
+			"else: a brokered command may still read it. `faramir link` covers both.\n\n" +
+			"--name matches what the agent names rather than a path on this host, for a\n" +
+			"file a container mounts somewhere of its own.\n\n" +
+			"A bare argument is refused; a missing path is recorded and reported; an\n" +
+			"entry already there re-renders the rules and reports changed=false.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runBlockAdd(f, args))
@@ -200,18 +184,12 @@ func newBlockRemoveCmd() *cobra.Command {
 		Use:   "rm [options] (--path PATH | --name PATTERN | --command COMMAND)...",
 		Short: "Stop blocking a path, a name or a command",
 		Long: "Removes the entry, so `faramir init` stops rendering the rule.\n\n" +
-			"It does not take the rule out of your agent's settings: those files are\n" +
-			"merged rather than replaced, and a merge can only add. Remove that line\n" +
-			"yourself, which this says on the way out.\n\n" +
-			"A path this install does not block is not an error: nothing is written\n" +
-			"and --json reports changed=false, the entry being gone either way.\n\n" +
-			"Any number of either, as `add` takes them.\n\n" +
-			"--name removes a name entry. The form is part of what identifies one, so\n" +
-			"a name is not removed by giving the same string as a path.\n\n" +
-			"A rule compiled into faramir cannot be removed and is refused rather than\n" +
-			"reported as not blocked: it is not an entry, and this host goes on blocking\n" +
-			"what was named, and saying nothing was removed would read as saying the\n" +
-			"file became readable. `faramir block ls` shows which rules are which.",
+			"The rule stays in the agent's settings, which are merged rather than\n" +
+			"replaced: remove that line yourself. This names it on the way out.\n\n" +
+			"The form identifies the entry, so --name does not remove a path of the\n" +
+			"same string. An entry that is not there reports changed=false; a rule\n" +
+			"compiled into faramir is refused, `faramir block ls` showing which is\n" +
+			"which.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockRemove(f, args)) },
 	}
@@ -283,24 +261,13 @@ func newBlockListCmd() *cobra.Command {
 		Use:   useLs,
 		Short: "List what this host blocks from the agent",
 		Long: "Lists both halves of what this host blocks: the [[secret.block]] entries\n" +
-			"it declares, and the rules faramir carries itself. The table is the\n" +
-			"declared half; the built-in rules are under it, a section per kind.\n" +
-			"--json is one list, with a `source` field saying which half a row is.\n\n" +
-			"Two columns, kind and entry. The kind is one of three, `name`, `path` or\n" +
-			"`command`, and where a rule is enforced follows from it: a name and a\n" +
-			"path reach the agent's file tools and its shell alike, a command reaches\n" +
-			"the shell alone, being nothing a file tool can name.\n\n" +
-			"The built-in rules are shown because there is otherwise no way to ask\n" +
-			"what they cover: the agent meets one as a file tool refusing a path, and\n" +
-			"a refusal names the rule that matched rather than the set. A rule nobody\n" +
-			"can enumerate is one that gets declared a second time, or reported as a\n" +
-			"gap that was never open.\n\n" +
-			"--declared narrows this to the entries the config carries, which is the\n" +
-			"list a configuration manager converges. --built-in narrows it to the\n" +
-			"other half, the rules faramir renders from its own layout and carries in\n" +
-			"its binary, which no config names and no `block rm` removes. Naming both\n" +
-			"is the default and is refused, a flag that narrows to everything saying\n" +
-			"nothing.",
+			"it declares, in the table, and the rules faramir carries itself, under it.\n" +
+			"--json is one list with a `source` field per row.\n\n" +
+			"The kind says where a rule is enforced: a `name` or a `path` reaches the\n" +
+			"agent's file tools and its shell, a `command` the shell alone.\n\n" +
+			"--declared is the half a configuration manager converges; --built-in is\n" +
+			"the half no config names and no `block rm` removes. Naming both is the\n" +
+			"default and is refused.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockList(f)) },
 	}

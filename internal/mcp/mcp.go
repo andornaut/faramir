@@ -67,23 +67,15 @@ func Tools() []Tool { return slices.Clone(tools) }
 var tools = []Tool{
 	{
 		Name: "faramir_run",
-		Description: "Run a command that needs credentials. This is the ONLY way to run such " +
-			"a command: the credentials do not exist in your environment, and reading " +
-			"or decrypting the managed secrets directly is blocked.\n\n" +
-			"The command runs as a separate uid that holds no keys of its own; the " +
-			"broker injects the values it was asked for. Output comes back " +
-			"with every known secret value replaced by a stable «SECRET:ref» token, so " +
-			"you can confirm a credential reached the right place without ever seeing " +
-			"it. Do not attempt to work around this: transformed output (base64, rev, " +
-			"cut) is a policy violation, not a puzzle.\n\n" +
-			"Secrets are referenced by name using faramir:// URIs and are injected as " +
-			"environment variables only; they are never substituted into the command " +
-			"line. Call faramir_refs to discover available names.\n\n" +
+		Description: "Run a command that needs credentials. The only way to: they are " +
+			"not in your environment, and reading the managed secrets is blocked.\n\n" +
+			"Values are injected as environment variables named by faramir:// refs, " +
+			"never substituted into the command line. Output comes back with each " +
+			"replaced by a «SECRET:ref» token; transforming it to get around that is a " +
+			"policy violation. Call faramir_refs for the names.\n\n" +
 			"Example: cmd=[\"printenv\",\"ROUTER_PW\"], " +
-			"env_refs={\"ROUTER_PW\":\"faramir://home/router/admin\"}.\n" +
-			"For a pipeline, pass cmd=[\"bash\",\"-lc\",\"…\"] explicitly; no shell is " +
-			"spawned for you. A bare command name is looked up on the broker's " +
-			"configured PATH; pass an absolute path for anything else.",
+			"env_refs={\"ROUTER_PW\":\"faramir://home/router/admin\"}. No shell is " +
+			"spawned: for a pipeline pass cmd=[\"bash\",\"-lc\",\"…\"].",
 		InputSchema: map[string]any{
 			"type": typeObject,
 			"properties": map[string]any{
@@ -100,13 +92,12 @@ var tools = []Tool{
 				},
 				"cwd": map[string]any{
 					"type": typeString,
-					"description": "Absolute working directory. Defaults to the working tree; " +
-						"your edits are picked up as soon as they are saved.",
+					"description": "Absolute working directory. Defaults to the working tree.",
 				},
 				"timeout_sec": map[string]any{
 					"type": "integer",
-					"description": "Seconds before the command is killed. Omitted takes the " +
-						"broker's configured default, and any value is clamped to its maximum.",
+					"description": "Seconds before the command is killed. Clamped to the " +
+						"broker's maximum.",
 				},
 			},
 			"required": []string{"cmd"},
@@ -114,8 +105,8 @@ var tools = []Tool{
 	},
 	{
 		Name: "faramir_refs",
-		Description: "List the faramir:// references the broker can inject. Returns names only, " +
-			"never values. Use this to find the right ref for faramir_run's env_refs.",
+		Description: "List the faramir:// refs the broker can inject. Names only, " +
+			"never values. These are what faramir_run's env_refs takes.",
 		InputSchema: map[string]any{"type": typeObject, "properties": map[string]any{}},
 	},
 }
@@ -370,9 +361,8 @@ func handle(m *message) map[string]any {
 			"protocolVersion": negotiated,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": serverName, "version": version.Version},
-			"instructions": "Any command that needs a credential must go through faramir_run. " +
-				"Secrets are referenced by name (faramir://…); their values are never " +
-				"visible to you and never need to be.",
+			"instructions": "Any command needing a credential goes through faramir_run. " +
+				"Secrets are named (faramir://…); you never see a value.",
 		}
 	case m.Method == "tools/list":
 		result = map[string]any{"tools": tools}

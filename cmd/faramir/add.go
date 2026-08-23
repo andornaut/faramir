@@ -46,8 +46,8 @@ func newAddCmd() *cobra.Command {
 			"NAME is a name, relative to the secrets directory: `.sops.yml` is added\n" +
 			"for you, and a name that already carries it is taken as it stands.\n\n" +
 			"The content comes from $EDITOR on a 0600 file in a tmpfs, so no plaintext\n" +
-			"reaches a disk. --from encrypts a file you already have, and leaves it\n" +
-			"where it is: it is still cleartext afterwards.",
+			"reaches a disk. --from encrypts a file you already have and leaves it\n" +
+			"cleartext where it is.",
 		Args: exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runAdd(f, args[0])) },
 	}

@@ -103,11 +103,10 @@ func newSudoListCmd() *cobra.Command {
 		Use:   useLs,
 		Short: "List the question a brokered command is waiting on",
 		Long: "Prints what is waiting and exits. Exit status is 0 where something was\n" +
-			"waiting, 1 where nothing was, and 69 where the broker could not be\n" +
-			"reached: a broker that did not answer prints nothing rather than an\n" +
-			"empty list, which would report a host as quiet when nothing was asked.\n\n" +
-			"`faramir sudo watch` is the other form: it waits for questions and\n" +
-			"answers them from that terminal.",
+			"waiting, 1 where nothing was, 69 where the broker could not be reached,\n" +
+			"which prints nothing rather than an empty list.\n\n" +
+			"`faramir sudo watch` is the other form: it waits and answers from that\n" +
+			"terminal.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			if !requireRootToAnswer("sudo ls") {
@@ -135,11 +134,10 @@ func newSudoWatchCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "watch",
 		Short: "Wait for questions, answer them here, and report how each run ended",
-		Long: "Holds this terminal: it prints each question as it arrives, reads your\n" +
+		Long: "Holds this terminal: prints each question as it arrives, reads your\n" +
 			"answer, and prints how each approved run ended.\n\n" +
 			"Run it as root somewhere the coding agent cannot type. The socket check\n" +
-			"makes the answer come from root; it cannot make root the one typing, and\n" +
-			"a terminal your own account owns is one the agent can send keys to.",
+			"makes the answer come from root; it cannot make root the one typing.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			if !requireRootToAnswer("sudo watch") {

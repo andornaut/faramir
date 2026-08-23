@@ -71,9 +71,9 @@ func newRecipientAddCmd() *cobra.Command {
 		Short: "Let one more key decrypt the managed store",
 		Long: "Adds an age recipient to .sops.yaml and re-encrypts every managed file to\n" +
 			"it, so the rule and the ciphertext never disagree.\n\n" +
-			"KEY is a PUBLIC key: an age1... recipient or an ssh public key. The\n" +
-			"private half is refused, .sops.yaml being world-readable. Mint one with\n" +
-			"'age-keygen -o FILE' on the machine that will hold it.",
+			"KEY is a PUBLIC key, age1... or ssh. The private half is refused,\n" +
+			".sops.yaml being world-readable. Mint one with 'age-keygen -o FILE' on\n" +
+			"the machine that will hold it.",
 		Args: exactlyArgs(1, "one age recipient"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runRecipientChange(f, args[0], true))
@@ -120,12 +120,11 @@ func newRecipientResealCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "reseal [options] [FILE...]",
 		Short: "Re-encrypt the store to the recipients .sops.yaml names",
-		Long: "Makes the ciphertext agree with the rule, for the cases `add` and `rm`\n" +
-			"cannot reach: a `.sops.yaml` changed some other way, and a pass that\n" +
-			"failed partway and has to be resumed against a rule that is already\n" +
-			"right.\n\n" +
+		Long: "Makes the ciphertext agree with the rule, for what `add` and `rm` cannot\n" +
+			"reach: a `.sops.yaml` changed some other way, or a pass that failed\n" +
+			"partway.\n\n" +
 			"Every managed file unless some are named. Files already sealed to the\n" +
-			"rule are skipped, so a run that has nothing to do writes nothing.",
+			"rule are skipped.",
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runReseal(f, args)) },
 	}
 	f.register(c, true)

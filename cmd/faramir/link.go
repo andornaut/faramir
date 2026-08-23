@@ -51,17 +51,14 @@ func newLinkAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add [options] REF FILE",
 		Short: "Read a secret out of a file another tool maintains",
-		Long: "Adds one [[secret.link]] entry and applies everything that follows: the\n" +
-			"broker's account is granted read on the file, the file is refused to the\n" +
-			"agent's file tools, and the daemons are reloaded.\n\n" +
-			"The file is read once, as the broker's own account, before anything is\n" +
-			"written. A selector that names nothing is an error here rather than a\n" +
-			"broker refusing every command later.\n\n" +
-			"Adding the entry this install already carries re-applies it: the grant\n" +
-			"comes back where a tool took it away by renaming its own file, and so does\n" +
-			"a rule an agent's settings dropped. Nothing is written that was not there,\n" +
-			"and --json reports changed=false. The same ref against a different file,\n" +
-			"type or key is an error: a ref has one definition.",
+		Long: "Adds one [[secret.link]] entry and applies it: the broker is granted read\n" +
+			"on the file, the file is refused to the agent's file tools, and the daemons\n" +
+			"are reloaded.\n\n" +
+			"The file is read once, as the broker, before anything is written, so a\n" +
+			"selector naming nothing is an error here rather than later.\n\n" +
+			"Re-adding the same entry re-applies it, which is what restores a grant or\n" +
+			"a rule something took away, and reports changed=false. The same ref\n" +
+			"against a different file, type or key is an error.",
 		Args: exactlyArgs(2, "a ref and a file"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runLinkAdd(f, args[0], args[1]))
@@ -135,14 +132,10 @@ func newLinkRemoveCmd() *cobra.Command {
 		Short: "Stop reading a linked secret",
 		Long: "Removes the entry, so the value leaves the redactor and stops being\n" +
 			"injectable.\n\n" +
-			"Two things it does not undo. The deny rule stays: the agent rule files are\n" +
-			"merged rather than replaced, and a merge can only add, so nothing here can\n" +
-			"take an entry out of one. The access granted to the broker stays too: this\n" +
-			"does not know the mode the file had before, and guessing at one is as\n" +
-			"likely to break the tool that owns it. Both are printed, with what would\n" +
-			"undo them.\n\n" +
-			"A ref this install does not carry is not an error: nothing is written and\n" +
-			"--json reports changed=false, the entry being gone either way.",
+			"Two things it does not undo: the deny rule in the agent's settings, which\n" +
+			"are merged rather than replaced, and the read granted to the broker, whose\n" +
+			"previous mode this does not know. Both are printed with what undoes them.\n\n" +
+			"A ref this install does not carry reports changed=false.",
 		Args: exactlyOneArg("ref"),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runLinkRemove(f, args[0])) },
 	}
