@@ -135,6 +135,20 @@ row() { logs -n 40 | grep -F "$1"; }
 
 grep -qE 'exit 0 +[0-9.]+s' <<<"$(row "$idOK")"   && ok "a run that succeeded shows its exit and duration" \
   || bad "exit 0 row: [$(row "$idOK")]"
+# What the caller is told on stderr the log has to say too, or a reader is shown
+# an excerpt of a lossy rendering as though it were the output.
+run -- /bin/sh -c 'head -c 2000000 /dev/zero | tr "\0" a' >/dev/null; idCut=$(lastID)
+grep -q 'truncated' <<<"$(row "$idCut")" && ok "a truncated run is marked in the listing" \
+  || bad "nothing marks a truncated row: [$(row "$idCut")]"
+/usr/local/bin/faramir logs "$idCut" --color never 2>/dev/null | grep -q 'output cut' \
+  && ok "  and the detail view says how much was dropped" \
+  || bad "the detail view does not say the output was cut"
+run -- /bin/sh -c 'head -c 50000 /dev/urandom' >/dev/null; idBin=$(lastID)
+grep -q 'non-text' <<<"$(row "$idBin")" && ok "output that was not text is marked in the listing" \
+  || bad "nothing marks a binary row: [$(row "$idBin")]"
+/usr/local/bin/faramir logs "$idBin" --color never 2>/dev/null | grep -q 'non-text' \
+  && ok "  and the detail view says how many bytes were replaced" \
+  || bad "the detail view does not say the output was not text"
 grep -q 'exit 7' <<<"$(row "$idFail")"            && ok "a non-zero exit shows the code" \
   || bad "exit 7 row: [$(row "$idFail")]"
 grep -q 'timed out' <<<"$(row "$idSlow")"         && ok "a timeout says so rather than showing its kill signal" \

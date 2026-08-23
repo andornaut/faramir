@@ -613,7 +613,7 @@ func summarise(record map[string]any, paint palette) string {
 	b.WriteString(" " + clockTime(record) + "  ")
 	b.WriteString(paint.bold(pad(str(record, "op"), opWidth)))
 	b.WriteString(paintOutcome(record, paint))
-	b.WriteString(paint.ref(pad(redactionTotal(record), 12)))
+	b.WriteString(paint.ref(pad(outputNotes(record), 12)))
 	b.WriteString(detail(record))
 	return strings.TrimRight(b.String(), " ")
 }
@@ -756,6 +756,27 @@ func redactions(record map[string]any) []redaction {
 
 // redactionTotal is how many values this record stood in for, summed across
 // tokens: a credential was used, without saying which.
+// outputNotes is what happened to the output, in the column between the outcome
+// and the command: how much was replaced by a token, and whether what is
+// recorded is the whole of what the command wrote. `run` tells the caller both
+// of the last two on stderr, so the log says them too, or an operator reading a
+// record back is shown an excerpt of a lossy rendering as though it were the
+// output. Longer than the column on the rare record carrying all three, which
+// shifts that row rather than hiding what it says.
+func outputNotes(record map[string]any) string {
+	var notes []string
+	if total := redactionTotal(record); total != "" {
+		notes = append(notes, total)
+	}
+	if truncated, _ := boolean(record, "output_truncated"); truncated {
+		notes = append(notes, "truncated")
+	}
+	if invalid, ok := num(record, "invalid_bytes"); ok && invalid > 0 {
+		notes = append(notes, "non-text")
+	}
+	return strings.Join(notes, ", ")
+}
+
 func redactionTotal(record map[string]any) string {
 	total := 0
 	for _, entry := range redactions(record) {
@@ -822,6 +843,19 @@ func printRecord(record map[string]any, paint palette) {
 		printField(paint, field, paint.ref(strings.Join(list(record, field), ", ")))
 	}
 	printField(paint, "redacted", paint.ref(redactionCounts(record)))
+	// What the output is not. Each only where it happened: on an ordinary record
+	// the output is what the command wrote and a row saying so is noise.
+	if truncated, _ := boolean(record, "output_truncated"); truncated {
+		dropped, _ := num(record, "output_dropped")
+		kept, _ := record["output"].(string)
+		printField(paint, "output cut", fmt.Sprintf(
+			"%d byte(s) kept, %d dropped: this is an excerpt, not the whole of it",
+			len(kept), int64(dropped)))
+	}
+	if invalid, ok := num(record, "invalid_bytes"); ok && invalid > 0 {
+		printField(paint, "non-text", fmt.Sprintf(
+			"%d byte(s) were not valid UTF-8 and are recorded as U+FFFD", int64(invalid)))
+	}
 	output, _ := record["output"].(string)
 	if output == "" {
 		return

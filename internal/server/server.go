@@ -1001,6 +1001,12 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	record["op"] = recordRun
 	record["exit_code"], record["duration_sec"] = result.ExitCode, result.DurationSec
 	record["timed_out"], record["redactions"] = result.TimedOut, result.Redactions
+	// What the caller is told on stderr, so the log says it too: both mean the
+	// recorded output is not what the command wrote. Only when there was one, a
+	// zero on every record being noise.
+	if result.InvalidBytes > 0 {
+		record["invalid_bytes"] = result.InvalidBytes
+	}
 	maps.Copy(record, judged.fields())
 	s.Audit.Write(record, collector.Output())
 

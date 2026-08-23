@@ -104,3 +104,35 @@ func TestTheListingShowsTheRunTimeNotTheWallClock(t *testing.T) {
 		t.Errorf("label = %q, want the duration untouched where nothing waited", plain)
 	}
 }
+
+// What the caller is told on stderr, the log has to say too: both mean the
+// recorded output is not what the command wrote, and a reader shown an excerpt
+// with nothing marking it reads it as the whole thing.
+func TestTheListingMarksOutputThatIsNotWhatWasWritten(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		record map[string]any
+		want   string
+	}{
+		{"a truncated run", map[string]any{
+			"op": "run", "exit_code": 0.0, "output_truncated": true,
+		}, "truncated"},
+		{"binary output", map[string]any{
+			"op": "run", "exit_code": 0.0, "invalid_bytes": 21483.0,
+		}, "non-text"},
+		{"both, and a redaction with them", map[string]any{
+			"op": "run", "exit_code": 0.0, "output_truncated": true,
+			"invalid_bytes": 3.0,
+			"redactions":    []any{map[string]any{"token": "«SECRET:a»", "count": 1.0}},
+		}, "1 redacted, truncated, non-text"},
+		{"an ordinary run says none of it", map[string]any{
+			"op": "run", "exit_code": 0.0,
+		}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := outputNotes(tc.record); got != tc.want {
+				t.Errorf("notes = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
