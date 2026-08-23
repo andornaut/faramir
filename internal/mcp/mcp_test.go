@@ -117,6 +117,20 @@ func TestRefusedToolCalls(t *testing.T) {
 			reply: map[string]any{"exit_code": 0, "output": ""},
 			tool:  "faramir_run", args: map[string]any{"cmd": []any{}},
 			wants: []string{"empty array"}},
+		// The argument that matters. A model writing env= for env_refs= would
+		// otherwise have the command run with the variable unset and nothing said,
+		// which is a curl authenticating as nobody and reporting success.
+		{name: "the near-miss for env_refs",
+			tool:  "faramir_run",
+			args:  map[string]any{"cmd": []any{"true"}, "env": map[string]any{"V": "faramir://a"}},
+			wants: []string{"does not take", `"env"`, "env_refs"}},
+		{name: "an argument nothing resembles",
+			tool:  "faramir_run",
+			args:  map[string]any{"cmd": []any{"true"}, "shell": true},
+			wants: []string{"does not take", `"shell"`, "cmd, cwd, env_refs, timeout_sec"}},
+		{name: "a tool that takes nothing, given something",
+			tool: "faramir_refs", args: map[string]any{"pattern": "*"},
+			wants: []string{"does not take", "takes no arguments"}},
 		{name: "a tool that does not exist",
 			tool: "faramir_delete_everything", args: map[string]any{},
 			wants: []string{"unknown tool", "faramir_delete_everything"}},
@@ -372,5 +386,23 @@ func TestTheRequestIDIsEchoedWithItsOriginalType(t *testing.T) {
 	}
 	if string(raw) != `"abc"` {
 		t.Errorf("id came back as %s, want \"abc\"", raw)
+	}
+}
+
+// A client's own metadata is not the model's spelling of an argument, so it is
+// left alone rather than refused. And what the schema advertises is what the
+// call accepts, or a tool cannot be used the way it says it can.
+func TestDeclaredArgumentsAreTheOnesTheSchemaAdvertises(t *testing.T) {
+	for _, tool := range []string{"faramir_run", "faramir_refs"} {
+		for _, name := range declaredArguments(tool) {
+			args := map[string]any{"cmd": []any{"true"}, name: "x"}
+			if refused := refuseUnknownArguments(tool, declaredArguments(tool), args); refused != nil {
+				t.Errorf("%s refuses %q, which its own schema declares", tool, name)
+			}
+		}
+	}
+	args := map[string]any{"cmd": []any{"true"}, "_meta": map[string]any{"progressToken": 1}}
+	if refused := refuseUnknownArguments("faramir_run", declaredArguments("faramir_run"), args); refused != nil {
+		t.Error("a _meta key from the client was refused")
 	}
 }

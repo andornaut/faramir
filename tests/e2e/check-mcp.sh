@@ -289,6 +289,20 @@ r = s.call("tools/call", {"name": "faramir_refs"})   # no arguments key at all
 (ok("a call with no arguments object is handled")
  if r.get("result") else bad("missing arguments -> %s" % r))
 
+# The argument this tool exists for, misspelled. Ignoring it runs the command
+# with the variable unset and says nothing, which is a request authenticating as
+# nobody and reporting success.
+out, is_err = s.text("faramir_run", {"cmd": ["printenv", "V"],
+                                     "env": {"V": "faramir://db/password"}})
+(ok("an argument the schema does not declare is refused")
+ if is_err and "does not take" in out else bad("env= was passed over: %r" % out[:110]))
+(ok("  and the near-miss is named") if "env_refs" in out
+ else bad("  the refusal does not point at env_refs: %r" % out[:110]))
+# A client's own metadata is not the model's spelling of anything.
+out, is_err = s.text("faramir_run", {"cmd": ["true"], "_meta": {"progressToken": 1}})
+(ok("  while a _meta key from the client is left alone")
+ if not is_err else bad("  _meta was refused: %r" % out[:110]))
+
 head("8. where the command runs")
 out, _ = s.text("faramir_run", {"cmd": ["pwd"]})
 (ok("cwd defaults to where the agent's session is (%s)" % out.splitlines()[0])

@@ -212,10 +212,86 @@ func format(r *brokerResponse) map[string]any {
 	return textResult(b.String(), isError)
 }
 
+// declaredArguments is the properties one tool's schema names, sorted. Read off
+// the schema rather than listed a second time: a list beside it is one that
+// drifts, and an argument the schema advertises and this refuses is a tool that
+// cannot be called the way it says it can.
+func declaredArguments(tool string) []string {
+	var out []string
+	for _, t := range tools {
+		if t.Name != tool {
+			continue
+		}
+		schema, _ := t.InputSchema.(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		for key := range props {
+			out = append(out, key)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// refuseUnknownArguments is a result for a call carrying an argument the tool
+// does not declare, or nil where every one is declared.
+//
+// Refused rather than ignored, because the one that matters is silent. A model
+// writing env= for env_refs= gets the command run with the variable unset and
+// nothing said: `printenv` happens to exit non-zero, but a curl carrying an
+// empty Authorization header reports success having authenticated as nobody.
+// Injecting a ref is what this tool is for, so dropping the argument that names
+// one is not a thing to pass over.
+//
+// A key beginning with "_" is left alone: that is where a client puts its own
+// metadata, and it is not the model's spelling of anything.
+func refuseUnknownArguments(tool string, known []string, arguments map[string]any) map[string]any {
+	var unknown []string
+	for key := range arguments {
+		if strings.HasPrefix(key, "_") || slices.Contains(known, key) {
+			continue
+		}
+		unknown = append(unknown, key)
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	slices.Sort(unknown)
+	named := make([]string, 0, len(unknown))
+	for _, key := range unknown {
+		if near := nearest(known, key); near != "" {
+			named = append(named, fmt.Sprintf("%q (did you mean %s?)", key, near))
+			continue
+		}
+		named = append(named, fmt.Sprintf("%q", key))
+	}
+	takes := " It takes no arguments."
+	if len(known) > 0 {
+		takes = fmt.Sprintf(" It takes %s.", strings.Join(known, ", "))
+	}
+	return textResult(fmt.Sprintf("%s does not take %s.%s",
+		tool, strings.Join(named, ", "), takes), true)
+}
+
+// nearest is the declared argument a misspelling most likely meant: one that
+// begins with what was written, or that is contained in it. Enough for the case
+// this exists for (env for env_refs) and silent about anything less obvious, a
+// wrong guess reading as an instruction.
+func nearest(known []string, written string) string {
+	for _, name := range known {
+		if strings.HasPrefix(name, written) || strings.Contains(written, name) {
+			return name
+		}
+	}
+	return ""
+}
+
 func callTool(name string, arguments map[string]any) map[string]any {
 	var request map[string]any
 	switch name {
 	case "faramir_run":
+		if refused := refuseUnknownArguments(name, declaredArguments(name), arguments); refused != nil {
+			return refused
+		}
 		// The two likeliest ways to call this wrong, told apart: a caller that
 		// passed nothing needs "cmd is required", and one that passed a shell
 		// string needs to be told there is no shell. One message for both blamed
@@ -254,6 +330,9 @@ func callTool(name string, arguments map[string]any) map[string]any {
 			}
 		}
 	case "faramir_refs":
+		if refused := refuseUnknownArguments(name, declaredArguments(name), arguments); refused != nil {
+			return refused
+		}
 		request = map[string]any{"op": "refs"}
 	default:
 		return textResult("unknown tool: "+name, true)
