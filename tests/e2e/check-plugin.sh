@@ -71,10 +71,16 @@ restore_binary() {
 }
 trap restore_binary EXIT
 
+# Every stub drains stdin before it answers, as the real guard does. A guard
+# that exits without reading the payload leaves the plugin's write to it
+# unfinished, and node reports that as an error on a child that ran and exited
+# 0: the plugin then takes its could-not-run branch and the case is judged on
+# the wrong message. It needs load to show, so the stub has to hold the shape
+# the guard has rather than the shortest one that answers.
 withStub() { # shell-body, plugin-path, case
   local body=$1 plugin=$2 name=$3
   mv "$REAL" "$ASIDE"
-  printf '#!/bin/sh\n%s\n' "$body" > "$REAL"
+  printf '#!/bin/sh\ncat >/dev/null\n%s\n' "$body" > "$REAL"
   chmod 0755 "$REAL"
   run "$plugin" "$name"
   rm -f "$REAL"
