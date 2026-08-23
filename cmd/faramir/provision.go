@@ -554,12 +554,15 @@ func runInitProject(f initProjectFlags, args []string) int {
 		for _, warning := range report.Warnings {
 			fmt.Fprintf(os.Stderr, "\nWARNING: %s\n", warning)
 		}
-		fmt.Fprintf(os.Stderr, "\nEnrolled %s with group %s.\n", report.Dir, report.ClientGroup)
-		fmt.Fprintln(os.Stderr, "Check it from the tree: cd there and run "+
-			"`faramir run -- pwd`. A brokered command runs where its caller was, "+
-			"so that is the whole test.")
 		if report.DryRun {
-			fmt.Fprintln(os.Stderr, "\nDry run: nothing was written.")
+			fmt.Fprintf(os.Stderr, "\nDry run: nothing was written. %s would be "+
+				"enrolled with group %s.\n", report.Dir, report.ClientGroup)
+		} else {
+			fmt.Fprintf(os.Stderr, "\nEnrolled %s with group %s.\n",
+				report.Dir, report.ClientGroup)
+			fmt.Fprintln(os.Stderr, "Check it from the tree: cd there and run "+
+				"`faramir run -- pwd`. A brokered command runs where its caller was, "+
+				"so that is the whole test.")
 		}
 	}
 	return 0

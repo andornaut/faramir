@@ -323,6 +323,11 @@ n=$(find "$D" -mindepth 1 | wc -l)
 [ "$n" -eq 0 ] && ok "a dry run left the tree empty" || bad "a dry run wrote $n path(s)"
 grep -qiE 'would|dry' <<<"$out" && ok "and reported what it would do" \
   || bad "a dry run said nothing useful: ${out:0:110}"
+# In the tense of a run that has not happened. An operator reading "Enrolled
+# /home/op/p-dry" scrolls past the line below it and believes the tree is
+# enrolled, and the check it offers is one that would not work.
+grep -q "^Enrolled " <<<"$out" && bad "a dry run says it enrolled the tree" \
+  || ok "and does not say it enrolled anything"
 mode=$(stat -c '%a %U:%G' "$D")
 [ "$mode" = "755 op:op" ] && ok "and did not reshare the tree" || bad "a dry run changed the tree to $mode"
 
