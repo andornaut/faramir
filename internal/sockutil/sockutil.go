@@ -235,7 +235,10 @@ func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 	return buf, nil
 }
 
-var ErrTooLarge = errors.New("request too large")
+// ErrTooLarge is a payload past the reader's limit, in either direction: the
+// same reader takes a request on a daemon's side and a reply on a client's, so
+// the sentinel names neither and the caller says which it was reading.
+var ErrTooLarge = errors.New("payload exceeds the size limit")
 
 // LineReader reads successive payloads from one connection. ReadLine discards
 // whatever its last read pulled in past the newline, which for a stream is the

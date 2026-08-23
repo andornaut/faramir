@@ -105,8 +105,8 @@ func TestOneValueUnderTwoRefsIsCompiledOnce(t *testing.T) {
 func TestARefusedValueCompilesToNothing(t *testing.T) {
 	r := New([]Secret{{Ref: "short/ref", Value: "abc"}}, DefaultPolicy())
 
-	if r.pattern != nil {
-		t.Fatalf("a refused value still compiled to a pattern: %v", r.pattern)
+	if r.matcher != nil {
+		t.Fatal("a refused value still compiled into the matcher")
 	}
 	if len(r.tokenOf) != 0 {
 		t.Fatalf("renderings = %d, want none", len(r.tokenOf))

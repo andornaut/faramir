@@ -259,11 +259,18 @@ func TestTheSudoRsArrangementFailsWhenTheBranchIsGone(t *testing.T) {
 	}
 }
 
-// A host whose `sudo` alternatives group was switched after an install has an
-// arrangement its sudo cannot use: the grant names settings the new binary has
-// no word for, and what selects faramir's service is not what that binary
-// reads. Both directions, because either flip leaves a host that looks
-// installed and escalates nothing.
+// A host whose `sudo` alternatives group was switched after an install is
+// reported, and the two directions do not have the same answer.
+//
+// Toward sudo-rs the grant is broken: sudo-rs reaches the service called `sudo`
+// for everybody and refuses the pam_service settings the original arrangement
+// carries, so nothing can be approved.
+//
+// Toward the original it still works. The sudo-rs arrangement writes no
+// pam_service line, so the original sudo uses its own default service, which is
+// the file faramir's block is in. Reporting that as a failure said every
+// escalation fails on a host where each one succeeds, and this is the line an
+// operator reads to decide whether escalation works.
 func TestSwitchingTheSudoAlternativeIsReported(t *testing.T) {
 	t.Run("rendered for the original, host now sudo-rs", func(t *testing.T) {
 		cfg, _ := sudoArrangement(t)
@@ -284,8 +291,17 @@ func TestSwitchingTheSudoAlternativeIsReported(t *testing.T) {
 		var report DoctorReport
 		diagnoseSudoArrangement(&report, DoctorOptions{ExecUser: "ex", AgentUser: "op"}, cfg)
 		finding := only(t, report)
-		if finding.Status != StatusFailed {
-			t.Fatalf("status %q, want %q: %s", finding.Status, StatusFailed, finding.Detail)
+		if finding.Status != StatusWarn {
+			t.Fatalf("status %q, want %q: %s", finding.Status, StatusWarn, finding.Detail)
+		}
+		// The verdict has to say the grant works, or an operator reads it as the
+		// other direction and goes looking for a break that is not there.
+		if !strings.Contains(finding.Detail, "escalation works") {
+			t.Errorf("the warning does not say the grant still works: %s", finding.Detail)
+		}
+		if !strings.Contains(finding.Detail, "--allow-sudo") {
+			t.Errorf("the warning does not say how to write the right arrangement: %s",
+				finding.Detail)
 		}
 	})
 }

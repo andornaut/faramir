@@ -152,16 +152,21 @@ func TestLinksAloneAreEnoughToServe(t *testing.T) {
 	}
 }
 
-// A store with neither says so, rather than reporting an empty inventory as a
-// missing file.
+// A store with neither serves, and says which empty it is. Nothing is
+// configured, so there is no value for output to carry that the redactor
+// lacks; naming links is what separates this from a store whose files went
+// unread.
 func TestNeitherPatternsNorLinksIsNamed(t *testing.T) {
 	k := keepertest.New(t, map[string]string{})
 	s := newLinkedStore(t, k, nil)
 	s.Reload()
 
-	reason := s.Unreadable()
+	if reason := s.Unreadable(); reason != "" {
+		t.Errorf("a store configured with nothing refused to serve: %s", reason)
+	}
+	reason := s.EmptySet()
 	if !strings.Contains(reason, "[[secret.link]]") {
-		t.Errorf("the refusal does not mention links: %s", reason)
+		t.Errorf("the warning does not mention links: %s", reason)
 	}
 }
 

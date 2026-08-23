@@ -335,14 +335,14 @@ func TestAValueThatStripsUnderTheFloorIsNotAdded(t *testing.T) {
 
 // One pass over the output whatever the number of values, so the scan does not
 // cost the number of refs times the size of what a command printed.
-func TestEveryValueIsOneAlternation(t *testing.T) {
+func TestEveryValueIsOneAutomaton(t *testing.T) {
 	secrets := []Secret{
 		{Ref: "a/one", Value: "hunter2-correct-horse"},
 		{Ref: "b/two", Value: "tok_live_0PENSESAME_9911"},
 	}
 	r := New(secrets, DefaultPolicy())
-	if r.pattern == nil {
-		t.Fatal("no pattern was built")
+	if r.matcher == nil {
+		t.Fatal("no matcher was built")
 	}
 	for _, s := range secrets {
 		if r.tokenOf[s.Value] != TokenFor(s.Ref) {

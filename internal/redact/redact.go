@@ -279,22 +279,41 @@ type Count struct {
 	Count int    `json:"count"`
 }
 
+// Values is the compiled value set: every rendering of every secret, and what
+// each stands for. Immutable once built and safe to share, which is the point
+// of it being separate from Redactor.
+//
+// Building one is the expensive half -- every rendering of every value, and the
+// automaton over them -- and the set changes only when the store reloads, where
+// a redactor is per request. Sharing the build is worth the split: the broker
+// makes four redactors for one `run` and five for one `redact` stream, and
+// rebuilding the set in each made a command that produced no output at all cost
+// 35 ms on a host with 256 refs.
+type Values struct {
+	Policy EligibilityPolicy
+	// Overlap is the tail a stream holds back, which is a property of the longest
+	// rendering rather than of one request.
+	Overlap int
+	// One automaton over every rendering of every value, rather than one search
+	// per value: the scan is the cost paid on every byte of every command's
+	// output, and a search per value made it the number of refs times the size of
+	// the output.
+	matcher *matcher
+	// The token a matched rendering stands for. A match is a string the automaton
+	// was built from, so this is a lookup rather than a search.
+	tokenOf map[string]string
+}
+
 // Redactor replaces every known secret rendering with a stable token. Feed
 // withholds a tail so a value split across two reads is still caught; Flush
 // releases it.
+//
+// One per request: it carries the counts and the stream's own buffers. The set
+// it matches against is shared.
 type Redactor struct {
-	Policy  EligibilityPolicy
-	Overlap int
+	*Values
 
-	counts map[string]int
-	// One alternation over every rendering of every value, rather than one
-	// pattern per value: the scan is the cost paid on every byte of every
-	// command's output, and a pattern per value made it the number of refs times
-	// the size of the output.
-	pattern *regexp.Regexp
-	// The token a matched rendering stands for. A match is a string the
-	// alternation produced, so this is a lookup rather than a search.
-	tokenOf   map[string]string
+	counts    map[string]int
 	ansiCarry []rune
 	buf       []rune
 	// Bytes that were not valid UTF-8, counted rather than acted on; see Feed.
@@ -309,8 +328,24 @@ type Secret struct {
 
 // New builds a redactor over the given secrets. A value the policy refuses is
 // not matched; naming it is the secretstore package's job.
+//
+// A caller that redacts more than once against the same set should build the
+// set with NewValues and take a Redactor per request from it.
 func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
-	r := &Redactor{Policy: policy, counts: map[string]int{}, tokenOf: map[string]string{}}
+	return NewValues(secrets, policy).Redactor()
+}
+
+// Redactor is one request's redactor over this set. Cheap: the automaton and
+// the token table are shared, and only the counts and the stream buffers are
+// this one's.
+func (v *Values) Redactor() *Redactor {
+	return &Redactor{Values: v, counts: map[string]int{}}
+}
+
+// NewValues compiles the set. A value the policy refuses is not matched; naming
+// it is the secretstore package's job.
+func NewValues(secrets []Secret, policy EligibilityPolicy) *Values {
+	r := &Values{Policy: policy, tokenOf: map[string]string{}}
 	seen := map[string]bool{}
 	var kept []Secret
 	for _, s := range secrets {
@@ -342,28 +377,11 @@ func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
 		}
 	}
 	if len(all) > 0 {
-		r.pattern = alternation(all)
+		r.matcher = newMatcher(all)
 	}
 	// x2 for base64 line wrapping, +16 for quoting expansion at a boundary.
 	r.Overlap = longest*2 + 16
 	return r
-}
-
-// alternation builds one pattern matching any rendering, longest first: Go's
-// regexp is leftmost-first, so that is what makes the longest rendering at a
-// position win over a shorter one starting there.
-func alternation(all []rendering) *regexp.Regexp {
-	vs := make([]string, len(all))
-	for i, r := range all {
-		vs[i] = r.text
-	}
-	sort.Strings(vs) // deterministic before the length sort
-	sort.SliceStable(vs, func(i, j int) bool { return len(vs[i]) > len(vs[j]) })
-	quoted := make([]string, len(vs))
-	for i, v := range vs {
-		quoted[i] = regexp.QuoteMeta(v)
-	}
-	return regexp.MustCompile(strings.Join(quoted, "|"))
 }
 
 // renderings is every spelling of one value the matcher recognises, sorted so
@@ -457,7 +475,7 @@ func (r *Redactor) Summary() []Count {
 }
 
 func (r *Redactor) redact(text string) string {
-	if text == "" || r.pattern == nil {
+	if text == "" || r.matcher == nil {
 		return text
 	}
 	// The wrapped pass first, against a newline-free view of the output, so it
@@ -473,24 +491,29 @@ func (r *Redactor) redact(text string) string {
 	if out, changed := r.subWrapped(newCollapsedView(text)); changed {
 		text = out
 	}
-	// One pass, whatever the number of values: the alternation carries every
+	// One pass, whatever the number of values: the automaton carries every
 	// rendering and the match says which value it was.
-	n := 0
-	replaced := r.pattern.ReplaceAllStringFunc(text, func(match string) string {
-		token, ok := r.tokenOf[match]
-		if !ok {
-			return match // unreachable: the alternation is built from these keys
-		}
-		n++
-		r.counts[token]++
-		return token
-	})
-	// Taken only on a hit: ReplaceAllStringFunc allocates a copy even when it
-	// matched nothing.
-	if n > 0 {
-		text = replaced
+	spans := r.matcher.find(text)
+	if len(spans) == 0 {
+		// Nothing built and nothing copied, which is the ordinary case: most output
+		// carries no secret at all.
+		return text
 	}
-	return text
+	var b strings.Builder
+	b.Grow(len(text))
+	cursor := 0
+	for _, s := range spans {
+		token, ok := r.tokenOf[text[s.start:s.end]]
+		if !ok {
+			continue // unreachable: the automaton is built from these keys
+		}
+		b.WriteString(text[cursor:s.start])
+		b.WriteString(token)
+		r.counts[token]++
+		cursor = s.end
+	}
+	b.WriteString(text[cursor:])
+	return b.String()
 }
 
 // collapsedView is one haystack with its line breaks taken out, plus what maps
@@ -534,28 +557,29 @@ func newCollapsedView(text string) *collapsedView {
 
 // subWrapped replaces every line-wrapped rendering, and reports whether it
 // changed anything.
+// wrappedSpan is one line-spanning match, as offsets into the original runes plus
+// the token it stands for. Separate from matcher's span, which is byte offsets
+// into the collapsed view.
+type wrappedSpan struct {
+	start, end int
+	token      string
+}
+
 func (r *Redactor) subWrapped(v *collapsedView) (string, bool) {
 	if !v.collapsed {
 		return "", false
 	}
-	type span struct {
-		start, end int
-		token      string
-	}
-	var spans []span
-	for _, loc := range r.pattern.FindAllStringIndex(v.view, -1) {
-		if loc[1] <= loc[0] {
-			continue
-		}
-		token, ok := r.tokenOf[v.view[loc[0]:loc[1]]]
+	var spans []wrappedSpan
+	for _, loc := range r.matcher.find(v.view) {
+		token, ok := r.tokenOf[v.view[loc.start:loc.end]]
 		if !ok {
-			continue // unreachable: the alternation is built from these keys
+			continue // unreachable: the automaton is built from these keys
 		}
 		// byteStart is indexed by byte, so the end comes from the match's last byte
 		// rather than the offset after it.
-		start, end := v.byteStart[loc[0]], v.byteStart[loc[1]-1]+1
+		start, end := v.byteStart[loc.start], v.byteStart[loc.end-1]+1
 		if strings.ContainsAny(string(v.runes[start:end]), "\n\r") {
-			spans = append(spans, span{start: start, end: end, token: token})
+			spans = append(spans, wrappedSpan{start: start, end: end, token: token})
 		}
 	}
 	if len(spans) == 0 {

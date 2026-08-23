@@ -103,8 +103,9 @@ func TestAConnectionArrivingDuringCloseIsNotServed(t *testing.T) {
 // goroutine on the long inter-chunk deadline for a stream that has already been
 // told it is not going to be redacted.
 func TestARefusedChunkEndsTheConnection(t *testing.T) {
-	// A broker naming no managed files cannot promise redaction, so it refuses.
-	s := newUnconfiguredServer(t, map[string]string{})
+	// A managed file that was found and did not load: the broker knows values
+	// are missing and cannot say which, so it refuses.
+	s := newUnreadableServer(t)
 	dial := serving(t, s)
 	conn, lines := dial()
 

@@ -115,7 +115,7 @@ const refusedCode = "no_secrets"
 
 // sshAgentRefused is reported both before the probe runs and after the broker
 // refuses it.
-const sshAgentRefused = "not asked: the broker holds no managed values, so it " +
+const sshAgentRefused = "not asked: a managed file did not load, so the broker " +
 	"refuses the brokered command this probe runs"
 
 // sshAgentUnanswered is the other reason the probe cannot be put: a broker that
@@ -229,6 +229,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	diagnoseAgentRules(&report, opts)
 	diagnoseAgentRuleDrift(&report, opts)
 	diagnoseLinkedFiles(&report, opts, cfg)
+	diagnoseInstallRules(&report, opts)
 	diagnoseBlockedPaths(&report, opts, cfg)
 	diagnoseLinkedAccess(&report, opts, cfg)
 	diagnoseTreeConfig(&report, opts)
@@ -924,6 +925,22 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			explained = true
 		}
 	}
+	// A ref two managed files both defined. Reported beside ref length because
+	// the consequence is the same one: a value this host manages that is injected
+	// by nothing and covered by nothing, so a command printing it prints it. The
+	// difference is that a short value is knowingly outside the redactor and this
+	// one is not, which is why it is named rather than left to a daemon log line.
+	if len(check.Secrets.ShadowedRefs) > 0 {
+		report.addf("shadowed refs", StatusFailed, "%d ref(s) are defined by more "+
+			"than one managed file. One value wins and the other is injected by "+
+			"nothing and redacted by nothing, so a command that prints it prints it "+
+			"in the clear: %s. Take the ref out of one of the files with `sudo "+
+			"faramir vault edit`",
+			len(check.Secrets.ShadowedRefs), refsWithReasons(check.Secrets.ShadowedRefs))
+		if check.onlyShadowedRefs() {
+			explained = true
+		}
+	}
 	// Links that did not load, read out of the file rather than off its mode:
 	// this catches a selector the owning tool stopped writing, which no mode says
 	// anything about, and which diagnoseLinkedAccess therefore cannot see.
@@ -1104,8 +1121,17 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 			opts.ClientGroup)
 		return
 	}
-	known := []string{opts.AgentUser, opts.BrokerUser, opts.KeeperUser, opts.ExecUser}
+	// The agent's account belongs in the client group and nowhere near the
+	// secrets group: membership there is read on the ciphertext, which is the one
+	// grant this install exists to keep from it. Calling it expected in both left
+	// one line saying "no unexpected members" beside another failing over that
+	// exact member.
+	service := []string{opts.BrokerUser, opts.KeeperUser, opts.ExecUser}
 	for _, group := range groups {
+		known := service
+		if group.name == opts.ClientGroup {
+			known = append(append([]string{}, service...), opts.AgentUser)
+		}
 		diagnoseGroupOutsiders(report, group.label, group.name, known, group.grants)
 	}
 }

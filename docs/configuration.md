@@ -191,10 +191,8 @@ Key | Rule
 Fails on | Because
 --- | ---
 An unknown key or `[section]`, or a value out of range | A config that reads as though it took effect. Reported by the loader, which exits 2
-A ref too short to redact | Refused at load, so covered by nothing. When this is the *only* finding, `init` warns and carries on and `doctor` reports a warning: an install cannot lengthen a secret, and a refused value is never injected
-A store that matched no file at all | Those values are absent from the redactor, and a store the broker cannot see is one it cannot redact against
+A ref too short to redact | Refused at load, so covered by nothing. `init` warns and carries on, an install being unable to lengthen a secret; `doctor` fails on it, a refused value being injected by nothing and covered by nothing
 A `[[secret.link]]` entry whose file is not there, or is there and did not read | The same two meanings, reported with the ref in front. The second is what an ACL dropped by a tool rewriting its own file looks like
-A store holding zero refs | Stricter than the daemon's own gate, which asks only that every matched file loaded
 An `[ssh] key` the agent cannot load | `ssh-add` refuses it, leaving every host unreachable. Passphrase-protected, unreadable, or pointed at the `.pub`
 An `[escalation] helper` or PAM service file that is not there, or a `notify_command` that is not installed | Escalation is configured and either every request fails with `sudo` reporting an authentication error, or nothing announces the questions waiting
 `[keeper]` or `[executor] allowed_user` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route; the executor's runs a command with no policy, no redaction and no audit record
@@ -203,16 +201,16 @@ An audit log that cannot be written | A command that cannot be recorded is not r
 
 **The daemon holds itself to the same rules, and on every request rather than at boot.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only ever described the host as it was at install time.
 
-For the managed store it is one rule, and `run` is held to it because a brokered command's output is redacted against the same set: **the broker serves `run` and `redact` only while no managed file went unread.** At least one managed file or one link read, and every managed file that was there loaded.
+For the managed store it is one rule, and `run` is held to it because a brokered command's output is redacted against the same set: **the broker serves `run` and `redact` only while no managed file went unread.** Every managed file that was there loaded. Matching none is not this: a value set that is empty holds nothing for output to carry, so the broker serves and says so.
 
 **A `[[secret.link]]` entry is scoped to its own ref instead**, and that is the whole of the difference between them: a managed file holds any number of refs and names none of them until it decrypts, so one that did not load leaves the broker knowing values are missing and not which. A link is one ref by construction, so the broker refuses that ref and serves the rest. The exception is a link claiming a ref the managed store already defines, which is refused the way a managed file is: that ref is answered by the store, and what is missing is the second value the linked file holds for the same name.
 
-- What those files held does not enter into it. An install whose operator has not written a secret yet serves, and a ref no file defines is answered by `unknown_secret`.
+- What those files held does not enter into it. A ref no file defines is answered by `unknown_secret`.
+- **An empty value set serves.** Nothing configured, a store not written yet, a store that matched no file, and an install whose links have all gone: none of them holds a value output could carry, so all of them run commands. The broker logs it at startup, `status` reports `count: 0` beside the pattern that named nothing, and `doctor` warns.
 - Otherwise the broker refuses with `no_secrets`, naming why. It comes up either way, and `status` and `refs` answer regardless.
-- A keeper that could not be reached is the exception once a set has loaded, what is kept then being the last thing known to be true. A cold start has nothing to keep and refuses.
-- An install whose secrets are all linked and whose links have all gone serves: there is no plaintext left on disk for the redactor to be missing.
+- A keeper that could not be reached is the exception once a set has loaded, what is kept then being the last thing known to be true. A cold start has nothing to keep and refuses, that being a broker that cannot ask rather than one with nothing to hold.
 
-- Secrets on a filesystem that is not mounted yet look exactly like ones never written, and both leave the broker redacting nothing. `--check` and `doctor` tell the two apart.
+- Secrets on a filesystem that is not mounted yet look exactly like ones never written, and both leave the broker redacting nothing. Both now serve, so this is the case the warning is for: nothing inside the broker can tell them apart, and `status` and `doctor` are where an operator sees it.
 - An `[ssh] key` the agent does not load is logged and not fatal, breaking only commands that reach a managed host, which fail at the point of use with `ssh`'s own error. Stopping the daemon over it would stop the commands that never touch SSH. An unset key does not stop the daemon either, for the same reason, but `faramir doctor` fails on one: `init` mints a key on every run whether or not the host turns out to need it, so an empty `key` is an edit to the file rather than a host that authenticates some other way.
 
 ## What no setting changes

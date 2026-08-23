@@ -104,3 +104,25 @@ func TestPrimaryGroupRefusesAnAccountThatIsNotThere(t *testing.T) {
 		t.Error("primaryGroup accepted an account that does not exist")
 	}
 }
+
+// A dry run on a host with no install reports the accounts it would create, so
+// the membership one of them would gain is part of that report. Asking the
+// system about an account that is not there answered with "unknown user
+// faramir-keeper" and ended the run, which left the one host where previewing
+// matters unable to preview.
+func TestADryRunReportsAMembershipForAnAccountThatIsNotThereYet(t *testing.T) {
+	const absent = "faramir-no-such-account-for-tests"
+
+	dry := &runner{opts: Options{DryRun: true}}
+	switch changed, err := dry.ensureInGroup(absent, "faramir-no-such-group-for-tests"); {
+	case err != nil:
+		t.Fatalf("a dry run failed over an absent account: %v", err)
+	case !changed:
+		t.Error("the membership it would add was not reported as a change")
+	}
+
+	wet := &runner{opts: Options{}}
+	if _, err := wet.ensureInGroup(absent, "faramir-no-such-group-for-tests"); err == nil {
+		t.Error("a real run said nothing about an account that is not there")
+	}
+}

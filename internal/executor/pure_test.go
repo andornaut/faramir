@@ -115,62 +115,107 @@ func TestDecodeUTF8LosesNothing(t *testing.T) {
 	}
 }
 
-func TestAppendOutputStopsAtTheLimitAndSaysSo(t *testing.T) {
-	for _, tc := range []struct {
-		name          string
-		text          string
-		emitted       int
-		limit         int
-		truncated     bool
-		wantEmitted   int
-		wantTruncated bool
-		wantWritten   string
-	}{
-		{"under the limit is written whole", "abc", 0, 10, false, 3, false, "abc"},
-		{"exactly the limit is not truncation", "abcde", 0, 5, false, 5, false, "abcde"},
-		{"over the limit keeps what fits", "abcdef", 0, 3, false, 3, true, "abc"},
-		{"no room left writes only the notice", "abc", 5, 5, false, 5, true, ""},
-		{"already truncated writes nothing", "abc", 5, 10, true, 5, true, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var b strings.Builder
-			emitted, truncated := appendOutput(&b, tc.text, tc.emitted, tc.limit, tc.truncated)
-			if emitted != tc.wantEmitted || truncated != tc.wantTruncated {
-				t.Errorf("got (%d, %v), want (%d, %v)",
-					emitted, truncated, tc.wantEmitted, tc.wantTruncated)
-			}
-			got := b.String()
-			notice := fmt.Sprintf("\n[faramir] output truncated at %d bytes\n", tc.limit)
-			if tc.wantTruncated && !tc.truncated {
-				if !strings.HasSuffix(got, notice) {
-					t.Errorf("truncated output does not say so: %q", got)
-				}
-				got = strings.TrimSuffix(got, notice)
-			}
-			if got != tc.wantWritten {
-				t.Errorf("wrote %q, want %q", got, tc.wantWritten)
-			}
-		})
+func TestOutputUnderTheCapIsKeptWhole(t *testing.T) {
+	b := newOutputBuffer(1024)
+	b.add("abc")
+	b.add("def")
+	got, truncated := b.result()
+	if truncated {
+		t.Error("six bytes into a 1 KiB cap reported truncation")
+	}
+	if got != "abcdef" {
+		t.Errorf("got %q, want the whole of what was written", got)
 	}
 }
 
-// Truncation is sticky: once the cap is reached the caller keeps draining the
-// PTY so the child does not block, and none of what it drains is kept.
-func TestAppendOutputStaysTruncatedOnceItIs(t *testing.T) {
-	var b strings.Builder
-	emitted, truncated := appendOutput(&b, strings.Repeat("x", 50), 0, 10, false)
+// The regression this shape exists to prevent: a command that prints for a
+// long time and then says why it failed. Keeping the head alone returned the
+// first half of the noise and none of the reason, and the exit code was the
+// only sign anything had gone wrong.
+func TestTheEndOfALongOutputSurvives(t *testing.T) {
+	b := newOutputBuffer(4096)
+	b.add("START-OF-THE-RUN\n")
+	for i := range 500 {
+		b.add(fmt.Sprintf("line %d of noise ....................\n", i))
+	}
+	b.add("FATAL: the thing that actually went wrong\n")
+
+	got, truncated := b.result()
 	if !truncated {
-		t.Fatal("50 bytes into a 10-byte limit did not truncate")
+		t.Fatal("far past the cap did not report truncation")
 	}
-	before := b.Len()
-	for range 5 {
-		emitted, truncated = appendOutput(&b, "more output", emitted, 10, truncated)
+	if !strings.Contains(got, "FATAL: the thing that actually went wrong") {
+		t.Error("the end of the output did not survive, which is what it is read for")
 	}
-	if !truncated || emitted != 10 {
-		t.Errorf("emitted=%d truncated=%v after further writes, want 10 and true", emitted, truncated)
+	if !strings.Contains(got, "START-OF-THE-RUN") {
+		t.Error("the start of the output did not survive")
 	}
-	if b.Len() != before {
-		t.Errorf("%d bytes were written after truncation", b.Len()-before)
+	if !strings.Contains(got, "bytes of output dropped") {
+		t.Errorf("nothing says output was dropped: %q", got[:min(200, len(got))])
+	}
+}
+
+// A run that never stops printing is held in the broker's memory while it runs,
+// so what it costs has to be the cap rather than what it wrote.
+func TestAChattyRunStaysBounded(t *testing.T) {
+	const budget = 2048
+	b := newOutputBuffer(budget)
+	for range 10_000 {
+		b.add(strings.Repeat("x", 64))
+	}
+	got, truncated := b.result()
+	if !truncated {
+		t.Fatal("640 KiB into a 2 KiB cap did not truncate")
+	}
+	if len(got) > budget {
+		t.Errorf("kept %d bytes against a %d byte cap", len(got), budget)
+	}
+	if b.tailLen > b.half() {
+		t.Errorf("the tail holds %d bytes against a half of %d", b.tailLen, b.half())
+	}
+}
+
+// One chunk larger than the whole tail budget: its own tail is what is kept, so
+// a single enormous write does not cost the end of the output either.
+func TestOneOversizedChunkKeepsItsOwnTail(t *testing.T) {
+	b := newOutputBuffer(512)
+	b.add("head")
+	b.add(strings.Repeat("a", 4000) + "THE-VERY-END")
+	got, truncated := b.result()
+	if !truncated {
+		t.Fatal("4 KiB into a 512 byte cap did not truncate")
+	}
+	if !strings.HasSuffix(got, "THE-VERY-END") {
+		t.Errorf("the end of an oversized chunk was dropped: %q", got[max(0, len(got)-40):])
+	}
+}
+
+// Both cuts land on rune boundaries, or the output carries a partial rune the
+// caller has to render.
+func TestNeitherCutSplitsARune(t *testing.T) {
+	b := newOutputBuffer(256)
+	for range 200 {
+		b.add("héllo wörld ")
+	}
+	got, _ := b.result()
+	if !utf8.ValidString(got) {
+		t.Error("the kept output is not valid UTF-8, so a cut split a rune")
+	}
+}
+
+func TestTailAtRuneOpensOnAWholeRune(t *testing.T) {
+	const s = "héllo"
+	for limit := 1; limit <= len(s)+2; limit++ {
+		got := tailAtRune(s, limit)
+		if !utf8.ValidString(got) {
+			t.Errorf("tailAtRune(%q, %d) = %q, which is not valid UTF-8", s, limit, got)
+		}
+		if !strings.HasSuffix(s, got) {
+			t.Errorf("tailAtRune(%q, %d) = %q, which is not a suffix of it", s, limit, got)
+		}
+		if len(got) > limit {
+			t.Errorf("tailAtRune(%q, %d) kept %d bytes", s, limit, len(got))
+		}
 	}
 }
 

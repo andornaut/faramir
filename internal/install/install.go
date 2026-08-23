@@ -147,6 +147,7 @@ const (
 	labelResolveIDs    = "resolveIDs"
 	labelPreconditions = "preconditions"
 	labelAgentConfig   = "agent config"
+	labelEnrolledTrees = "enrolled trees"
 	labelConfig        = "config"
 )
 
@@ -350,6 +351,11 @@ func (r *runner) steps() []namedStep {
 		{"units", r.stepUnits},
 		{"systemd", r.stepSystemd},
 		{labelAgentConfig, r.stepAgentConfig},
+		// The same rules in every tree already enrolled, so a re-run restores what
+		// a tree dropped as well as what the home did. docs/configuration.md says
+		// init re-asserts every rule on each run, and until this step that was
+		// true of the home alone.
+		{labelEnrolledTrees, r.stepEnrolledTrees},
 		{"validate", r.stepValidate},
 	}
 }
@@ -489,6 +495,16 @@ func (r *runner) preflight() error {
 	}
 	if !userExists(r.opts.AgentUser) {
 		return fmt.Errorf("no such user: %s", r.opts.AgentUser)
+	}
+	// Held to what the executor will fork, and here rather than at the loader
+	// alone: a value above it renders a config.toml the daemons then refuse,
+	// which is a host with no broker where the answer is one number.
+	if r.opts.CommandConcurrency > config.MaxConcurrentRuns {
+		return fmt.Errorf("--command-concurrency %d is above the %d the executor "+
+			"forks at once, so the surplus would be refused by the executor rather "+
+			"than by the broker: the run is registered and recorded as started "+
+			"before it meets that. Name %d or fewer",
+			r.opts.CommandConcurrency, config.MaxConcurrentRuns, config.MaxConcurrentRuns)
 	}
 	// Read before an account or a key exists: reporting a typo at the step would
 	// leave a half-finished install to re-run.

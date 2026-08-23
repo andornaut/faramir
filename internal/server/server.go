@@ -98,6 +98,10 @@ func New(cfg *config.Config) *Server {
 // named in the dispatch and again where the loop decides whether to continue.
 const opRedactName = "redact"
 
+// codeExecFailed answers every failure the executor reports, whatever code it
+// named: what the caller can act on is that the command did not run.
+const codeExecFailed = "exec_failed"
+
 // quiescenceWait bounds the one round trip an escalation makes to the executor.
 // Short: the answer is a /proc scan, and a human is waiting on it.
 const quiescenceWait = 5 * time.Second
@@ -345,6 +349,8 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 		return s.opListSecrets()
 	case opRedactName:
 		return s.opRedact(request, peer, stream)
+	case "refresh":
+		return s.opRefresh(peer)
 	case "escalations":
 		return s.opEscalations(request, peer)
 	case "answer":
@@ -474,6 +480,28 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 		"%s is root's: an escalation must be answered by an account the coding "+
 			"agent cannot become. Run `sudo faramir sudo ls`", op), "")
 	return &out
+}
+
+// opRefresh re-reads the managed store now. Root's, because it is the operator
+// commands that write the store: an agent asking would only be asking the
+// broker to do sooner what it does on the interval anyway, at the cost of a
+// decrypt per request.
+//
+// What it buys is the window between writing a value and the broker holding it,
+// where the new value is in no redactor and a command that prints it prints it.
+// `faramir vault` closes that itself rather than leaving it to the clock.
+func (s *Server) opRefresh(peer *sockutil.Peer) protocol.Response {
+	if peer == nil || peer.UID != 0 {
+		return protocol.ErrorResponse("forbidden",
+			"refresh is root's: it is what writes the managed store that asks for "+
+				"it, and everything else is served by the refresh interval", "")
+	}
+	s.Store.Refresh()
+	refs := s.Store.Refs()
+	return protocol.Response{
+		"exit_code": 0, "output": "", "truncated": false,
+		"redactions": []any{}, "log_id": nil, "refs": refs,
+	}
 }
 
 // opEscalate is what sudo's PAM helper asks, and the only thing that decides
@@ -797,7 +825,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 			"cmd": redactEach(record, cmd), "cwd": record.RedactText(cwd),
 			"error": detail,
 		}, audit.Output{})
-		return protocol.ErrorResponse("exec_failed", detail, logID)
+		return protocol.ErrorResponse(codeExecFailed, detail, logID)
 	}
 
 	// The only place plaintext is touched outside the store, and it goes straight
@@ -918,7 +946,10 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 		delete(env, k)
 	}
 	if err != nil {
-		detail := s.safeDetail(err.Error())
+		// The executor names its own code in the error it returns, and every
+		// executor failure is answered as exec_failed, so the code would otherwise
+		// be printed twice: "exec_failed: exec_failed: /usr/bin/pwd: ...".
+		detail := s.safeDetail(strings.TrimPrefix(err.Error(), codeExecFailed+": "))
 		// Rendered on top of the redaction, which covers values and not control
 		// characters: this string reaches the escalation terminal, where the next
 		// thing printed is a question somebody judges.
@@ -929,7 +960,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 		record := s.execFields(audited)
 		record["op"], record["error"] = recordRun, detail
 		s.Audit.Write(record, collector.Output())
-		return protocol.ErrorResponse("exec_failed", detail, logID)
+		return protocol.ErrorResponse(codeExecFailed, detail, logID)
 	}
 
 	// Read before the deferred Release drops the run.
@@ -960,7 +991,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 // Redactor carries per-stream state and counts. The sudo grant adds nothing to
 // it: an escalation is a decision rather than a value.
 func (s *Server) redactor() *redact.Redactor {
-	return redact.New(s.Store.Pairs(), s.Store.Policy)
+	return s.Store.Redactor()
 }
 
 // safeDetail is an error message the agent may see, so it goes through the
@@ -1018,16 +1049,26 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		// body carries the same set as not_redactable.
 		code = 1
 	}
-	// Stricter than the daemon's own gate: the daemon starts while the secrets
-	// directory is not written yet and refuses exec and redact until it is, where
-	// this is an operator asking whether the host serves anything.
+	// Reported and not counted. The daemon serves an empty value set, there
+	// being no value for output to carry that the redactor lacks, so an operator
+	// asking whether the host serves anything is told and a converge run is not
+	// failed over a host that manages no credentials. What does fail is a
+	// managed file that was found and did not load, below.
 	if s.Store.Count() == 0 {
 		log.Printf("the broker holds no managed values, so nothing is injectable " +
-			"and nothing is redacted; exec and redact are refused until one loads")
-		code = 1
+			"and nothing is redacted. Commands still run: there is nothing to " +
+			"cover. A store on a filesystem that is not mounted looks the same " +
+			"from here, so check that this host is meant to manage none")
 	}
 	if absent := s.Store.UnresolvedPatterns(); len(absent) > 0 {
 		log.Printf("%d configured entry(ies) named no file: %v", len(absent), absent)
+	}
+	// A ref two managed files both defined. The loser is on disk and in no
+	// redactor, so a command that prints it prints it in the clear: the same
+	// consequence as a ref too short to cover, and counted the same way.
+	if shadowed := s.Store.ShadowedRefs(); len(shadowed) > 0 {
+		log.Printf("%d ref(s) are defined by more than one managed file; one value "+
+			"wins and the other is in no redactor: %v", len(shadowed), shadowed)
 		code = 1
 	}
 	// Every value the broker failed to load is one it cannot redact.

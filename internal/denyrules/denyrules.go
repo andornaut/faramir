@@ -9,6 +9,7 @@
 package denyrules
 
 import (
+	"path"
 	"regexp"
 	"strings"
 )
@@ -23,13 +24,56 @@ import (
 // of it, and `sops -d` on somebody else's file is that host's business. Keeping
 // them in the vocabulary refuses the first and leaves the second, where a rule
 // on the verb refused every use of the tool anywhere.
+// The list is generous because it costs nothing to be: a rule fires only where
+// one of these appears together with a path this host protects, so a word here
+// refuses nothing an agent does anywhere else. What decided the additions is
+// whether the tool prints a file's contents or makes a copy to read elsewhere:
+// `sort FILE` and `diff /dev/null FILE` print it as surely as `cat` does, and
+// `find DIR -exec` reaches every file under it. A hash is deliberately absent,
+// a transform of a value being the exfiltration the design says it cannot cover.
 const (
 	ReadCommands = `\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|` +
 		`hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|` +
-		`tar|scp|rsync|sops|age|ansible-vault)\b`
+		`tar|scp|rsync|sops|age|ansible-vault|sort|uniq|comm|join|paste|column|` +
+		`fold|expand|unexpand|fmt|pr|shuf|split|csplit|diff|find|install|cpio|` +
+		`zcat|gunzip|bzcat|xzcat|zstdcat|openssl)\b`
 	WriteCommands = `\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|` +
-		`setfacl|ln|sops|age|ansible-vault)\b`
+		`setfacl|ln|sops|age|ansible-vault|install|split|csplit|cpio|gzip|bzip2|` +
+		`xz|zstd)\b`
 )
+
+// NormalizePaths rewrites the path-looking words of a command into their
+// shortest spelling, so a rule written for /home/you/.aws also refuses
+// /home/you//.aws and /home/you/../you/.aws. Matched in addition to the command
+// as it was typed, never instead of it: cleaning can only shorten a word, so a
+// rule that matched the original still matches, and the pair together refuses
+// more than either alone.
+//
+// Words rather than the whole string: a path ends at whitespace or a shell
+// separator, and joining across one would invent a path nobody wrote. What this
+// does not reach is a path assembled at run time -- a relative one after a `cd`,
+// or a variable expanded by the shell -- which needs the cwd this never has.
+func NormalizePaths(command string) string {
+	return pathWord.ReplaceAllStringFunc(command, func(word string) string {
+		// Only the two spellings this exists for, so a word that is already
+		// shortest is returned untouched and the common case allocates nothing.
+		if !strings.Contains(word, "//") && !strings.Contains(word, "..") {
+			return word
+		}
+		cleaned := path.Clean(word)
+		// Clean turns "" and "." into ".", and drops a leading "./", which would
+		// make a bare word out of something that was written as a path.
+		if cleaned == "." || !strings.Contains(cleaned, "/") {
+			return word
+		}
+		return cleaned
+	})
+}
+
+// pathWord is a run of characters holding a "/" and stopping where a shell word
+// stops. The class matches PathEnd's, so what counts as the end of a path is
+// one answer rather than two.
+var pathWord = regexp.MustCompile(`[^\s"';&|()]*/[^\s"';&|()]*`)
 
 // Binding is a path bound to a shell variable, by an assignment or by the list
 // of a for loop. The rules above read left to right, so a command has to appear

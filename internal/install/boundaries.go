@@ -923,6 +923,10 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	// derived from the exec unit and may not have been resolved: an empty name
 	// would make the branch's own account test match anything.
 	sudoRs := sudoRsProbe()
+	// Whether the arrangement on disk was written for the other sudo. Set where
+	// that is found and reported at the end, so the verdict is reached after the
+	// stack it actually uses has been examined rather than instead of it.
+	crossed := false
 	execUser := cfg.Escalation.ExecUser
 	pamFile := filepath.Join(pamDir, cfg.Escalation.PamService)
 	var (
@@ -947,12 +951,11 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 				"--allow-sudo`", pamFile, err)
 			return
 		}
-	} else {
-		if body, err = os.ReadFile(pamFile); err != nil {
-			report.addf("sudo grant", StatusFailed, "%s is configured to authenticate "+
-				"through %s, which cannot be read (%v): sudo falls back to %s/other for "+
-				"that account. Re-run `faramir init --allow-sudo`",
-				execUser, pamFile, err, pamDir)
+	} else if body, err = os.ReadFile(pamFile); err != nil {
+		var problem string
+		body, pamFile, crossed, problem = originalSudoOnRsStack(execUser, pamFile, err, cfg)
+		if problem != "" {
+			report.addf("sudo grant", StatusFailed, "%s", problem)
 			return
 		}
 	}
@@ -960,7 +963,11 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		report.addf("sudo grant", StatusFailed, "%s: %s", pamFile, problem)
 		return
 	}
-	if present, err := sudoPamBlockPresent(); !sudoRs && err == nil && present {
+	// A block in the shared stack beside a service file of faramir's own: both
+	// arrangements are on disk, this sudo reads the service one, and the block is
+	// left over. A failure rather than the crossed case above, because the grant
+	// beside it names settings written for the other sudo.
+	if present, err := sudoPamBlockPresent(); !sudoRs && !crossed && err == nil && present {
 		report.addf("sudo grant", StatusFailed, "a faramir block is still in %s "+
 			"while this host's sudo is the original, which selects %s with the "+
 			"grant's own pam_service: the block is left over from an install made "+
@@ -1038,8 +1045,55 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 			pamFile, strings.Join(accounts, " or "), cfg.Escalation.Helper)
 		return
 	}
+	if crossed {
+		report.addf("sudo grant", StatusWarn, "%s may ask to sudo and %s asks the "+
+			"broker, so escalation works. The arrangement was written when the "+
+			"`sudo` alternatives group pointed at sudo-rs, which names no "+
+			"pam_service, and this host's sudo is the original, which then reads "+
+			"that same file as its default service. Re-run `faramir init "+
+			"--allow-sudo` to write the arrangement this sudo expects",
+			opts.ExecUser, pamFile)
+		return
+	}
 	report.addf("sudo grant", StatusOK, "%s may ask to sudo; %s asks the broker, and "+
 		"root answers, one escalation per command", opts.ExecUser, pamFile)
+}
+
+// originalSudoOnRsStack answers the case where this host's sudo is the original
+// and the service file the grant names is not there.
+//
+// A faramir block in the shared stack says the install was made under sudo-rs,
+// whose arrangement writes no pam_service line at all. Without one the original
+// sudo reaches its own default service, which is the file that block is in, so
+// the grant is intact and what is crossed is which sudo the two halves were
+// written for. Reporting it as a failure said every escalation fails on a host
+// where each one succeeds, and this is the line an operator reads to decide
+// whether escalation works.
+//
+// Returns the stack to examine, whether the arrangement is crossed, and a
+// problem to fail on. A problem and a usable stack are exclusive.
+func originalSudoOnRsStack(execUser, pamFile string, readErr error, cfg *config.Config) (
+	body []byte, stack string, crossed bool, problem string) {
+	present, blockErr := sudoPamBlockPresent()
+	if blockErr != nil || !present {
+		return nil, pamFile, false, fmt.Sprintf("%s is configured to authenticate "+
+			"through %s, which cannot be read (%v): sudo falls back to %s/other for "+
+			"that account. Re-run `faramir init --allow-sudo`",
+			execUser, pamFile, readErr, pamDir)
+	}
+	if branch := sudoPamBranchProblem(execUser, cfg.Escalation.Helper); branch != "" {
+		return nil, pamFile, false, branch
+	}
+	stack = cfg.Escalation.PamStack
+	if stack == "" || !exists(stack) {
+		stack = firstExistingStack()
+	}
+	body, err := sudoPamBlock(stack)
+	if err != nil {
+		return nil, stack, false, fmt.Sprintf("%s: %v. Re-run `faramir init "+
+			"--allow-sudo`", stack, err)
+	}
+	return body, stack, true, ""
 }
 
 // ptraceScopeFile is Yama's, and absent on a kernel built without it.
@@ -1306,8 +1360,8 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 	// back as a boundary that does not hold.
 	switch serves {
 	case servesNothing:
-		report.unaskedf("brokered command", 1, "not asked: the broker has read "+
-			"no managed file, so it refuses the command this would run")
+		report.unaskedf("brokered command", 1, "not asked: a managed file did not "+
+			"load, so the broker refuses the command this would run")
 		return
 	case servesUnknown:
 		report.unaskedf("brokered command", 1, "not asked: --check did not report, "+

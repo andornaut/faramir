@@ -139,6 +139,11 @@ func (r *runner) stepAccounts() error {
 // ensureInGroup adds an existing account to a supplementary group, and reports
 // whether it had to.
 func (r *runner) ensureInGroup(account, group string) (bool, error) {
+	// A dry run reports the accounts it would create, so the membership one of
+	// them would gain is part of that report rather than a lookup failure.
+	if r.opts.DryRun && !userExists(account) {
+		return true, nil
+	}
 	in, err := inGroup(account, group)
 	if err != nil || in {
 		return false, err

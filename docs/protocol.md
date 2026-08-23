@@ -44,11 +44,12 @@ Op | Does | Notes
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
 `refs` | ref names only | Adds `refs`.
 `status` | version, `build`, `config`, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
+`refresh` | re-read the managed store now | Root only. Adds `refs`. For a writer of the store: `faramir vault` sends it so a rotated value is redacted before the command that rotated it returns, instead of up to `[secret] min_refresh_sec` later.
 `escalations` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
 `answer` | answer a question by `id`, carrying `approved` | Root only.
 `escalate` | the PAM helper's half | Root only. Adds `approved`, `outcome_code`, `reason`.
 
-The three root-only ops are checked with `SO_PEERCRED`: the account the coding agent runs as must not approve what the agent asked for. `status` and `refs` answer whatever the value set is doing.
+The four root-only ops are checked with `SO_PEERCRED`: the account the coding agent runs as must not approve what the agent asked for, nor ask the broker for a decrypt per request. `status` and `refs` answer whatever the value set is doing.
 
 ### run
 

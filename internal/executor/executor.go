@@ -82,9 +82,7 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		return nil, startErr
 	}
 
-	var chunks strings.Builder
-	emitted := 0
-	truncated := false
+	out := newOutputBuffer(config.MaxOutputBytes)
 	aborted := false
 	// The executor owns the run's cgroup and enforces the timeout; this is the
 	// backstop for it not coming back at all.
@@ -99,7 +97,7 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		if auditSink != nil {
 			auditSink(safe)
 		}
-		emitted, truncated = appendOutput(&chunks, safe, emitted, config.MaxOutputBytes, truncated)
+		out.add(safe)
 	}
 
 	// carry holds a trailing partial UTF-8 sequence, so a rune split across two
@@ -156,7 +154,7 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		}
 		exitCode, timedOut = result.ExitCode, result.TimedOut
 	}
-	output := chunks.String()
+	output, truncated := out.result()
 	if timedOut {
 		output += fmt.Sprintf("\n[faramir] timed out after %ds; process killed\n", timeoutSec)
 	}
@@ -219,24 +217,108 @@ func isEIO(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "input/output error")
 }
 
-// appendOutput appends output up to limit bytes. The caller keeps draining the
-// PTY, or a chatty child blocks on a full buffer and never exits.
-func appendOutput(chunks *strings.Builder, text string, emitted, limit int, truncated bool) (int, bool) {
-	if truncated {
-		return emitted, true
+// outputBuffer holds what a command printed, bounded by the output cap: the
+// head, so the start of a run is legible, and the tail, so the end -- the
+// error, the summary, the last thing it managed to say -- survives.
+//
+// Keeping the head alone dropped the half a failing command is read for. A run
+// that printed twelve thousand lines and then the error that ended it returned
+// the first six thousand and no error at all, leaving the exit code as the only
+// sign of what happened, and the agent no way to find out but to run it again.
+//
+// The same shape audit.Collector keeps a record in, counted in the bytes the
+// response is capped in rather than the bytes a record encodes to. A ring of
+// chunks rather than of bytes: chunks arrive small, and the one that overshoots
+// is trimmed once.
+type outputBuffer struct {
+	budget int
+	head   strings.Builder
+	// headShut is set by the first chunk that goes to the tail. Without it the
+	// head keeps taking whatever still fits, so a chunk too large for the room
+	// left goes to the tail and a smaller one after it lands in the head, ahead
+	// of it: the output then reads out of the order the command wrote it.
+	headShut bool
+	tail     []string
+	tailLen  int
+	dropped  int
+}
+
+func newOutputBuffer(budget int) *outputBuffer {
+	return &outputBuffer{budget: budget}
+}
+
+// half is what each end gets, with room left for the marker between them.
+func (b *outputBuffer) half() int { return max((b.budget-truncationMarkerReserve)/2, 1) }
+
+// add takes one chunk. The caller keeps draining the PTY whatever this does, or
+// a chatty child blocks on a full buffer and never exits.
+func (b *outputBuffer) add(text string) {
+	if text == "" {
+		return
 	}
-	size := len(text)
-	if emitted+size <= limit {
-		chunks.WriteString(text)
-		return emitted + size, false
-	}
-	if room := limit - emitted; room > 0 {
+	if !b.headShut && b.head.Len() < b.half() {
 		// Cut on a rune boundary, bounded by decodeUTF8: scanning back for the
 		// first valid prefix would drop everything after any invalid byte.
-		chunks.WriteString(cutAtRune(text, room))
+		keep := cutAtRune(text, b.half()-b.head.Len())
+		if keep != "" {
+			b.head.WriteString(keep)
+			text = text[len(keep):]
+		}
+		if text == "" {
+			return
+		}
 	}
-	_, _ = fmt.Fprintf(chunks, "\n[faramir] output truncated at %d bytes\n", limit)
-	return limit, true
+	b.headShut = true
+	b.tail = append(b.tail, text)
+	b.tailLen += len(text)
+	for b.tailLen > b.half() && len(b.tail) > 1 {
+		b.dropped += len(b.tail[0])
+		b.tailLen -= len(b.tail[0])
+		b.tail = b.tail[1:]
+	}
+	// One chunk longer than the whole tail budget: keep its own tail.
+	if b.tailLen > b.half() {
+		keep := tailAtRune(b.tail[0], b.half())
+		b.dropped += len(b.tail[0]) - len(keep)
+		b.tail[0] = keep
+		b.tailLen = len(keep)
+	}
+}
+
+// result is what was kept, and whether anything was not.
+func (b *outputBuffer) result() (string, bool) {
+	head, tail := b.head.String(), strings.Join(b.tail, "")
+	if b.dropped == 0 {
+		return head + tail, false
+	}
+	return head + truncationMarker(b.dropped, b.budget) + tail, true
+}
+
+// truncationMarkerReserve is the room half() leaves for the marker. Larger than
+// any marker it writes, the count being the only part that varies.
+const truncationMarkerReserve = 128
+
+func truncationMarker(dropped, budget int) string {
+	return fmt.Sprintf("\n[faramir] %d bytes of output dropped; the head and the "+
+		"tail are kept, at a %d byte cap\n", dropped, budget)
+}
+
+// tailAtRune is cutAtRune from the other end: the last limit bytes of s, moved
+// forward only far enough not to open on a partial rune.
+func tailAtRune(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(s) <= limit {
+		return s
+	}
+	cut := s[len(s)-limit:]
+	for i := 0; i < utf8.UTFMax && i < len(cut); i++ {
+		if utf8.RuneStart(cut[i]) {
+			return cut[i:]
+		}
+	}
+	return cut
 }
 
 func round3(v float64) float64 { return float64(int64(v*1000+0.5)) / 1000 }

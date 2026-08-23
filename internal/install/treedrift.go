@@ -28,13 +28,20 @@ func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 		return
 	}
 	checked := 0
-	var drifted, unread []string
+	var drifted, unread, unguarded []string
 	for _, tree := range trees {
 		// A tree that is gone is diagnoseAgentRules' finding, not this one.
 		if !exists(tree.Dir) {
 			continue
 		}
 		checked++
+		// An enrolment that registered no agent: the tree is shared with the
+		// client group and nothing in it is redacted, which is the consequence a
+		// drifted file has. Reported for as long as it holds, the one line saying
+		// so at enrolment having scrolled past.
+		if len(tree.Agents) == 0 {
+			unguarded = append(unguarded, tree.Dir)
+		}
 		for _, name := range tree.Agents {
 			target, known := agentTargets[name]
 			if !known {
@@ -53,8 +60,20 @@ func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 	}
 	sort.Strings(drifted)
 	sort.Strings(unread)
+	sort.Strings(unguarded)
+
+	if len(unguarded) > 0 {
+		report.addf("tree config", StatusWarn, "%d enrolled tree(s) registered no "+
+			"agent, so they are shared with the client group and nothing they run "+
+			"is redacted: %s. Enrol one with `sudo faramir init-project --agent "+
+			"NAME` in the tree, or take the enrolment back",
+			len(unguarded), strings.Join(unguarded, ", "))
+	}
 
 	if len(drifted) == 0 && len(unread) == 0 {
+		if len(unguarded) > 0 {
+			return
+		}
 		report.addf("tree config", StatusOK, "%d enrolled tree(s) carry what "+
 			"`faramir init-project` wrote", checked)
 		return
@@ -65,9 +84,16 @@ func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 			strings.Join(unread, ", "))
 	}
 	if len(drifted) > 0 {
+		// What drifted is not said, only that something did: this compares a merge
+		// rather than reading the file, so it knows the file no longer carries
+		// everything an enrolment writes and not which part. Saying "nothing is
+		// redacted" was wrong whenever the hook was intact and only the deny rules
+		// had gone, which is what declaring a blocked path leaves behind.
 		report.addf("tree config", StatusWarn, "%d file(s) an enrolment wrote no "+
-			"longer carry what it writes, so nothing those agents run in that tree "+
-			"is redacted: %s. Re-run `sudo faramir init-project` in the tree",
+			"longer carry all of it, so the hook that redacts, the rules that refuse "+
+			"a path, or the registration that reaches the broker is missing from "+
+			"them: %s. Re-run `sudo faramir init-project` in the tree, which writes "+
+			"all three again",
 			len(drifted), strings.Join(drifted, ", "))
 	}
 }

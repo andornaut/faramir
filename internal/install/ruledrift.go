@@ -188,6 +188,60 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 	}
 }
 
+// diagnoseInstallRules asks whether the account-wide deny rules still carry the
+// paths this install writes: the config directory, the store, the log, libexec
+// and the three service accounts' own directories.
+//
+// Apart from diagnoseBlockedPaths, which asks the same question about the
+// entries an operator declared, because the remedy differs: these are rendered
+// from the layout on every `faramir init` and are restored by re-running it,
+// where a declared entry is restored by `faramir block add`.
+//
+// Worth asking even though a mode refuses each of these to the agent's uid as
+// well. The rules are the half that produces a corrective message naming
+// faramir_run instead of an EACCES the agent will try to work around, and until
+// this check existed an agent's settings could drop them and every other check
+// still passed.
+func diagnoseInstallRules(report *DoctorReport, opts DoctorOptions) {
+	const name = "install rules"
+	layout := Layout{
+		ConfigDir:  opts.ConfigDir,
+		BrokerUser: opts.BrokerUser,
+		KeeperUser: opts.KeeperUser,
+		ExecUser:   opts.ExecUser,
+	}
+	paths := append(installDirs(layout), perInstallPaths(layout)...)
+	if opts.AgentUser == "" {
+		report.unaskedf(name, len(paths), "the agent account is not named, so the "+
+			"deny rules were not compared with the %d path(s) this install writes: "+
+			"pass --agent-user, or run through sudo so SUDO_USER carries it", len(paths))
+		return
+	}
+	home, err := agentHomeFor(opts.AgentUser)
+	if err != nil || home == "" {
+		report.unaskedf(name, len(paths), "could not read %s's home, so the deny "+
+			"rules were not compared with the %d path(s) this install writes",
+			opts.AgentUser, len(paths))
+		return
+	}
+	files, uncovered := uncoveredIn(home, paths)
+	switch {
+	case files == 0:
+		report.unaskedf(name, len(paths), "no agent rule file is installed under "+
+			"%s, so there is nothing the %d path(s) this install writes could be "+
+			"refused by", home, len(paths))
+	case len(uncovered) == 0:
+		report.addf(name, StatusOK, "the %d path(s) this install writes are refused "+
+			"to the agent's file tools in %d rule file(s)", len(paths), files)
+	default:
+		report.addf(name, StatusFailed, "a path this install writes is not refused "+
+			"by the agent's rules, so its file tools can open the age key, the "+
+			"managed store or the audit log by name: %s. `faramir init` renders "+
+			"these on every run, so `sudo faramir init --agent NAME` restores them",
+			strings.Join(uncovered, "; "))
+	}
+}
+
 // diagnoseBlockedPaths asks whether the account-wide deny rules carry every
 // [[secret.block]] entry, by path and by name alike. The rule is the entire
 // content of one of these entries, so an entry the rules do not carry is an
@@ -343,6 +397,15 @@ func named(entries map[string]bool, path string) bool {
 		_, rest, found := strings.Cut(entry, path)
 		if !found {
 			continue
+		}
+		// The subtree spelling of this same path. A directory is rendered as
+		// "<dir>/**" for Claude Code and "<dir>/*" for the plugin hosts, and
+		// without this both read as a longer path and the rule that is there
+		// reports as missing. A wildcard is what separates them from a sibling:
+		// "/secrets/**" after "/etc/faramir" is a different directory and stays
+		// unmatched, and "-notes" after it is stopped by isPathRune already.
+		if strings.HasPrefix(rest, "/*") {
+			return true
 		}
 		if rest == "" || !isPathRune(rune(rest[0])) {
 			return true

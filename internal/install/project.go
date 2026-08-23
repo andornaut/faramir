@@ -596,13 +596,17 @@ func (p *project) shareTree() error {
 func (p *project) agentConfig() error {
 	if len(p.targets) == 0 {
 		// The tree is shared and the instructions are written either way; what is
-		// missing is the hook, and with it the redaction. Said rather than passed
-		// over, an enrolment that configured nothing reading as done.
-		p.step(labelAgentConfig, false, fmt.Sprintf(
-			"no coding agent is configured in %s, so nothing was registered and "+
-				"nothing this tree runs is redacted. `sudo faramir init-project "+
-				"--agent NAME` enrols one anyway (%s)",
-			p.opts.Dir, strings.Join(knownAgents(), ", ")))
+		// missing is the hook, and with it the redaction. A warning rather than a
+		// step: a step scrolls past with the rest of a successful run, and this
+		// enrolment leaves the tree shared with the client group and guarded by
+		// nothing. `faramir doctor` reports the same tree for as long as it stays
+		// that way.
+		p.warnf("no coding agent is configured in %s, so nothing was registered "+
+			"and nothing this tree runs is redacted, which is what an enrolment is "+
+			"for. The tree is shared with the client group either way. `sudo "+
+			"faramir init-project --agent NAME` enrols one anyway (%s)",
+			p.opts.Dir, strings.Join(knownAgents(), ", "))
+		p.step(labelAgentConfig, false, "no coding agent is configured in "+p.opts.Dir)
 		return nil
 	}
 	changed := false

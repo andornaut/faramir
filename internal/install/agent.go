@@ -3,7 +3,9 @@ package install
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -182,4 +184,79 @@ func homeSection(accountRules bool) (string, error) {
 		return "", err
 	}
 	return strings.TrimRight(string(body), "\n") + "\n", nil
+}
+
+// stepEnrolledTrees re-renders the project files of every tree this install has
+// enrolled, so a rule declared after the enrolment reaches the trees as well as
+// the home.
+//
+// An enrolment writes the same deny rules into the tree that `init` writes into
+// the home. Declaring a blocked path or a linked file afterwards rewrote the
+// home alone, and every enrolled tree then carried a rule set one entry short:
+// `faramir doctor` reported each of them as drifted, and the remedy was to run
+// `init-project` again in each tree by hand. The install already records where
+// they are, so it can write them itself.
+//
+// Best effort per tree. A checkout that has moved, been deleted, or become
+// unreadable is not a reason to fail the command that declared the entry: the
+// config and the home are written either way, and doctor reports a tree that
+// still does not carry what an enrolment writes.
+func (r *runner) stepEnrolledTrees() error {
+	trees := readEnrolled(r.layout.ConfigDir)
+	var written, skipped []string
+	changed := false
+	for _, tree := range trees {
+		if !exists(tree.Dir) {
+			skipped = append(skipped, tree.Dir)
+			continue
+		}
+		uid, gid := r.operatorUID, r.operatorGID
+		if id, err := lookupUser(tree.AgentUser); err == nil && tree.AgentUser != "" {
+			uid = id
+		}
+		if id, _, err := primaryGroup(tree.AgentUser); err == nil && tree.AgentUser != "" {
+			gid = id
+		}
+		for _, name := range tree.Agents {
+			target, known := agentTargets[name]
+			if !known {
+				continue
+			}
+			asTarget := func(file agentFile) ([]byte, error) {
+				return assetFor(target, file, r.layout.ConfigDir)
+			}
+			made, paths, err := writeAgentFiles(r.fs, tree.Dir, r.layout.ConfigDir,
+				uid, gid, 0o2770|os.ModeSetgid, true, asTarget, target.files)
+			if err != nil {
+				skipped = append(skipped, tree.Dir+" ("+err.Error()+")")
+				continue
+			}
+			written = append(written, paths...)
+			changed = changed || made
+		}
+	}
+	switch {
+	case len(trees) == 0:
+		r.step(labelEnrolledTrees, false, "no tree is recorded as enrolled")
+	case len(written) == 0 && len(skipped) == 0:
+		r.step(labelEnrolledTrees, false, "nothing to write into "+treeCount(len(trees)))
+	default:
+		r.step(labelEnrolledTrees, changed, strings.Join(written, ", "))
+	}
+	if len(skipped) > 0 {
+		r.warnf("%d enrolled tree(s) were not rewritten, so what an enrolment "+
+			"writes there is now one entry short and `faramir doctor` reports "+
+			"them: %s. Re-run `sudo faramir init-project` in each once it is "+
+			"reachable", len(skipped), strings.Join(skipped, ", "))
+	}
+	return nil
+}
+
+// treeCount is the phrase the step above uses, so "1 tree" does not read as
+// "1 trees".
+func treeCount(n int) string {
+	if n == 1 {
+		return "1 enrolled tree"
+	}
+	return strconv.Itoa(n) + " enrolled trees"
 }

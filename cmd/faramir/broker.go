@@ -85,6 +85,13 @@ func runBroker(f brokerFlags) int {
 			"until this is fixed, which is what keeps an unread file from being " +
 			"read past. status and refs still answer; encrypt a file into " +
 			"the secrets directory, and no restart is needed")
+	} else if reason := s.Store.EmptySet(); reason != "" {
+		log.Printf("serving with an empty value set: %s", reason)
+		log.Printf("commands run and their output is redacted against nothing, " +
+			"there being nothing to redact. That is the right answer for a host " +
+			"that manages no credentials and the wrong one for a store on a " +
+			"filesystem that is not mounted, which looks the same from here: " +
+			"`faramir status` and `faramir doctor` report it either way")
 	}
 
 	// Same shape: said at startup so an operator finds out here, and asked again

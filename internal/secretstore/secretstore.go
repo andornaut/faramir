@@ -14,6 +14,7 @@
 package secretstore
 
 import (
+	goerrors "errors"
 	"fmt"
 	"log"
 	"maps"
@@ -52,6 +53,14 @@ type Store struct {
 	// refs, so exec and redact refuse while this is set.
 	loadErrors []string
 
+	// Refs more than one managed file defined; see keeperclient.Loaded.
+	shadowedRefs map[string]string
+	// The value set compiled into a matcher, rebuilt when the values are. The
+	// broker takes several redactors for one request and the set changes only
+	// here, so compiling per request cost every command the size of the set:
+	// `faramir run -- true` took 35 ms on a host with 256 refs and 2 ms on one
+	// with a single ref, all of it building this.
+	compiled *redact.Values
 	// A configured pattern that named no file. Kept apart from loadErrors because
 	// it is what a first install looks like, though both refuse exec and
 	// redact.
@@ -88,7 +97,25 @@ func New(secrets config.SecretConfig, kc config.KeeperConfig) *Store {
 // values cannot describe different moments.
 func (s *Store) Reload() {
 	// Per-file, so one broken file does not blank the set.
-	values, state, errors, unresolved, err := keeperclient.FetchValues(s.keeper.SocketPath)
+	loaded, err := keeperclient.FetchValues(s.keeper.SocketPath)
+	values, state := loaded.Values, loaded.State
+	errors, unresolved := loaded.Errors, loaded.UnresolvedPatterns
+	if goerrors.Is(err, keeperclient.ErrReplyTooLarge) {
+		// Permanent, so not the retry path below: retrying re-decrypts the whole
+		// store on every refresh and never succeeds, while the values that could
+		// not be carried are absent from the redactor and the broker goes on
+		// serving against the set it happened to have. Recorded as a load failure,
+		// which is what refuses: a managed file was read and its values did not
+		// reach the redactor.
+		s.mu.Lock()
+		s.loadErrors = []string{err.Error()}
+		s.unresolvedPatterns = nil
+		s.retry = false
+		s.checkedAt = time.Now()
+		s.mu.Unlock()
+		log.Printf("refusing exec and redact: %v", err)
+		return
+	}
 	if err != nil {
 		// Keep the previous set rather than dropping to empty, which would redact
 		// nothing. The linked values are kept with it and not re-read: half a set
@@ -146,6 +173,10 @@ func (s *Store) Reload() {
 	s.retry = false
 	s.loadErrors = errors
 	s.unresolvedPatterns = unresolved
+	s.shadowedRefs = loaded.ShadowedRefs
+	// Under the same lock as the values it is built from, so a reader never sees
+	// a matcher describing a set that is no longer there.
+	s.compiled = redact.NewValues(pairsOf(redactable), s.Policy)
 	s.degradedLinks = degradedLinks
 	s.linkDetail = linkDetail
 	s.checkedAt = time.Now()
@@ -173,6 +204,22 @@ func (s *Store) Reload() {
 			len(refused), len(redactable)+len(refused), strings.Join(entries, ", "))
 	}
 	log.Printf("loaded %d vault refs from %d file(s)", len(redactable), len(state))
+}
+
+// Refresh re-reads the whole set now, whatever the interval says. For a writer
+// of the managed store that knows it just changed one: `faramir vault` calls it
+// so a rotated value is in the redactor before the command that rotated it has
+// returned, rather than up to [secret] min_refresh_sec later. Everything else
+// arrives through RefreshIfStale.
+func (s *Store) Refresh() {
+	// The same one-at-a-time gate the interval path uses. A caller that arrives
+	// while a refresh is under way returns: what it wanted was for the set to be
+	// re-read, and it is being.
+	if !s.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.refreshing.Store(false)
+	s.Reload()
 }
 
 // RefreshIfStale asks the keeper for the managed files' fingerprints, and
@@ -318,6 +365,30 @@ func (s *Store) Value(ref string) (string, error) {
 	return "", fmt.Errorf("unknown secret ref: %s", ref)
 }
 
+// Redactor is a redactor over the current value set, sharing the compiled
+// matcher rather than building one. Every caller that redacts should take one
+// from here.
+func (s *Store) Redactor() *redact.Redactor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.compiled == nil {
+		// A store that has not loaded yet. It serves nothing, so there is nothing
+		// to match; building an empty set per call costs nothing worth caching.
+		return redact.New(nil, s.Policy)
+	}
+	return s.compiled.Redactor()
+}
+
+// pairsOf is Pairs over a map the caller already holds, for the compile above:
+// Pairs takes the read lock, which Reload holds for writing.
+func pairsOf(values map[string]string) []redact.Secret {
+	out := make([]redact.Secret, 0, len(values))
+	for _, ref := range sortedKeys(values) {
+		out = append(out, redact.Secret{Ref: ref, Value: values[ref]})
+	}
+	return out
+}
+
 // Pairs is every (ref, value) pair: the input to the redactor's value set. The
 // age key is absent, no child being able to obtain it.
 func (s *Store) Pairs() []redact.Secret {
@@ -387,6 +458,14 @@ func (s *Store) DescribeForOperator() map[string]any {
 	refused := make(map[string]string, len(s.refused))
 	maps.Copy(refused, s.refused)
 	out["not_redactable"] = refused
+	// The refs two managed files both defined, with the files named. Same kind of
+	// missing as not_redactable: the value exists on disk, one of the two is in
+	// no redactor, and neither is a file that would not open. Operator-only for
+	// the reason describeLocked gives, and a repair list rather than a
+	// diagnostic.
+	shadowed := make(map[string]string, len(s.shadowedRefs))
+	maps.Copy(shadowed, s.shadowedRefs)
+	out["shadowed_refs"] = shadowed
 	// Ref to file, so `--check` and doctor can say which link is broken and where
 	// to fix it. Operator-only for the reason describeLocked gives.
 	linked := make(map[string]string, len(s.config.Links))
@@ -456,6 +535,15 @@ func (s *Store) LoadErrors() []string {
 	return append([]string{}, s.loadErrors...)
 }
 
+// ShadowedRefs is the refs more than one managed file defined, by ref and by
+// which files defined them. The loser is in no redactor, so this names a value
+// on this host that a command could print in the clear.
+func (s *Store) ShadowedRefs() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return maps.Clone(s.shadowedRefs)
+}
+
 // UnresolvedPatterns is the configured entries that named no file. Apart from
 // LoadErrors because it is what a first install looks like: the daemon starts
 // and says so, while `--check` and `doctor` fail on it.
@@ -478,10 +566,10 @@ func (s *Store) Count() int {
 // redacted against this same set.
 //
 // The risk is output holding a managed secret the redactor does not have, so
-// the test is whether a managed file exists whose contents went unread: at
-// least one file matched, and every matched file loaded. How many secrets came
-// out of them does not enter into it. Called per request, a reload being able
-// to lose a file at any time.
+// the test is whether a managed file exists whose contents went unread: every
+// file that matched loaded. How many secrets came out of them does not enter
+// into it, and neither does matching none, which is EmptySet's. Called per
+// request, a reload being able to lose a file at any time.
 //
 // A [[secret.link]] entry that did not load is not this. It is one ref the
 // broker can name, so it refuses that ref and serves the rest rather than
@@ -511,17 +599,44 @@ func (s *Store) Unreadable() string {
 	case len(s.loadErrors) > 0:
 		return "a managed value the redactor should hold is missing, so output " +
 			"could carry one nothing would cover: " + strings.Join(s.loadErrors, "; ")
-	case len(s.state) > 0, len(s.linkState) > 0:
-		return ""
-	case len(s.config.Patterns) == 0 && len(s.config.Links) == 0:
-		return "the store is empty and no [[secret.link]] entries are configured"
-	case len(s.config.Patterns) == 0:
-		// Links alone, and every one of them naming a file that is not there. There
-		// is no plaintext left on disk for the redactor to be missing, so this
-		// serves; the refs themselves are refused one by one.
+	}
+	// An empty value set is not this. Nothing configured, a store not written
+	// yet, and a store on a volume that is not mounted all leave the broker
+	// holding nothing, and holding nothing is not the same as holding less than
+	// it should: there is no value for output to carry that the redactor lacks.
+	// EmptySet is what says so, and it warns rather than refuses.
+	return ""
+}
+
+// EmptySet reports why the broker holds no values, or "" when it holds some.
+//
+// Separate from Unreadable because the two are different states. Unreadable is
+// "a managed file exists and went unread", where output could carry a value
+// nothing would cover, and it refuses. This one is "there is nothing to cover",
+// which is every install on its first day and every host that manages no
+// credentials at all, and it serves.
+//
+// The cost of serving is that a store on a filesystem that is not mounted looks
+// exactly like one never written, so a host whose volume is missing runs
+// commands with nothing redacted. Nothing inside the broker can tell those two
+// apart; what carries the difference is that this is reported at startup, in
+// `faramir status` and by `faramir doctor`.
+func (s *Store) EmptySet() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.values) > 0 {
 		return ""
 	}
-	return "no managed file was found: " + strings.Join(s.unresolvedPatterns, "; ")
+	switch {
+	case len(s.config.Patterns) == 0 && len(s.config.Links) == 0:
+		return "no [secret] patterns and no [[secret.link]] entries are configured"
+	case len(s.unresolvedPatterns) > 0:
+		return "no managed file was found: " + strings.Join(s.unresolvedPatterns, "; ")
+	case len(s.config.Patterns) == 0:
+		// Links alone, every one of them naming a file that is not there.
+		return "every [[secret.link]] entry names a file that is not there"
+	}
+	return "the managed files that loaded held no value"
 }
 
 func sortedKeys[V any](m map[string]V) []string {

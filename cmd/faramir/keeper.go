@@ -56,13 +56,17 @@ func runKeeper(f keeperFlags) int {
 	k := keeper.New(cfg)
 
 	if f.check {
-		values, errs := keeper.DecryptAll(cfg.Secret, k.Keys)
+		values, errs, shadowed := keeper.DecryptAll(cfg.Secret, k.Keys)
 		if errs == nil {
 			errs = []string{}
+		}
+		if shadowed == nil {
+			shadowed = map[string]string{}
 		}
 		// Names only, even for the operator.
 		out, err := json.MarshalIndent(map[string]any{
 			"refs": keeper.SortedRefs(values), "errors": errs,
+			"shadowed_refs": shadowed,
 		}, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "faramir keeper: %v\n", err)

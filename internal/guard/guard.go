@@ -383,11 +383,24 @@ func decide(command string) (string, bool) {
 	// reached a path named in the second; quoting is what decides where one
 	// ends, and a pattern cannot read quoting.
 	//
+	// Each segment twice: as it was written, and with its paths in their
+	// shortest spelling. A rule carries one spelling of a path, so "/etc//x" and
+	// "/etc/y/../x" reached a file the rule names and matched nothing.
+	// Normalising in addition rather than instead, because cleaning only ever
+	// shortens a word: anything the original matched, it still matches.
+	//
 	// Patterns outer, so the rule reported is the first one the file carries
 	// that matches anywhere, as it was when the line was matched whole.
 	segments := denyrules.Segments(stripped)
+	spellings := make([]string, 0, len(segments)*2)
+	for _, segment := range segments {
+		spellings = append(spellings, segment)
+		if cleaned := denyrules.NormalizePaths(segment); cleaned != segment {
+			spellings = append(spellings, cleaned)
+		}
+	}
 	for _, p := range loadPatterns() {
-		if slices.ContainsFunc(segments, p.re.MatchString) {
+		if slices.ContainsFunc(spellings, p.re.MatchString) {
 			return p.source, true
 		}
 	}
@@ -422,7 +435,12 @@ func Run(args []string) int {
 	}
 	var p payload
 	if err := json.Unmarshal(data, &p); err != nil {
-		return 0 // never block on a payload this does not understand
+		// Fails closed, the way faramir's own plugin does on the same input. A
+		// payload this cannot read is the host's shape having changed, and on the
+		// hook that guards every Bash call the alternative is returning quietly
+		// and leaving every command in every enrolled tree unredacted. Refusing
+		// says so in the transcript, where somebody reads it.
+		return emit(activeHost.deny(unreadablePayload))
 	}
 	var raw struct {
 		ToolInput map[string]any `json:"tool_input"`
@@ -435,7 +453,17 @@ func Run(args []string) int {
 	}
 	command := commandOf(&p)
 	if command == "" {
-		return 0
+		// A plugin host is asked about every tool call, so a call with no command
+		// is the ordinary case: a read, an edit, anything that runs nothing. Its
+		// own SHELL_TOOLS check is what fails closed there, before this is called.
+		if activeHost.anyShellTool {
+			return 0
+		}
+		// A hook host answers only for the tools it runs commands through, so
+		// reaching here means one of those arrived carrying no command. Same
+		// reasoning as the unreadable payload above: the shape changed, and
+		// returning quietly leaves the tree unredacted.
+		return emit(activeHost.deny(noCommandString))
 	}
 
 	if pattern, denied := decide(command); denied {
@@ -461,6 +489,23 @@ func Run(args []string) int {
 	// the permission prompt.
 	return emit(activeHost.rewrite(updated))
 }
+
+// The two refusals that are about this hook rather than about the command. Both
+// name what to do, because both reach the model rather than the operator: an
+// agent that is told to stop and why can say so, where one that meets a silent
+// refusal retries.
+const (
+	unreadablePayload = "Blocked: faramir's guard could not read this tool call, so it " +
+		"could not decide whether the command discloses a credential, and the " +
+		"command was not run.\n\nThis is not something to work around. Tell the " +
+		"operator that `faramir guard` did not understand its input: the agent " +
+		"and the install disagree about the shape of a hook payload, and until " +
+		"that is fixed nothing this tree runs is redacted."
+	noCommandString = "Blocked: faramir's guard was handed a shell tool call carrying no " +
+		"command, so there was nothing to check and the call was not made.\n\n" +
+		"Tell the operator: on a tool that runs commands this means the tool's " +
+		"input is not the shape `faramir guard` reads."
+)
 
 func emit(document map[string]any) int {
 	out, err := json.Marshal(document)

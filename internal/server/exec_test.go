@@ -489,6 +489,28 @@ func TestAnExecutorFailureIsRedactedBeforeItIsReported(t *testing.T) {
 	}
 }
 
+// The executor names its own code in the error it hands back, and the broker
+// answers every executor failure as exec_failed, so a caller was told
+// "exec_failed: exec_failed: /usr/bin/pwd: ..." and had to read past the code
+// twice to reach what went wrong.
+func TestAnExecutorFailureNamesItsCodeOnce(t *testing.T) {
+	s, rec := execServer(t)
+	// What execserver.Client.Result builds out of an error response.
+	rec.err = &executorError{"exec_failed: /usr/bin/pwd: fork/exec /usr/bin/pwd: permission denied"}
+	r := exec(t, s, map[string]any{"cmd": []any{"true"}})
+
+	if code := errorCode(t, r); code != "exec_failed" {
+		t.Fatalf("code = %q", code)
+	}
+	msg := errorMessage(t, r)
+	if strings.Contains(msg, "exec_failed") {
+		t.Errorf("the code is repeated inside the message: %q", msg)
+	}
+	if !strings.Contains(msg, "/usr/bin/pwd") {
+		t.Errorf("the message lost what failed: %q", msg)
+	}
+}
+
 type executorError struct{ msg string }
 
 func (e *executorError) Error() string { return e.msg }

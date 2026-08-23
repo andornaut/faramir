@@ -142,6 +142,13 @@ func newRunCmd() *cobra.Command {
 			if cwd != "" {
 				request["cwd"] = cwd
 			}
+			// Zero is "name none", which the broker reads as its configured
+			// default. Below zero is a value nothing can mean, and taking it as
+			// "none" ran the command under a timeout the caller did not ask for.
+			if timeout < 0 {
+				return usagef("--timeout must not be negative; leave it out for " +
+					"the broker's own default")
+			}
 			if timeout > 0 {
 				request["timeout_sec"] = timeout
 			}

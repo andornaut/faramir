@@ -27,6 +27,10 @@ type checkReport struct {
 		// and reason. They load and are never injected, so each is a value to
 		// lengthen rather than anything about the install.
 		NotRedactable map[string]string `json:"not_redactable"`
+		// ShadowedRefs is the refs more than one managed file defined, by ref and
+		// by which files. The value that lost is on disk and in no redactor, which
+		// is what NotRedactable is too, so the two are reported alike.
+		ShadowedRefs map[string]string `json:"shadowed_refs"`
 		// DegradedLinks is the [[secret.link]] entries that did not load, by ref.
 		// Each refuses that ref alone; the broker goes on serving the rest.
 		DegradedLinks map[string]string `json:"degraded_links"`
@@ -41,17 +45,33 @@ type checkReport struct {
 	Policy []string `json:"policy"`
 }
 
+// The three ref-level states --check exits non-zero for, each of which is a
+// value this host manages that no redactor holds. Each has an "only" helper
+// because --check exits 1 for several states at once and the exit code cannot
+// say which: a caller that has reported one needs to know whether anything else
+// is left unaccounted for.
+//
+// An empty value set is deliberately not among them. It stopped being a
+// non-zero exit when the broker started serving one, so counting it here would
+// leave a real finding beside it looking unexplained.
+func (c checkReport) refStatesOtherThan(mine int) bool {
+	others := 0
+	for _, n := range []int{len(c.Secrets.NotRedactable), len(c.Secrets.DegradedLinks),
+		len(c.Secrets.ShadowedRefs)} {
+		others += n
+	}
+	return others-mine > 0
+}
+
 // onlyNotRedactable reports whether a non-zero --check is accounted for by refs
-// the redactor refused and nothing else: --check exits 1 for several states, and
-// every other one is visible in the report. The distinction earns its place
+// the redactor refused and nothing else. The distinction earns its place
 // because this state is not about the install: the store loaded, the daemons
 // are serving, and one value is too short to cover.
 func (c checkReport) onlyNotRedactable() bool {
 	return len(c.Secrets.NotRedactable) > 0 &&
 		len(c.Policy) == 0 &&
 		len(c.Secrets.Errors) == 0 &&
-		len(c.Secrets.UnresolvedPatterns) == 0 &&
-		c.Secrets.Count > 0
+		!c.refStatesOtherThan(len(c.Secrets.NotRedactable))
 }
 
 // onlyDegradedLinks reports whether a non-zero --check is accounted for by
@@ -63,13 +83,17 @@ func (c checkReport) onlyDegradedLinks() bool {
 	return len(c.Secrets.DegradedLinks) > 0 &&
 		len(c.Policy) == 0 &&
 		len(c.Secrets.Errors) == 0 &&
-		len(c.Secrets.NotRedactable) == 0 &&
-		len(c.Secrets.UnresolvedPatterns) == 0 &&
-		// --check also exits non-zero for a store that loaded nothing at all, which
-		// is a broker protecting nothing rather than one ref short. Without this a
-		// degraded link beside it would account for that exit code and carry the
-		// install past it.
-		c.Secrets.Count > 0
+		!c.refStatesOtherThan(len(c.Secrets.DegradedLinks))
+}
+
+// onlyShadowedRefs is the same question for a ref two managed files defined.
+// Not about the install either: every file loaded and the daemons are serving,
+// and what is wrong is that one of two values for one name reaches nothing.
+func (c checkReport) onlyShadowedRefs() bool {
+	return len(c.Secrets.ShadowedRefs) > 0 &&
+		len(c.Policy) == 0 &&
+		len(c.Secrets.Errors) == 0 &&
+		!c.refStatesOtherThan(len(c.Secrets.ShadowedRefs))
 }
 
 // refusedRefs is the refused refs and their reasons, ordered, for a message.
@@ -107,9 +131,13 @@ func refsWithReasons(refs map[string]string) string {
 // ones, which the report does not carry: a link whose file has gone reads as
 // serving here and the probe then fails on it, which names the fault. The other
 // direction skips the probe and reports nothing.
+// serves reports whether the broker will run a brokered command at all, which
+// is what the probes that send one are gated on. An empty value set is not a
+// refusal: it holds no value for output to carry, so the command runs and comes
+// back redacted against nothing. What refuses is a managed file that was found
+// and did not load.
 func (c checkReport) serves() bool {
-	return (len(c.Secrets.Files) > 0 || c.Secrets.Links > 0) &&
-		len(c.Secrets.Errors) == 0
+	return len(c.Secrets.Errors) == 0
 }
 
 // stepValidate asks the broker what it can do with what was installed. As the
@@ -200,9 +228,9 @@ func (r *runner) stepValidate() error {
 	// looking healthy. Guarded on the resolved files rather than the patterns, no
 	// files at all being what a first install looks like.
 	if len(report.Secrets.Files) > 0 && report.Secrets.Count == 0 {
-		return fmt.Errorf("the broker read %s and loaded no refs. Nothing is "+
-			"injectable and nothing is redacted: a command that prints a credential "+
-			"prints it in plaintext. %s",
+		r.warnf("the broker read %s and loaded no refs, so nothing is injectable "+
+			"and nothing is redacted: a command that prints a credential prints it "+
+			"in plaintext. %s",
 			strings.Join(report.Secrets.Files, ", "), loadErrorDetail(report.Secrets.Errors))
 	}
 
@@ -230,12 +258,12 @@ func (r *runner) stepValidate() error {
 	// install time. Gated on the key that reached disk rather than on --ssh-key,
 	// which is a relocation and empty on most runs.
 	//
-	// Skipped while the broker is refusing, which is what a first install looks
-	// like: this probe would report the refusal as an SSH fault.
+	// Skipped while the broker is refusing, which a managed file that did not
+	// load is: this probe would report that refusal as an SSH fault.
 	if r.sshKey != "" && !report.serves() {
-		r.warnf("the broker has read no managed file yet, so it refuses brokered " +
-			"commands and what its ssh-agent holds could not be asked. Write a " +
-			"secret, then: faramir doctor")
+		r.warnf("a managed file did not load, so the broker refuses brokered " +
+			"commands and what its ssh-agent holds could not be asked. Fix what the " +
+			"store reported, then: faramir doctor")
 		r.step("broker ssh agent", false, "not asked")
 	}
 	if r.sshKey != "" && report.serves() {
@@ -299,7 +327,7 @@ func (c checkReport) storeHolds() string {
 		return fmt.Sprintf("%d ref(s) are served from %d file(s)",
 			c.Secrets.Count, len(c.Secrets.Files))
 	}
-	return "nothing is served, and exec and redact are refused until something is"
+	return "nothing is injected and nothing is redacted"
 }
 
 // linkNote names the linked share of a value set that also has managed files,
@@ -314,12 +342,16 @@ func (c checkReport) linkNote() string {
 // storeFinding is what the `secrets store` check reports: what the store holds,
 // and whether anything about it is wrong.
 //
-// Keeping no managed file is a valid install rather than a fault. A
-// [[secret.link]] entry fills the value set on its own, and a host that has not
-// written its first secret is every install on its first day, which is why
-// `init` warns there and carries on. The two sibling checks over links and
-// blocked paths already report having none as ok; this one failing was the
-// outlier.
+// An empty value set is a warning rather than a failure, in every shape it
+// comes in. A host that manages no credentials is a host with nothing to leak,
+// and a host that has not written its first secret is every install on its
+// first day. What still fails is a managed file that was found and did not
+// load: there the broker knows values exist that it cannot cover, and it
+// refuses the ops rather than running them.
+//
+// The warning matters because a store on a filesystem that is not mounted is
+// the one case that looks like an empty install and is not. Nothing can tell
+// those apart, so both are reported and neither stops the host.
 func storeFinding(c checkReport) (Status, string) {
 	switch {
 	case len(c.Secrets.Errors) > 0:
@@ -328,8 +360,9 @@ func storeFinding(c checkReport) (Status, string) {
 		// describe a store that is not being served.
 		return StatusFailed, loadErrorDetail(c.Secrets.Errors)
 	case len(c.Secrets.Patterns) == 0 && c.Secrets.Links == 0:
-		return StatusFailed, "no managed sops files and no [[secret.link]] entries " +
-			"are configured, so nothing is injectable and nothing is redacted"
+		return StatusWarn, "no managed sops files and no [[secret.link]] entries " +
+			"are configured, so commands run with nothing injected and nothing " +
+			"redacted. That is the whole of what this host protects"
 	case len(c.Secrets.UnresolvedPatterns) > 0:
 		// A warning rather than a failure, because this cannot tell a host that
 		// keeps no store from one whose store went missing: the pattern is derived
@@ -344,11 +377,12 @@ func storeFinding(c checkReport) (Status, string) {
 	case c.Secrets.Count == 0 && len(c.Secrets.Files) == 0:
 		// Reachable on an install whose secrets are all linked and whose links have
 		// all gone: nothing was read, so there is no file to name.
-		return StatusFailed, fmt.Sprintf("no managed file was read and %s produced "+
+		return StatusWarn, fmt.Sprintf("no managed file was read and %s produced "+
 			"no value, so nothing is injectable and nothing is redacted",
 			linkEntries(c.Secrets.Links))
 	case c.Secrets.Count == 0:
-		return StatusFailed, fmt.Sprintf("read %s and loaded no refs",
+		return StatusWarn, fmt.Sprintf("read %s and loaded no refs, so nothing is "+
+			"injectable and nothing is redacted",
 			strings.Join(c.Secrets.Files, ", "))
 	}
 	return StatusOK, fmt.Sprintf("%d ref(s) from %d file(s)%s",

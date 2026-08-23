@@ -68,7 +68,7 @@ func TestDecryptRoundTrip(t *testing.T) {
 		{Key: "enabled", Value: true},
 	})
 
-	values, errs := DecryptAll(secrets, keys)
+	values, errs, _ := DecryptAll(secrets, keys)
 	if len(errs) > 0 {
 		t.Fatalf("errors: %v", errs)
 	}
@@ -108,7 +108,7 @@ func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, errs := DecryptAll(config.SecretConfig{
+	_, errs, _ := DecryptAll(config.SecretConfig{
 		Patterns: []string{managed}, DecryptCommand: []string{script, "{file}"},
 	}, newKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath}))
 	if len(errs) > 0 {
@@ -150,7 +150,7 @@ func TestWrongIdentityFails(t *testing.T) {
 	wrongKey, _ := sopstest.NewIdentity(t, other)
 	keys := newKeyHolder(config.KeeperConfig{AgeKeyFile: wrongKey})
 
-	values, errs := DecryptAll(secrets, keys)
+	values, errs, _ := DecryptAll(secrets, keys)
 	if len(errs) == 0 {
 		t.Fatal("decrypting with the wrong identity reported no error")
 	}
@@ -167,7 +167,7 @@ func TestOneBadFileDoesNotBlankTheSet(t *testing.T) {
 	}
 	secrets.Patterns = append(secrets.Patterns, broken)
 
-	values, errs := DecryptAll(secrets, keys)
+	values, errs, _ := DecryptAll(secrets, keys)
 	if len(errs) == 0 {
 		t.Error("the broken file produced no error")
 	}

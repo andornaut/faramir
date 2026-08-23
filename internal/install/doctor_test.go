@@ -259,7 +259,8 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 		want          bool
 	}{
 		// The count varies across these three and the answer does not, which is
-		// what says it is not being consulted.
+		// what says it is not being consulted. Nor is what matched: the one thing
+		// that refuses is a managed file that was found and did not load.
 		{name: "read one file holding values",
 			files: []string{"a.sops.yml"}, count: 3, want: true},
 		{name: "read one file holding nothing",
@@ -270,8 +271,10 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 		{name: "one entry named nothing, another loaded",
 			files: []string{"a.sops.yml"}, count: 3,
 			unresolved: []string{"/b/*.sops.yml"}, want: true},
-		{name: "nothing matched", unresolved: []string{"/b/*.sops.yml"}, want: false},
-		{name: "nothing configured", want: false},
+		// An empty value set serves: it holds no value for output to carry, so the
+		// probes that send a brokered command are asked rather than skipped.
+		{name: "nothing matched", unresolved: []string{"/b/*.sops.yml"}, want: true},
+		{name: "nothing configured", want: true},
 		// A host keeping its whole value set in links reads no managed file and
 		// serves. Counting files alone skipped every probe that checks redaction
 		// on one, and gave the broker refusing as the reason.
@@ -334,14 +337,23 @@ func TestOnlyNotRedactableSeparatesAValueFromAFault(t *testing.T) {
 			r.Secrets.Errors = []string{"app.sops.yml: bad mac"}
 			return r
 		}, false},
+		// Neither of these makes --check exit non-zero any more: the broker serves
+		// an empty value set, so an entry that named nothing and a store that
+		// loaded nothing are reported and not counted. Answering false here would
+		// leave the short ref beside them looking unaccounted for.
 		{"an entry that named no file beside it", func() checkReport {
 			r := loaded()
 			r.Secrets.UnresolvedPatterns = []string{"/etc/faramir/secrets/*.sops.yml"}
 			return r
-		}, false},
+		}, true},
 		{"nothing loaded at all", func() checkReport {
 			r := loaded()
 			r.Secrets.Count = 0
+			return r
+		}, true},
+		{"a shadowed ref beside it", func() checkReport {
+			r := loaded()
+			r.Secrets.ShadowedRefs = map[string]string{"api/token": "defined in a and b"}
 			return r
 		}, false},
 	} {
@@ -391,9 +403,15 @@ func TestOnlyDegradedLinksSeparatesALinkFromAFault(t *testing.T) {
 			r.Secrets.NotRedactable = map[string]string{"short/pin": "shorter than 8 characters"}
 			return r
 		}, false},
+		// Reported and not counted; see onlyNotRedactable's case above.
 		{"an entry that named no file beside it", func() checkReport {
 			r := loaded()
 			r.Secrets.UnresolvedPatterns = []string{"/etc/faramir/secrets/*.sops.yml"}
+			return r
+		}, true},
+		{"a shadowed ref beside it", func() checkReport {
+			r := loaded()
+			r.Secrets.ShadowedRefs = map[string]string{"api/token": "defined in a and b"}
 			return r
 		}, false},
 	} {

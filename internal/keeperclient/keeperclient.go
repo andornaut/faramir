@@ -22,6 +22,18 @@ import (
 // constant because this package shares no code with the one holding the key.
 const callTimeout = 10 * time.Minute
 
+// ErrReplyTooLarge is a value set larger than one reply may carry. Its own
+// sentinel because it is permanent where every other failure to reach the
+// keeper is transient: retrying re-decrypts the whole store and cannot
+// succeed, so the store treats it as a load failure rather than an outage.
+var ErrReplyTooLarge = errors.New("the keeper's reply is too large")
+
+// maxReplyBytes bounds one keeper reply, which for get_values is every managed
+// value plus the fingerprints, JSON-encoded. Generous rather than tuned: it is
+// a guard against a reply that will not end, and a store anywhere near it is a
+// store to split.
+const maxReplyBytes = 1 << 24
+
 // FileState is one managed file's fingerprint. Comparable, since the staleness
 // check is set equality over these, and it carries no contents.
 type FileState struct {
@@ -41,7 +53,11 @@ type response struct {
 	// like, and a file that is there and will not open is a value the redactor is
 	// missing.
 	UnresolvedPatterns []string `json:"unresolved_patterns"`
-	Error              *struct {
+	// ShadowedRefs is the refs more than one managed file defined, by ref and by
+	// which files. One value wins and the other is in no redactor, so this is a
+	// repair list rather than a diagnostic.
+	ShadowedRefs map[string]string `json:"shadowed_refs"`
+	Error        *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
@@ -67,8 +83,17 @@ func call(socketPath, op string) (*response, error) {
 	if uc, ok := conn.(*net.UnixConn); ok {
 		_ = uc.CloseWrite()
 	}
-	line, err := sockutil.ReadLine(conn, 1<<24)
+	line, err := sockutil.ReadLine(conn, maxReplyBytes)
 	if err != nil {
+		if errors.Is(err, sockutil.ErrTooLarge) {
+			// The reply carries every decrypted value, so this is a managed store
+			// that outgrew the limit rather than anything wrong with the socket.
+			// Named as such: reported as the keeper being unreachable it sent an
+			// operator looking at a daemon that answered perfectly well.
+			return nil, fmt.Errorf("%w: the reply is every managed value at once and "+
+				"is larger than %d bytes, so this store is too big to serve. Split it, "+
+				"or shorten what it holds", ErrReplyTooLarge, maxReplyBytes)
+		}
 		return nil, fmt.Errorf("keeper: %w", err)
 	}
 	if len(line) == 0 {
@@ -85,20 +110,40 @@ func call(socketPath, op string) (*response, error) {
 	return &out, nil
 }
 
+// Loaded is one answer to get_values: what the keeper served, and what it could
+// not. A struct rather than a row of returns, several of which are "what went
+// wrong" in different shapes and were told apart only by position.
+type Loaded struct {
+	Values             map[string]string
+	State              []FileState
+	Errors             []string
+	UnresolvedPatterns []string
+	// ShadowedRefs is the refs more than one managed file defined. One value wins
+	// and the other reaches no redactor, which is the same missing as a value too
+	// short to cover rather than a file that would not open, so it is carried
+	// apart from Errors and does not stop the broker serving.
+	ShadowedRefs map[string]string
+}
+
 // FetchValues asks the keeper for the decrypted value set and the fingerprints
 // of the files it decrypted. Every value, not a subset, and the state comes
 // back with them so the two describe the same moment. A per-file failure is in
-// the errors slice rather than an error, so one broken file does not blank the
-// set.
-func FetchValues(socketPath string) (map[string]string, []FileState, []string, []string, error) {
+// Errors rather than an error, so one broken file does not blank the set.
+func FetchValues(socketPath string) (Loaded, error) {
 	out, err := call(socketPath, "get_values")
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return Loaded{}, err
 	}
 	if out.Values == nil {
-		return nil, nil, nil, nil, errors.New("keeper response has no 'values' object")
+		return Loaded{}, errors.New("keeper response has no 'values' object")
 	}
-	return out.Values, out.State, out.Errors, out.UnresolvedPatterns, nil
+	return Loaded{
+		Values:             out.Values,
+		State:              out.State,
+		Errors:             out.Errors,
+		UnresolvedPatterns: out.UnresolvedPatterns,
+		ShadowedRefs:       out.ShadowedRefs,
+	}, nil
 }
 
 // FetchState asks the keeper which managed files exist and when they changed:

@@ -58,7 +58,7 @@ const opRun = "run"
 // ops the broker refuses to anything but root. They are on this socket rather
 // than one of their own because the check that matters is SO_PEERCRED, which
 // every connection here already carries.
-var Ops = []string{opRun, "refs", "redact", "status", "escalations", "answer", "escalate"}
+var Ops = []string{opRun, "refs", "redact", "status", "refresh", "escalations", "answer", "escalate"}
 
 type Request struct {
 	// Version is what the caller's own binary reports, which every client sends

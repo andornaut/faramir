@@ -67,7 +67,16 @@ Cost: a low-entropy value split across a line break can be redacted where its tw
 
 The buffer only covers a join it is on both sides of, so **one redactor has to span the whole of a stream**. The broker keeps one for the PTY it is reading; `faramir redact` gets it by sending every chunk of one input down one connection, which is what [`more`](protocol.md#redact-and-streaming-it) is for.
 
-A streaming `faramir redact` sends a chunk when it has a chunk's worth or after a short idle: without the idle, a backgrounded command that prints a line and then waits would hold that line until it produced a whole chunk or exited, which for a dev server is never. The idle chunk is still marked `more`, so the broker keeps holding the tail; only the last chunk releases it. The cost is that output shorter than the tail is not shown until more arrives or the input ends, the tail being exactly the bytes a value could still be split across.
+A streaming `faramir redact` sends a chunk when it has a chunk's worth or after a short idle: without the idle, a backgrounded command that prints a line and then waits would hold that line until it produced a whole chunk or exited, which for a dev server is never. The idle chunk is still marked `more`, so the broker keeps holding the tail; only the last chunk releases it.
+
+**The idle flush bounds when a chunk is sent, not when its bytes appear.** What comes back is everything outside the tail, and the tail is twice the longest managed value plus a margin, so a stream producing less than that between flushes shows nothing until it ends. **How live a stream is, is set by the longest value the host manages**, not by the flush interval:
+
+Longest managed value | A stream printing one 30-byte line a second | One 300-byte line a second
+--- | --- | ---
+~46 B | held until the command ends | arrives as it is printed
+4 KiB | held until the command ends | held until the command ends
+
+That is the bound on `wrap.sh --stream`, which is the path a backgrounded command takes, and on the `redact` guarantee that a broker lost mid-stream truncates rather than empties: below the tail there is nothing yet released to keep. One long value is enough to set it for every stream on the host, so a multi-line key, a PEM, or a `[[secret.link]]` read as `text` is worth keeping out of the managed set where the value can be held some other way.
 
 **5. Minimum length gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. [`[secret] min_length`](configuration.md#what-a-flag-sets) is the floor, and a value under it is **refused at load**: not held, not listed, not injectable.
 

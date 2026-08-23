@@ -35,6 +35,11 @@ func (r *runner) BlockedSteps() []namedStep {
 		{labelPreconditions, r.stepPreconditions},
 		{labelConfig, r.stepConfig},
 		{labelAgentConfig, r.stepAgentConfig},
+		// And the same rules in every tree already enrolled. An enrolment writes
+		// this set into the tree as well as into the home, so without this the
+		// home carried the new entry and every tree carried the set from before
+		// it.
+		{labelEnrolledTrees, r.stepEnrolledTrees},
 		// Both entry points, because an entry feeds both: the agents' rule files
 		// above, and the file the command guard reads here. Without this an add
 		// reported changed while half of what it declared, or all of it for a

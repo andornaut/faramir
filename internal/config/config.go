@@ -64,6 +64,15 @@ var (
 	KillGraceSec = 5
 )
 
+// MaxConcurrentRuns is the most brokered commands the executor will fork at
+// once, and so the ceiling on [command] concurrency. Here rather than in
+// internal/execserver so the loader can hold the setting to it: the executor is
+// a backstop against a broker with a bug, and a concurrency above it made the
+// executor the limiter instead, where the surplus met `exec_failed: busy` from
+// the wrong layer after the run had already been registered and recorded as
+// started.
+const MaxConcurrentRuns = 16
+
 // MinRecordBytes is the smallest record limit internal/audit is built to
 // survive, not a value anybody sets. A record keeps its identity when
 // everything else has been cut away -- the log_id, the op and the caller -- and
@@ -86,7 +95,7 @@ func DefaultCommand() CommandConfig {
 
 // DefaultSecret is DefaultCommand for the store.
 func DefaultSecret() SecretConfig {
-	return SecretConfig{DecryptCommand: DecryptCommand(), MinRefreshSec: 10, MinLength: 8}
+	return SecretConfig{DecryptCommand: DecryptCommand(), MinRefreshSec: 1, MinLength: 8}
 }
 
 // DefaultEscalationTimeoutSec is how long a question waits for a human.
@@ -349,10 +358,17 @@ type SecretConfig struct {
 	// SecretPatterns and DecryptCommand.
 	Patterns       []string
 	DecryptCommand []string
-	// MinRefreshSec is how often the broker asks the keeper whether a managed file
-	// changed. It does not bound the linked files: the broker stats those on
-	// every request, so a credential another tool has just rotated is in the
-	// redactor at once.
+	// MinRefreshSec is the soonest the broker will ask the keeper again whether a
+	// managed file changed. It does not bound the linked files: the broker stats
+	// those on every request, so a credential another tool has just rotated is in
+	// the redactor at once.
+	//
+	// It is how long a rotated managed value stays outside the redactor, which is
+	// why the default is a second rather than something an idle host would notice
+	// saving. The question is a stat per managed file and costs about 0.04 ms on a
+	// command that already costs two milliseconds; raising it buys nothing worth
+	// the window it opens, and the window opens exactly when an operator has just
+	// rotated a value and runs a command to see that it took.
 	MinRefreshSec int
 	// MinLength is the floor a value has to clear to be held at all. Below it a
 	// value matches inside ordinary words and the redactor eats the output; above
@@ -702,7 +718,7 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 		return err
 	}
 	// 1, not 0: an unbuffered channel refuses every request as busy.
-	if out.Concurrency, err = atLeast(sec, "concurrency", where, out.Concurrency, 1); err != nil {
+	if out.Concurrency, err = intInRange(sec, "concurrency", where, out.Concurrency, 1, MaxConcurrentRuns); err != nil {
 		return err
 	}
 	// Merged over the built-in table rather than replacing it, so a file that

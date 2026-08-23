@@ -341,7 +341,7 @@ func newInitCmd() *cobra.Command {
 	fl.IntVar(&f.commandMaxTimeoutSec, "command-max-timeout-sec", command.MaxTimeoutSec,
 		"the most a caller may ask for, and the idle bound on a redact stream")
 	fl.IntVar(&f.commandConcurrency, "command-concurrency", command.Concurrency,
-		"how many brokered commands run at once; the rest are refused busy")
+		"how many brokered commands run at once; the rest are refused busy. Held to what the executor forks at once")
 	fl.IntVar(&f.escalationTimeoutSec, "escalation-timeout-sec", config.DefaultEscalationTimeoutSec,
 		"how long a sudo question waits for a human before it is refused (1 to 600)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
@@ -594,6 +594,32 @@ func newDoctorCmd() *cobra.Command {
 	return c
 }
 
+// doctorOperator is operatorName with the install's own answer behind it.
+//
+// `init` records the account the agent runs as in [server] agent_user, so a
+// host that has been provisioned has written down who it belongs to. Reached
+// only where operatorName has nothing: root with no SUDO_USER, which is a
+// container, `su -`, cron, or a configuration manager's become. Without it
+// those runs skipped every check that asks what the agent account can reach and
+// told the operator to pass a flag naming what the config already said.
+//
+// Behind SUDO_USER rather than in front of it: a person running `sudo faramir
+// doctor` is answering the same question in the present tense, and a config
+// that has gone stale should not outrank them.
+func doctorOperator(flagValue, configFile string) string {
+	if name := operatorName(flagValue); name != "" {
+		return name
+	}
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		return ""
+	}
+	if cfg.Server.AgentUser == "root" {
+		return ""
+	}
+	return cfg.Server.AgentUser
+}
+
 func runDoctor(f doctorFlags) int {
 
 	paint, err := newPalette(f.when)
@@ -627,7 +653,7 @@ func runDoctor(f doctorFlags) int {
 		BrokerVersion: broker.version,
 		BrokerBuild:   broker.build,
 		SocketStates:  sockets,
-		AgentUser:     operatorName(f.agentUser),
+		AgentUser:     doctorOperator(f.agentUser, configFile),
 		ClientGroup:   f.clientGroup,
 		BrokerUser:    f.brokerUser,
 		KeeperUser:    f.keeperUser,

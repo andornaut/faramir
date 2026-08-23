@@ -120,7 +120,9 @@ func TestOutputEndingMidRuneIsNotTruncated(t *testing.T) {
 }
 
 // The response is cut and says so, while the PTY keeps being drained: a chatty
-// child that stopped being read would block and never exit.
+// child that stopped being read would block and never exit. What the cut keeps
+// is the head and the tail, so the last thing the child said is in it: that is
+// the line a run is read for, and a command's own `DONE` stands in for it.
 func TestOutputIsTruncatedButTheChildStillFinishes(t *testing.T) {
 	h := newHarness(t, 4096)
 	result, audited := h.run(t, `printf 'y%.0s' $(seq 1 40000); echo DONE`)
@@ -128,8 +130,11 @@ func TestOutputIsTruncatedButTheChildStillFinishes(t *testing.T) {
 	if !result.Truncated {
 		t.Error("a long run was not flagged as truncated")
 	}
-	if !strings.Contains(result.Output, "output truncated") {
+	if !strings.Contains(result.Output, "bytes of output dropped") {
 		t.Errorf("the response does not say it was cut: %q", tail(result.Output))
+	}
+	if !strings.Contains(result.Output, "DONE") {
+		t.Errorf("the end of the output was dropped: %q", tail(result.Output))
 	}
 	if result.ExitCode != 0 {
 		t.Errorf("exit = %d; the child did not finish draining", result.ExitCode)

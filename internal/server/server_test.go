@@ -46,11 +46,27 @@ func newServer(t *testing.T, values map[string]string, secretFiles ...string) *S
 	return serverWith(t, keepertest.New(t, values, secretFiles...), secretFiles...)
 }
 
-// newUnconfiguredServer names no the managed store, which is a broker that cannot
-// promise redaction and refuses exec and redact.
+// newUnconfiguredServer names no managed store, which is a broker holding an
+// empty value set: it serves, there being no managed value for output to carry.
 func newUnconfiguredServer(t *testing.T, values map[string]string) *Server {
 	t.Helper()
 	return serverWith(t, keepertest.New(t, values))
+}
+
+// newUnreadableServer is the state that does refuse: a managed file that was
+// found and did not load, where the broker knows values exist and cannot cover
+// them.
+func newUnreadableServer(t *testing.T) *Server {
+	t.Helper()
+	file := managedFile(t)
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"}, file)
+	k.SetErrors([]string{file + ": could not decrypt"})
+	s := serverWith(t, k, file)
+	s.Store.Reload()
+	if s.Store.Unreadable() == "" {
+		t.Fatal("the fixture does not refuse: a file that did not load should")
+	}
+	return s
 }
 
 // serverWith is newServer against a keeper the caller already has, for a test
@@ -431,10 +447,11 @@ func TestTheKeyReportContainsNoKeyMaterial(t *testing.T) {
 	}
 }
 
-// Every value that did not load is one that reaches the agent in plaintext, and
-// an unmounted store looks exactly like one never written, so absence fails the
-// gate as well as unreadability.
-func TestCheckFailsOnASecretsFileThatDidNotLoad(t *testing.T) {
+// A configured entry that named no file is reported and does not fail the
+// audit: an unmounted store looks exactly like one never written, and a host
+// that manages no credentials holds no value for output to carry. What the
+// operator gets is the report, not a broker that stops.
+func TestCheckPassesOnAConfiguredEntryThatNamedNoFile(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "regular")
 	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
@@ -445,8 +462,8 @@ func TestCheckFailsOnASecretsFileThatDidNotLoad(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"}, tc.file)
-			if _, code := s.CheckOutput(); code == 0 {
-				t.Error("passed the gate")
+			if _, code := s.CheckOutput(); code != 0 {
+				t.Error("an entry that named no file failed the audit")
 			}
 		})
 	}
@@ -518,30 +535,30 @@ func TestCheckPassesWhenTheSocketsNameTheBroker(t *testing.T) {
 	}
 }
 
-// -- the gate on an empty value set -----------------------------------------
+// -- an empty value set ------------------------------------------------------
 
-// Holding nothing, the redactor is a no-op, so a command that printed a
-// credential it got from anywhere would print it in plaintext. Blocked here
-// rather than by refusing to start, so the daemon stays diagnosable.
-func TestExecAndRedactAreRefusedWhileNoManagedFileWasRead(t *testing.T) {
+// Holding nothing is not holding less than it should: there is no managed value
+// for output to carry that the redactor lacks, so the ops run. A host that
+// manages no credentials is every install on its first day, and refusing there
+// stopped work to protect nothing.
+func TestExecAndRedactAreServedWhileTheValueSetIsEmpty(t *testing.T) {
 	s := newUnconfiguredServer(t, map[string]string{})
 	peer := &sockutil.Peer{UID: 1000}
-	for _, op := range []map[string]any{
-		{"op": "redact", "text": "anything"},
-		{"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir()},
-	} {
-		got := handle(s, op, peer)
-		failure, ok := got["error"].(map[string]string)
-		if !ok {
-			t.Fatalf("%v was served with an empty value set: %v", op["op"], got)
-		}
-		if failure["code"] != "no_secrets" {
-			t.Errorf("code = %q, want no_secrets", failure["code"])
-		}
-		// The caller has to be able to act on it, by a command that exists.
-		if !strings.Contains(failure["message"], "faramir vault add") {
-			t.Errorf("message does not say what to do: %q", failure["message"])
-		}
+
+	// redact answers in full: it needs nothing but the redactor.
+	if got := handle(s, map[string]any{"op": "redact", "text": "anything"}, peer); got["error"] != nil {
+		t.Errorf("redact was refused with an empty value set: %v", got["error"])
+	}
+	// run reaches the executor, which this fixture does not have, so what is
+	// asserted is that it got past the gate rather than that it ran.
+	got := handle(s, map[string]any{"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir()}, peer)
+	if failure, ok := got["error"].(map[string]string); ok && failure["code"] == "no_secrets" {
+		t.Errorf("run was refused for an empty value set: %v", failure)
+	}
+	// Served, and said: the one case this cannot tell from a host that manages
+	// nothing is a store on a filesystem that is not mounted.
+	if s.Store.EmptySet() == "" {
+		t.Error("EmptySet said nothing about a broker holding no values")
 	}
 }
 
@@ -669,13 +686,13 @@ func TestStatusAndListStayAvailableWhileNoManagedFileWasRead(t *testing.T) {
 	}
 }
 
-// An operator asking is asking to be told, so the audit is stricter than the
-// daemon's own gate.
-func TestCheckFailsWhileTheValueSetIsEmpty(t *testing.T) {
+// An operator asking is asking to be told, and being told is the whole of it: a
+// converge run must not fail a host that manages no credentials.
+func TestCheckPassesWhileTheValueSetIsEmpty(t *testing.T) {
 	s := newUnconfiguredServer(t, map[string]string{})
 	s.Config.Ssh.Key = ""
-	if _, code := s.CheckOutput(); code == 0 {
-		t.Error("a broker holding no values passed the audit")
+	if _, code := s.CheckOutput(); code != 0 {
+		t.Error("a broker holding no values failed the audit")
 	}
 }
 

@@ -244,8 +244,14 @@ func StatAll(secrets config.SecretConfig) ([]FileState, []string, []string) {
 // DecryptAll decrypts every managed file. Per-file failures are returned as
 // errors rather than aborting, so one broken file does not blank the value
 // set.
-func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string, []string) {
+//
+// The third return is the refs two files both defined. One value wins and the
+// other leaves the value set entirely, so it is injected by nothing and
+// redacted by nothing: the same consequence as a value below [secret]
+// min_length, and reported the same way rather than left to a daemon log line.
+func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string, []string, map[string]string) {
 	values := map[string]string{}
+	definedIn := map[string][]string{}
 	paths, errors, _ := Resolve(secrets.Patterns)
 
 	env := []string{
@@ -286,7 +292,7 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 			if exitErr, ok := goerrors.AsType[*exec.ExitError](err); ok {
 				errors = append(errors, keys.Scrub(fmt.Sprintf(
 					"%s: decrypt failed (%d): %s", path, exitErr.ExitCode(),
-					lastLine(string(exitErr.Stderr)))))
+					firstLine(string(exitErr.Stderr)))))
 			} else {
 				errors = append(errors, keys.Scrub(fmt.Sprintf(
 					"%s: running %s failed: %v", path, argv[0], err)))
@@ -303,10 +309,20 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 			if existing, ok := values[ref]; ok && existing != value {
 				log.Printf("secret ref %s defined more than once; last wins", ref)
 			}
+			definedIn[ref] = append(definedIn[ref], path)
 			values[ref] = value
 		}
 	}
-	return values, errors
+	// Named by the files rather than by a count: the repair is to take the ref
+	// out of one of them, so the operator needs to know which two.
+	shadowed := map[string]string{}
+	for ref, in := range definedIn {
+		if len(in) > 1 {
+			shadowed[ref] = "defined in " + strings.Join(in, " and ") +
+				"; the last one read wins and the other value is in no redactor"
+		}
+	}
+	return values, errors, shadowed
 }
 
 func envOr(name, fallback string) string {
@@ -316,13 +332,23 @@ func envOr(name, fallback string) string {
 	return fallback
 }
 
-func lastLine(s string) string {
+// firstLine is the line of a decrypt failure the operator is shown, and it goes
+// into `faramir status`, `doctor` and the refusal a brokered command gets.
+//
+// The first rather than the last: a program's error summary is conventionally
+// its opening line, and the closing one is often the tail of an explanation.
+// sops ends "In order for SOPS to recover the file, at least one key has to be
+// successful, but none were.", so the last line reached the operator as the
+// fragment "but none were." and said nothing about which file or why.
+func firstLine(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return "no output"
 	}
-	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
-		return s[i+1:]
+	for line := range strings.SplitSeq(s, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
 	}
 	return s
 }
@@ -423,12 +449,12 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 		// than the values and reloads once too often. The other order would never
 		// pick the edit up.
 		state, errs, unresolved := StatAll(k.config.Secret)
-		values, decryptErrs := DecryptAll(k.config.Secret, k.Keys)
+		values, decryptErrs, shadowed := DecryptAll(k.config.Secret, k.Keys)
 		errs = append(errs, decryptErrs...)
 		log.Printf("served %d value(s), %d error(s), %d entry(ies) naming nothing",
 			len(values), len(errs), len(unresolved))
 		return map[string]any{"values": values, "state": state, "errors": errs,
-			"unresolved_patterns": unresolved}
+			"unresolved_patterns": unresolved, "shadowed_refs": shadowed}
 	default:
 		// Named explicitly, so the error says the key is not obtainable here.
 		return errorResponse("unsupported", fmt.Sprintf(

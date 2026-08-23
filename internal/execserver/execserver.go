@@ -105,7 +105,10 @@ type Executor struct {
 // maxConcurrent is a backstop, not a knob: the broker is this socket's only
 // permitted client and holds a [command] concurrency slot for the whole of each
 // run, so that number binds first. This one bounds a broker with a bug.
-const maxConcurrent = 16
+//
+// The same constant the loader holds [command] concurrency to, so "binds first"
+// is enforced rather than assumed.
+const maxConcurrent = config.MaxConcurrentRuns
 
 func New(cfg *config.Config) *Executor {
 	e := &Executor{
@@ -398,7 +401,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 		if pidfd >= 0 {
 			_ = unix.Close(pidfd)
 		}
-		return errorResponse("exec_failed", fmt.Sprintf("%s: %v", req.Argv[0], err))
+		return errorResponse("exec_failed", startFailure(req.Argv[0], req.Cwd, err))
 	}
 	// As soon as there is a pid to record, which is after the fork: the child is
 	// running by then, so a run that reaches sudo before this line is refused as
@@ -649,4 +652,38 @@ func (c *Client) Close() {
 		_ = c.conn.Close()
 		c.conn = nil
 	}
+}
+
+// startFailure names what went wrong, which is not always the program. The
+// kernel refuses the exec when the working directory cannot be entered as well
+// as when the binary cannot be run, and both arrive as one EACCES on the
+// program's path: an operator following the README's first `faramir run` from a
+// stock home was told /usr/bin/printenv could not be run.
+//
+// Asked here rather than by the broker because this runs as the account the
+// answer is about. Only on a permission error, and only to add a sentence: what
+// the exec reported is still what is returned.
+func startFailure(program, cwd string, err error) string {
+	detail := fmt.Sprintf("%s: %v", program, err)
+	if cwd == "" || !errors.Is(err, os.ErrPermission) {
+		return detail
+	}
+	// Opening it is the same permission the exec needs, and it is one syscall on
+	// a path the caller already named.
+	dir, openErr := os.Open(cwd)
+	if openErr == nil {
+		_ = dir.Close()
+		return detail
+	}
+	if !errors.Is(openErr, os.ErrPermission) {
+		return detail
+	}
+	who := strconv.Itoa(os.Getuid())
+	if u, lookupErr := user.LookupId(who); lookupErr == nil {
+		who = u.Username
+	}
+	return fmt.Sprintf("%s. The command runs as %s, which cannot enter %s, so the "+
+		"exec was refused before the program was reached. Share the tree with "+
+		"`sudo faramir init-project` in it, which grants the traversal a brokered "+
+		"command needs", detail, who, cwd)
 }

@@ -35,7 +35,7 @@ func TestStoreFindingFailsOnlyOnSomethingWrong(t *testing.T) {
 			want: StatusWarn, says: []string{"the whole value set is 1 [[secret.link]] entry"}},
 		{name: "no managed file and nothing linked, a first install",
 			patterns: []string{glob}, unresolved: []string{glob},
-			want: StatusWarn, says: []string{"nothing is served"}},
+			want: StatusWarn, says: []string{"nothing is injected and nothing is redacted"}},
 		// The entry that named nothing is named, and what the entries that did
 		// name something hold is reported beside it: the daemon serves this store,
 		// so a detail saying nothing is served would be false.
@@ -58,11 +58,12 @@ func TestStoreFindingFailsOnlyOnSomethingWrong(t *testing.T) {
 		{name: "a load error outranks a count, the daemon refusing either way",
 			patterns: []string{glob}, files: []string{"a.sops.yml"}, count: 9, links: 1,
 			errors: []string{"a.sops.yml: bad mac"}, want: StatusFailed},
+		// An empty value set: the daemon serves these, so they warn.
 		{name: "a file read that held no refs",
 			patterns: []string{glob}, files: []string{"a.sops.yml"}, count: 0,
-			want: StatusFailed, says: []string{"loaded no refs"}},
+			want: StatusWarn, says: []string{"loaded no refs", "nothing is redacted"}},
 		{name: "nothing configured at all",
-			want: StatusFailed, says: []string{"nothing is injectable"}},
+			want: StatusWarn, says: []string{"nothing redacted"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var c checkReport

@@ -47,9 +47,13 @@ timeout_sec = {{.CommandTimeoutSec}}
 # The ceiling every request is clamped to, and the idle bound between chunks of
 # a redact stream.
 max_timeout_sec = {{.CommandMaxTimeoutSec}}
-# How many brokered commands run at once; the rest are refused `busy`. On a
-# host installed with --allow-sudo, raising this makes an escalation harder to
-# get: a sudo is refused outright while any other brokered command is
+# How many brokered commands run at once; the rest are refused `busy`. Bounded
+# by what the executor forks at once, which is what makes this the number that
+# binds: above it the surplus meets the executor's refusal instead, after the
+# run has been registered and recorded as started.
+#
+# On a host installed with --allow-sudo, raising this makes an escalation harder
+# to get: a sudo is refused outright while any other brokered command is
 # registered, so the more that run at once, the rarer the quiet window an
 # escalation needs. See docs/design.md on serialising escalations.
 concurrency = {{.CommandConcurrency}}
@@ -126,6 +130,13 @@ min_length = {{.SecretMinLength}}
 #
 # The linked files below are not on this clock: the broker stats those itself,
 # per request, so a credential another tool has just rotated is covered at once.
+#
+# This is also how long a rotated managed value stays outside the redactor, so a
+# command run in that window prints the new value in the clear. `faramir vault`
+# does not wait for it -- it tells the broker to re-read as soon as it has
+# written -- but anything else that writes the store does. The question is a
+# stat per managed file, so raising this saves nothing measurable and widens
+# that window.
 min_refresh_sec = {{.SecretMinRefreshSec}}
 #
 # The managed store is not a key. It is {{.SecretsDir}}, derived from where this
