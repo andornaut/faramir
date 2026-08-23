@@ -657,6 +657,20 @@ func responseWait(request map[string]any) time.Duration {
 	return execCeiling + execGrace
 }
 
+// errorExit is the status a refused request exits with. One code is separated
+// out: a broker at its concurrency limit refused nothing about the command and
+// the same request succeeds a moment later, so a caller driving faramir from a
+// script can retry it rather than reading stderr to find out whether it should.
+// Every other refusal is 1, the command not having run for a reason retrying
+// does not change. An escalation already in flight is deliberately not here:
+// docs/design.md has why that one is terminal.
+func errorExit(code string) int {
+	if code == "busy" {
+		return 75 // EX_TEMPFAIL
+	}
+	return 1
+}
+
 // send performs one request/response round trip. prog is the subcommand the
 // caller typed, so a diagnostic reads `faramir <cmd>:` like the rest.
 // Everything on this side of the socket has already been redacted.
@@ -735,7 +749,7 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 			}
 		}
 		if response.Error != nil {
-			return 1
+			return errorExit(response.Error.Code)
 		}
 		// The same status the plain form exits with. Without this a converge run
 		// reading --json cannot tell a broker with a degraded ref from a healthy
@@ -751,7 +765,7 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		if response.LogID != "" {
 			fmt.Fprintf(os.Stderr, "faramir %s: log_id=%s\n", prog, response.LogID)
 		}
-		return 1
+		return errorExit(response.Error.Code)
 	}
 
 	fmt.Print(response.Output)

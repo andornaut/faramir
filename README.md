@@ -230,7 +230,7 @@ faramir redact -- ./deploy.sh
 `--timeout`/`-t` | Seconds before the broker kills it. Defaults to `[command] timeout_sec`, and `max_timeout_sec` is the ceiling
 `--json` | The raw response, on every broker-facing command
 
-- The child's exit code is faramir's own. A broker that is not running exits 69 (`EX_UNAVAILABLE`).
+- The child's exit code is faramir's own. A broker that is not running exits 69 (`EX_UNAVAILABLE`), and one at its concurrency limit exits 75 (`EX_TEMPFAIL`), which is the one refusal that the same request survives a moment later. Every other refusal exits 1, and a usage error exits 2.
 - **`faramir redact` writes nothing it could not redact**, in either shape. A chunk the broker cannot cover is withheld, the stream stops there, and the exit status is non-zero: for `-- CMD` the child's own status when it failed, else 1. Chunks already redacted are kept, so a broker lost mid-stream truncates rather than empties.
 - Both `--env` and `--env-file` refuse a literal value and a name that cannot be an environment variable. One file refuses a name given twice with different refs, the bare and the mapping form counting as the same name; across sources a later `--env-file` beats an earlier one, and `--env` beats both. A bad line is reported with file and line, and the offending value never appears. A bare line is held to the same rule, so anything that is not a usable variable name is refused where it is written rather than becoming a ref nothing serves.
 
