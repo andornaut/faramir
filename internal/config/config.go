@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 
@@ -935,13 +936,26 @@ func validateBlocked(blocked BlockedPath, at string) error {
 // stored. Refused where they are written rather than escaped where they are
 // shown, an entry being text an operator chose.
 func refuseControl(form, value, at string) error {
-	for i, r := range value {
+	// Decoded byte by byte rather than ranged over: ranging yields U+FFFD for a
+	// byte that is not valid UTF-8, which is not Actionable, so the check would
+	// not see it. Such a byte renders a rule Go's regexp refuses to compile, and
+	// the hook skips a rule it cannot compile, which is the same loss by a
+	// quieter route.
+	for i := 0; i < len(value); {
+		r, size := utf8.DecodeRuneInString(value[i:])
+		if r == utf8.RuneError && size == 1 {
+			return fmt.Errorf("%s: %s %q carries a byte at offset %d that is not valid "+
+				"UTF-8. A rule is a regular expression, and one carrying such a byte "+
+				"does not compile; the hook skips a rule it cannot compile, so the "+
+				"entry would refuse nothing", at, form, value, i)
+		}
 		if termsafe.Actionable(r) {
 			return fmt.Errorf("%s: %s %q carries %q at offset %d. A rule is one line "+
 				"of a generated file, so a newline in an entry splits it and leaves "+
 				"neither half a working rule; the rest of the controls make a listing "+
 				"print something other than what is stored", at, form, value, r, i)
 		}
+		i += size
 	}
 	return nil
 }

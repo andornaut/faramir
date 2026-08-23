@@ -348,3 +348,20 @@ func TestTheControlRefusalNamesTheByte(t *testing.T) {
 		}
 	}
 }
+
+// A byte that is not valid UTF-8 renders a rule Go's regexp refuses, and the
+// hook skips a rule it cannot compile: the entry would be listed and refuse
+// nothing. Refused where it is written, as the controls are.
+func TestAByteThatIsNotValidUTF8IsRefused(t *testing.T) {
+	err := ValidateBlocked(BlockedPath{Path: "/home/op/na\xefve"})
+	if err == nil {
+		t.Fatal("a path carrying an invalid byte was accepted")
+	}
+	if !strings.Contains(err.Error(), "not valid UTF-8") {
+		t.Errorf("the refusal does not say why: %v", err)
+	}
+	// And the multi-byte path that is valid is still ordinary.
+	if err := ValidateBlocked(BlockedPath{Path: "/home/op/na\u00efve"}); err != nil {
+		t.Errorf("a valid multi-byte path was refused: %v", err)
+	}
+}
