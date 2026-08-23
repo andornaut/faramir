@@ -395,13 +395,22 @@ func watchEscalations(socketPath string, paint palette) int {
 // exit and the child sits inside sudo for the whole escalation, so a slowly
 // answered run would otherwise read as a slow command. Said rather than
 // subtracted: [command] max_timeout_sec is enforced against the same clock.
-func waitedIn(outcome escalation.Outcome) string {
+// ranFor is how long the command itself took, and what the wait and the total
+// were where the command sat blocked on its own escalation.
+//
+// The run time leads because it is the number being asked for: DurationSec is
+// wall clock from the moment the command registered, so a script that failed
+// the instant it was approved and one that ran for a minute read the same until
+// the wait is subtracted. The total stays because the exec timeout is enforced
+// against it, and a command killed at timeout_sec is unexplainable without it.
+func ranFor(outcome escalation.Outcome) string {
 	if outcome.WaitedSec < 1 {
-		return ""
+		return fmt.Sprintf("in %.1fs", outcome.DurationSec)
 	}
-	// The same precision the duration is printed at, or a wait of 40.6s beside a
-	// duration of 41.0s reads as a command that took no time at all.
-	return fmt.Sprintf(", waited %.1fs of it", outcome.WaitedSec)
+	// The same precision throughout, or a wait of 40.6s beside a duration of
+	// 41.0s reads as a command that took no time at all.
+	return fmt.Sprintf("in %.1fs (%.1fs waiting to be approved, %.1fs total)",
+		outcome.DurationSec-outcome.WaitedSec, outcome.WaitedSec, outcome.DurationSec)
 }
 
 // printOutcome says how the approved run ended, in one line naming the record
@@ -421,11 +430,10 @@ func printOutcome(outcome escalation.Outcome, paint palette) {
 	case outcome.ExitCode == nil:
 		fmt.Printf("  %s %s\n", id, paint.bad("ended, no exit status"))
 	case outcome.TimedOut:
-		fmt.Printf("  %s %s\n", id, paint.bad(fmt.Sprintf("exited %d after %.1fs, timed out%s",
-			*outcome.ExitCode, outcome.DurationSec, waitedIn(outcome))))
+		fmt.Printf("  %s %s\n", id, paint.bad(fmt.Sprintf("exited %d %s, timed out",
+			*outcome.ExitCode, ranFor(outcome))))
 	default:
-		ending := fmt.Sprintf("exited %d after %.1fs%s",
-			*outcome.ExitCode, outcome.DurationSec, waitedIn(outcome))
+		ending := fmt.Sprintf("exited %d %s", *outcome.ExitCode, ranFor(outcome))
 		if *outcome.ExitCode != 0 {
 			fmt.Printf("  %s %s\n", id, paint.bad(ending))
 			break

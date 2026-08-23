@@ -717,8 +717,14 @@ func outcome(record map[string]any) (string, bool) {
 		return "", false
 	}
 	label := fmt.Sprintf("exit %d", int(code))
+	// The run time, not the wall clock. A command blocked on its own escalation
+	// sits inside sudo for the whole of it, so the wall clock says a script that
+	// failed the instant it was approved took as long as the operator took to
+	// answer. waited_sec is absent where nothing waited, and the two are then the
+	// same number. The detail view carries the wait and the total.
 	if seconds, ok := num(record, "duration_sec"); ok {
-		label += fmt.Sprintf(" %.2fs", seconds)
+		waited, _ := num(record, "waited_sec")
+		label += fmt.Sprintf(" %.2fs", max(seconds-waited, 0))
 	}
 	return label, code != 0
 }
@@ -798,6 +804,15 @@ func printRecord(record map[string]any, paint palette) {
 		if value := str(record, row.field); value != "" {
 			printField(paint, row.label, termsafe.Line(value))
 		}
+	}
+	// Only where the command waited: on every other record the run time in the
+	// summary line above is the whole of it, and two more rows saying so would
+	// be noise on every record in the log.
+	if waited, ok := num(record, "waited_sec"); ok && waited > 0 {
+		total, _ := num(record, "duration_sec")
+		printField(paint, "waited", fmt.Sprintf(
+			"%.2fs to be approved, of %.2fs between registering and exiting",
+			waited, total))
 	}
 	printField(paint, "refs", paint.ref(envRefs(record)))
 	// A reseal's recipients: who could read that file before, and who can now.

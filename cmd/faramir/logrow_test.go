@@ -80,3 +80,27 @@ func TestRowPrintsEveryRecordWhateverTheDay(t *testing.T) {
 		t.Errorf("%d rows carry the command, want %d:\n%s", got, len(records), out)
 	}
 }
+
+// A command blocked on its own escalation sits inside sudo for the whole wait,
+// so the wall clock reports the operator's thinking time as the command's. The
+// listing column is the run time; the detail view is where the wait and the
+// wall clock are.
+func TestTheListingShowsTheRunTimeNotTheWallClock(t *testing.T) {
+	record := map[string]any{
+		"op": "run", "exit_code": 1.0, "duration_sec": 50.52, "waited_sec": 50.51,
+	}
+	label, bad := outcome(record)
+	if !strings.Contains(label, "0.01s") {
+		t.Errorf("label = %q, want the run time rather than 50.52s", label)
+	}
+	if !bad {
+		t.Error("a non-zero exit is still the row that asked to be read")
+	}
+	// And a record with no wait is unchanged: the two numbers are the same one.
+	plain, _ := outcome(map[string]any{
+		"op": "run", "exit_code": 0.0, "duration_sec": 12.44,
+	})
+	if !strings.Contains(plain, "12.44s") {
+		t.Errorf("label = %q, want the duration untouched where nothing waited", plain)
+	}
+}

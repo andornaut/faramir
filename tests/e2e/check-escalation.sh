@@ -365,6 +365,17 @@ waited=$(jq -r --arg id "$LOGID" 'select(.log_id==$id and .op=="run") | .waited_
 awk -v w="${waited:-0}" 'BEGIN { exit !(w + 0 >= 2) }' \
   && ok "and the record says ${waited}s of it was waiting to be approved" \
   || bad "waited_sec is [$waited], want the seconds the answer took"
+# And what the operator reads is the command's own time, not the wall clock: the
+# command above ran /bin/true and waited three seconds to be allowed to, so a
+# listing showing the wall clock would report a three-second /bin/true.
+row=$(/usr/local/bin/faramir logs -n 40 --color never 2>/dev/null | grep -F "$LOGID" | tail -1)
+ran=$(grep -oE 'exit [0-9]+ +([0-9.]+)s' <<<"$row" | grep -oE '[0-9.]+s$' | tr -d s)
+awk -v r="${ran:-99}" 'BEGIN { exit !(r + 0 < 2) }' \
+  && ok "the listing shows the run time (${ran}s), not the wall clock" \
+  || bad "the listing shows ${ran}s for a command that waited: [$row]"
+detail=$(/usr/local/bin/faramir logs "$LOGID" --color never 2>/dev/null | tr -s '[:space:]' ' ')
+grep -q 'waited' <<<"$detail" && ok "and the detail view names the wait and the wall clock" \
+  || bad "the detail view does not say what the wall clock included: $(head -c 160 <<<"$detail")"
 resp=$(runuser -u op -- /usr/local/bin/faramir run --json -t 20 -- /bin/true 2>/dev/null)
 grep -q '"waited_sec"' <<<"$resp" \
   && bad "a command that asked nobody reports a wait: $(head -c 120 <<<"$resp")" \
