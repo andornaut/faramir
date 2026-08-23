@@ -145,6 +145,8 @@ Which of the five a pattern is comes from its shape, and `block add` prints what
 
 **A path or a name covers both entry points.** The agents' deny rules and the command guard's patterns are rendered from one set, so a declared path or name refuses a file tool and `cat` alike, and `faramir init` re-asserts both. A command covers the shell alone, being nothing a file tool can name.
 
+**A rule matches the command as it was written.** The guard reads the text of a command and has no working directory to resolve a relative path against, so `cat /srv/keys/luks.key` is refused and `cd /srv/keys && cat luks.key` is not, and neither is a path the shell assembles from a variable. A managed or a linked value is covered whichever route reads it, an enrolled tree rewriting the command so its output is redacted on the way back; a blocked path holds no value faramir has read, so the refusal is the whole of what it adds. Where a file has to be beyond reach whatever is typed, the mode on it is what holds: this rule refuses a name, not an `open(2)`.
+
 **It is the weaker of the two entries.** A link reads the file, so it does three things this one cannot:
 
 What happens to the file | `[[secret.link]]` | `[[secret.block]]`
