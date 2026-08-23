@@ -26,6 +26,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keeperclient"
 	"github.com/andornaut/faramir/internal/redact"
+	"github.com/andornaut/faramir/internal/secretref"
 )
 
 // Store is a concurrency-safe, mtime-refreshed view of every managed secret.
@@ -158,10 +159,19 @@ func (s *Store) Reload() {
 	}
 
 	// A value the redactor cannot cover is not loaded: serving it would put it in
-	// a child's environment with nothing to catch it on the way out.
+	// a child's environment with nothing to catch it on the way out. A ref no
+	// caller could spell goes the same way: a name that reaches `faramir refs`
+	// and then is refused by every path that injects it is one the agent is
+	// offered and cannot use. A [[secret.link]] ref is held to this at config
+	// load; a key out of a managed file arrives here instead.
 	redactable := map[string]string{}
 	refused := map[string]string{}
 	for ref, value := range values {
+		if !secretref.Valid(ref) {
+			refused[ref] = "is not a name a faramir:// reference can carry, " +
+				"which is letters, digits, and then any of . _ - /"
+			continue
+		}
 		if reason := s.Policy.Check(value); reason == "" {
 			redactable[ref] = value
 		} else {
@@ -204,7 +214,7 @@ func (s *Store) Reload() {
 			entries = append(entries, ref+" ("+refused[ref]+")")
 		}
 		log.Printf("%d of %d secrets refused as not redactable, so they are never "+
-			"injected; lengthen them: %s",
+			"injected; the reason beside each says what to fix: %s",
 			len(refused), len(redactable)+len(refused), strings.Join(entries, ", "))
 	}
 	log.Printf("loaded %d vault refs from %d file(s)", len(redactable), len(state))
@@ -537,14 +547,23 @@ func (s *Store) Degraded() string {
 		why = append(why, fmt.Sprintf("%d ref(s) cannot be redacted, so they "+
 			"are never injected: %s", len(s.refused), strings.Join(sortedKeys(s.refused), ", ")))
 	}
+	// A ref two managed files define differently: the loser is on disk, in no
+	// redactor, and a command that prints it prints it. The same consequence as
+	// a refused ref, so it is counted the same way. Named, never the files that
+	// define it, which is what --check adds for the operator.
+	if len(s.shadowedRefs) > 0 {
+		why = append(why, fmt.Sprintf("%d ref(s) are defined with different "+
+			"values by more than one managed file, so one value is in no "+
+			"redactor: %s", len(s.shadowedRefs), strings.Join(sortedKeys(s.shadowedRefs), ", ")))
+	}
 	if len(s.loadErrors) > 0 {
 		// Counted, not quoted: a load error carries the path of a managed file.
 		why = append(why, fmt.Sprintf("%d managed file(s) did not load", len(s.loadErrors)))
 	}
-	if len(s.unresolvedPatterns) > 0 {
-		why = append(why, fmt.Sprintf("%d configured entry(ies) named no file",
-			len(s.unresolvedPatterns)))
-	}
+	// A configured entry that named no file is not counted, matching the
+	// operator-facing report: a host that manages no credentials is doing its
+	// job, and there is no value for output to carry that the redactor lacks.
+	// What does count is a file that was found and did not load, above.
 	return strings.Join(why, "; ")
 }
 

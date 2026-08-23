@@ -917,7 +917,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// over, and doctor saying warn where status says fail would leave the two
 	// describing different hosts.
 	if len(check.Secrets.NotRedactable) > 0 {
-		report.addf("ref length", StatusFailed, "%d ref(s) cannot be redacted, so "+
+		report.addf("refused refs", StatusFailed, "%d ref(s) cannot be redacted, so "+
 			"they are never injected and never redacted: %s. Fix each with `sudo "+
 			"faramir vault edit`; the reason beside it says how",
 			len(check.Secrets.NotRedactable), check.refusedRefs())
@@ -925,7 +925,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			explained = true
 		}
 	}
-	// A ref two managed files both defined. Reported beside ref length because
+	// A ref two managed files both defined. Reported beside the refused refs because
 	// the consequence is the same one: a value this host manages that is injected
 	// by nothing and covered by nothing, so a command printing it prints it. The
 	// difference is that a short value is knowingly outside the redactor and this

@@ -94,10 +94,10 @@ head_ "1. a healthy install"
 
 snap
 failed=$(jq -r '[.findings[]|select(.status=="failed")|.check]|sort|join(",")' $JSON)
-if [ "$failed" = "ref length" ]; then
+if [ "$failed" = "refused refs" ]; then
   ok "an install straight from init fails on the fixture's short ref and nothing else"
 else
-  bad "failed checks are [$failed], want [ref length]: $(jq -r '[.findings[]|select(.status=="failed")|"\(.check): \(.detail)"]|join(" | ")' $JSON | head -c 400)"
+  bad "failed checks are [$failed], want [refused refs]: $(jq -r '[.findings[]|select(.status=="failed")|"\(.check): \(.detail)"]|join(" | ")' $JSON | head -c 400)"
 fi
 # The exit code follows the report, so it is non-zero for the same one reason.
 if /usr/local/bin/faramir doctor --agent-user "$OP" >/dev/null 2>&1; then
@@ -381,15 +381,15 @@ head_ "5. a value the redactor refused"
 # what its config describes.
 
 snap
-short=$(grep -c 'short/pin' <<<"$(dt 'ref length') $(dt broker) $(dt 'secrets store')")
+short=$(grep -c 'short/pin' <<<"$(dt 'refused refs') $(dt broker) $(dt 'secrets store')")
 if [ "$short" -gt 0 ]; then
   ok "doctor surfaces the ref the redactor refused"
 else
-  bad "no check mentions short/pin: $(dt 'ref length' | head -c 160)"
+  bad "no check mentions short/pin: $(dt 'refused refs' | head -c 160)"
 fi
-[ "$(st 'ref length')" = failed ] \
+[ "$(st 'refused refs')" = failed ] \
   && ok "and fails on it: a ref that is never covered is a degraded host" \
-  || bad "ref length is $(st 'ref length'), want failed"
+  || bad "refused refs is $(st 'refused refs'), want failed"
 # The same question, asked of the broker rather than of the install. status is
 # what an agent and a converge run read, so a degraded host has to be non-zero
 # there too.
@@ -589,7 +589,7 @@ snap
 # Back to the baseline of section 1: the fixture's short ref and nothing else.
 # broker is excluded for the reason it always was, --check exiting non-zero over
 # that same ref.
-[ "$(jq -r '[.findings[]|select(.status=="failed" and .check!="broker" and .check!="ref length")]|length' $JSON)" -eq 0 ] \
+[ "$(jq -r '[.findings[]|select(.status=="failed" and .check!="broker" and .check!="refused refs")]|length' $JSON)" -eq 0 ] \
   && ok "and doctor is back to the fixture's one known fault on the rebuilt host" \
   || bad "after the round trip: $(jq -r '[.findings[]|select(.status=="failed")|.check]|join(",")' $JSON)"
 
