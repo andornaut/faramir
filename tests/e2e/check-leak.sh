@@ -64,6 +64,21 @@ grep -qF "$TOKEN" <<<"$out" && ok "with escape sequences spliced into the middle
   || bad "value with interior escapes leaked: $out"
 out=$(printf '%s\r\n' "$SECRET" | redact)
 grep -qF "$TOKEN" <<<"$out" && ok "with CRLF line endings" || bad "CRLF leaked: $out"
+# An escape introducer that never got a terminator of its own, so the value's
+# first byte is one: a CSI ends at the first byte in @-~, which is every
+# letter. What is left of the value matches nothing on its own.
+for opener in '\033[' '\033[01;32' '\033[01;32 !'; do
+  out=$(printf "$opener"'%s\n' "$SECRET" | redact)
+  grep -qF "${SECRET:1}" <<<"$out" && bad "a dangling escape took the first byte and the rest leaked: $out" \
+    || { grep -qF "$TOKEN" <<<"$out" && ok "after a dangling escape ($(printf %q "$opener"))" \
+         || bad "no token after a dangling escape, so the value is neither covered nor there: $out"; }
+done
+# Two writers on the merged pty, which is how one arrives without anybody
+# writing it: the sequence goes to stderr and the value to stdout.
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet --env P=faramir://db/password -- \
+  /bin/sh -c 'printf "\033[" >&2; printf "%s\n" "$P"' 2>&1)
+grep -qF "${SECRET:1}" <<<"$out" && bad "a partial escape on the other stream leaked the value: $out" \
+  || ok "and the same shape arriving from the other stream of a brokered command"
 
 head_ "3. where in the stream it sits"
 # The redactor holds back a tail so a value split across two reads is still

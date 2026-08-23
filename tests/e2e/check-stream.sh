@@ -130,7 +130,9 @@ sys.stdout.buffer.write(os.urandom(2000))" > /tmp/binsec.in
 redact < /tmp/binsec.in > /tmp/binsec.out
 grep -qF "$SECRET" /tmp/binsec.out && bad "a value inside binary leaked across a join" \
   || { grep -qF "$TOKEN" /tmp/binsec.out && ok "a value embedded in random binary, on a join, is tokenized" \
-       || bad "no token: the value was neither found nor leaked, which says nothing"; }
+       || bad "no token and no whole value: random binary can hold an escape \
+introducer that takes the value's first byte as its terminator, and what is \
+left of the value is in the clear"; }
 # Text with no secret in it must be byte-identical, whatever the chunking.
 python3 -c "
 import sys

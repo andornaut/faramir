@@ -63,7 +63,13 @@ Line breaks are all that is removed, `\n` and a bare `\r`. A continuation the fo
 
 Cost: a low-entropy value split across a line break can be redacted where its two halves were unrelated words. That fails toward redaction rather than toward a leak, as the length gate does. The token replaces the whole span including the break, so such a match also joins the two lines: with `password` managed, `"the pass\nword list is here"` comes back as `"the «SECRET:ref» list is here"`.
 
-**4. Stream with an overlap buffer.** A tail of twice the longest variant plus a margin is held back on every `Feed` and released on `Flush`, the margin exceeding that variant because wrapping inserts newlines inside a value. The tail is already redacted, so re-scanning cannot double-count. Everything `Feed` returns is output, including the release triggered by the last partial-rune tail, or every command whose last write splits a rune loses its final characters.
+**4. What stage 1 removed needs a second pass too.** A CSI sequence ends at the first byte in `@-~`, which is every letter and most punctuation, so a value written straight after an introducer that never got its own terminator supplies one: `ESC [` before `hunter2` is a sequence ending in `h`, and the stripped text stage 2 would otherwise see reads `unter2`, which matches nothing. Nothing in the bytes tells that apart from a real `ESC [ 3 2 h`, so the strip is right and the miss is stage 2 having only the stripped text to look at. The redactor matches a second view holding the last byte of every CSI back where it was, and maps hits onto the emitted text; a real sequence leaves a stray letter in front of the value there, which no match cares about. Only the case that view alone can find is taken, so text carrying no escapes is scanned once.
+
+It is only CSI. Every other sequence stage 1 removes ends on a byte a value cannot have supplied: OSC and DCS on `BEL` or `ST`, the two-character escapes on the byte the introducer already named, a stray control on itself.
+
+`run` merges stdout and stderr onto one PTY, so this shape arrives without anybody writing it: a partial colour sequence on one stream lands directly before a credential on the other.
+
+**5. Stream with an overlap buffer.** A tail of twice the longest variant plus a margin is held back on every `Feed` and released on `Flush`, the margin exceeding that variant because wrapping inserts newlines inside a value. The tail is already redacted, so re-scanning cannot double-count. Everything `Feed` returns is output, including the release triggered by the last partial-rune tail, or every command whose last write splits a rune loses its final characters.
 
 The buffer only covers a join it is on both sides of, so **one redactor has to span the whole of a stream**. The broker keeps one for the PTY it is reading; `faramir redact` gets it by sending every chunk of one input down one connection, which is what [`more`](protocol.md#redact-and-streaming-it) is for.
 
@@ -78,13 +84,13 @@ Longest managed value | A stream printing one 30-byte line a second | One 300-by
 
 That is the bound on `wrap.sh --stream`, which is the path a backgrounded command takes, and on the `redact` guarantee that a broker lost mid-stream truncates rather than empties: below the tail there is nothing yet released to keep. One long value is enough to set it for every stream on the host, so a multi-line key, a PEM, or a `[[secret.link]]` read as `text` is worth keeping out of the managed set where the value can be held some other way.
 
-**5. Minimum length gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. [`[secret] min_length`](configuration.md#what-a-flag-sets) is the floor, and a value under it is **refused at load**: not held, not listed, not injectable.
+**6. Minimum length gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. [`[secret] min_length`](configuration.md#what-a-flag-sets) is the floor, and a value under it is **refused at load**: not held, not listed, not injectable.
 
 Length is the whole of the test. There is no distinct-character count and no entropy floor: neither is the strength check it reads as (`password` clears both), and how strong a credential is belongs to whoever chose it. Length is a bound on what the redactor can search for without eating the output. A long low-entropy value such as `aaaaaaaa` matches any run of eight, but that mangles the operator's own output rather than letting a value escape.
 
 Refusal closes the injection half only. A refused value is absent from the redactor, so reaching the output another way it arrives in plaintext, which is why the list stays operator-side: the broker logs each one at load and `faramir broker --check` reports them under `secrets.not_redactable` and exits non-zero, while `faramir status` and `faramir refs` say nothing. Lengthen the secret rather than lowering the threshold.
 
-**6. Stable tokens.** The same secret is always `«SECRET:home/router/admin»`, in every response and session. Two refs holding the same value share one token, the redactor deduplicating by value and keeping the first ref by name, so which name it is does not move between restarts. Guillemets because they essentially never occur in tool output.
+**7. Stable tokens.** The same secret is always `«SECRET:home/router/admin»`, in every response and session. Two refs holding the same value share one token, the redactor deduplicating by value and keeping the first ref by name, so which name it is does not move between restarts. Guillemets because they essentially never occur in tool output.
 
 ## What comes back is text, not bytes
 

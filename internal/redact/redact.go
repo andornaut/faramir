@@ -41,13 +41,132 @@ const maxEscapeLen = 64
 // stripANSI removes escape sequences and normalises CRLF. Not stream-safe on
 // its own; see stripANSIStream.
 func stripANSI(text string) string {
-	return strings.ReplaceAll(ansiRE.ReplaceAllString(text, ""), "\r\n", "\n")
+	clean, _ := stripANSIView(text)
+	return clean
+}
+
+// escapeView is the same text as the output stage 1 produced, with the last
+// byte of every CSI sequence put back, plus what maps a match back onto that
+// output.
+//
+// A CSI ends at the first byte in @-~, which is every letter and most
+// punctuation, so a value written straight after an introducer that never got
+// its own terminator supplies one: `ESC [` before "hunter2" is a sequence
+// ending in "h", and what stage 2 then sees is "unter2", which matches nothing
+// and goes out in the clear. Nothing in the bytes tells that apart from a real
+// `ESC [ 3 2 h`, so the strip is right and the miss is stage 2 having only the
+// stripped text to look at. Putting the byte back in a second haystack makes
+// the value contiguous there either way: a real sequence leaves a stray letter
+// in front of the value, which no match cares about.
+//
+// Only CSI. Every other sequence stage 1 removes ends on a byte a value cannot
+// have supplied: OSC and DCS on BEL or ST, the two-character escapes on the
+// byte the introducer already named, a stray control on itself.
+type escapeView struct {
+	view string
+	// clean maps a byte offset in view to the offset in the stripped text where
+	// that byte sits, a byte the strip removed mapping to the offset the next
+	// surviving byte took. One entry per byte of view, plus one for the end.
+	clean []int
+	// lenient is false where no sequence gave a byte back, in which case view is
+	// the stripped text and the plain pass covers everything this would find.
+	lenient bool
+}
+
+// needsStrip reports whether stripping could change text: an ESC that may open
+// a sequence, a CR that may open a CRLF, or one of the controls ansiRE removes
+// on its own. Tab and newline are the two C0 controls that survive.
+func needsStrip(text string) bool {
+	for i := range len(text) {
+		if b := text[i]; (b < 0x20 && b != '\t' && b != '\n') || b == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
+// stripANSIView removes escape sequences and normalises CRLF, and builds the
+// view above in the same walk so the two cannot drift.
+func stripANSIView(text string) (string, *escapeView) {
+	// Nothing to strip and nothing to normalise, which is most output: the walk
+	// below would copy every byte twice to say so.
+	if !needsStrip(text) {
+		return text, nil
+	}
+	var clean, view strings.Builder
+	clean.Grow(len(text))
+	view.Grow(len(text))
+	index := make([]int, 0, len(text)+1)
+	ev := &escapeView{}
+	// A CR is held until the next byte says whether it opened a CRLF. Held
+	// across a sequence too, the sequence contributing nothing to the stripped
+	// text: that is what makes this the same answer as stripping first and
+	// normalising after.
+	pendingCR := false
+	put := func(chunk string) {
+		for i := range len(chunk) {
+			b := chunk[i]
+			if pendingCR {
+				pendingCR = false
+				if b != '\n' {
+					index = append(index, clean.Len())
+					clean.WriteByte('\r')
+					view.WriteByte('\r')
+				}
+			}
+			if b == '\r' {
+				pendingCR = true
+				continue
+			}
+			index = append(index, clean.Len())
+			clean.WriteByte(b)
+			view.WriteByte(b)
+		}
+	}
+	prev := 0
+	for _, loc := range ansiRE.FindAllStringIndex(text, -1) {
+		put(text[prev:loc[0]])
+		if seq := text[loc[0]:loc[1]]; strings.HasPrefix(seq, "\x1b[") {
+			// At the offset the value's surviving bytes start from, so a match
+			// covering this byte and the ones after it maps onto them alone.
+			index = append(index, clean.Len())
+			view.WriteByte(seq[len(seq)-1])
+			ev.lenient = true
+		}
+		prev = loc[1]
+	}
+	put(text[prev:])
+	if pendingCR {
+		index = append(index, clean.Len())
+		clean.WriteByte('\r')
+		view.WriteByte('\r')
+	}
+	index = append(index, clean.Len())
+	ev.view, ev.clean = view.String(), index
+	return clean.String(), ev
+}
+
+// withPrefix is the view of prefix+text, for a chunk that is redacted with the
+// tail of the one before it in front of it. The prefix is output this redactor
+// already wrote, so it is its own view.
+func (v *escapeView) withPrefix(prefix string) *escapeView {
+	if v == nil || !v.lenient {
+		return nil
+	}
+	index := make([]int, 0, len(prefix)+len(v.clean))
+	for i := range len(prefix) {
+		index = append(index, i)
+	}
+	for _, at := range v.clean {
+		index = append(index, len(prefix)+at)
+	}
+	return &escapeView{view: prefix + v.view, clean: index, lenient: true}
 }
 
 // stripANSIStream strips escapes from buf, holding back a possibly-incomplete
 // tail. The carry must be prepended to the next chunk: it may open an escape
 // sequence, or be the first half of a CRLF.
-func stripANSIStream(buf []rune) (clean string, carry []rune) {
+func stripANSIStream(buf []rune) (clean string, ev *escapeView, carry []rune) {
 	carryStart := len(buf)
 	esc := -1
 	for i, r := range slices.Backward(buf) {
@@ -66,7 +185,8 @@ func stripANSIStream(buf []rune) (clean string, carry []rune) {
 	if carryStart == len(buf) && len(buf) > 0 && buf[len(buf)-1] == '\r' {
 		carryStart = len(buf) - 1
 	}
-	return stripANSI(string(buf[:carryStart])), buf[carryStart:]
+	clean, ev = stripANSIView(string(buf[:carryStart]))
+	return clean, ev, buf[carryStart:]
 }
 
 // --------------------------------------------------------------------------
@@ -437,9 +557,10 @@ func (r *Redactor) Feed(text string) string {
 	// Callers report the count rather than act on it.
 	r.invalidBytes += invalidUTF8Bytes(text)
 	r.ansiCarry = append(r.ansiCarry, []rune(text)...)
-	clean, carry := stripANSIStream(r.ansiCarry)
+	clean, ev, carry := stripANSIStream(r.ansiCarry)
 	r.ansiCarry = carry
-	r.buf = []rune(r.redact(string(r.buf) + clean))
+	held := string(r.buf)
+	r.buf = []rune(r.redact(held+clean, ev.withPrefix(held)))
 	if len(r.buf) > r.Overlap {
 		out := string(r.buf[:len(r.buf)-r.Overlap])
 		r.buf = r.buf[len(r.buf)-r.Overlap:]
@@ -450,9 +571,10 @@ func (r *Redactor) Feed(text string) string {
 
 // Flush releases everything held back. Call once, at end of stream.
 func (r *Redactor) Flush() string {
-	tail := stripANSI(string(r.ansiCarry))
+	tail, ev := stripANSIView(string(r.ansiCarry))
 	r.ansiCarry = nil
-	out := r.redact(string(r.buf) + tail)
+	held := string(r.buf)
+	out := r.redact(held+tail, ev.withPrefix(held))
 	r.buf = nil
 	return out
 }
@@ -492,11 +614,18 @@ func (r *Redactor) Summary() []Count {
 	return out
 }
 
-func (r *Redactor) redact(text string) string {
+func (r *Redactor) redact(text string, ev *escapeView) string {
 	if text == "" || r.matcher == nil {
 		return text
 	}
-	// The wrapped pass first, against a newline-free view of the output, so it
+	// The escape pass first, against a view holding the byte a CSI took from the
+	// front of a value. Only what that view alone can find: everything still
+	// contiguous in text is left to the two passes below, so the ordinary case
+	// pays nothing here and this one is not scanned twice.
+	if out, changed := r.subEscaped(text, ev); changed {
+		text = out
+	}
+	// The wrapped pass next, against a newline-free view of the output, so it
 	// catches a rendering a formatter split across lines: base64 wraps at 76
 	// columns, and `fold` wraps every rendering the same way. The newline guard
 	// in subWrapped keeps it to genuinely line-spanning matches, so the plain
@@ -571,6 +700,54 @@ func newCollapsedView(text string) *collapsedView {
 	v.byteStart = append(v.byteStart, len(v.runes))
 	v.view = b.String()
 	return v
+}
+
+// subEscaped replaces every value that is whole only in the escape view, and
+// reports whether it changed anything. The span it replaces is in text: the
+// byte the sequence took is not there, so the token stands where what survived
+// of the value stood.
+func (r *Redactor) subEscaped(text string, v *escapeView) (string, bool) {
+	if v == nil || !v.lenient {
+		return "", false
+	}
+	type span struct {
+		start, end int
+		token      string
+	}
+	var spans []span
+	for _, loc := range r.matcher.find(v.view) {
+		token, ok := r.tokenOf[v.view[loc.start:loc.end]]
+		if !ok {
+			continue // unreachable: the automaton is built from these keys
+		}
+		start, end := v.clean[loc.start], v.clean[loc.end]
+		// Only a match a returned byte made whole. One the same length in both is
+		// contiguous in text as well, and the plain pass owns it: taking it here
+		// would count it and then leave that pass nothing, which reads the same
+		// but pays for two scans of every value.
+		if end-start == loc.end-loc.start || end <= start {
+			continue
+		}
+		spans = append(spans, span{start: start, end: end, token: token})
+	}
+	if len(spans) == 0 {
+		return "", false
+	}
+
+	var b strings.Builder
+	b.Grow(len(text))
+	cursor := 0
+	for _, s := range spans {
+		if s.start < cursor { // overlapping match, already covered
+			continue
+		}
+		b.WriteString(text[cursor:s.start])
+		b.WriteString(s.token)
+		r.counts[s.token]++
+		cursor = s.end
+	}
+	b.WriteString(text[cursor:])
+	return b.String(), true
 }
 
 // subWrapped replaces every line-wrapped rendering, and reports whether it
