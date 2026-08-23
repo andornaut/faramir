@@ -498,14 +498,24 @@ func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMod
 		// error says a file exists without saying which, and tmp is a base name
 		// whose directory is the one thing an operator cannot guess.
 		return false, fmt.Errorf("%s is already there, so nothing was written: it is "+
-			"the temporary file a write goes through, left by a run that was "+
-			"interrupted, or in use by one happening now. Delete it once no faramir "+
-			"command is running: %w", filepath.Join(root.Name(), tmp), err)
+			"the temporary file a write goes through, so another faramir command is "+
+			"writing this file, or one was interrupted while it did. Run them one at "+
+			"a time; delete it if none is running: %w",
+			filepath.Join(root.Name(), tmp), err)
 	}
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", tmp, err)
 	}
-	defer func() { _ = root.Remove(tmp) }()
+	// Removed only where the rename did not take it. After a successful rename the
+	// name is free, and another writer's O_EXCL open may already have claimed it:
+	// removing it then deletes that run's temporary file, and its chmod fails with
+	// an ENOENT about a path it created itself.
+	renamed := false
+	defer func() {
+		if !renamed {
+			_ = root.Remove(tmp)
+		}
+	}()
 	if _, err := handle.Write(data); err != nil {
 		_ = handle.Close()
 		return false, err
@@ -522,7 +532,11 @@ func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMod
 			return false, err
 		}
 	}
-	return true, root.Rename(tmp, name)
+	if err := root.Rename(tmp, name); err != nil {
+		return false, err
+	}
+	renamed = true
+	return true, nil
 }
 
 // ownerOf is a file's uid and gid, or keep for both where they cannot be read.

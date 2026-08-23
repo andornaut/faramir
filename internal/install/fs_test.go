@@ -2,9 +2,11 @@ package install
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 )
@@ -347,4 +349,50 @@ func TestADirectoryCreatedForAnEnrolledFileIsSticky(t *testing.T) {
 // being no part of what was asked for.
 func chmodBitsOf(mode os.FileMode) os.FileMode {
 	return mode & (os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky)
+}
+
+// A write goes through a temporary file beside the target and renames it into
+// place. The rename takes the name, so removing it afterwards removes whatever
+// holds that name then -- which, with a second writer in flight, is the
+// temporary file that writer just created O_EXCL. Its own chmod then fails with
+// an ENOENT about a path it made itself, which says nothing about the collision
+// that caused it.
+func TestAFinishedWriteDoesNotRemoveAnotherWritersTemporaryFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte("start\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, 12)
+	for i := range errs {
+		wg.Go(func() {
+			body := fmt.Appendf(nil, "written by %d\n", i)
+			_, errs[i] = realFS.writeFile(path, body, 0o644, keep, keep)
+		})
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err == nil {
+			continue
+		}
+		// The one collision a concurrent write may report: the temporary name was
+		// taken. Anything else is this bug, or another.
+		if !strings.Contains(err.Error(), "is already there") {
+			t.Errorf("writer %d failed with %v, want nil or the temporary-file "+
+				"collision", i, err)
+		}
+	}
+	// And whatever won, the file is one writer's bytes rather than a mix, and no
+	// temporary file is left behind.
+	if _, err := os.Stat(path + ".faramir-tmp"); !os.IsNotExist(err) {
+		t.Errorf("a temporary file was left at %s.faramir-tmp", path)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(body), "written by ") {
+		t.Errorf("the file is %q, which is no writer's whole output", body)
+	}
 }
