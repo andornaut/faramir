@@ -15,10 +15,23 @@ import (
 // unreachable.
 const refPattern = `[A-Za-z0-9][A-Za-z0-9._/-]*`
 
+// Scheme is what a ref carries when it is written as a URI. `faramir refs`
+// prints that form and a [[secret.link]] entry stores the name inside it, so
+// the two spellings meet wherever an operator pastes one into the other.
+const Scheme = "faramir://"
+
 var (
-	URIRe = regexp.MustCompile(`^faramir://(` + refPattern + `)$`)
+	URIRe = regexp.MustCompile(`^` + Scheme + `(` + refPattern + `)$`)
 	refRe = regexp.MustCompile(`^` + refPattern + `$`)
 )
+
+// Bare is the name inside a faramir:// URI, or the argument unchanged where it
+// carries no scheme. For a command that takes a ref as an operand: what refs
+// prints is the URI, what the config stores is the name, and refusing the
+// spelling the operator has in front of them buys nothing.
+func Bare(ref string) string {
+	return strings.TrimPrefix(strings.TrimSpace(ref), Scheme)
+}
 
 // Valid reports whether a bare ref, with no scheme, is one Parse would return.
 func Valid(ref string) bool { return refRe.MatchString(ref) }

@@ -39,3 +39,28 @@ func TestParseAcceptsARefAndRefusesALiteral(t *testing.T) {
 		})
 	}
 }
+
+// `faramir refs` prints faramir://api/token and a [[secret.link]] entry stores
+// api/token, so a ref pasted from the one into the other arrives with the
+// scheme still on it. Refused, the operator reads that the name they can see
+// on their screen is not one a reference can carry.
+func TestABareRefIsTheNameWithOrWithoutTheScheme(t *testing.T) {
+	for _, tc := range []struct{ given, want string }{
+		{"faramir://api/token", "api/token"},
+		{"api/token", "api/token"},
+		{"  faramir://api/token  ", "api/token"},
+		{"appenv", "appenv"},
+		// Only the leading one: the scheme is not part of a name, so a second
+		// spelling of it inside the ref is not a prefix to take off.
+		{"faramir://faramir://a", "faramir://a"},
+		{"", ""},
+	} {
+		if got := Bare(tc.given); got != tc.want {
+			t.Errorf("Bare(%q) = %q, want %q", tc.given, got, tc.want)
+		}
+	}
+	// And what comes back is a name Valid accepts, which is the point.
+	if !Valid(Bare("faramir://api/token")) {
+		t.Error("the bare form of a printed ref is not a valid ref")
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/secretlink"
+	"github.com/andornaut/faramir/internal/secretref"
 )
 
 // newLinkCmd groups what is done to a linked secret: one a tool of yours owns,
@@ -54,6 +55,8 @@ func newLinkAddCmd() *cobra.Command {
 		Long: "Adds one [[secret.link]] entry and applies it: the broker is granted read\n" +
 			"on the file, the file is refused to the agent's file tools, and the daemons\n" +
 			"are reloaded.\n\n" +
+			"REF is the name a caller asks by, with or without the faramir:// that\n" +
+			"`faramir refs` prints it with.\n\n" +
 			"The file is read once, as the broker, before anything is written, so a\n" +
 			"selector naming nothing is an error here rather than later.\n\n" +
 			"Re-adding the same entry re-applies it, which is what restores a grant or\n" +
@@ -61,7 +64,7 @@ func newLinkAddCmd() *cobra.Command {
 			"against a different file, type or key is an error.",
 		Args: exactlyArgs(2, "a ref and a file"),
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runLinkAdd(f, args[0], args[1]))
+			return codeErr(runLinkAdd(f, secretref.Bare(args[0]), args[1]))
 		},
 	}
 	f.register(c)
@@ -137,7 +140,9 @@ func newLinkRemoveCmd() *cobra.Command {
 			"previous mode this does not know. Both are printed with what undoes them.\n\n" +
 			"A ref this install does not carry reports changed=false.",
 		Args: exactlyOneArg("ref"),
-		RunE: func(c *cobra.Command, args []string) error { return codeErr(runLinkRemove(f, args[0])) },
+		RunE: func(c *cobra.Command, args []string) error {
+			return codeErr(runLinkRemove(f, secretref.Bare(args[0])))
+		},
 	}
 	f.register(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
