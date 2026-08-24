@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/andornaut/faramir/internal/config"
 )
@@ -94,6 +95,9 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 		}
 	}
 	configDir := configDirOr(opts.ConfigDir)
+	if err := refuseEnrolledTrees(configDir, refused); err != nil {
+		return Report{}, nil, err
+	}
 	configFile := filepath.Join(configDir, "config.toml")
 	if err := recordConfigDigest(&opts, configFile); err != nil {
 		return Report{}, nil, err
@@ -127,6 +131,49 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 		blockedWarnings(&report, entry, links)
 	}
 	return report, added, nil
+}
+
+// refuseEnrolledTrees stops a path entry that would refuse the agent the tree
+// it works in, or a directory holding one. The rule is written into that tree's
+// own settings file, so the agent meets it as every file tool failing in the
+// directory it was pointed at, with a rule it can read and cannot lift.
+//
+// Refused rather than warned, as "/" is: an entry naming a checkout refuses
+// nothing that is a secret, and the file inside it worth refusing can be named
+// on its own. A directory under a tree is left alone, that being the ordinary
+// entry: `--path ~/proj/.env` is what this is for.
+func refuseEnrolledTrees(configDir string, refused []config.BlockedPath) error {
+	trees := readEnrolled(configDir)
+	if len(trees) == 0 {
+		return nil
+	}
+	for _, entry := range refused {
+		if entry.Path == "" {
+			continue
+		}
+		for _, tree := range trees {
+			if !containsPath(entry.Path, tree.Dir) {
+				continue
+			}
+			if entry.Path == tree.Dir {
+				return fmt.Errorf("path %s is an enrolled tree, and the rule would be "+
+					"written into that tree's own settings: the agent would be refused "+
+					"every file in the directory it works in. Name the file inside it, "+
+					"or `sudo faramir init-project` elsewhere first", entry.Path)
+			}
+			return fmt.Errorf("path %s holds the enrolled tree %s, so the rule would "+
+				"refuse the agent every file in the directory it works in. Name the "+
+				"file or the directory that holds it", entry.Path, tree.Dir)
+		}
+	}
+	return nil
+}
+
+// containsPath reports whether inner is dir itself or somewhere under it, by
+// path element: /home/op2 is not under /home/op.
+func containsPath(dir, inner string) bool {
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(inner))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // blockedWarnings is what one entry is worth saying about once it is written.

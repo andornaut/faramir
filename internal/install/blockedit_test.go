@@ -347,3 +347,57 @@ func TestEachFormOfEntryIsWarnedAboutOnItsOwnTerms(t *testing.T) {
 		})
 	}
 }
+
+// An entry naming the tree the agent works in, or a directory holding one. The
+// rule is rendered into that tree's own settings file, so the agent is refused
+// every file in the directory it was pointed at, by a rule it can read and
+// cannot lift. Nothing in such an entry is a secret: the file inside worth
+// refusing can be named on its own.
+func TestAddRefusedWillNotBlockAnEnrolledTree(t *testing.T) {
+	dir := writeBlockConfig(t, "")
+	home := t.TempDir()
+	tree := filepath.Join(home, "proj")
+	if err := os.MkdirAll(filepath.Join(tree, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordEnrolment(dir, EnrolledTree{
+		Dir: tree, AgentUser: "op", Agents: []string{"claude"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct{ name, path, wantErr string }{
+		{"the tree itself", tree, "is an enrolled tree"},
+		{"the home above it", home, "holds the enrolled tree"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := AddBlockedPath(Options{ConfigDir: dir}, config.BlockedPath{Path: tc.path})
+			if err == nil {
+				t.Fatalf("blocked %q", tc.path)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error is %q, want it to say %q", err, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tree) {
+				t.Errorf("error is %q, want it to name the tree", err)
+			}
+		})
+	}
+
+	// And what is inside a tree, or merely beside it, is the ordinary entry.
+	for _, path := range []string{
+		filepath.Join(tree, ".env"),
+		filepath.Join(tree, "sub"),
+		tree + "2",
+	} {
+		if err := refuseEnrolledTrees(dir, []config.BlockedPath{{Path: path}}); err != nil {
+			t.Errorf("%s was refused: %v", path, err)
+		}
+	}
+	// A name or a command names no path, so neither is asked about.
+	if err := refuseEnrolledTrees(dir, []config.BlockedPath{
+		{Name: "*.pem"}, {Command: "op read"},
+	}); err != nil {
+		t.Errorf("an entry naming no path was refused: %v", err)
+	}
+}
