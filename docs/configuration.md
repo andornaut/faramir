@@ -13,14 +13,14 @@ the executor's uid | The real bound.
 
 ## What a flag sets
 
-Seven values, each rendered into the file and read back out of it on the next run, so a flag left out keeps the install rather than reverting it. Naming one again changes it.
+Seven values, each rendered into the file and read back out of it on the next run, so a flag left out keeps the install rather than reverting it. Naming one again changes it. Zero is how a flag says "left out", which is why none of them takes zero as a value: `--command-concurrency 0` installs the default rather than being refused.
 
 Flag | Key | Default | Bounds
 --- | --- | --- | ---
 `--command-env NAME=VALUE` | `[command.env] NAME` | `PATH`, `TERM`, `LANG`, `LC_ALL`, `DEBIAN_FRONTEND` | repeatable, and it **adds**: naming one variable keeps the rest. `PATH` may not be emptied, and every component must be absolute. On a host that grants sudo they are written to `/usr/local/libexec/faramir/sudo-env` too, so a command keeps them across `sudo`: `env_reset` discards what the caller held, and this is put back from a file the caller cannot write. Not all of them: `HOME`, `PATH` and `SUDO_*` stay sudo's own, and a reserved name or a value holding a newline or a `#` is [left out with a warning](escalation.md#what-a-brokered-command-keeps-across-sudo)
 `--command-timeout-sec` | `[command] timeout_sec` | 600 | at least 1
 `--command-max-timeout-sec` | `[command] max_timeout_sec` | 3600 | at least 1, and not below `timeout_sec`, which it would otherwise silently replace for every command
-`--command-concurrency` | `[command] concurrency` | 10 | at least 1: zero refuses every request as busy
+`--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor will fork at once. `init` refuses either end rather than leaving it to the loader: below 1 the broker runs nothing, and above 16 the surplus meets `exec_failed: busy` from the executor after the run has already been recorded as started
 `--command-max-memory-percent` | `[command] max_memory_percent` | 25 | 10 to 100, rendered as `MemoryMax=` on the executor unit. The **backstop**, not the bound: it is a cgroup total, so it cannot tell one process holding everything from twenty holding a fair share each, and it counts page cache besides. What it catches is fan-out, which no per-process limit sees. A percentage because nothing here knows how much memory the host has. Cache is reclaimable and is reclaimed before anything is killed, so a source build meets this as reclaim and a process that has allocated the memory meets the OOM killer; 100 is the whole machine, which is the same as no bound
 `--command-max-process-memory-mb` | `[command] max_process_memory_mb` | 4096 | at least 256, rendered as `LimitDATA=` on the executor unit and inherited by every child. The **bound**: a command that runs away is one process asking for far more than a real one, and this is what refuses it. Anonymous memory only, so a command is never charged for page cache, and a process that reaches it is handed an allocation failure it can report rather than being chosen by the OOM killer
 `--sudo-timeout-sec` | `[sudo] timeout_sec` | 120 | 1 to 600

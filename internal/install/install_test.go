@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // The config directory is the only one faramir creates whose parent can belong
@@ -225,4 +227,67 @@ func TestLayoutAllowsADefaultNameWhenTheDaemonMoved(t *testing.T) {
 		t.Errorf("%q was refused as the operator, but this run's executor is %q: %v",
 			DefaultExecUser, "faramir-runner", err)
 	}
+}
+
+// [command] concurrency is bounded at both ends by the loader, and preflight
+// says so first: reaching the bound through the loader means a parse error
+// about a file the operator never typed, raised after preflight has passed and
+// the run looks like it is going ahead. Both ends, because a floor that only
+// the loader knows is the ceiling's own argument turned around.
+//
+// Zero is not in the table on purpose. It is the unset signal every tunable
+// shares, so applyDefaults turns it into the default before preflight sees it,
+// and `--command-concurrency 0` installs the default rather than being refused.
+func TestPreflightBoundsCommandConcurrency(t *testing.T) {
+	agent := anyNonRootAccount(t)
+	for _, tc := range []struct {
+		name    string
+		asked   int
+		refused bool
+	}{
+		{"below the floor", -1, true},
+		{"at the floor", 1, false},
+		{"at the ceiling", config.MaxConcurrentRuns, false},
+		{"past the ceiling", config.MaxConcurrentRuns + 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := Options{
+				AgentUser:          agent,
+				DryRun:             true,
+				ConfigDir:          filepath.Join(t.TempDir(), "faramir"),
+				CommandConcurrency: tc.asked,
+			}
+			opts.applyDefaults()
+			run := &runner{opts: opts, layout: Layout{ConfigDir: opts.ConfigDir}}
+
+			err := run.preflight()
+
+			// An accepted value reaches the later checks and fails on one of
+			// those instead; what this asserts is which flag is named.
+			refused := err != nil && strings.Contains(err.Error(), "--command-concurrency")
+			if refused != tc.refused {
+				t.Errorf("preflight() = %v, named --command-concurrency = %v, want %v",
+					err, refused, tc.refused)
+			}
+		})
+	}
+}
+
+// anyNonRootAccount is an account preflight will accept as the agent user. The
+// other preflight tests take the current user, which makes them skip under
+// root; this one asserts a bound that has nothing to do with who is running it,
+// so it takes any account on the host that is not root instead and runs either
+// way.
+func anyNonRootAccount(t *testing.T) string {
+	t.Helper()
+	if me, err := user.Current(); err == nil && me.Username != "root" {
+		return me.Username
+	}
+	for _, name := range []string{"nobody", "daemon", "bin"} {
+		if userExists(name) {
+			return name
+		}
+	}
+	t.Skip("no non-root account on this host for preflight to accept")
+	return ""
 }
