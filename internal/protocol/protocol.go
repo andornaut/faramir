@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -314,19 +315,46 @@ func parseWaits(payload map[string]any, req *Request) error {
 	if raw, ok := payload["timeout_sec"]; ok && raw != nil {
 		n, isNum := toInt(raw)
 		switch {
-		// Told apart from a value that is not a number at all: one too large to
-		// hold as an integer is a positive integer, and being told it is not sends
-		// the caller looking at the wrong thing.
+		// Told apart from a value that is not a number at all: a number this
+		// refuses is still a number, and being told it is not sends the caller
+		// looking at the wrong field.
 		case !isNum && isNumber(raw):
-			return errors.New("'timeout_sec' is a number too large to hold as a " +
-				"whole number of seconds. Any value is clamped to '[command] " +
-				"max_timeout_sec', so naming one past that buys nothing")
+			return errors.New(whyNotSeconds(raw))
 		case !isNum || n <= 0:
 			return errors.New("'timeout_sec' must be a positive integer")
 		}
 		req.TimeoutSec = n
 	}
 	return nil
+}
+
+// whyNotSeconds says which way a JSON number failed to be a count of seconds.
+// The two are corrected differently -- drop the fraction, or name a smaller
+// number -- so one told as the other sends the caller at the wrong part of its
+// request.
+func whyNotSeconds(raw any) string {
+	if hasFraction(raw) {
+		return "'timeout_sec' must be a whole number of seconds"
+	}
+	return "'timeout_sec' is a number too large to be a count of seconds. Any " +
+		"value is clamped to '[command] max_timeout_sec', so naming one past " +
+		"that buys nothing"
+}
+
+// hasFraction reports whether a JSON number carries one. A magnitude past
+// int64 has none, so it falls through to being called too large.
+func hasFraction(raw any) bool {
+	switch v := raw.(type) {
+	case float64:
+		return v != math.Trunc(v)
+	case json.Number:
+		if _, err := v.Int64(); err == nil {
+			return false
+		}
+		f, err := v.Float64()
+		return err == nil && f != math.Trunc(f)
+	}
+	return false
 }
 
 // isNumber reports whether this arrived as a number, whatever its magnitude.

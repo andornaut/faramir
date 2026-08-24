@@ -187,3 +187,38 @@ func TestTheAwaitedLogIDIsCheckedOnlyWhereItIsGiven(t *testing.T) {
 		})
 	}
 }
+
+// A timeout is refused two ways, and the two are corrected differently: a
+// fraction is dropped, a magnitude is replaced with a smaller number. Told as
+// the other, the caller reads that 1.5 is too large and goes looking for a
+// ceiling that is not what refused it.
+func TestARefusedTimeoutSaysWhichWayItFailed(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"a fraction", `{"op":"status","timeout_sec":1.5}`, "whole number of seconds"},
+		{"a small fraction", `{"op":"status","timeout_sec":0.5}`, "whole number of seconds"},
+		{"past int64", `{"op":"status","timeout_sec":1e20}`, "too large"},
+		{"far past int64", `{"op":"status","timeout_sec":1e300}`, "too large"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parse(t, tc.body)
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("refusal is %q, want it to say %q", err, tc.want)
+			}
+			// And never the other one, which is the confusion this holds off.
+			other := "too large"
+			if tc.want == other {
+				other = "whole number of seconds"
+			}
+			if strings.Contains(err.Error(), other) {
+				t.Errorf("refusal is %q, which also says %q", err, other)
+			}
+		})
+	}
+}
