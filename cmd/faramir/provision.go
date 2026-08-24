@@ -492,7 +492,8 @@ func newInitProjectCmd() *cobra.Command {
 	}
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
-		"account that works in the tree (default $SUDO_USER, then you)")
+		"account that works in the tree (default $FARAMIR_OPERATOR, then $SUDO_USER, "+
+			"then you, then [server] agent_user)")
 	fl.StringVar(&f.clientGroup, "client-group", "",
 		"share the tree with this group instead of the one the installed config admits. It "+
 			"overrides that one value; the config still has to load")
@@ -521,7 +522,7 @@ func runInitProject(f initProjectFlags, args []string) int {
 
 	opts := install.ProjectOptions{
 		Dir:         firstArg(args),
-		AgentUser:   operatorName(f.agentUser),
+		AgentUser:   operatorFromConfig(filepath.Join(dir, "config.toml"), f.agentUser),
 		ConfigDir:   dir,
 		ClientGroup: f.clientGroup,
 		Agents:      f.agents,
@@ -603,19 +604,20 @@ func newDoctorCmd() *cobra.Command {
 	return c
 }
 
-// doctorOperator is operatorName with the install's own answer behind it.
+// operatorFromConfig is operatorName with the install's own answer behind it.
 //
 // `init` records the account the agent runs as in [server] agent_user, so a
 // host that has been provisioned has written down who it belongs to. Reached
 // only where operatorName has nothing: root with no SUDO_USER, which is a
-// container, `su -`, cron, or a configuration manager's become. Without it
-// those runs skipped every check that asks what the agent account can reach and
-// told the operator to pass a flag naming what the config already said.
+// container, `su -`, cron, or a configuration manager's become, and a brokered
+// run whose SUDO_USER named one of faramir's own accounts. Without it those runs
+// skipped every check that asks what the agent account can reach and told the
+// operator to pass a flag naming what the config already said.
 //
 // Behind SUDO_USER rather than in front of it: a person running `sudo faramir
 // doctor` is answering the same question in the present tense, and a config
 // that has gone stale should not outrank them.
-func doctorOperator(flagValue, configFile string) string {
+func operatorFromConfig(configFile, flagValue string) string {
 	if name := operatorName(flagValue); name != "" {
 		return name
 	}
@@ -623,7 +625,7 @@ func doctorOperator(flagValue, configFile string) string {
 	if err != nil {
 		return ""
 	}
-	if cfg.Server.AgentUser == "root" {
+	if notTheOperator[cfg.Server.AgentUser] {
 		return ""
 	}
 	return cfg.Server.AgentUser
@@ -662,7 +664,7 @@ func runDoctor(f doctorFlags) int {
 		BrokerVersion: broker.version,
 		BrokerBuild:   broker.build,
 		SocketStates:  sockets,
-		AgentUser:     doctorOperator(f.agentUser, configFile),
+		AgentUser:     operatorFromConfig(configFile, f.agentUser),
 		ClientGroup:   f.clientGroup,
 		BrokerUser:    f.brokerUser,
 		KeeperUser:    f.keeperUser,

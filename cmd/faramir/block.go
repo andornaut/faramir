@@ -572,7 +572,7 @@ func blockOptions(f blockFlags, dir string) install.Options {
 		ConfigDir: dir,
 		// The recorded agent_user behind the flag and SUDO_USER, for the reason
 		// link's installOptions gives.
-		AgentUser: doctorOperator(f.agentUser, filepath.Join(dir, "config.toml")),
+		AgentUser: operatorFromConfig(filepath.Join(dir, "config.toml"), f.agentUser),
 		Log:       stepLog(f.json),
 	}
 }

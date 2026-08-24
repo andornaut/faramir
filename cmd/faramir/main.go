@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/fserr"
+	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/secretref"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -73,20 +74,46 @@ func requireRoot(command, reason string) bool {
 }
 
 // operatorName resolves the account that works in the tree: --agent-user, then
-// SUDO_USER so `sudo faramir init` needs no flag, then the caller. root is not
-// an answer at any position: chowning a checkout to root would take it from its
-// owner, so reaching root another way means passing --agent-user.
+// $FARAMIR_OPERATOR, then SUDO_USER so `sudo faramir init` needs no flag, then
+// the caller. root is not an answer at any position: chowning a checkout to root
+// would take it from its owner, so reaching root another way means passing
+// --agent-user.
+//
+// $FARAMIR_OPERATOR outranks SUDO_USER because it is set only inside a brokered
+// command, and there sudo's caller is the executor rather than a person: the
+// broker writes it from the live config and the grant's env_file carries it
+// through to root, which is what etc/sudo-env.tmpl exists to do. Ahead of
+// SUDO_USER rather than behind it, unlike the config fallback in
+// operatorFromConfig: a stale config should not outrank a person answering in
+// the present tense, but a brokered run has no person in SUDO_USER to outrank.
 func operatorName(flagValue string) string {
-	candidates := []string{flagValue, os.Getenv("SUDO_USER")}
+	candidates := []string{flagValue, os.Getenv(protocol.OperatorEnv), os.Getenv("SUDO_USER")}
 	if current, err := user.Current(); err == nil {
 		candidates = append(candidates, current.Username)
 	}
 	for _, candidate := range candidates {
-		if candidate != "" && candidate != "root" {
+		if candidate != "" && !notTheOperator[candidate] {
 			return candidate
 		}
 	}
 	return ""
+}
+
+// notTheOperator is the accounts that cannot be the answer whichever position
+// they arrive in. root chowns a checkout away from its owner; faramir's own
+// service accounts hold none of the operator's configuration, and one of them
+// reaching this means SUDO_USER was read from a brokered command whose
+// $FARAMIR_OPERATOR was missing.
+//
+// The installed names rather than whatever this host called them: a renamed
+// account is covered by $FARAMIR_OPERATOR above, which is a marker rather than a
+// name, and a list that has to be right about every host is one that reports a
+// wrong answer as a right one.
+var notTheOperator = map[string]bool{
+	"root":                    true,
+	install.DefaultBrokerUser: true,
+	install.DefaultKeeperUser: true,
+	install.DefaultExecUser:   true,
 }
 
 // brokerOptions is what every broker-facing subcommand shares.

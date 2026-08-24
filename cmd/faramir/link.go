@@ -289,7 +289,7 @@ func installOptions(f linkFlags, dir string) install.Options {
 		// it: these commands re-render the agent's rule files, and a root shell
 		// with no SUDO_USER was told to pass a flag naming what the config already
 		// said.
-		AgentUser: doctorOperator(f.agentUser, filepath.Join(dir, "config.toml")),
+		AgentUser: operatorFromConfig(filepath.Join(dir, "config.toml"), f.agentUser),
 		// Progress goes to stderr so --json owns stdout, and is suppressed under
 		// --json entirely, as `init` suppresses it: the steps are in the document.
 		Log: stepLog(f.json),
