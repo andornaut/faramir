@@ -93,8 +93,8 @@ func (f *blockFlags) register(c *cobra.Command) {
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
 		"account the coding agent runs as. Defaults to what [server] agent_user "+
-			"records, and naming a different one is refused: `faramir init "+
-			"--agent-user` is what changes who the host belongs to")
+			"records, and naming a different one is refused: 'faramir init "+
+			"--agent-user' is what changes who the host belongs to")
 }
 
 // registerForms is on add and rm and not on ls, which takes none of them. Each
