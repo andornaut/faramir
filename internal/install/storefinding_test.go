@@ -3,6 +3,8 @@ package install
 import (
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/keeper"
 )
 
 // What the `secrets store` check makes of each state --check can report. An
@@ -49,6 +51,27 @@ func TestStoreFindingFailsOnlyOnSomethingWrong(t *testing.T) {
 			patterns: []string{glob, "/b/*.sops.yml"}, files: []string{"a.sops.yml"},
 			unresolved: []string{"/b/*.sops.yml"}, count: 0, want: StatusWarn,
 			says: []string{"1 file(s) loaded and held no ref"}},
+
+		// A search that was stopped rather than one that found nothing. No host
+		// waiting for its first secret looks like this, so it is graded with the
+		// faults: every managed value is out of the redactor until it is fixed.
+		{name: "a directory the keeper may not read",
+			patterns: []string{glob}, links: 1, count: 1,
+			unresolved: []string{glob + ": cannot read /etc/faramir/secrets: permission denied"},
+			want:       StatusFailed, says: []string{"permission denied"}},
+		{name: "a directory that is not there",
+			patterns:   []string{glob},
+			unresolved: []string{glob + ": cannot read /etc/faramir/secrets: no such file or directory"},
+			want:       StatusFailed, says: []string{"no such file or directory"}},
+		// And the one beside it that found nothing is still a host waiting.
+		{name: "one entry refused while another simply matched nothing",
+			patterns:   []string{glob, "/b/*.sops.yml"},
+			unresolved: []string{glob + ": matched no files", "/b/*.sops.yml: cannot read /b: permission denied"},
+			want:       StatusFailed},
+		{name: "an empty directory alone",
+			patterns: []string{glob}, links: 1, count: 1,
+			unresolved: []string{glob + ": " + keeper.NoMatchReason},
+			want:       StatusWarn, says: []string{"have not been written yet"}},
 
 		// Faults, which stay failures.
 		{name: "a file that is there and did not load",

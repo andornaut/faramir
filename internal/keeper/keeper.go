@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/fserr"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -205,12 +206,48 @@ func Resolve(files []string) (paths, errors, unresolved []string) {
 	return paths, errors, unresolved
 }
 
-// unresolvedReason says why an entry named nothing. A literal path gets its
-// stat error, which separates "not written yet" from "the directory above is
-// unreadable".
+// NoMatchReason is the reason an entry gives when nothing is wrong with the
+// directory and it simply holds no matching file. Exported because a caller
+// rendering it adds a guess at why -- not written yet, filesystem not mounted
+// -- which belongs only to this one: the others name what stopped them.
+const NoMatchReason = "matched no files"
+
+// refusedPrefix opens the reason an entry gives when the directory it names
+// could not be read at all.
+const refusedPrefix = "cannot read "
+
+// UnresolvedWasRefused reports whether an entry Resolve returned says the
+// search was stopped rather than that it found nothing. A caller grades the
+// two differently: an empty directory is what every host looks like before its
+// first secret is written, and one this account may not read is what no
+// working install looks like.
+//
+// Matched on the reason, which Resolve writes after the entry and ": ". A
+// pattern carrying that text itself would read as one of these; the patterns
+// are derived from the config directory rather than typed, so there is none to
+// carry it.
+func UnresolvedWasRefused(entry string) bool {
+	_, reason, found := strings.Cut(entry, ": ")
+	return found && strings.HasPrefix(reason, refusedPrefix)
+}
+
+// unresolvedReason says why an entry named nothing, separating "not written
+// yet" from "this process cannot look". The two are corrected differently --
+// write a file, or give the account the directory back -- and Glob reports
+// neither: it returns no matches and no error either way.
 func unresolvedReason(entry string) string {
 	if isPattern(entry) {
-		return "matched no files"
+		// The directory the pattern names, read the way Glob reads it. Skipped
+		// where that part is itself a pattern, there being no one directory to
+		// name.
+		dir := filepath.Dir(entry)
+		if isPattern(dir) {
+			return NoMatchReason
+		}
+		if _, err := os.ReadDir(dir); err != nil {
+			return refusedPrefix + fserr.At(dir, err).Error()
+		}
+		return NoMatchReason
 	}
 	if _, err := os.Stat(entry); err != nil {
 		return err.Error()

@@ -478,6 +478,48 @@ func TestAStoreThatMatchedNothingIsStillReported(t *testing.T) {
 	}
 }
 
+// A pattern that matched nothing says which nothing it was. Glob returns no
+// matches and no error whether the directory holds no file or this process
+// cannot read it, and the default install names a pattern, so the flat answer
+// is the one every host would get: an operator reads "matched no files" and
+// goes to write one, when the store is there and the keeper has lost the
+// directory.
+func TestAPatternSaysWhetherItCouldReadTheDirectoryAtAll(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a directory whatever its mode")
+	}
+	dir := t.TempDir()
+
+	// Nothing written yet.
+	_, _, empty := Resolve([]string{filepath.Join(dir, "*.sops.yml")})
+	if len(empty) != 1 || !strings.Contains(empty[0], "matched no files") {
+		t.Fatalf("unresolved = %v, want it to say the directory holds no match", empty)
+	}
+
+	// The same directory, unreadable.
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	_, _, refused := Resolve([]string{filepath.Join(dir, "*.sops.yml")})
+	if len(refused) != 1 {
+		t.Fatalf("unresolved = %v, want the entry that named nothing", refused)
+	}
+	if strings.Contains(refused[0], "matched no files") {
+		t.Errorf("unresolved = %q, which reads as an empty directory", refused[0])
+	}
+	if !strings.Contains(refused[0], dir) || !strings.Contains(refused[0], "cannot read") {
+		t.Errorf("unresolved = %q, want it to name the directory it could not read", refused[0])
+	}
+
+	// And a directory that is not there at all is neither of those.
+	missing := filepath.Join(dir, "gone")
+	_, _, absent := Resolve([]string{filepath.Join(missing, "*.sops.yml")})
+	if len(absent) != 1 || strings.Contains(absent[0], "matched no files") {
+		t.Errorf("unresolved = %v, want it to say the directory is not there", absent)
+	}
+}
+
 // The keeper and the broker are one binary under two units. A caller of another
 // release is one of them left running across the install that replaced it, and
 // is refused before the op: the alternative is serving the value set to a

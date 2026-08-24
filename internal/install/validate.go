@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/keeper"
 )
 
 // checkReport is the part of `faramir-broker --check` this acts on; the rest is
@@ -364,11 +366,24 @@ func storeFinding(c checkReport) (Status, string) {
 		// from the config directory, so it is on every install and names nothing
 		// until a first file is written. What is served is reported beside it,
 		// that being what tells an operator which of the two they are looking at.
-		// The entries carry their own reason, "matched no files" or the stat error
-		// a literal path gave, so this adds none.
-		return StatusWarn, fmt.Sprintf("%s, so %s. Either the secrets have not been "+
-			"written yet, or they are on a filesystem that is not mounted",
+		detail := fmt.Sprintf("%s, so %s",
 			strings.Join(c.Secrets.UnresolvedPatterns, "; "), c.storeHolds())
+		// An entry that could not be searched at all is the exception to the
+		// paragraph above: no host waiting for its first secret looks like a
+		// directory this account may not read, so there is nothing here to
+		// confuse it with. Every managed value is out of the redactor until it
+		// is fixed, which is what a file that did not load is failed for.
+		if slices.ContainsFunc(c.Secrets.UnresolvedPatterns, keeper.UnresolvedWasRefused) {
+			return StatusFailed, detail
+		}
+		// The guess is only for entries that gave no reason of their own. One
+		// that names a directory it could not read has already said why, and
+		// being told to go and write a file sends the operator past it.
+		if everyEntryOnlyMissedAMatch(c.Secrets.UnresolvedPatterns) {
+			detail += ". Either the secrets have not been written yet, or they " +
+				"are on a filesystem that is not mounted"
+		}
+		return StatusWarn, detail
 	case c.Secrets.Count == 0 && len(c.Secrets.Files) == 0:
 		// Reachable on an install whose secrets are all linked and whose links have
 		// all gone: nothing was read, so there is no file to name.
@@ -382,6 +397,17 @@ func storeFinding(c checkReport) (Status, string) {
 	}
 	return StatusOK, fmt.Sprintf("%d ref(s) from %d file(s)%s",
 		c.Secrets.Count, len(c.Secrets.Files), c.linkNote())
+}
+
+// everyEntryOnlyMissedAMatch reports whether nothing stopped the search: each
+// entry looked where it was told and found no file there.
+func everyEntryOnlyMissedAMatch(entries []string) bool {
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry, keeper.NoMatchReason) {
+			return false
+		}
+	}
+	return true
 }
 
 // linkEntries names a count of link entries, singular where there is one: this
