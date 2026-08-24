@@ -4,6 +4,9 @@ coverage.txt
 
 # `go build ./cmd/faramir` by hand writes here.  make build writes to bin/.
 /faramir
+# The same build run from inside the package directory writes it beside the
+# source instead, where nothing above reaches it.
+/cmd/faramir/faramir
 
 # opencode.json is a common entry in a personal ignore file, where it means the
 # opencode config of whatever tree you are in.  Here it is an installed asset,
