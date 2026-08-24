@@ -31,10 +31,10 @@ import (
 // now readable by and who asked for that.
 const opReader = "reader"
 
-// newRecipientCmd is a group spelled like `link add|rm|ls`. The guard names a
+// newReaderCmd is a group spelled like `link add|rm|ls`. The guard names a
 // subcommand by every token a person types, so the three here are three lines
 // in cli.Operator, held against the command tree by a test.
-func newRecipientCmd() *cobra.Command {
+func newReaderCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "reader",
 		Short:   "Manage which keys can decrypt the secret files",
@@ -42,18 +42,18 @@ func newRecipientCmd() *cobra.Command {
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newRecipientAddCmd(), newRecipientRemoveCmd(), newRecipientListCmd(),
-		newRecipientResealCmd())
+	c.AddCommand(newReaderAddCmd(), newReaderRemoveCmd(), newReaderListCmd(),
+		newReaderResealCmd())
 	return c
 }
 
-type recipientFlags struct {
+type readerFlags struct {
 	dryRun bool
 	json   bool
 	when   string
 }
 
-func (f *recipientFlags) register(c *cobra.Command, writes bool) {
+func (f *readerFlags) register(c *cobra.Command, writes bool) {
 	fl := c.Flags()
 	if !writes {
 		fl.BoolVar(&f.json, "json", false, "print the recipients as JSON")
@@ -64,8 +64,8 @@ func (f *recipientFlags) register(c *cobra.Command, writes bool) {
 		"report the rule change and which files would be re-encrypted, and write neither")
 }
 
-func newRecipientAddCmd() *cobra.Command {
-	var f recipientFlags
+func newReaderAddCmd() *cobra.Command {
+	var f readerFlags
 	c := &cobra.Command{
 		Use:   "add [options] KEY",
 		Short: "Add a key that can decrypt the secret files",
@@ -76,15 +76,15 @@ func newRecipientAddCmd() *cobra.Command {
 			"the machine that will hold it.",
 		Args: exactlyArgs(1, "one age recipient"),
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runRecipientChange(f, args[0], true))
+			return codeErr(runReaderChange(f, args[0], true))
 		},
 	}
 	f.register(c, true)
 	return c
 }
 
-func newRecipientRemoveCmd() *cobra.Command {
-	var f recipientFlags
+func newReaderRemoveCmd() *cobra.Command {
+	var f readerFlags
 	c := &cobra.Command{
 		Use:     "rm [options] KEY",
 		Aliases: []string{opRemove},
@@ -95,28 +95,28 @@ func newRecipientRemoveCmd() *cobra.Command {
 			"that key could read as read, and rotate it.",
 		Args: exactlyArgs(1, "one age recipient"),
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runRecipientChange(f, args[0], false))
+			return codeErr(runReaderChange(f, args[0], false))
 		},
 	}
 	f.register(c, true)
 	return c
 }
 
-func newRecipientListCmd() *cobra.Command {
-	var f recipientFlags
+func newReaderListCmd() *cobra.Command {
+	var f readerFlags
 	c := &cobra.Command{
 		Use:     useLs,
 		Aliases: []string{"list"},
 		Short:   "List the keys that can decrypt the secret files",
 		Args:    noArgs,
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runRecipientList(f)) },
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runReaderList(f)) },
 	}
 	f.register(c, false)
 	return c
 }
 
-func newRecipientResealCmd() *cobra.Command {
-	var f recipientFlags
+func newReaderResealCmd() *cobra.Command {
+	var f readerFlags
 	c := &cobra.Command{
 		Use:   "reseal [options] [FILE...]",
 		Short: "Re-encrypt every file to the keys .sops.yaml names",
@@ -133,7 +133,7 @@ func newRecipientResealCmd() *cobra.Command {
 
 // runReseal is a recipient change with no recipient: the rule is taken as it
 // stands and the store is brought to it.
-func runReseal(f recipientFlags, args []string) int {
+func runReseal(f readerFlags, args []string) int {
 	const label = "reader reseal"
 	store, code := loadStore(label, socketDefault(), args, false)
 	if store == nil {
@@ -154,11 +154,11 @@ func runReseal(f recipientFlags, args []string) int {
 	return resealStore(label, store, wanted, f.dryRun)
 }
 
-// runRecipientChange is add and rm, which differ only in the edit they ask for.
+// runReaderChange is add and rm, which differ only in the edit they ask for.
 // The order is the point: validate, edit in memory, judge the result, and only
 // then write, so a rule that would leave the keeper out is one the file never
 // comes to hold.
-func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
+func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	label := "reader rm"
 	if adding {
 		label = "reader add"
@@ -286,10 +286,10 @@ func listedOrNot(adding bool) string {
 	return "does not name"
 }
 
-// runRecipientList needs no root: .sops.yaml is world-readable, holding public
+// runReaderList needs no root: .sops.yaml is world-readable, holding public
 // keys and a rule and no value. It reads that file rather than asking the
 // broker.
-func runRecipientList(f recipientFlags) int {
+func runReaderList(f readerFlags) int {
 	paint, err := newPalette(f.when)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir reader ls: %v\n", err)
