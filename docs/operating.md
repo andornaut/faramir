@@ -160,7 +160,7 @@ Source | Is
 `--editor PATH` | Typed on the command line, for one run
 `$VISUAL` | The invoking shell's, if it survived `sudo`
 `$EDITOR` | The same, consulted after `$VISUAL`
-the built-in list | `/usr/bin/nano`, `/bin/nano`, `/usr/bin/vim`, `/usr/bin/vi`, `/bin/vi`, first that passes
+the built-in list | `/usr/bin/vim`, `/usr/bin/vi`, `/bin/vi`, `/usr/bin/nano`, `/bin/nano`, first that passes
 
 A named source that fails the check is refused rather than passed over: it is what you asked for, and falling through would open the store in an editor you did not choose and say nothing.
 

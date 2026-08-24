@@ -41,11 +41,11 @@ var sopsBinary = "sops"
 // editors are tried in order when none is given. Absolute paths only:
 // "sensible-editor" and "editor" resolve through files the operator can write.
 var editors = []string{
-	"/usr/bin/nano",
-	"/bin/nano",
 	"/usr/bin/vim",
 	"/usr/bin/vi",
 	"/bin/vi",
+	"/usr/bin/nano",
+	"/bin/nano",
 }
 
 type editFlags struct {
