@@ -53,20 +53,41 @@ func UnitPath(name string) string {
 // unitUser reads User= out of an installed unit. Parsed rather than asked of
 // systemctl, which answers nothing when the daemon is down, which is one of the
 // states worth examining.
+//
+// The drop-ins with it, and the last assignment winning, which is how systemd
+// resolves the pair: a `.d/*.conf` naming another account is how a host renames
+// one without editing a file the install rewrites. Reading the main unit alone
+// reported the name the template shipped, and a caller refusing service accounts
+// as operators would then not refuse the account the executor actually runs as.
+//
+// An empty assignment is systemd's way of unsetting, so it clears what an
+// earlier file said rather than being passed over, as UnitConfigFile treats one.
 func unitUser(name string) (string, error) {
-	path := UnitPath(name)
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	for line := range strings.SplitSeq(string(body), "\n") {
-		if account, ok := strings.CutPrefix(strings.TrimSpace(line), "User="); ok {
-			if account = strings.TrimSpace(account); account != "" {
-				return account, nil
+	unit := UnitPath(name)
+	account := ""
+	read := false
+	for _, path := range unitFiles(unit) {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		read = true
+		for line := range strings.SplitSeq(string(body), "\n") {
+			if value, ok := strings.CutPrefix(strings.TrimSpace(line), "User="); ok {
+				account = strings.TrimSpace(value)
 			}
 		}
 	}
-	return "", fmt.Errorf("%s names no User=", path)
+	switch {
+	case !read:
+		// The unit itself is what a caller cannot read, so the error is that file's
+		// rather than a drop-in's: an absent unit is an install that is not there.
+		_, err := os.ReadFile(unit)
+		return "", err
+	case account == "":
+		return "", fmt.Errorf("%s names no User=", unit)
+	}
+	return account, nil
 }
 
 // UnitConfigFile is the config file the unit at this path loads, or "" when

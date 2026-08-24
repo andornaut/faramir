@@ -160,3 +160,78 @@ func TestPreflightAllowsATreeWithNoSymlinks(t *testing.T) {
 		t.Errorf("refuseSymlinks() = %v, want nil for a tree with no links", err)
 	}
 }
+
+// The operator cannot be one of faramir's own accounts. The arrangement rests on
+// a brokered command running as a uid holding nothing the agent's holds, so an
+// install where those are one account has no boundary to enforce: refused before
+// anything is written rather than reported afterwards.
+//
+// Nothing else caught it. The resolver refuses the service accounts as answers,
+// but a name passed with --agent-user is the caller's own and outranks that, and
+// the earlier checks here ask only that the account is not root and exists.
+func TestPreflightRefusesAnOperatorThatIsAServiceAccount(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("preflight refuses root as the operator, so it never reaches this check")
+	}
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentUsername := me.Username
+	for _, tc := range []struct {
+		name  string
+		opts  Options
+		names string
+	}{
+		{"the executor's own account", Options{AgentUser: DefaultExecUser}, "executor"},
+		{"the broker's", Options{AgentUser: DefaultBrokerUser}, "broker"},
+		{"the keeper's", Options{AgentUser: DefaultKeeperUser}, "keeper"},
+		// A renamed daemon is refused under the name this run gives it, not the
+		// compiled-in one: the flag is what decides the account here. The operator's
+		// own account, which is the shape this actually takes -- naming a person's
+		// account as the executor -- and the only renamed one certain to exist on
+		// the machine this test runs on, userExists being asked first.
+		{"a daemon moved onto the operator's own account",
+			Options{AgentUser: currentUsername, ExecUser: currentUsername}, "executor"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.opts.DryRun = true
+			run := &runner{opts: tc.opts, layout: Layout{ConfigDir: t.TempDir()}}
+
+			err := run.preflight()
+
+			if err == nil {
+				t.Fatalf("preflight accepted %q as the operator", tc.opts.AgentUser)
+			}
+			for _, want := range []string{tc.opts.AgentUser, tc.names} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the refusal does not carry %q: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+// And the compiled-in name is an ordinary account on a host that moved that
+// daemon elsewhere, so it must not be refused there: the names come from this
+// run, not from the binary.
+func TestPreflightAllowsADefaultNameWhenTheDaemonMoved(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("preflight refuses root as the operator, so it never reaches this check")
+	}
+	run := &runner{
+		opts: Options{
+			AgentUser: DefaultExecUser,
+			ExecUser:  "faramir-runner",
+			DryRun:    true,
+		},
+		layout: Layout{ConfigDir: t.TempDir()},
+	}
+
+	err := run.preflight()
+
+	if err != nil && strings.Contains(err.Error(), "the executor runs as") {
+		t.Errorf("%q was refused as the operator, but this run's executor is %q: %v",
+			DefaultExecUser, "faramir-runner", err)
+	}
+}

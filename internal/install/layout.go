@@ -50,6 +50,16 @@ const (
 	DefaultExecUser    = "faramir-exec"
 )
 
+// The flags that move a daemon to another account, beside the defaults they
+// replace. Named once because three files spell each of them: what adopts an
+// existing install, what diagnoses one, and what refuses an operator that is one
+// of these accounts.
+const (
+	BrokerUserFlag = "--broker-user"
+	KeeperUserFlag = "--keeper-user"
+	ExecUserFlag   = "--exec-user"
+)
+
 // Where the distribution keeps the two files a sudo grant needs, the audit
 // log's rotation rule, and logrotate's own record of what it has rotated.
 // Variables rather than constants so a test can point at files it wrote: a host

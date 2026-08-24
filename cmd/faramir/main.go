@@ -86,6 +86,7 @@ func requireRoot(command, reason string) bool {
 // SUDO_USER rather than behind it, unlike the config fallback in
 // operatorFromConfig: a stale config should not outrank a person answering in
 // the present tense, but a brokered run has no person in SUDO_USER to outrank.
+//
 // refused is the accounts that cannot be the answer whichever position they
 // arrive in; notTheOperator builds this host's.
 func operatorName(refused map[string]bool, flagValue string) string {
@@ -116,13 +117,15 @@ func operatorName(refused map[string]bool, flagValue string) string {
 //
 // A parameter rather than read inside the resolver, so what a run refuses is
 // visible at the call site and a test can name accounts this host does not have.
-func notTheOperator() map[string]bool {
+func notTheOperator(alsoRefused ...string) map[string]bool {
 	accounts := install.InstalledAccounts()
-	refused := make(map[string]bool, len(accounts)+1)
+	refused := make(map[string]bool, len(accounts)+len(alsoRefused)+1)
 	// Whatever the units say, and root at every install.
 	refused["root"] = true
-	for _, account := range accounts {
-		refused[account] = true
+	for _, account := range append(accounts, alsoRefused...) {
+		if account != "" {
+			refused[account] = true
+		}
 	}
 	return refused
 }

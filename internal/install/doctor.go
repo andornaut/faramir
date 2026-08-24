@@ -1383,9 +1383,9 @@ func resolveIdentities(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 		into *string
 		flag string
 	}{
-		{brokerUnit, &opts.BrokerUser, "--broker-user"},
-		{keeperUnit, &opts.KeeperUser, "--keeper-user"},
-		{execUnit, &opts.ExecUser, "--exec-user"},
+		{brokerUnit, &opts.BrokerUser, BrokerUserFlag},
+		{keeperUnit, &opts.KeeperUser, KeeperUserFlag},
+		{execUnit, &opts.ExecUser, ExecUserFlag},
 	} {
 		if *role.into != "" {
 			continue

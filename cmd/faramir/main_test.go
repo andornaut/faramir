@@ -1012,3 +1012,29 @@ func TestTheRefusalSetCarriesRootAndEveryServiceAccount(t *testing.T) {
 			len(refused), len(install.InstalledAccounts()))
 	}
 }
+
+// `init` writes the units, so on a first install there are none to read and
+// InstalledAccounts can only offer the compiled-in names. The accounts that run
+// is naming have to join them, or a host installed with --exec-user would not
+// refuse the account it is about to create.
+func TestInitRefusesTheAccountsItIsNaming(t *testing.T) {
+	t.Setenv(protocol.OperatorEnv, "")
+	t.Setenv("SUDO_USER", "")
+	refused := notTheOperator("faramir-runner", "", "")
+	if !refused["faramir-runner"] {
+		t.Error("an account this run names is not refused")
+	}
+	if !refused["root"] {
+		t.Error("root is not refused")
+	}
+	// An empty name is a flag nobody passed, not an account called "".
+	if refused[""] {
+		t.Error("the empty string is refused, so a flag left out names an account")
+	}
+	// And the installed names are still there beside them.
+	for _, account := range install.InstalledAccounts() {
+		if !refused[account] {
+			t.Errorf("%q is installed and is not refused", account)
+		}
+	}
+}

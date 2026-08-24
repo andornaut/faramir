@@ -53,9 +53,9 @@ func (o *Options) adoptInstalled() (took []string, err error) {
 		flag     string
 		fallback string
 	}{
-		{brokerUnit, &o.BrokerUser, "--broker-user", DefaultBrokerUser},
-		{keeperUnit, &o.KeeperUser, "--keeper-user", DefaultKeeperUser},
-		{execUnit, &o.ExecUser, "--exec-user", DefaultExecUser},
+		{brokerUnit, &o.BrokerUser, BrokerUserFlag, DefaultBrokerUser},
+		{keeperUnit, &o.KeeperUser, KeeperUserFlag, DefaultKeeperUser},
+		{execUnit, &o.ExecUser, ExecUserFlag, DefaultExecUser},
 	} {
 		if *role.into != "" {
 			continue

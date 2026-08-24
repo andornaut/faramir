@@ -49,6 +49,13 @@ func (f *linkFlags) register(c *cobra.Command) {
 			"--agent-user' is what changes who the host belongs to")
 }
 
+// registerUnread is the flag on the listing, for the reason `block ls` gives.
+func (f *linkFlags) registerUnread(c *cobra.Command) {
+	c.Flags().StringVar(&f.agentUser, "agent-user", "",
+		"accepted so it can be passed to every subcommand alike, and not read "+
+			"here: a listing renders no rule files, so it resolves no operator")
+}
+
 func newLinkAddCmd() *cobra.Command {
 	var f linkFlags
 	c := &cobra.Command{
@@ -215,7 +222,7 @@ func newLinkListCmd() *cobra.Command {
 		Args:  noArgs,
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runLinkList(f)) },
 	}
-	f.register(c)
+	f.registerUnread(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the entries as JSON")
 	addColorFlag(c, &f.when)
 	return c

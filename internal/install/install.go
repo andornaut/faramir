@@ -538,6 +538,26 @@ func (r *runner) preflight() error {
 	if !userExists(r.opts.AgentUser) {
 		return fmt.Errorf("no such user: %s", r.opts.AgentUser)
 	}
+	// And not one of faramir's own. The whole arrangement is that a brokered
+	// command runs as an account holding nothing the agent's account holds, so an
+	// operator who is also the executor has no boundary left: every value injected
+	// into a brokered command sits in a process of the operator's own uid, and the
+	// paths refused to the agent are that account's to read. Refused here rather
+	// than reported, an install being what this would make wrong from the start.
+	// A slice rather than a map, so the message names the same role every run.
+	for _, daemon := range []struct{ role, flag, account string }{
+		{"broker", BrokerUserFlag, orDefault(r.opts.BrokerUser, DefaultBrokerUser)},
+		{"keeper", KeeperUserFlag, orDefault(r.opts.KeeperUser, DefaultKeeperUser)},
+		{"executor", ExecUserFlag, orDefault(r.opts.ExecUser, DefaultExecUser)},
+	} {
+		if r.opts.AgentUser == daemon.account {
+			return fmt.Errorf("--agent-user %s is the account the %s runs as, so the "+
+				"operator and that daemon would be one uid and nothing a brokered "+
+				"command holds would be out of the agent's reach. Name a different "+
+				"account, or move the daemon with %s",
+				r.opts.AgentUser, daemon.role, daemon.flag)
+		}
+	}
 	// Held to what the executor will fork, and here rather than at the loader
 	// alone: a value above it renders a config.toml the daemons then refuse,
 	// which is a host with no broker where the answer is one number.

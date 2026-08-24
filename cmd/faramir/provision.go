@@ -396,7 +396,13 @@ func runInit(f initFlags) int {
 	}
 
 	opts := install.Options{
-		AgentUser:     operatorName(notTheOperator(), f.agentUser),
+		// The accounts this run is naming as well as the ones already installed:
+		// `init` is what writes the units, so on a first install there are none to
+		// read and the compiled-in names are all InstalledAccounts can offer. A
+		// host installed with --exec-user would then not refuse the account it is
+		// about to create.
+		AgentUser: operatorName(
+			notTheOperator(f.brokerUser, f.keeperUser, f.execUser), f.agentUser),
 		ClientGroup:   f.clientGroup,
 		SecretsGroup:  f.secretsGroup,
 		BrokerUser:    f.brokerUser,

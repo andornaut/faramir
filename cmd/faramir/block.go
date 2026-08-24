@@ -97,6 +97,18 @@ func (f *blockFlags) register(c *cobra.Command) {
 			"--agent-user' is what changes who the host belongs to")
 }
 
+// registerUnread is the same flag on a listing, which renders no rule files and
+// so resolves no operator. Taken rather than refused because the flag is passed
+// uniformly to every subcommand of `block` by anything scripting it, this
+// install's own e2e suite included, and rejecting it there would break that for
+// a listing it does not affect. The usage says so rather than repeating the
+// promise above, which a listing does not keep.
+func (f *blockFlags) registerUnread(c *cobra.Command) {
+	c.Flags().StringVar(&f.agentUser, "agent-user", "",
+		"accepted so it can be passed to every subcommand alike, and not read "+
+			"here: a listing renders no rule files, so it resolves no operator")
+}
+
 // registerForms is on add and rm and not on ls, which takes none of them. Each
 // form is a flag, including the path: three things are blocked here and a
 // positional argument would make one of them the default.
@@ -283,7 +295,7 @@ func newBlockListCmd() *cobra.Command {
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockList(f)) },
 	}
-	f.register(c)
+	f.registerUnread(c)
 	c.Flags().BoolVar(&f.declared, "declared", false,
 		"only the [[secret.block]] entries this install declares")
 	c.Flags().BoolVar(&f.builtIn, "built-in", false,
