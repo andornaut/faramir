@@ -78,7 +78,7 @@ func TestAllowSudoRendersTheSudoSection(t *testing.T) {
 			t.Errorf("%s = %q, want %q", check.name, check.got, check.want)
 		}
 	}
-	// Nothing is configured to ask: `faramir approve` is where a question is seen.
+	// Nothing is configured to ask: `faramir sudo approve` is where a question is seen.
 	if len(cfg.Sudo.NotifyCommand) != 0 {
 		t.Errorf("notify_command = %q, want nothing by default", cfg.Sudo.NotifyCommand)
 	}

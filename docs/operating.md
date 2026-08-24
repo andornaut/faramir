@@ -36,7 +36,7 @@ Four statuses: `ok`, `warn`, `failed`, and `n/a` for a check whose subject this 
 
 **Without the agent's account**, most boundary checks cannot be put at all: `access(2)` answers "no" for an account that cannot be named, which is the same answer a boundary that holds gives. Run from a root shell or cron, `doctor` takes that account from `$FARAMIR_OPERATOR`, then `SUDO_USER`, then `[server] agent_user`. It reports those checks as unasked only where none of the three names one, which is a host `init` has not finished: `faramir init --agent-user` is what records it, `doctor` taking no such flag.
 
-**Finding the install.** `doctor`, `init-project`, `uninstall`, `link`, `block`, `vault add`, `vault edit`, `vault ls`, `vault rm`, `recipient` and `logs` all act on an install they did not perform. None of them takes the path: a caller cannot be expected to know where the config lives, and every one of them can ask. One ladder, whether the command wants the directory or the file.
+**Finding the install.** `doctor`, `init-project`, `uninstall`, `link`, `block`, `vault add`, `vault edit`, `vault ls`, `vault rm`, `reader` and `logs` all act on an install they did not perform. None of them takes the path: a caller cannot be expected to know where the config lives, and every one of them can ask. One ladder, whether the command wants the directory or the file.
 
 Order | Source
 --- | ---
@@ -80,7 +80,7 @@ A brokered command cannot delete these files, each agent's own directory in a tr
 **Every one of these is refused to the coding agent's shell**, with sudo and without. An agent may run `run`, `redact`, `status` and `refs`, plus `version`, `help` and `completion`, which reach no broker; the rest act on the install rather than through it.
 
 - All need root except `doctor`, which degrades, and the three that only read: `reader ls`, `link ls` and `block ls`.
-- Five group, and each names a subcommand: `faramir vault` acts on the encrypted secret files, `faramir link` on a secret another tool owns, `faramir block` on a path refused to the agent and never read, `faramir reader` on which keys can decrypt those files, and `faramir sudo` on a brokered command's request to run `sudo`. The first two share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
+- Five of them take a subcommand: `faramir vault` acts on the encrypted secret files, `faramir link` on a secret another tool owns, `faramir block` on a path refused to the agent and never read, `faramir reader` on which keys can decrypt those files, and `faramir sudo` on a brokered command's request to run `sudo`. `vault` and `link` share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
 
 Command | Does
 --- | ---
@@ -110,7 +110,7 @@ Command | Does
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed config. All three are socket activated
 `sudo faramir uninstall` | Removes the broker from the install it finds. Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively. Running it again is not an error: a first run that stopped partway leaves nothing to find, and the removal is at fixed paths whether or not an install answers
 
-At the broker these are three ops rather than four, `deny` being `approve` with a no: `escalations`, `approve` and `escalate` are root-only there too, checked with `SO_PEERCRED`, so the account the coding agent runs as cannot answer what the agent asked for. `escalate` is the one sudo's PAM helper asks, and so the one that decides whether a brokered command becomes root.
+At the broker these four commands are three ops, `approve` and `reject` both being `answer` with a different verdict: `escalations`, `answer` and `escalate` are root-only there too, checked with `SO_PEERCRED`, so the account the coding agent runs as cannot answer what the agent asked for. `escalate` is the one sudo's PAM helper asks, and so the one that decides whether a brokered command becomes root.
 
 **`init` refuses to run inside a brokered command.** It asks the broker what the agent holds on its way out, and a brokered command already holds the escalation that got it to root, so no second one runs while it is held: nested, `init` would do every step and then fail at its own verification. `doctor` reports the same nesting as a check it could not ask rather than as a broken install. So the route this repo documents for reaching a controller, `faramir run -- sudo make <playbook>`, works for every playbook except the one that installs faramir; run that from a shell of your own.
 
@@ -121,7 +121,7 @@ At the broker these are three ops rather than four, `deny` being `approve` with 
 - **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.
 - **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running.
 - **The keeper must be up before the broker is.** On a cold start there is no previous value set, so a keeper it cannot reach means nothing to redact with, and the broker refuses `run` and `redact`. Its unit `Requires=` the keeper socket. A keeper lost *later* does not stop a running broker: it keeps the set it has and retries.
-- **Run `init` before enrolling a project with opencode or Kilo Code.** Their plugins fail closed, so a binary too old to know the agent refuses every command in that project rather than running it unredacted. [What those plugins ask the guard](coding-agents.md#opencode-and-kilo-code).
+- **Run `init` before enrolling a project with opencode, Kilo Code or pi.** Their plugins fail closed, so a binary too old to know the agent refuses every command in that project rather than running it unredacted. [What those plugins ask the guard](coding-agents.md#opencode-kilo-code-and-pi).
 - **Children do not inherit the broker's environment.** They get `[command.env]` plus injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null` and the child gets no controlling terminal, so a prompt falls back to stderr, which is redacted and recorded; one written only to `/dev/tty` is lost ([why](redaction.md#why-a-pty-and-not-a-pipe)). Pass non-interactive flags.
 - **Output is truncated** at the output cap. The audit record keeps the head and the tail and says how many bytes it dropped.

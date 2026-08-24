@@ -133,12 +133,17 @@ The one thing refused is the same ref pointing at a different file, type or key.
 
 Nothing about the file is altered to make an answer come out right. In order, `link add`:
 
-1. Asks the running broker whether it already serves that ref.
-2. Checks that the file is arranged the way a link needs.
-3. Reads it as the broker's own account, to confirm the selector yields a value.
-4. Writes the entry.
+1. Refuses a ref this install already defines against a different file, type or key.
+2. Requires the file to be there.
+3. Reads it as root, to confirm the type and the key yield a value.
+4. Asks the running broker whether it already serves that ref.
+5. Checks that the file is arranged the way a link needs.
+6. Reads it again as the broker's own account, to confirm that account can reach the value.
+7. Writes the entry.
 
-Step 1 needs a broker that answers, and `link add` refuses rather than skipping it. An entry claiming a name the store already answers would refuse every brokered command on the host, and one written while nothing could check arrives at a moment nobody chose. `refs` answers on a host with no secrets yet, so this locks out no first install. A file that is not arranged correctly is reported along with the commands that fix it, and no entry is written.
+[Why there are two reads, and in that order](integrations.md#linking-a-credential-another-tool-owns).
+
+Step 4 needs a broker that answers, and `link add` refuses rather than skipping it. An entry claiming a name the store already answers would refuse every brokered command on the host, and one written while nothing could check arrives at a moment nobody chose. `refs` answers on a host with no secrets yet, so this locks out no first install. A file that is not arranged correctly is reported along with the commands that fix it, and no entry is written.
 
 `init` reads these entries back before rewriting the file, so every deny rule is re-asserted and every file re-checked on each run. That is what catches an arrangement some other tool took away.
 
@@ -183,7 +188,7 @@ A `[[secret.block]]` entry keeps one thing away from the agent, for a credential
 sudo faramir block add --path /etc/luks/volume.key   # this file, on this host
 sudo faramir block add --name '*.htpasswd'           # any file of that name, anywhere
 
-# Each argument and each --name is one entry, and one command writes them all
+# Each flag given is one entry, and one command writes them all
 sudo faramir block add --name id_rsa --name '*.pem' --name '.env*'
 
 # A command, for what a tool does rather than for a file it names

@@ -189,7 +189,7 @@ func TestAQuestionHoldsNewCommandsToo(t *testing.T) {
 // A question says how much of [sudo] timeout_sec is left, not only how long it
 // has been there.
 //
-// It matters most where the answer is a second command: `faramir approve`
+// It matters most where the answer is a second command: `faramir sudo approve`
 // without --watch prints the question, and the operator then types `faramir
 // approve <id>` against a clock that started when the question was raised. How
 // long it has already waited does not tell them whether they have time.

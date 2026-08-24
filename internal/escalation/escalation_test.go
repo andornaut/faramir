@@ -11,7 +11,7 @@ import (
 )
 
 // baseConfig is an enabled escalation with nothing announcing a question: the
-// tests answer through the same channel `faramir approve` does.
+// tests answer through the same channel `faramir sudo approve` does.
 func baseConfig() config.SudoConfig {
 	return config.SudoConfig{
 		ExecUser:   "faramir-exec",
@@ -605,7 +605,7 @@ func TestStopReleasesWhatIsWaiting(t *testing.T) {
 }
 
 // A command that ends takes its unanswered question with it. A question left
-// filed would be shown by `faramir approve` and would take a yes for a command
+// filed would be shown by `faramir sudo approve` and would take a yes for a command
 // that is no longer running, and it would hold the one question slot until its
 // own timeout.
 func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {

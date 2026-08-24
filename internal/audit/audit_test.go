@@ -250,7 +250,7 @@ func TestLogIDsDoNotRepeatAcrossGoroutines(t *testing.T) {
 }
 
 // An append is exclusive, so concurrent writers cannot interleave
-// and every line parses. Two Logs over one path is what `faramir edit` beside a
+// and every line parses. Two Logs over one path is what `faramir vault edit` beside a
 // running broker looks like.
 func TestConcurrentWritersLeaveEveryLineParseable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")

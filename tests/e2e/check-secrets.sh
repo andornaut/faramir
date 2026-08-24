@@ -524,7 +524,7 @@ grep -q "$SECOND" /etc/faramir/.sops.yaml && bad "a dry run wrote the rule" \
   || ok "and leaves the rule alone too"
 
 faramir reader add "$SECOND" >/tmp/add.log 2>&1 \
-  && ok "recipient add completed" || bad "recipient add failed: $(tail -2 /tmp/add.log)"
+  && ok "reader add completed" || bad "reader add failed: $(tail -2 /tmp/add.log)"
 grep -q "$SECOND" /etc/faramir/.sops.yaml && ok "the rule names the new recipient" \
   || bad "the rule was not written"
 grep -q "$SECOND" "$MANAGED" \
@@ -597,7 +597,7 @@ grep -q "$KEEPER" /etc/faramir/.sops.yaml \
 [ "$(sum)" = "$before" ] && ok "and the ciphertext is untouched" || bad "the refused removal rewrote the store"
 
 faramir reader rm "$SECOND" >/tmp/rm.log 2>&1 \
-  && ok "recipient rm completed" || bad "recipient rm failed: $(tail -2 /tmp/rm.log)"
+  && ok "reader rm completed" || bad "reader rm failed: $(tail -2 /tmp/rm.log)"
 grep -q "$SECOND" "$MANAGED" && bad "the removed recipient is still in the ciphertext" \
   || ok "the ciphertext no longer names the removed recipient"
 
@@ -620,9 +620,9 @@ grep -q "$SECOND" /tmp/ls.log && bad "the listing still names the removed recipi
 # sops writes from then on, so a store with no files is not a reason to refuse.
 mkdir -p /tmp/emptystore && mv /etc/faramir/secrets/*.sops.yml /tmp/emptystore/
 if faramir reader add "$SECOND" >/tmp/empty.log 2>&1; then
-  ok "recipient add works before the first secret exists"
+  ok "reader add works before the first secret exists"
 else
-  bad "recipient add refused a store with no files: $(tail -2 /tmp/empty.log)"
+  bad "reader add refused a store with no files: $(tail -2 /tmp/empty.log)"
 fi
 faramir reader ls 2>/dev/null | grep -q "$SECOND" \
   && ok "and the rule was written" || bad "the rule was not written"

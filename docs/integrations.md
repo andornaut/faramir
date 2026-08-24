@@ -84,7 +84,7 @@ Cargo | `~/.cargo/credentials.toml` | `toml` | `registry/token`
 A keyfile or single-line token | any | `text` | none
 A file that is not text | any | `base64` | none
 
-Each row is where that tool puts a credential it keeps in a file, and several of them no longer do. `gh` writes to the login keyring where one is available, leaving `hosts.yml` holding `git_protocol` and the account name; `docker login` writes to the keyring wherever `credsStore` is set, leaving `auths.<registry>` an empty object. A link reads files, so there is nothing to link in either case, and `link add` says so by listing what the file does offer. `gh auth status` names its store, and `jq -r '.credsStore' ~/.docker/config.json` names docker's.
+Each row is where that tool puts a credential it keeps in a file. Several of these tools no longer keep one there. `gh` writes to the login keyring where one is available, leaving `hosts.yml` holding `git_protocol` and the account name; `docker login` writes to the keyring wherever `credsStore` is set, leaving `auths.<registry>` an empty object. A link reads files, so there is nothing to link in either case, and `link add` says so by listing what the file does offer. `gh auth status` names its store, and `jq -r '.credsStore' ~/.docker/config.json` names docker's.
 
 `json`, `yaml` and `toml` walk the selector by `/` and index a list by number, which is what `users/0/user/token` is doing. `ini` matches the whole key, or `section/key` where the file has sections, which is why npm's sectionless `//registry...` key is given whole.
 
@@ -209,9 +209,9 @@ Name a credential for what it is (`msmtp_password`), and where a role already re
 app_sensor_password: "{{ sensor_password_west }}"
 ```
 
-Two things to know before choosing it. `vars_plugins_enabled` in `ansible.cfg` **replaces** the default list rather than adding to it, so it must keep naming `host_group_vars` or `host_vars/` stops loading. And a store key the env file does not name becomes invisible to Ansible, which is the same statement as one list saying what a run needs.
+Two things to know before choosing it. `vars_plugins_enabled` in `ansible.cfg` **replaces** the default list rather than adding to it, so it must keep naming `host_group_vars` or `host_vars/` stops loading. And a store key the env file does not name is invisible to Ansible, which is the cost of having one list say what a run needs.
 
-A missing or unreadable env file should yield no names rather than an error: every credential is then undefined and the first task to read one fails naming it, which is what a run nobody injected anything into should do, and what an ad-hoc command against a host needing no credential wants.
+Have a missing or unreadable env file yield no names rather than an error. Every credential is then undefined, and the first task to read one fails naming it. That is the right failure for a run nothing was injected into, and it leaves an ad-hoc command against a host that needs no credential working.
 
 #### Running it, either way
 

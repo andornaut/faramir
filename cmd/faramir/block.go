@@ -46,8 +46,8 @@ type blockFlags struct {
 	when     string
 }
 
-// entries is the refusals a command was asked for: every path given as an
-// argument and every --name given as a flag, each one entry, in that order.
+// entries is the refusals a command was asked for: every --path, --name and
+// --command given, each one entry, in that order.
 //
 // Any number of either, and the two mix. One entry is a path or a name and
 // never both, which the loader holds each of these to; an invocation is a list,

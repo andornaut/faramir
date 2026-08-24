@@ -29,7 +29,7 @@ Flag | Default | Sets
 `--client-group NAME` | the install's, then `faramir-client` | The group admitted to the broker socket and group-owning an enrolled tree. Membership is permission to ask the broker for any managed value, so name it for that rather than for a team: a group the host already has is adopted rather than refused, and every current member gains the grant
 `--secrets-group NAME` | the install's, then the keeper's own group | The group owning the ciphertext. `doctor` fails if the operator is in it
 `--config-dir DIR` | the install's, [found the usual way](operating.md#checking-an-install), then `/etc/faramir` | Where `config.toml`, the age key and the managed sops files live. `init` is the only command that takes this: every other one finds the install and refuses to guess. Absolute, parent must exist, and a *different* one needs `--move-config`
-`--move-config` | off | Consent to that move. The refs the old directory served leave the value set
+`--move-config` | off | Consent to that move. The new directory replaces the old, so the refs the old one served stop being redacted; its age key and ciphertext stay on disk
 `--broker-user`, `--exec-user`, `--keeper-user` | the install's, then `faramir-broker`, `faramir-exec`, `faramir-keeper` | The three service accounts, created if missing. No two may share a name
 `--ssh-key PATH` | the install's, then `<config-dir>/id_ed25519` | Where the keypair the broker lends lives. One is minted either way, so this relocates rather than enables. An existing key is adopted, and must be `faramir-broker`-owned `0600` with its `.pub` beside it at `0644`
 `--known-hosts PATH` | none | A `known_hosts` file copied to `<exec-home>/.ssh/known_hosts` and replaced whole each run. One that is not a `known_hosts` file is refused
@@ -50,16 +50,26 @@ Every path an install creates, with its mode and owner, is in [layout.md](layout
 
 ## Deny rules
 
-The rules `--agent` installs are **this install's own paths, and nothing else**. They come out of the layout, so they are the real ones: `<config-dir>`, the secrets directory, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' own directories under `/var/lib`, each with everything under it, wherever `--config-dir` put them. That covers the age key, the broker's SSH key, the managed sops files, the audit log and the executor's `known_hosts`. `faramir block ls` prints the list this host uses. Which file each agent reads them from is in [layout.md](layout.md); what they cost that agent is in [coding-agents.md](coding-agents.md).
+The rules `--agent` installs are **this install's own paths, and nothing else**. They come out of the layout, so they are this host's real paths:
 
-No pattern is compiled in. One would have to name a file faramir does not write, and there is no such file it can know about: it mints one age key, in its own directory, and an operator has a second identity only if they made one, `reader add` taking a public key and never learning where the private half sits. A rule for `~/.config/sops/age` would guard a file that is usually not there, at a path this install did not choose, and would make the default look more protective than it is.
+- `<config-dir>`, wherever `--config-dir` put it
+- the secrets directory
+- `/var/log/faramir`
+- `/usr/local/libexec/faramir`
+- the three service accounts' own directories under `/var/lib`
+
+Each one covers everything beneath it, which is how the age key, the broker's SSH key, the managed sops files, the audit log and the executor's `known_hosts` are all refused. `faramir block ls` prints the list this host uses.
+
+Which file each agent reads them from is in [layout.md](layout.md); what they cost that agent is in [coding-agents.md](coding-agents.md).
+
+No pattern is compiled in, because one would have to name a file faramir does not write, and there is no such file it can know about. It mints one age key, in its own directory. An operator has a second identity only if they made one, and `reader add` takes a public key without ever learning where the private half sits. A rule for `~/.config/sops/age` would guard a file that is usually not there, at a path this install did not choose, and would make the default look more protective than it is.
 
 Every secret an install writes is refused by its mode as well: `age.key` is `0400 faramir-keeper`, the broker's SSH key `0600 faramir-broker`, the secrets directory `2750 root:<secrets-group>`, the audit log `0600 faramir-broker`. So the rules above are the second of two mechanisms rather than the only one.
 
 > [!IMPORTANT]
 > **A credential faramir neither writes nor reads is yours to declare.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials`: none is refused by an install that declares nothing, so an agent's file tools can open them. `faramir block add --path` names one, `--name` names a class of them ([blocked paths](configuration.md#blocked-paths)), and `faramir block ls` shows both halves. A fleet declares them once in whatever converges its hosts.
 
-The line is drawn around what faramir installs rather than around credentials in general: what it writes, it refuses, and what it never touches is the operator's to name. It also means the rules do not grow a list every host has to disagree with.
+The line is drawn around what faramir installs rather than around credentials in general: what it writes, it refuses; what it never touches is the operator's to name. That also keeps the rules from growing into a list every host has to disagree with.
 
 ## Checking it worked
 
@@ -67,4 +77,4 @@ The line is drawn around what faramir installs rather than around credentials in
 sudo faramir doctor
 ```
 
-Without root it still runs, reporting what it could not ask as unasked rather than as passing. [What it checks](operating.md#checking-an-install).
+Without root it still runs, reporting the checks it could not make as unasked rather than as passing. [What it checks](operating.md#checking-an-install).

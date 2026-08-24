@@ -40,7 +40,7 @@ Every path the install creates, what owns it, and what each account can reach th
 <any tree you enrol>            2770 <operator>:<client-group>, setgid
 ```
 
-`sudo-env` is the one file here sudo reads as policy, so it stays out of `<config-dir>`: the grant names one path wherever `--config-dir` points, and an uninstall keeps the config directory and so must never remove it whole. Root-owned and never writable by the executor, or that uid would be choosing root's environment.
+`sudo-env` sits in `/usr/local/libexec/faramir`, beside the other files this install renders for its own use, rather than in either place it might otherwise go. Not `/etc/sudoers.d`, which sudo parses in its entirety. Not `<config-dir>`, which an uninstall keeps and so must never remove wholesale. It is root-owned and nowhere the executor's uid can write, because PAM reads it as root: a file that uid could rewrite would be that uid choosing root's environment.
 
 `init` also checks any file a `[[secret.link]]` entry names, which is a file it does not own and does not create. It reports what is wrong and the command that fixes it, and changes nothing:
 
@@ -51,19 +51,19 @@ Every path the install creates, what owns it, and what each account can reach th
 
 `init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>` and a missing parent `0700`; one already there keeps its own owner, group and mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
 
-Agent | Deny rules | Credentials section
---- | --- | ---
-Claude Code | `~/.claude/settings.json` | `~/.claude/CLAUDE.md`
-opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/AGENTS.md`
-Kilo Code | `~/.config/kilo/kilo.json` | `~/.kilocode/rules/faramir.md`
-Pi | none | `~/.pi/agent/AGENTS.md`
-Antigravity | none | `~/.gemini/GEMINI.md`, under the directory the whole Antigravity family keeps its own things in
+Agent | Deny rules | Credentials section | Notes
+--- | --- | --- | ---
+Claude Code | `~/.claude/settings.json` | `~/.claude/CLAUDE.md` | The ordinary case: a rule file and a section
+opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/AGENTS.md` | The ordinary case
+Kilo Code | `~/.config/kilo/kilo.json` | `~/.kilocode/rules/faramir.md` | It has no single home instructions file, so the section goes in a file of faramir's own in the global rules directory, where every `.md` is loaded for every project
+Pi | none | `~/.pi/agent/AGENTS.md` | It has nowhere to put account-wide rules, so the same paths are compiled into the extension `init-project` installs
+Antigravity | none | `~/.gemini/GEMINI.md` | Its permission lists are the IDE's own state rather than a file an install may write. `~/.gemini` is where the whole Antigravity family keeps its own things
 
-Pi gets no rule file, having nowhere to put account-wide rules: the same paths are compiled into the extension `init-project` installs. It gets the section like the rest. Antigravity gets no rule file either, its permission lists being the IDE's own state. Kilo Code has no single home instructions file, so its section is a file of faramir's own in the global rules directory, every `.md` in which is loaded for every project. Why each agent gets what it gets is in [coding-agents.md](coding-agents.md).
+Why each agent gets what it gets is in [coding-agents.md](coding-agents.md).
 
-Every agent but one reads the enrolled tree's own `AGENTS.md`, or its `CLAUDE.md` where that is what the tree has. Antigravity reads no documented file at a tree's root, so it gets `.agents/rules/faramir.md` there instead, headed with the frontmatter that makes a rule always-on where this creates it.
+In an enrolled tree, every agent but one reads the tree's own `AGENTS.md`, or its `CLAUDE.md` where that is what the tree has. Antigravity reads no documented file at a tree's root, so it gets `.agents/rules/faramir.md` instead.
 
-The section is what the deny rules cannot say: why they refuse, and what to do instead.
+The section says what the deny rules cannot: why they refuse, and what to do instead.
 
 `~/.bashrc` gets a `umask 002` line, so a file the operator creates in a shared tree stays group-writable.
 
@@ -86,4 +86,4 @@ The section is what the deny rules cannot say: why they refuse, and what to do i
 - Everyone in the group gets that traversal, so keep membership to the accounts that need it.
 - A directory already traversable by `other` is accepted as it is: tightening one the operator left open is not this command's business.
 - Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
-- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings faramir manages are regrouped and deliberately not group-writable, and `init-project` reports how many paths it altered, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.
+- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. That is the whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings faramir manages are regrouped but deliberately left not group-writable. `init-project` reports how many paths it altered, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.

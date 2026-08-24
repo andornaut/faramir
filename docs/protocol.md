@@ -163,7 +163,7 @@ Code | Meaning
 `not_executable` | `cmd[0]` is there and is not something the kernel will run: a directory, a device, a file without the execute bit, a file with no interpreter and no magic. The shell's 126
 `exec_failed` | The program could not be started for any other reason: a working directory the executor cannot enter, an argument list too long, a byte no argument can carry
 `internal` | The broker could not render its own answer. Not a fault of the request
-`forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the three root-only ops
+`forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the four root-only ops
 `too_large` | Request exceeded the 256 KiB cap, which is a [constant rather than a key](configuration.md#what-is-not-a-key-at-all)
 `timeout` | No request arrived within 30s, or a redact stream idled past `[command] max_timeout_sec`
 

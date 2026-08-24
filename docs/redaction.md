@@ -6,9 +6,13 @@
 
 `op run`, `chamber exec` and `sops exec-env` mask the values *they* injected. A credential reaches the output by paths no injector knows about: a managed host printing its own configuration over `ssh` emits the password in the sops file whether or not that ref was injected, and a grep across a log file finds one written weeks ago.
 
-So the broker holds every managed value, not the subset the current command names. It refetches on startup, when a file's fingerprint changes, and when the previous fetch could not reach the keeper: the files are unchanged in that case, so the poll would never notice, and an empty value set redacts nothing.
+So the broker holds every managed value, not the subset the current command names. It refetches:
 
-The fingerprints come from the keeper rather than a stat, the secrets being group-readable by the keeper alone, and the managed store globs are expanded there per request, so a file dropped into the secrets directory is picked up within a second with no daemon to restart.
+- on startup
+- when a file's fingerprint changes
+- when the previous fetch could not reach the keeper. The files are unchanged in that case, so the poll would never notice, and an empty value set redacts nothing
+
+The fingerprints come from the keeper rather than from a stat, because the secrets are group-readable by the keeper alone. The managed store globs are expanded there per request, so a file dropped into the secrets directory is picked up within a second, with no daemon to restart.
 
 `[[secret.link]]` values are in the same set, on a different clock:
 
@@ -29,11 +33,11 @@ The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the 
 
 ## The pipeline, in order
 
-The first four run in this order, each assuming the one before it has. The last two are properties of the matcher the first four use.
+The first four run in this order, and each assumes the one before it has run. The last two are properties of the matcher the first four use.
 
 **1. Strip ANSI escapes.** A colour code spliced into a value defeats matching while rendering identically (`hunte\x1b[32mr2-correct-horse`). The response carries the stripped text. An escape can split across two reads, so a bounded trailing partial sequence is held back.
 
-Escapes only. A zero-width separator spliced between the characters (`U+200B`, `U+200D`, `U+2060`, `U+00AD`) renders identically too and is not removed, so a value written that way is not matched. Stripping them would be stripping ordinary text, which soft hyphens and joiners are in the languages that use them; and it needs deliberate crafting, the same class as `| rev`.
+Escapes only. A zero-width separator spliced between the characters (`U+200B`, `U+200D`, `U+2060`, `U+00AD`) renders identically too and is not removed, so a value written that way is not matched. Two reasons. Those characters are ordinary text in the languages that use soft hyphens and joiners, so stripping them would corrupt real output. And writing a value that way takes deliberate crafting, which puts it in the same class as `| rev`.
 
 This stage has a second reader. CSI, OSC and the C0 controls go here, which is why an escalation prompt and `faramir logs` are not full of them. What it leaves is a bare `\r` (only CRLF is normalised), `ESC` followed by a byte outside `@-Z` and `\-_`, and the C1 controls `U+0080` to `U+009F`, the patterns matching CSI as `ESC [` while `U+009B` is the single-character form of the same introducer. [internal/termsafe](../internal/termsafe/termsafe.go) renders all three before any reaches a terminal, so narrowing what is stripped here widens what termsafe has to catch.
 
@@ -63,13 +67,15 @@ Line breaks are all that is removed, `\n` and a bare `\r`. A continuation the fo
 
 Cost: a low-entropy value split across a line break can be redacted where its two halves were unrelated words. That fails toward redaction rather than toward a leak, as the length gate does. The token replaces the whole span including the break, so such a match also joins the two lines: with `password` managed, `"the pass\nword list is here"` comes back as `"the «SECRET:ref» list is here"`.
 
-**4. What stage 1 removed needs a second pass too.** A CSI sequence ends at the first byte in `@-~`, which is every letter and most punctuation, so a value written straight after an introducer that never got its own terminator supplies one: `ESC [` before `hunter2` is a sequence ending in `h`, and the stripped text stage 2 would otherwise see reads `unter2`, which matches nothing. Nothing in the bytes tells that apart from a real `ESC [ 3 2 h`, so the strip is right and the miss is stage 2 having only the stripped text to look at. The redactor matches a second view holding the last byte of every CSI back where it was, and maps hits onto the emitted text; a real sequence leaves a stray letter in front of the value there, which no match cares about. Only the case that view alone can find is taken, so text carrying no escapes is scanned once.
+**4. What stage 1 removed needs a second pass too.** A CSI sequence ends at the first byte in `@-~`, which is every letter and most punctuation. So a value written straight after an introducer that never got its own terminator supplies that terminator itself: `ESC [` before `hunter2` is a sequence ending in `h`, and the stripped text stage 2 would otherwise see reads `unter2`, which matches nothing.
+
+Nothing in the bytes tells that apart from a real `ESC [ 3 2 h`, so the strip is correct and the miss belongs to stage 2, which has only the stripped text to look at. The redactor matches a second view, one holding the last byte of every CSI back where it was, and maps hits onto the emitted text. A real sequence leaves a stray letter in front of the value in that view, which no match cares about. Only the case that view alone can find is taken, so text carrying no escapes is still scanned once.
 
 It is only CSI. Every other sequence stage 1 removes ends on a byte a value cannot have supplied: OSC and DCS on `BEL` or `ST`, the two-character escapes on the byte the introducer already named, a stray control on itself.
 
 `run` merges stdout and stderr onto one PTY, so this shape arrives without anybody writing it: a partial colour sequence on one stream lands directly before a credential on the other.
 
-**5. Stream with an overlap buffer.** A tail of twice the longest variant plus a margin is held back on every `Feed` and released on `Flush`, the margin exceeding that variant because wrapping inserts newlines inside a value. The tail is already redacted, so re-scanning cannot double-count. Everything `Feed` returns is output, including the release triggered by the last partial-rune tail, or every command whose last write splits a rune loses its final characters.
+**5. Stream with an overlap buffer.** A tail of twice the longest variant plus 16 bytes is held back on every `Feed` and released on `Flush`. The doubling covers base64 line wrapping, which puts newlines inside a value; the 16 bytes cover quoting expansion at a chunk boundary. The tail is already redacted, so re-scanning cannot double-count. Everything `Feed` returns is emitted, the release triggered by the last partial-rune tail included: without that, every command whose last write splits a rune would lose its final characters.
 
 The buffer only covers a join it is on both sides of, so **one redactor has to span the whole of a stream**. The broker keeps one for the PTY it is reading; `faramir redact` gets it by sending every chunk of one input down one connection, which is what [`more`](protocol.md#redact-and-streaming-it) is for.
 
@@ -96,7 +102,7 @@ The other half of the same bound is on the broker's unit: `MemoryMax` holds it t
 
 Length is the whole of the test. There is no distinct-character count and no entropy floor: neither is the strength check it reads as (`password` clears both), and how strong a credential is belongs to whoever chose it. Length is a bound on what the redactor can search for without eating the output. A long low-entropy value such as `aaaaaaaa` matches any run of eight, but that mangles the operator's own output rather than letting a value escape.
 
-Refusal closes the injection half only. A refused value is absent from the redactor, so reaching the output another way it arrives in plaintext, which is why the list stays operator-side: the broker logs each one at load and `faramir broker --check` reports them under `secrets.not_redactable` and exits non-zero, while `faramir status` and `faramir refs` say nothing. Lengthen the secret rather than lowering the threshold.
+Refusal closes the injection half only. A refused value is absent from the redactor, so if it reaches the output by another route it arrives in plaintext. That is why the list stays operator-side: the broker logs each one at load and `faramir broker --check` reports them under `secrets.not_redactable` and exits non-zero, while `faramir status` and `faramir refs` say nothing. Lengthen the secret rather than lowering the threshold.
 
 **7. Stable tokens.** The same secret is always `«SECRET:home/router/admin»`, in every response and session. Two refs holding the same value share one token, the redactor deduplicating by value and keeping the first ref by name, so which name it is does not move between restarts. Guillemets because they essentially never occur in tool output.
 

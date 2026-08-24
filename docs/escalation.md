@@ -25,9 +25,9 @@ They differ in one thing: where the stack that decides an escalation lives, and 
 | Where the stack that decides an escalation lives | `/etc/pam.d/faramir-sudo`, selected by `pam_service` and `pam_login_service` in the grant | a `# BEGIN faramir` block in `/etc/pam.d/sudo` and `/etc/pam.d/sudo-i` |
 | Files every account's sudo reads | none touched | two, each gaining four auth lines: a branch on the account, and the three it skips |
 
-That is the whole of it. The environment a brokered command keeps across its `sudo` is read the same way on both, by a `pam_env` line in whichever of those two carries the stack: sudoers has an `env_file` that does the same job, and sudo-rs has no such setting, so one mechanism that works everywhere is carried instead of two that each work in one place.
+That is the whole of it. The environment a brokered command keeps across its `sudo` is read the same way on both, by a `pam_env` line in whichever of those two files carries the stack. sudoers has an `env_file` setting that would do the same job and sudo-rs has none, so faramir carries one mechanism that works everywhere rather than two that each work in one place.
 
-sudo-rs has neither setting and compiles in the service names `sudo` and `sudo-i`, so there is no stack there for it to be pointed at, and no separate service file is written. The block *is* faramir's stack on such a host: a branch on the account, then the three modules that decide, carry the environment and end it. Every other account skips all three and meets what the file already said. A missing module or an unparseable line ends with `faramir-exec` falling into the stock stack, where its locked password refuses.
+sudo-rs has neither `pam_service` nor `env_file`, and it compiles in the service names `sudo` and `sudo-i`, so there is no stack there for it to be pointed at and no separate service file is written. The block *is* faramir's stack on such a host: a branch on the account, then the three modules that decide, carry the environment and end it. Every other account skips all three and meets what the file already said. A missing module or an unparseable line ends with `faramir-exec` falling into the stock stack, where its locked password refuses.
 
 **The branch's jump is the load-bearing number.** `default=3` is the three modules after it, and they are written from one template so the count cannot drift from the lines it counts. One short and an account that is *not* the executor lands inside the block, on faramir's own `sufficient pam_permit`, and is authenticated with no password at all. That is why the block carries the whole stack rather than an `auth include` of a file that could be edited separately: a jump can only be correct about modules in its own file. `faramir doctor` re-counts it on the host, and `init` refuses to leave a block it did not render.
 
@@ -135,14 +135,18 @@ What that looks like while a question is open, and why, is [design.md](design.md
 
 `sudo` discards the caller's environment, and should: the executor's uid is shared by every brokered command, so anything it was holding is a value one of them chose. What a command gets instead comes from `/usr/local/libexec/faramir/sudo-env`, which is root's and which the executor cannot write. Not `env_keep`, which would put the caller's own value back under the same name.
 
-It is read by a `pam_env` line in whichever file carries faramir's stack on that host ([which one](#the-two-sudos)). sudoers has an `env_file` that does this, but sudo-rs has no such setting, so faramir carries the one mechanism both understand rather than two. What PAM puts in the environment it hands back is what the command gets.
+It is read by a `pam_env` line in whichever file carries faramir's stack on that host ([which one, and why `pam_env` rather than sudoers' own `env_file`](#the-two-sudos)). What PAM puts in the environment it hands back is what the command gets.
 
 The file holds two things:
 
 - **`[command.env]`**, so a command keeps its `TERM`, `LANG` and the rest across `sudo` rather than losing them at it. Set with `--command-env`; see [configuration.md](configuration.md#what-a-flag-sets).
 - **`FARAMIR_OPERATOR`**, the account the coding agent runs as, which is whose host it is. The run already has it, the broker setting it on every brokered command, and `env_reset` is what drops it. `SUDO_USER` cannot stand in: `sudo` sets that from the account that invoked it, which here is the executor, whose home holds none of your configuration.
 
-Not all of `[command.env]` reaches it. A variable is added only where `sudo` did not already set one, so `HOME`, `PATH` and `SUDO_*` stay `sudo`'s own. Three more are left out with a warning: a name that is not a variable name, a name [an injected value may not carry either](protocol.md#run), sudoers reading this file without `env_keep` or `env_check`, and a value holding a newline or a `#`. `sudo` treats a `#` as a comment anywhere on the line, not only at the start, so it keeps what precedes one and drops the rest; quoting does not rescue it. A value that differs between a command and its `sudo` is worse than one that is absent.
+Not all of `[command.env]` reaches it. A variable is added only where `sudo` did not already set one, so `HOME`, `PATH` and `SUDO_*` stay `sudo`'s own. Three kinds of entry are left out with a warning:
+
+- **A name that is not a variable name.** `--command-env` splits on the first `=`, so anything else in the name would be read as a second variable.
+- **A name [an injected value may not carry either](protocol.md#run)**, because sudoers reads this file without `env_keep` or `env_check`.
+- **A value holding a newline, a carriage return or a `#`.** `sudo` treats a `#` as a comment anywhere on the line, not only at the start, so it keeps what precedes one and drops the rest; quoting does not rescue it. A value that differs between a command and its `sudo` is worse than one that is absent.
 
 `faramir init` rewrites the file whenever it grants sudo, and an install without `--allow-sudo` removes it with the rest of the grant.
 

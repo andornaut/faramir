@@ -54,7 +54,7 @@ func TestEscalationIsOffUnlessConfigured(t *testing.T) {
 	}
 }
 
-// Nothing announces a pending request by default: `faramir approve` is where a
+// Nothing announces a pending request by default: `faramir sudo approve` is where a
 // question is seen and answered. A notifier that names neither the command nor
 // the question is refused, since it would say only that something is waiting.
 func TestANotifierThatSaysNothingIsRefused(t *testing.T) {

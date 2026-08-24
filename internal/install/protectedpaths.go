@@ -57,7 +57,7 @@ type protectedPath struct {
 //
 // A compiled-in pattern would have to be about a file faramir does not write. It
 // minted one age key, at <config-dir>/age.key, and the operator has a copy or an
-// identity of their own only if they made one: `recipient add` takes a public
+// identity of their own only if they made one: `reader add` takes a public
 // key and never learns where the private half sits. So a rule for
 // ~/.config/sops/age or for "age.key" anywhere else guards a file that usually
 // is not there, at a path this install did not choose, and makes the default
