@@ -83,10 +83,29 @@ func TestARequestedEditorMustExist(t *testing.T) {
 	if installed == "" {
 		t.Skip("no root-owned editor on this host to accept")
 	}
-	got, err := resolveEditor(installed)
-	if err != nil || got != installed {
-		t.Errorf("resolveEditor(%q) = %q, %v", installed, got, err)
+	// Compared against the resolved path, not the one asked for: /bin is a
+	// symlink to /usr/bin on a merged host, and what runs is the file the links
+	// end at.
+	want, err := filepath.EvalSymlinks(installed)
+	if err != nil {
+		t.Fatal(err)
 	}
+	got, err := resolveEditor(installed)
+	if err != nil || got != want {
+		t.Errorf("resolveEditor(%q) = %q, %v; want %q", installed, got, err, want)
+	}
+}
+
+// goodEditor is a root-owned program in root-owned directories, for the tests
+// that need one that passes. Empty where the host has none.
+func goodEditor(t *testing.T) string {
+	t.Helper()
+	for _, candidate := range append([]string{"/bin/cat", "/usr/bin/cat"}, editors...) {
+		if path, err := checkedEditor(candidate); err == nil {
+			return path
+		}
+	}
+	return ""
 }
 
 // The editor runs as root with the decrypted store open, so a file the operator
@@ -330,22 +349,196 @@ func TestAnEditIsRefusedWhenTheFileMovedUnderIt(t *testing.T) {
 	}
 }
 
-// The editor is one this process chose. It runs as root over the decrypted
-// store, so a variable in the invoking shell must not decide what that is:
-// sudo strips $EDITOR and $VISUAL for the same reason, and sudoedit exists
-// because letting them choose root's editor is an escalation path.
-//
-// Asserted rather than left to the comment: what made this worth checking is
-// that four surfaces claimed the opposite, so somebody reading the help would
-// set $EDITOR and get something else with no explanation.
-func TestNoEnvironmentVariableChoosesTheEditor(t *testing.T) {
+// $VISUAL before $EDITOR, both after --editor, and each held to the same check
+// as a path typed on the command line. Honoured rather than ignored because the
+// check is what makes a program safe to run as root over the decrypted store:
+// an account that cannot write the binary or a directory above it cannot decide
+// what runs, whichever source named it.
+func TestVisualThenEditorChooseTheEditor(t *testing.T) {
+	good := goodEditor(t)
+	if good == "" {
+		t.Skip("this host has no root-owned editor to accept")
+	}
+	t.Setenv("VISUAL", good)
 	t.Setenv("EDITOR", "/usr/bin/definitely-not-this")
-	t.Setenv("VISUAL", "/usr/bin/nor-this")
+	if got, err := resolveEditor(""); err != nil || got != good {
+		t.Errorf("$VISUAL was not used: resolveEditor(\"\") = %q, %v; want %q", got, err, good)
+	}
+
+	// $EDITOR alone is used, and --editor outranks both.
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", good)
+	if got, err := resolveEditor(""); err != nil || got != good {
+		t.Errorf("$EDITOR was not used: resolveEditor(\"\") = %q, %v; want %q", got, err, good)
+	}
+	t.Setenv("EDITOR", "/usr/bin/definitely-not-this")
+	if got, err := resolveEditor(good); err != nil || got != good {
+		t.Errorf("--editor did not outrank $EDITOR: got %q, %v", got, err)
+	}
+}
+
+// A variable naming something unsafe is refused rather than passed over: it is
+// the operator's own setting, and falling through to the list would open the
+// store in an editor they did not ask for and say nothing about it.
+func TestAnEditorFromTheEnvironmentIsHeldToTheSameCheck(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("as root the file below would be root-owned")
+	}
+	own := filepath.Join(t.TempDir(), "ed")
+	if err := os.WriteFile(own, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"VISUAL", "EDITOR"} {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "")
+		t.Setenv(name, own)
+		_, err := resolveEditor("")
+		if err == nil {
+			t.Errorf("$%s named an editor this account can write and it was accepted", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "$"+name) {
+			t.Errorf("the refusal does not say $%s named it: %v", name, err)
+		}
+	}
+}
+
+// With nothing naming one, the built-in list decides. This is the stock host:
+// sudo's env_reset drops both variables unless the sudoers keep them.
+func TestTheBuiltInListIsUsedWhenNothingNamesAnEditor(t *testing.T) {
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "")
 	got, err := resolveEditor("")
 	if err != nil {
 		t.Skipf("this host has none of %v", editors)
 	}
-	if !slices.Contains(editors, got) {
-		t.Errorf("resolveEditor chose %q, which is not one of %v", got, editors)
+	want, err := filepath.EvalSymlinks(got)
+	if err != nil || want != got {
+		t.Errorf("resolveEditor returned %q, which is not a resolved path", got)
+	}
+	var found bool
+	for _, candidate := range editors {
+		if resolved, err := filepath.EvalSymlinks(candidate); err == nil && resolved == got {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("resolveEditor chose %q, which is none of %v", got, editors)
+	}
+}
+
+// The list is held to the check as well, so no path reaches a root exec
+// unexamined. The first that passes wins, not the first that exists.
+func TestTheBuiltInListIsHeldToTheCheck(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("as root the file below would be root-owned")
+	}
+	good := goodEditor(t)
+	if good == "" {
+		t.Skip("this host has no root-owned editor to accept")
+	}
+	writable := filepath.Join(t.TempDir(), "ed")
+	if err := os.WriteFile(writable, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VISUAL", "")
+	t.Setenv("EDITOR", "")
+	restore := editors
+	t.Cleanup(func() { editors = restore })
+	editors = []string{writable, good}
+
+	if got, err := resolveEditor(""); err != nil || got != good {
+		t.Errorf("a candidate this account can write was taken: got %q, %v; want %q",
+			got, err, good)
+	}
+
+	// And with nothing in the list that passes, the refusal says why rather than
+	// reporting that no editor is installed.
+	editors = []string{writable}
+	_, err := resolveEditor("")
+	if err == nil {
+		t.Fatal("every candidate failed the check and one was still chosen")
+	}
+	if !strings.Contains(err.Error(), writable) {
+		t.Errorf("the refusal does not name the candidate it turned down: %v", err)
+	}
+}
+
+// "vim -u /somewhere/vimrc" is an ordinary thing to have in $EDITOR, and -u
+// names a file of commands vim runs on startup. Passing arguments through would
+// let whoever owns that file decide what root does while every ownership check
+// still passed.
+func TestAnEditorWithArgumentsIsRefused(t *testing.T) {
+	good := goodEditor(t)
+	if good == "" {
+		t.Skip("this host has no root-owned editor to accept")
+	}
+	for _, named := range []string{good + " -u /tmp/evil.vim", good + "\t--cmd :!sh"} {
+		if _, err := resolveEditor(named); err == nil {
+			t.Errorf("accepted %q, so an argument reached a program running as root", named)
+		}
+	}
+	t.Setenv("VISUAL", good+" -u /tmp/evil.vim")
+	if _, err := resolveEditor(""); err == nil {
+		t.Error("accepted arguments from $VISUAL")
+	}
+}
+
+// What is checked has to be what runs. Resolving afterwards would leave the
+// links in between deciding it: /usr/bin/vi is an alternatives symlink on a
+// Debian host, and the file it names is not the one an ownership check of
+// /usr/bin/vi reads.
+func TestTheEditorThatRunsIsTheResolvedPath(t *testing.T) {
+	good := goodEditor(t)
+	if good == "" {
+		t.Skip("this host has no root-owned editor to accept")
+	}
+	link := filepath.Join(t.TempDir(), "ed")
+	if err := os.Symlink(good, link); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := resolveEditor(link); err != nil || got != good {
+		t.Errorf("resolveEditor(%q) = %q, %v; want the resolved %q", link, got, err, good)
+	}
+}
+
+// Write on a directory is permission to replace what it holds, and write on
+// that directory's parent is permission to replace the directory. So a clean
+// file in a clean directory is not enough and the walk runs to /.
+func TestEveryDirectoryAboveTheEditorIsChecked(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("building a root-owned directory under a loosened one needs root")
+	}
+	// Not under /tmp: that is 1777 itself, so the walk would stop there and the
+	// test would pass without ever reaching the directory it is about.
+	//nolint:usetesting // t.TempDir() sits under /tmp, which is the directory
+	// this test cannot use.
+	base, err := os.MkdirTemp("/root", "faramir-editor-")
+	if err != nil {
+		t.Skipf("no writable /root on this host: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	mid := filepath.Join(base, "mid")
+	if err := os.Mkdir(mid, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ed := filepath.Join(mid, "ed")
+	if err := os.WriteFile(ed, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveEditor(ed); err != nil {
+		t.Fatalf("a root-owned editor in root-owned directories was refused: %v", err)
+	}
+	// The file and its own directory are untouched; only the one above them is
+	// loosened.
+	if err := os.Chmod(base, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	err = func() error { _, err := resolveEditor(ed); return err }()
+	if err == nil {
+		t.Fatal("accepted an editor two levels under a world-writable directory")
+	}
+	if !strings.Contains(err.Error(), base) {
+		t.Errorf("the refusal does not name %s, so the walk stopped short: %v", base, err)
 	}
 }

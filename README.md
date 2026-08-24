@@ -198,7 +198,7 @@ A fleet declares these where it declares everything else: every `block` command 
 
 ### Onboarding a project
 
-1. **Write the values**, one file per thing that consumes them. `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from an editor faramir picks, on a `0600` file in a tmpfs, so no plaintext reaches a disk. That editor runs as root over the decrypted value, so `$EDITOR` and `$VISUAL` are not read; `--editor` names one by absolute path. Nothing restarts: the next refresh picks the file up. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
+1. **Write the values**, one file per thing that consumes them. `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from an editor faramir picks, on a `0600` file in a tmpfs, so no plaintext reaches a disk. That editor runs as root over the decrypted value, so what runs has to be a program no account but root can change: `--editor`, `$VISUAL` and `$EDITOR` each name one by absolute path with no arguments, and each is held to that check ([how the editor is chosen](docs/operating.md#choosing-the-editor)). Nothing restarts: the next refresh picks the file up. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
 2. **Have the project read each credential from an environment variable** rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
 3. **Write the refs beside the project**, one per line, in a file that holds refs and never values: [the two line forms](docs/integrations.md#onboarding-in-three-steps).
 4. **`cd <project> && sudo faramir init-project`.** Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
@@ -250,12 +250,12 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 
 Group | Commands
 --- | ---
-The install | `init`, `init-project`, `doctor`, `reload`, `uninstall`
+The install | `doctor`, `init`, `init-project`, `reload`, `uninstall`
 The managed store | `vault add`, `vault edit`, `vault ls`, `vault rm`
-Who can decrypt it | `reader add`, `reader rm`, `reader ls`, `reader reseal`
-A secret another tool owns | `link add`, `link rm`, `link ls`
-A path, name or command blocked from the agent | `block add`, `block rm`, `block ls`
-The record, and sudo | `logs`, `sudo ls`, `sudo watch`, `sudo approve`, `sudo reject`
+Who can decrypt it | `reader add`, `reader ls`, `reader reseal`, `reader rm`
+A secret another tool owns | `link add`, `link ls`, `link rm`
+A path, name or command blocked from the agent | `block add`, `block ls`, `block rm`
+The record, and sudo | `logs`, `sudo approve`, `sudo ls`, `sudo reject`, `sudo watch`
 
 All need root except `doctor`, which degrades, and the three that only read: `reader ls`, `link ls` and `block ls`. `init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
 

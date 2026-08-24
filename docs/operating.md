@@ -71,7 +71,7 @@ A run stops rather than write one it should not, leaving it exactly as it is:
 
 Each is asked before anything is written, so a refusal costs nothing: `init` stops before it has handed a file to any account, `init-project` before it has shared the tree. `init` names every file it refused rather than the first. `doctor` asks the same questions under `agent file ownership`.
 
-The section tells an agent to wait for an escalation only where one can be raised, `init-project` reading `[escalation] exec_user` from the config.
+The section tells an agent to wait for an escalation only where one can be raised, `init-project` reading `[sudo] exec_user` from the config.
 
 A brokered command cannot delete these files, each agent's own directory in a tree being sticky ([modes](layout.md#what-the-modes-decide)). The tree root is deliberately not sticky, which keeps a tool rewriting a lock file by rename working and leaves a brokered command able to move an agent's directory aside from above.
 
@@ -80,16 +80,16 @@ A brokered command cannot delete these files, each agent's own directory in a tr
 **Every one of these is refused to the coding agent's shell**, with sudo and without. An agent may run `run`, `redact`, `status` and `refs`, plus `version`, `help` and `completion`, which reach no broker; the rest act on the install rather than through it.
 
 - All need root except `doctor`, which degrades, and the three that only read: `reader ls`, `link ls` and `block ls`.
-- Five group, and each names a subcommand: `faramir vault` acts on the managed store, `faramir link` on a secret another tool owns, `faramir block` on a path refused to the agent and never read, `faramir reader` on who can decrypt the store, and `faramir sudo` on the questions a brokered command's `sudo` raises. The first two share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
+- Five group, and each names a subcommand: `faramir vault` acts on the encrypted secret files, `faramir link` on a secret another tool owns, `faramir block` on a path refused to the agent and never read, `faramir reader` on which keys can decrypt those files, and `faramir sudo` on a brokered command's request to run `sudo`. The first two share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
 
 Command | Does
 --- | ---
 `sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory: [shares the tree](layout.md), registers the hook, the deny rules and the MCP server in each enrolled agent's settings, and writes the credentials section into the tree's agent instructions file. The installed `config.toml` has to be readable, the linked and blocked paths among those rules being only there. A home directory, `/`, anything above a home, the system directories (`/etc`, `/usr`, `/var` and their kind) and faramir's own directories are refused, symlinks resolved first
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. [What it checks](#checking-an-install)
-`sudo faramir vault add NAME` | Writes a new managed file, `NAME` relative to the secrets directory with `.sops.yml` added for you. An editor faramir picks, on a `0600` file in a tmpfs, so no plaintext reaches a disk. It runs as root over the decrypted value, so `$EDITOR` and `$VISUAL` are not read; `--editor` names one by absolute path. `--from FILE` encrypts one you already hold. `NAME` may not carry a byte a terminal acts on: it is printed back by every command that touches the file and typed into every shell command that reaches it
+`sudo faramir vault add NAME` | Writes a new managed file, `NAME` relative to the secrets directory with `.sops.yml` added for you. An editor faramir picks, on a `0600` file in a tmpfs, so no plaintext reaches a disk. It runs as root over the decrypted value, so it must be a program no account but root can write or replace: `--editor`, `$VISUAL` and `$EDITOR` each name one by absolute path with no arguments, and each is held to that check. [How the editor is chosen](#choosing-the-editor) `--from FILE` encrypts one you already hold. `NAME` may not carry a byte a terminal acts on: it is printed back by every command that touches the file and typed into every shell command that reaches it
 `sudo faramir vault ls` | The managed files by name, how many refs each names, who can read it, and whether it agrees with the rule. Reads the directory rather than asking the broker, so a file the broker refused to load is listed with the reason. Decrypts nothing. `--json`
 `sudo faramir vault rm NAME` | Takes a file out of the store, naming the refs it will destroy and asking for the file's name back; `--force` answers for a script. The audit record keeps the refs it held
-`sudo faramir vault edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any managed file, by name, base name or path. `--editor` names the editor
+`sudo faramir vault edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any managed file, by name, base name or path. `--editor` names the editor, as do `$VISUAL` and `$EDITOR`. [How the editor is chosen](#choosing-the-editor)
 `sudo faramir reader add KEY` | Lets one more key decrypt the store: validates it, adds it to `<config-dir>/.sops.yaml`, and re-encrypts every managed file to it, so the rule and the ciphertext never disagree. `--dry-run` writes neither. [What it refuses](#adding-a-reader)
 `sudo faramir reader rm KEY` | The same in reverse. Reaches no copy of the ciphertext somebody already holds
 `faramir reader ls` | Who the store is sealed to. Needs no root, `.sops.yaml` holding public keys and no value; as root it also marks this host's own keeper. `--json`
@@ -150,6 +150,28 @@ A record's content comes from the account being recorded: the command, the cwd a
 - One record is one line within the record cap, counted in encoded bytes: `<`, `>`, `&` and every control character cost six apiece as JSON.
 - An append is exclusive and all-or-nothing. A write that lands short is taken back, so a torn line cannot swallow the record after it.
 - Every `log_id` is distinct: the second it was minted in, the writer's nonce, and a counter that only advances. Fourteen characters, carrying no readable time, every record saying when it happened in a field of its own.
+
+## Choosing the editor
+
+`vault add` and `vault edit` run an editor as root over the decrypted value, so what runs has to be a program no account but root can change. Four sources, in order, each held to that check:
+
+Source | Is
+--- | ---
+`--editor PATH` | Typed on the command line, for one run
+`$VISUAL` | The invoking shell's, if it survived `sudo`
+`$EDITOR` | The same, consulted after `$VISUAL`
+the built-in list | `/usr/bin/nano`, `/bin/nano`, `/usr/bin/vim`, `/usr/bin/vi`, `/bin/vi`, first that passes
+
+A named source that fails the check is refused rather than passed over: it is what you asked for, and falling through would open the store in an editor you did not choose and say nothing.
+
+What the check is:
+
+- **An absolute path with no arguments.** `vim -u /somewhere/vimrc` is an ordinary thing to keep in `$EDITOR`, and `-u` names a file of commands vim runs at startup, so an argument is a way to hand root a script that no ownership check would look at. A path holding a space is refused with it.
+- **Symlinks are resolved first, and the resolved path is what runs.** `/usr/bin/vi` is an alternatives symlink on a Debian host, and the file it ends at is not the one an ownership check of `/usr/bin/vi` reads.
+- **The binary and every directory above it belong to root and are writable by nobody else**, up to `/`. Write on a directory is permission to replace what it holds, and write on that directory's parent is permission to replace the directory, so one level is not enough.
+- **The editor's environment is fixed**: `PATH`, `TERM`, `LANG`, and `HOME` pointed at the `0700` tmpfs holding the plaintext. That is what keeps a root-owned editor from reading somebody else's `.vimrc`.
+
+**`sudo` drops `$VISUAL` and `$EDITOR` unless the sudoers keep them.** Neither is in the default `env_keep`, and sudo consults them itself only for `sudoedit`. So under a stock `sudo faramir vault edit` the variables arrive empty and the built-in list decides; they take effect where you are already root, or where `env_keep` has been set.
 
 ## Adding a reader
 
