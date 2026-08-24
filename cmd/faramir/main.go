@@ -357,6 +357,13 @@ func redactChild(socketPath string, argv []string) int {
 		// The path once and what the kernel said: exec.Error carries the name and
 		// wraps it in "fork/exec", which is Go's plumbing rather than the reader's.
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", fserr.At(argv[0], err))
+		// The shell's two, which `faramir run` gives for the same conditions:
+		// 126 for a program that is there and cannot be run, 127 for one that is
+		// not there. One number for both had a script reading "not installed"
+		// where the file was present and not executable.
+		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.ENOEXEC) {
+			return 126
+		}
 		return 127
 	}
 	streamErr := redactStream(socketPath, output, os.Stdout)
@@ -696,8 +703,17 @@ const maxWaitSeconds = int(math.MaxInt64/int64(time.Second)) - int(execGrace/tim
 // does not change. An escalation already in flight is deliberately not here:
 // docs/design.md has why that one is terminal.
 func errorExit(code string) int {
-	if code == "busy" {
+	switch code {
+	case "busy":
 		return 75 // EX_TEMPFAIL
+	// The shell's two, so a script can branch on them the way it does on any
+	// other command: 127 for a program that is not there, 126 for one that is
+	// and cannot be run. `faramir redact -- command` runs its command itself
+	// and has always given these; a brokered run gives them now.
+	case "not_found":
+		return 127
+	case "not_executable":
+		return 126
 	}
 	return 1
 }

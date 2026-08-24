@@ -5,6 +5,7 @@ package resolve
 // getting it wrong runs a different file.
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,5 +140,52 @@ func TestProgramResolvesAgainstTheChildsOwnPath(t *testing.T) {
 				t.Errorf("Program(%q) = %q, want %q", tc.arg, got, tc.want)
 			}
 		})
+	}
+}
+
+// A bare name that is on the PATH and carries no execute bit. It was answered
+// "not found on the broker's PATH ... a venv, pipx, a version-manager shim",
+// which sends an operator to install a program that is already installed, and
+// exits 127 where a shell exits 126.
+//
+// Told apart from a program only the executor can run: the broker reads the
+// execute bit as itself, so a file executable by another uid is reported as
+// not found, and an absolute path in cmd[0] is the way past that. Only a file
+// no account can run is named here.
+func TestAProgramOnThePathWithNoExecuteBitIsNotReportedAsMissing(t *testing.T) {
+	dir := t.TempDir()
+	program := filepath.Join(dir, "deploy")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.CommandConfig{Env: map[string]string{"PATH": dir}}
+
+	_, err := Program("deploy", dir, cfg)
+	if err == nil {
+		t.Fatal("a file with no execute bit resolved")
+	}
+	if !errors.Is(err, ErrNotExecutable) {
+		t.Errorf("err = %v, want ErrNotExecutable: a shell exits 126 for this", err)
+	}
+	if strings.Contains(err.Error(), "not found") {
+		t.Errorf("err = %q, which sends the operator to install what is there", err)
+	}
+	if !strings.Contains(err.Error(), program) {
+		t.Errorf("err = %q, want it to name the file", err)
+	}
+
+	// With the bit set it resolves, so the check is about the bit and not about
+	// the directory.
+	if err := os.Chmod(program, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Program("deploy", dir, cfg); err != nil {
+		t.Errorf("an executable program on the PATH did not resolve: %v", err)
+	}
+
+	// And a name nothing on the PATH carries is still not found.
+	_, err = Program("absent-xyzzy", dir, cfg)
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound for a name nothing carries", err)
 	}
 }

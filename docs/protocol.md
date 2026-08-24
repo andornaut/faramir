@@ -145,7 +145,7 @@ Field | Meaning
 A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `exit_code` and adds `error`:
 
 ```json
-{"error": {"code": "exec_failed",
+{"error": {"code": "not_found",
            "message": "ansible-playbook: not found on the broker's PATH (…)"}}
 ```
 
@@ -159,7 +159,9 @@ Code | Meaning
 `not_quiescent` | the answer was yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the escalation. The `sudo` fails and the command is run again once the host is quiet
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `run` alone
 `no_secrets` | A managed value the redactor should hold is missing: no entry matched a file, or one that matched did not load. `run` and `redact` both refuse; `status` and `refs` always answer. A `[[secret.link]]` entry that did not load is not this, being one ref the broker can name: it is refused on its own with `unknown_secret` and the host goes on serving
-`exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
+`not_found` | Nothing at the path `cmd[0]` names, or nothing by that name on `[command.env] PATH`. The shell's 127, which is what `faramir run` exits with
+`not_executable` | `cmd[0]` is there and is not something the kernel will run: a directory, a device, a file without the execute bit, a file with no interpreter and no magic. The shell's 126
+`exec_failed` | The program could not be started for any other reason: a working directory the executor cannot enter, an argument list too long, a byte no argument can carry
 `internal` | The broker could not render its own answer. Not a fault of the request
 `forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the three root-only ops
 `too_large` | Request exceeded the 256 KiB cap, which is a [constant rather than a key](configuration.md#what-is-not-a-key-at-all)

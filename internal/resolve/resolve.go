@@ -46,6 +46,49 @@ func isFile(path string) bool {
 
 func executable(path string) bool { return unix.Access(path, unix.X_OK) == nil }
 
+// executableByNobody reports whether a file carries no execute bit at all.
+// Asked of the mode rather than with Access, which answers for this process:
+// the executor's uid is not the broker's, and a program only the executor can
+// run is one the broker must not call unrunnable.
+func executableByNobody(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().Perm()&0o111 == 0
+}
+
+// The two ways a program can fail to be one, told apart because a caller
+// branches on them: the shell answers a program it could not find with 127 and
+// one it found and could not run with 126, and `faramir run` gives the same
+// numbers. Every other failure is the command not running for a reason the
+// caller has to read rather than test.
+var (
+	// ErrNotFound is nothing at the named path, or nothing on the PATH.
+	ErrNotFound = errors.New("no such program")
+	// ErrNotExecutable is a path that is there and is not something the kernel
+	// can run: a directory, a device, a socket.
+	ErrNotExecutable = errors.New("not executable")
+)
+
+// kindError carries one of those alongside a message written for a reader. The
+// message is the whole of what is shown, so naming the kind costs it nothing:
+// wrapping with %w would append a second sentence saying what the first
+// already says.
+type kindError struct {
+	kind error
+	text string
+}
+
+func (e kindError) Error() string { return e.text }
+func (e kindError) Unwrap() error { return e.kind }
+
+// notFoundf and notExecutablef are fmt.Errorf for those two kinds.
+func notFoundf(format string, a ...any) error {
+	return kindError{kind: ErrNotFound, text: fmt.Sprintf(format, a...)}
+}
+
+func notExecutablef(format string, a ...any) error {
+	return kindError{kind: ErrNotExecutable, text: fmt.Sprintf(format, a...)}
+}
+
 // Program returns the absolute, symlink-resolved path for argv0.
 func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 	if argv0 == "" {
@@ -62,14 +105,14 @@ func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 		// reads as a typo in the path rather than as a path that is not a program.
 		if !isFile(resolved) {
 			if there, err := os.Stat(resolved); err == nil {
-				return "", fmt.Errorf("%s: not a program: %s is a %s", argv0, resolved,
+				return "", notExecutablef("%s: not a program: %s is a %s", argv0, resolved,
 					describeKind(there.Mode()))
 			}
 			// Where resolving changed nothing, saying so names the same path twice.
 			if resolved == argv0 {
-				return "", fmt.Errorf("%s: no such program", argv0)
+				return "", notFoundf("%s: no such program", argv0)
 			}
-			return "", fmt.Errorf("%s: no such program (resolved to %s)", argv0, resolved)
+			return "", notFoundf("%s: no such program (resolved to %s)", argv0, resolved)
 		}
 		return resolved, nil
 	}
@@ -79,7 +122,7 @@ func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 	// executor reports as not found; an absolute path in cmd[0] is the way past
 	// that.
 	path := execCfg.Env["PATH"]
-	found := ""
+	found, unrunnable := "", ""
 	for dir := range strings.SplitSeq(path, ":") {
 		// An empty or relative component means the working directory to a shell,
 		// and the broker's is not the child's. Skipped rather than resolved against
@@ -89,13 +132,29 @@ func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 			continue
 		}
 		candidate := filepath.Join(dir, argv0)
-		if isFile(candidate) && executable(candidate) {
+		if !isFile(candidate) {
+			continue
+		}
+		if executable(candidate) {
 			found = candidate
 			break
 		}
+		// There and executable by nobody, which is not the same as one this uid
+		// may not run: a program only the executor can execute is reported below
+		// as not found, and an absolute path is the way past that. Told apart
+		// because the answers differ -- install it, or chmod it -- and "not
+		// found on the PATH" about a file sitting on the PATH sends an operator
+		// to install what is already there.
+		if unrunnable == "" && executableByNobody(candidate) {
+			unrunnable = candidate
+		}
+	}
+	if found == "" && unrunnable != "" {
+		return "", notExecutablef("%s: %s carries no execute bit, so nothing can "+
+			"run it", argv0, unrunnable)
 	}
 	if found == "" {
-		return "", fmt.Errorf("%s: not found on the broker's PATH (%s). A program "+
+		return "", notFoundf("%s: not found on the broker's PATH (%s). A program "+
 			"installed elsewhere -- a venv, pipx, a version-manager shim -- "+
 			"needs its directory on [command.env] PATH, or an absolute "+
 			"path in cmd[0]", argv0, path)

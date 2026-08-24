@@ -102,6 +102,39 @@ const opRedactName = "redact"
 // named: what the caller can act on is that the command did not run.
 const codeExecFailed = "exec_failed"
 
+// The two exec failures a caller can branch on rather than read. A shell
+// answers a program it could not find with 127 and one it found and could not
+// run with 126, and `faramir run` gives the same numbers; `faramir redact --`
+// runs its command itself and has always given them. Everything else stays
+// exec_failed, which is the command not running for a reason worth reading.
+const (
+	codeNotFound      = "not_found"
+	codeNotExecutable = "not_executable"
+)
+
+// splitExecCode takes the code the executor named off the front of its error.
+// Only the codes it answers with: another message may carry a colon of its own,
+// and cutting at the first one would take a clause with it.
+func splitExecCode(text string) (string, string) {
+	for _, code := range []string{codeNotExecutable, codeNotFound, codeExecFailed} {
+		if rest, found := strings.CutPrefix(text, code+": "); found {
+			return code, rest
+		}
+	}
+	return codeExecFailed, text
+}
+
+// execFailureCode is which of the three a resolve failure was.
+func execFailureCode(err error) string {
+	switch {
+	case errors.Is(err, resolve.ErrNotFound):
+		return codeNotFound
+	case errors.Is(err, resolve.ErrNotExecutable):
+		return codeNotExecutable
+	}
+	return codeExecFailed
+}
+
 // quiescenceWait bounds the one round trip an escalation makes to the executor.
 // Short: the answer is a /proc scan, and a human is waiting on it.
 const quiescenceWait = 5 * time.Second
@@ -911,7 +944,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 			"cmd": redactEach(record, cmd), "cwd": record.RedactText(cwd),
 			"error": detail,
 		}, audit.Output{})
-		return protocol.ErrorResponse(codeExecFailed, detail, logID)
+		return protocol.ErrorResponse(execFailureCode(err), detail, logID)
 	}
 
 	// The only place plaintext is touched outside the store, and it goes straight
@@ -1021,10 +1054,13 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		delete(env, k)
 	}
 	if err != nil {
-		// The executor names its own code in the error it returns, and every
-		// executor failure is answered as exec_failed, so the code would otherwise
-		// be printed twice: "exec_failed: exec_failed: /usr/bin/pwd: ...".
-		detail := s.safeDetail(strings.TrimPrefix(err.Error(), codeExecFailed+": "))
+		// The executor names its own code in the error it returns. Taken off the
+		// front rather than printed twice ("exec_failed: exec_failed:
+		// /usr/bin/pwd: ..."), and carried rather than flattened: a program the
+		// kernel would not run is answered as not_executable, which is what gets
+		// the caller the shell's 126.
+		code, text := splitExecCode(err.Error())
+		detail := s.safeDetail(text)
 		// Rendered on top of the redaction, which covers values and not control
 		// characters: this string reaches the escalation terminal, where the next
 		// thing printed is a question somebody judges.
@@ -1035,7 +1071,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		record := s.execFields(audited)
 		record["op"], record["error"] = recordRun, detail
 		s.Audit.Write(record, collector.Output())
-		return protocol.ErrorResponse(codeExecFailed, detail, logID)
+		return protocol.ErrorResponse(code, detail, logID)
 	}
 
 	// Read before the deferred Release drops the run.

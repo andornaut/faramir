@@ -431,8 +431,10 @@ func TestAResolveFailureIsRecordedAndReported(t *testing.T) {
 	s, _ := execServer(t)
 	r := exec(t, s, map[string]any{"cmd": []any{"definitely-not-installed-xyzzy"}})
 
-	if code := errorCode(t, r); code != "exec_failed" {
-		t.Fatalf("code = %q", code)
+	// Named apart from every other exec failure: a caller branches on it, the
+	// CLI turning it into the shell's 127.
+	if code := errorCode(t, r); code != codeNotFound {
+		t.Fatalf("code = %q, want %q", code, codeNotFound)
 	}
 	msg := errorMessage(t, r)
 	// The failure an operator actually hits, so it says what to do.

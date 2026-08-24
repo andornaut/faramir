@@ -306,3 +306,55 @@ func TestARequestOfAnotherReleaseIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// The kernel refuses the exec for two different reasons with one EACCES, and
+// the sentence added here says which. The probe has to ask the permission the
+// exec needs: entering a directory takes x, opening it takes r, and a 0710
+// home -- which is what sharing a tree leaves behind -- has x for the group and
+// not r. Asked as a read, every unrunnable program in such a tree was blamed on
+// the tree, and the operator was sent to run `init-project` on one that was
+// already right.
+func TestStartFailureBlamesTheProgramWhenTheDirectoryIsOnlyTraversable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root enters and reads whatever the mode says")
+	}
+	dir := t.TempDir()
+	program := filepath.Join(dir, "prog")
+	if err := os.WriteFile(program, []byte("#!/bin/sh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Traversable and not readable, which is the shape a shared tree leaves.
+	if err := os.Chmod(dir, 0o711); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	code, got := startFailure(program, dir, os.ErrPermission)
+	if code != codeNotExecutable {
+		t.Errorf("code = %q, want %q: a program the kernel would not run is the "+
+			"shell's 126", code, codeNotExecutable)
+	}
+	if !strings.Contains(got, "may not execute") {
+		t.Errorf("startFailure = %q, want it to blame the program", got)
+	}
+	if strings.Contains(got, "cannot enter") {
+		t.Errorf("startFailure = %q, which sends the operator to a tree that is fine", got)
+	}
+
+	// And a directory that genuinely cannot be entered is still named.
+	closed := filepath.Join(t.TempDir(), "shut")
+	if err := os.Mkdir(closed, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(closed, 0o700) })
+	code, got = startFailure(program, closed, os.ErrPermission)
+	if !strings.Contains(got, "cannot enter") {
+		t.Errorf("startFailure = %q, want it to name the directory", got)
+	}
+	// Not 126: the program may be perfectly runnable, and what failed is
+	// getting to where it was to run.
+	if code != codeExecFailed {
+		t.Errorf("code = %q, want %q for a directory that cannot be entered",
+			code, codeExecFailed)
+	}
+}
