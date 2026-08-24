@@ -62,6 +62,22 @@ var (
 	// KillGraceSec is the pause between SIGTERM and SIGKILL, a window that only
 	// opens once a command has already overrun its timeout.
 	KillGraceSec = 5
+	// MinRefreshSec is the soonest the broker will ask the keeper again whether a
+	// managed file changed. Checked when a command arrives rather than on a
+	// timer, so an idle host makes no round trip.
+	//
+	// Never a config key, having only one sensible value: the question is a stat
+	// per managed file and costs about 0.04 ms on a command that already costs
+	// two milliseconds, so a larger one saves nothing measurable. What it would
+	// spend is real -- this is how long a value rotated outside faramir stays
+	// outside the redactor, and that window opens exactly when an operator has
+	// just rotated a value and runs a command to see that it took. Every value
+	// above this one is worse in the only direction that leaks.
+	//
+	// It does not bound the linked files: the broker stats those on every
+	// request, so a credential another tool has just rotated is in the redactor
+	// at once.
+	MinRefreshSec = 1
 )
 
 // MaxConcurrentRuns is the most brokered commands the executor will fork at
@@ -96,25 +112,11 @@ func DefaultCommand() CommandConfig {
 
 // DefaultSecret is DefaultCommand for the store.
 func DefaultSecret() SecretConfig {
-	return SecretConfig{DecryptCommand: DecryptCommand(), MinRefreshSec: DefaultMinRefreshSec, MinLength: 8}
+	return SecretConfig{DecryptCommand: DecryptCommand(), MinLength: 8}
 }
 
 // DefaultSudoTimeoutSec is how long a question waits for a human.
 const DefaultSudoTimeoutSec = 120
-
-// DefaultMinRefreshSec is the soonest the broker will ask the keeper again
-// whether a managed file changed. Never a config key, having only one sensible
-// value: the question is a stat per managed file and costs about 0.04 ms on a
-// command that already costs two milliseconds, so a larger one saves nothing
-// measurable. What it would cost is real -- this is how long a value rotated
-// outside faramir stays outside the redactor, and that window opens exactly
-// when an operator has just rotated a value and runs a command to see that it
-// took. Every value above this one is worse in the only direction that leaks,
-// which is not a choice to hand an install.
-//
-// It does not bound the linked files: the broker stats those on every request,
-// so a credential another tool has just rotated is in the redactor at once.
-const DefaultMinRefreshSec = 1
 
 // DecryptCommand is how the keeper invokes sops. Never a config key: the
 // account this runs as is the one holding the age key.
@@ -399,12 +401,6 @@ type SecretConfig struct {
 	// SecretPatterns and DecryptCommand.
 	Patterns       []string
 	DecryptCommand []string
-	// MinRefreshSec is the soonest the broker will ask the keeper again whether a
-	// managed file changed. Derived rather than configured, like Patterns and
-	// DecryptCommand: see DefaultMinRefreshSec for why it is not a key. Settable
-	// in-process, and a test that wants no gate at all sets it to zero, which the
-	// file could never say.
-	MinRefreshSec int
 	// MinLength is the floor a value has to clear to be held at all. Below it a
 	// value matches inside ordinary words and the redactor eats the output; above
 	// it a real credential is refused, absent from the redactor, and printed in

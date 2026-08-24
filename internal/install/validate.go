@@ -77,6 +77,15 @@ func (c checkReport) onlyNotRedactable() bool {
 		!c.refStatesOtherThan(len(c.Secrets.NotRedactable))
 }
 
+// noSecretsYet reports whether every configured pattern named no file, which
+// is what a first install looks like before the secrets directory is written.
+// The running broker refuses to serve, but failing the install over it leaves
+// no way to reach a working host.
+func (c checkReport) noSecretsYet() bool {
+	absent := c.Secrets.UnresolvedPatterns
+	return len(absent) > 0 && len(absent) == len(c.Secrets.Patterns)
+}
+
 // onlyDegradedLinks reports whether a non-zero --check is accounted for by
 // links that did not load and nothing else. Like onlyNotRedactable, this is not
 // about the install: the store loaded, the daemons are serving every other ref,
@@ -171,10 +180,13 @@ func (r *runner) stepValidate() error {
 	if checkErr != nil {
 		// A configured file not yet created is what every first install looks like.
 		// The running broker still refuses to serve, but failing the install over it
-		// leaves no way to reach a working host. Anything else, including a file
-		// that is there and did not load, is fatal.
-		if absent := report.Secrets.UnresolvedPatterns; len(absent) == len(report.Secrets.Patterns) &&
-			len(absent) > 0 {
+		// leaves no way to reach a working host. What is left is sorted by what it
+		// costs to leave standing: a managed file that is there and did not load is
+		// fatal, the broker withholding every command's output while it stands,
+		// while a linked ref or a value the redactor refused is one credential the
+		// broker names and refuses on its own, and is reported instead.
+		if report.noSecretsYet() {
+			absent := report.Secrets.UnresolvedPatterns
 			// What it does is refuse, not run bare. Said that way round: a warning
 			// that reads as an exposure teaches the wrong reflex for the day a value
 			// set really does fail to load.
@@ -186,19 +198,32 @@ func (r *runner) stepValidate() error {
 			r.step("validate", false, "no secrets yet")
 			return nil
 		}
-		// Links that did not load. Fatal: the ref answers nothing, and an install
-		// that finished over it would leave `status` and `doctor` failing on a host
-		// this command called done. The file belongs to another tool, so the
-		// remedies are the operator's and are named rather than attempted.
+		// Links that did not load. Reported and carried on from, for the reason
+		// the entry is scoped to its own ref in the first place: a link is one ref
+		// by construction, so the broker refuses that ref and serves every other
+		// one, and an install that stopped here would answer a fault in one
+		// credential by leaving the host without the config this run had already
+		// written. That is the same argument the refused refs below make, and it
+		// binds harder here: the file belongs to another tool, so `init` cannot
+		// write it, and failing brings the repair no closer.
+		//
+		// It is not passed over. `faramir status` exits non-zero naming the ref
+		// and `faramir doctor` fails on it, so a host in this state is not one
+		// anything calls healthy, and the remedies are named here rather than
+		// attempted.
 		if report.onlyDegradedLinks() {
-			return fmt.Errorf("%s did not load, so those refs answer nothing: %s\nRestore what each names, fix "+
-				"its selector, or take the entry out with `sudo faramir link rm REF`, then run "+
-				"this again",
+			r.warnf("%s did not load, so those refs answer nothing while every other ref is "+
+				"served: %s. Restore what each names, fix its selector, or take the entry out "+
+				"with `sudo faramir link rm REF`, then `sudo systemctl restart faramir-broker`: "+
+				"the broker fingerprints a linked file by mtime and size, so a repair that "+
+				"changes neither leaves its view as it was",
 				linkEntries(len(report.Secrets.DegradedLinks)), report.degradedRefs())
+			r.step("validate", false, "installed; linked refs to fix")
+			return nil
 		}
-		// Refs the redactor refused. Reported and carried on from, where a link
-		// that did not load above is fatal, and the difference is what each costs
-		// to leave standing.
+		// Refs the redactor refused. Reported and carried on from, like the links
+		// above and for the same reason: what is wrong is one value rather than
+		// the install, and the run has already written the config.
 		//
 		// This command rewrites config.toml before it validates, and [secret]
 		// min_length is one of the settings it writes. Failing here would make the

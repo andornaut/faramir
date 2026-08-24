@@ -16,11 +16,10 @@ import (
 func newLinkedStore(t *testing.T, fake *keepertest.Keeper, links []config.Link,
 	files ...string) *Store {
 	t.Helper()
+	atInterval(t, 0)
 	fake.SetFiles(files)
 	return New(
-		config.SecretConfig{
-			Patterns: files, Links: links, MinRefreshSec: 0, MinLength: 8,
-		},
+		config.SecretConfig{Patterns: files, Links: links, MinLength: 8},
 		config.KeeperConfig{SocketPath: fake.Path},
 	)
 }
@@ -343,11 +342,12 @@ func TestALinksOnlyStoreServesWhenTheKeeperGoesAway(t *testing.T) {
 func TestALinkIsPickedUpInsideTheKeeperInterval(t *testing.T) {
 	path := writeLinked(t, "token", "gho_first_example\n")
 	k := keepertest.New(t, map[string]string{})
+	// An interval long enough that nothing in this test could reach it.
+	atInterval(t, 3600)
 	s := New(
-		// An interval long enough that nothing in this test could reach it.
 		config.SecretConfig{
-			MinRefreshSec: 3600, MinLength: 8,
-			Links: []config.Link{{Ref: "gh/token", Path: path, Type: secretlink.KindText}},
+			MinLength: 8,
+			Links:     []config.Link{{Ref: "gh/token", Path: path, Type: secretlink.KindText}},
 		},
 		config.KeeperConfig{SocketPath: k.Path},
 	)
@@ -375,10 +375,11 @@ func TestALinkIsPickedUpInsideTheKeeperInterval(t *testing.T) {
 func TestAnUnreachableKeeperDoesNotReloadOnEveryRequest(t *testing.T) {
 	path := writeLinked(t, "token", "gho_linked_example\n")
 	k := keepertest.New(t, map[string]string{})
+	atInterval(t, 3600)
 	s := New(
 		config.SecretConfig{
-			MinRefreshSec: 3600, MinLength: 8,
-			Links: []config.Link{{Ref: "gh/token", Path: path, Type: secretlink.KindText}},
+			MinLength: 8,
+			Links:     []config.Link{{Ref: "gh/token", Path: path, Type: secretlink.KindText}},
 		},
 		config.KeeperConfig{SocketPath: k.Path},
 	)

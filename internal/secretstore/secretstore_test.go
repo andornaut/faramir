@@ -20,14 +20,23 @@ import (
 // file list: the store no longer stats those files itself.
 func newStore(t *testing.T, fake *keepertest.Keeper, files ...string) *Store {
 	t.Helper()
+	atInterval(t, 0)
 	fake.SetFiles(files)
 	return New(
-		config.SecretConfig{
-			Patterns: files, MinRefreshSec: 0,
-			MinLength: 8,
-		},
+		config.SecretConfig{Patterns: files, MinLength: 8},
 		config.KeeperConfig{SocketPath: fake.Path},
 	)
+}
+
+// atInterval holds config.MinRefreshSec for one test, the way the other limits
+// no config key reaches are narrowed. Zero is no gate at all, which the file
+// could never say and which most of these tests want: they drive Reload and
+// RefreshIfStale by hand and the wall clock is not what they are testing.
+func atInterval(t *testing.T, seconds int) {
+	t.Helper()
+	was := config.MinRefreshSec
+	config.MinRefreshSec = seconds
+	t.Cleanup(func() { config.MinRefreshSec = was })
 }
 
 // -- the load gate ----------------------------------------------------------
@@ -187,11 +196,9 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	}
 	// Cold start: nothing is listening, so the first load fails.
 	sock := filepath.Join(dir, "keeper.sock")
+	atInterval(t, 0)
 	s := New(
-		config.SecretConfig{
-			Patterns: []string{managed}, MinRefreshSec: 0,
-			MinLength: 8,
-		},
+		config.SecretConfig{Patterns: []string{managed}, MinLength: 8},
 		config.KeeperConfig{SocketPath: sock},
 	)
 	s.Reload()
@@ -213,11 +220,9 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "keeper.sock")
+	atInterval(t, 0)
 	s := New(
-		config.SecretConfig{
-			MinRefreshSec: 0,
-			MinLength:     8,
-		},
+		config.SecretConfig{MinLength: 8},
 		config.KeeperConfig{SocketPath: sock},
 	)
 	s.Reload() // fails: nothing is listening, so every later poll wants a retry

@@ -51,6 +51,27 @@ Key | Derived from
 `[sudo] exec_user`, `pam_service`, `pam_stack`, `helper` | `--allow-sudo`. `pam_stack` is the file that carries faramir's PAM stack on this host, which is not always what `pam_service` names: see [the two sudos](escalation.md#the-two-sudos)
 `[sudo] notify_command` | `--notify-command`, repeatable, one argument each
 
+## What survives a hand edit
+
+`faramir init` rewrites `config.toml` from [the template](../etc/config.toml.tmpl) on every run, so nothing in the file is edited in place. What survives is what `init` **reads back out of the old file before it writes the new one**, and everything else is rendered again from the install.
+
+Edit the file directly and this is what you get:
+
+Edited | Survives an `init` | Because
+--- | --- | ---
+The values under [what a flag sets](#what-a-flag-sets) | **Yes**, unless the matching flag is named on that run | Read back so a bare re-run keeps the install rather than reverting it. A flag wins over what the file says
+`[[secret.link]]` and `[[secret.block]]` entries | **Yes** | No flag reaches them, `faramir link` and `faramir block` being what write them. Reading them back is the only thing stopping a plain `init` from erasing every deny rule they added
+A **new** `[command.env]` variable | **Yes** | The environment merges: the file first, then what a flag names on top
+A **deleted** `[command.env]` variable | **No**, it comes back | The built-in table is the floor under that merge. To drop one for real there is no key: it is not a value an install can unset
+Comments, ordering, whitespace | **No** | The whole file is rendered, so the file you get back is the template's
+Everything under [what is derived](#what-is-derived) | **No** | Re-derived from the install every run. The account names come from the units' own `User=` rather than from the file, so editing `allowed_user` changes nothing at all
+
+**Prefer the flag to the edit.** A flag is recorded in the file and read back on the next run; an edit to a derived key is discarded silently on the next `init`, which is the case worth knowing about, because until then the daemons are reading the value you typed.
+
+**A file that does not parse stops the run.** `init` reads the old config before it writes, so a hand edit that will not load is refused rather than replaced -- no daemon can load it either, and writing over it would replace what says why. Fix the file, or remove it to install fresh.
+
+**One value is not read back**: `[sudo] notify_command`. A bare `init` re-run drops what `--notify-command` set on the last one, so name the flag again on every run that sets it.
+
 ## What is not a key at all
 
 Nine values are constants in the binary, none of them ever set by an install:
@@ -112,7 +133,7 @@ Why it is shaped this way (one ref per entry rather than a whole-file flatten, t
 - **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi refuses them from its extension instead, having no account-wide rule file for one to be rendered into.
 - **A tool that replaces its own file rather than rewriting it takes the group with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file, and `init` and `link add` check it again on every converge.
 - **A repair needs a restart, and nothing performs one for you.** The broker fingerprints a linked file by mtime and size, and a `chgrp` changes neither, so its view of a file it gave up on stands until it is restarted: `sudo systemctl restart faramir-broker` after fixing one. `init` and `link add` do not do it either, both restarting the daemons only when they changed something and neither of them changing a file it does not own.
-- **A link that does not load refuses that ref and nothing else.** The broker goes on serving every other ref, and a command that asks for this one is refused by name. Both cases reach it: a file that is gone, and one that is there and will not read. `faramir status` names the ref and exits non-zero, and `faramir doctor` fails, which is what tells you before a command does.
+- **A link that does not load refuses that ref and nothing else.** The broker goes on serving every other ref, and a command that asks for this one is refused by name. Both cases reach it: a file that is gone, and one that is there and will not read. `faramir status` names the ref and exits non-zero, and `faramir doctor` fails, which is what tells you before a command does. `faramir init` reports it and finishes: the entry is scoped to its ref, and stopping there would answer a fault in one credential by leaving the host without the config the run had already written, with the repair no closer for it -- the file is another tool's and an install cannot write it.
 - **The unreadable case is the one that costs something.** The plaintext is still on disk while the redactor does not hold it, so that value can print in the clear through anything that touches the file. The broker cannot cover a value it does not have, and withholding every command's output over it takes out commands with no relationship to the credential, so it says which ref is missing instead of stopping. A file that is *gone* costs nothing: there is no plaintext left to cover.
 
 ## Blocked paths
@@ -198,7 +219,7 @@ Fails on | Because
 --- | ---
 An unknown key or `[section]`, or a value out of range | A config that reads as though it took effect. Reported by the loader, which exits 2
 A ref too short to redact | Refused at load, so covered by nothing. `init` warns and carries on, an install being unable to lengthen a secret; `doctor` fails on it, a refused value being injected by nothing and covered by nothing
-A `[[secret.link]]` entry whose file is not there, or is there and did not read | The same two meanings, reported with the ref in front. The second is what an ACL dropped by a tool rewriting its own file looks like
+A `[[secret.link]]` entry whose file is not there, or is there and did not read | The same two meanings, reported with the ref in front. The second is what an ACL dropped by a tool rewriting its own file looks like. **Scoped to that ref**: this is the exit code saying a credential is missing, not the broker stopping. The broker refuses that one ref by name and goes on serving every other one, and `faramir init` reports it and finishes rather than failing, the file belonging to a tool an install cannot write
 An `[ssh] key` the agent cannot load | `ssh-add` refuses it, leaving every host unreachable. Passphrase-protected, unreadable, or pointed at the `.pub`
 An `[sudo] helper` or PAM service file that is not there, or a `notify_command` that is not installed | Escalation is configured and either every request fails with `sudo` reporting an authentication error, or nothing announces the questions waiting
 `[keeper]` or `[executor] allowed_user` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route; the executor's runs a command with no policy, no redaction and no audit record

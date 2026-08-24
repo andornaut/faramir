@@ -314,7 +314,7 @@ func (s *Store) retryUnderTheInterval() {
 func (s *Store) intervalElapsed() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	interval := time.Duration(s.config.MinRefreshSec) * time.Second
+	interval := time.Duration(config.MinRefreshSec) * time.Second
 	if interval > 0 && time.Since(s.checkedAt) < interval {
 		return false
 	}
@@ -324,7 +324,7 @@ func (s *Store) intervalElapsed() bool {
 
 // keeperIfStale asks the keeper whether a managed file changed, no more often
 // than the interval allows. This one is the socket round trip
-// config.DefaultMinRefreshSec exists to bound.
+// config.MinRefreshSec exists to bound.
 func (s *Store) keeperIfStale() {
 	if !s.intervalElapsed() {
 		return

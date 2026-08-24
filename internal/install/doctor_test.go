@@ -1068,3 +1068,61 @@ func TestBrokerMemoryIsReportedAgainstItsBound(t *testing.T) {
 		})
 	}
 }
+
+// Which non-zero --check states `init` finishes over, and which one it still
+// fails on. A link that did not load is among the first: a link is one ref by
+// construction, so the broker refuses that ref and serves every other one, and
+// an install that stopped there would answer a fault in one credential by
+// leaving the host without the config the run had already written -- with the
+// repair no closer, the file belonging to a tool `init` cannot write.
+//
+// A managed file that was found and did not load is the one that stays fatal.
+// It names none of its refs until it decrypts, so the broker knows values are
+// missing and not which, and withholds every command's output while it stands.
+func TestWhichCheckFailuresAnInstallFinishesOver(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		report    func() checkReport
+		carriedOn bool
+	}{
+		{"a link whose file has gone", func() checkReport {
+			var r checkReport
+			r.Secrets.Count = 3
+			r.Secrets.DegradedLinks = map[string]string{"npm/token": "not there"}
+			return r
+		}, true},
+		{"a value too short to redact", func() checkReport {
+			var r checkReport
+			r.Secrets.Count = 3
+			r.Secrets.NotRedactable = map[string]string{"short/pin": "shorter than 8"}
+			return r
+		}, true},
+		{"a first install with no secrets written yet", func() checkReport {
+			var r checkReport
+			r.Secrets.Patterns = []string{"/etc/faramir/secrets/*.sops.yml"}
+			r.Secrets.UnresolvedPatterns = []string{"/etc/faramir/secrets/*.sops.yml"}
+			return r
+		}, true},
+		{"a managed file that did not load", func() checkReport {
+			var r checkReport
+			r.Secrets.Files = []string{"app.sops.yml"}
+			r.Secrets.Errors = []string{"app.sops.yml: bad mac"}
+			return r
+		}, false},
+		{"a socket policy problem", func() checkReport {
+			var r checkReport
+			r.Policy = []string{"[keeper] allowed_user names the wrong account"}
+			return r
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := tc.report()
+			// The three branches stepValidate reports and returns nil for, in the
+			// order it asks them.
+			got := r.noSecretsYet() || r.onlyDegradedLinks() || r.onlyNotRedactable()
+			if got != tc.carriedOn {
+				t.Errorf("carried on = %v, want %v", got, tc.carriedOn)
+			}
+		})
+	}
+}

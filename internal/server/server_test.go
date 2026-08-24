@@ -73,6 +73,11 @@ func newUnreadableServer(t *testing.T) *Server {
 // that has to reach into it.
 func serverWith(t *testing.T, k *keepertest.Keeper, secretFiles ...string) *Server {
 	t.Helper()
+	// No staleness gate: these tests drive the store by hand, and the interval
+	// is a constant in the binary rather than a key this config could set.
+	wasInterval := config.MinRefreshSec
+	config.MinRefreshSec = 0
+	t.Cleanup(func() { config.MinRefreshSec = wasInterval })
 	dir := t.TempDir()
 	cfg := &config.Config{
 		Path: "<test>",
@@ -83,11 +88,8 @@ func serverWith(t *testing.T, k *keepertest.Keeper, secretFiles ...string) *Serv
 			TimeoutSec: 30, MaxTimeoutSec: 60, Concurrency: 10,
 			Env: map[string]string{"PATH": "/usr/bin:/bin"},
 		},
-		Secret: config.SecretConfig{
-			Patterns:      secretFiles,
-			MinRefreshSec: 0, MinLength: 8,
-		},
-		Audit: config.AuditConfig{LogPath: filepath.Join(dir, "audit.log")},
+		Secret: config.SecretConfig{Patterns: secretFiles, MinLength: 8},
+		Audit:  config.AuditConfig{LogPath: filepath.Join(dir, "audit.log")},
 	}
 	s := New(cfg)
 	s.Store.Reload()
