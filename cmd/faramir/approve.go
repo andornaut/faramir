@@ -240,7 +240,7 @@ func waiting(socketPath, verb string) ([]escalation.Question, int) {
 		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
 	}
 	if len(questions) == 0 {
-		fmt.Fprintf(os.Stderr, "nothing is waiting to be %s. "+
+		fmt.Fprintf(os.Stderr, "Nothing is waiting to be %s. "+
 			"`faramir sudo watch` waits for the next one\n", verb)
 		return nil, 1
 	}
