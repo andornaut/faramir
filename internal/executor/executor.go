@@ -70,7 +70,7 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	// process group, and EIO only says the slave was closed, which a child does on
 	// the way out.
 	defer func() { _ = master.Close() }()
-	ptyutil.SetWinsize(master.Fd(), config.TermRows, config.TermCols)
+	ptyutil.SetWinsize(master, config.TermRows, config.TermCols)
 	started := time.Now()
 
 	client := execserver.NewClient(executorCfg.SocketPath)
