@@ -42,6 +42,10 @@ func Arg(arg string) string {
 // Field is Arg for one field of a prompt rather than one argument of a command,
 // so it is bounded as well as quoted: a question whose content has scrolled off
 // the top of a terminal is one nobody read.
+//
+// Bound, so the cut points at the audit record. For text with no record beside
+// it, compose Truncate with Arg instead rather than telling the reader to go
+// and look up something that was never written.
 func Field(value string, limit int) string {
 	return Bound(Arg(value), limit)
 }
@@ -107,10 +111,35 @@ func Actionable(r rune) bool {
 }
 
 // Bound truncates on a rune boundary and says that it did: silent truncation
-// would let a long value end the displayed text wherever it liked.
+// would let a long value end the displayed text wherever it liked. For text
+// that has a record beside it; Truncate is the same cut for text that does
+// not.
 func Bound(text string, limit int) string {
-	if len(text) <= limit {
+	cut, dropped := cutRunes(text, limit)
+	if dropped == 0 {
 		return text
+	}
+	return cut + "... (" + strconv.Itoa(dropped) +
+		" more bytes; the audit record has all of it)"
+}
+
+// Truncate is Bound for text printed to a terminal and written nowhere else,
+// where there is no record to point the reader at. A message quoting what it
+// was given is as long as what it was given: a pasted key file is a hundred
+// kilobytes of refusal.
+func Truncate(text string, limit int) string {
+	cut, dropped := cutRunes(text, limit)
+	if dropped == 0 {
+		return text
+	}
+	return cut + "... (" + strconv.Itoa(dropped) + " more bytes)"
+}
+
+// cutRunes is the cut both make: the first limit bytes, backed off to a rune
+// boundary, and how many bytes that left behind.
+func cutRunes(text string, limit int) (string, int) {
+	if len(text) <= limit {
+		return text, 0
 	}
 	// Backing off at most one rune, as internal/audit and internal/executor do:
 	// scanning back for the first valid prefix would drop everything after any
@@ -126,6 +155,5 @@ func Bound(text string, limit int) string {
 		}
 		break
 	}
-	return cut + "... (" + strconv.Itoa(len(text)-len(cut)) +
-		" more bytes; the audit record has all of it)"
+	return cut, len(text) - len(cut)
 }

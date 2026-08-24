@@ -49,7 +49,7 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	}
 	if len(blocked) > 0 {
 		return fmt.Sprintf("%s cannot reach %s (%s): it cannot enter %s. Open "+
-			"them:\n%s", r.layout.BrokerUser, link.Path, link.Ref,
+			"them:\n%s", r.layout.BrokerUser, config.Shown(link.Path), config.Shown(link.Ref),
 			sharetree.Describe(blocked),
 			sharetree.Fix(blocked, r.layout.ClientGroup)), nil
 	}
@@ -76,7 +76,7 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	}
 	return fmt.Sprintf("%s (%s) is %s %04o, and a linked file has to be group %s and group-readable, and "+
 		"readable by nobody else:\n%s",
-		link.Path, link.Ref, fileGroup(info), mode, r.brokerGroupName(),
+		config.Shown(link.Path), config.Shown(link.Ref), fileGroup(info), mode, r.brokerGroupName(),
 		strings.Join(fix, " && ")), nil
 }
 

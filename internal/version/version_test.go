@@ -155,3 +155,40 @@ func TestTheBuildIsNotPartOfTheVersion(t *testing.T) {
 		t.Error("this binary's own version is a mismatch with itself")
 	}
 }
+
+// The version a caller claims comes off the wire, so the refusal that quotes it
+// back is as long as whatever was sent and carries whatever bytes were in it.
+// The answer goes to a terminal, and a quarter of a megabyte of escape
+// sequences is not a diagnostic.
+func TestAMismatchDoesNotEchoWhateverTheCallerSent(t *testing.T) {
+	long := strings.Repeat("x", 300_000)
+	why := Mismatch(long)
+	if why == "" {
+		t.Fatal("a caller of another version was accepted")
+	}
+	if len(why) > 1000 {
+		t.Errorf("the refusal is %d bytes for a %d-byte version", len(why), len(long))
+	}
+	// A version a terminal would act on is escaped rather than passed through.
+	if strings.ContainsRune(Mismatch("1.0\x1b[2J"), 0x1b) {
+		t.Errorf("an escape reached the refusal: %q", Mismatch("1.0\x1b[2J"))
+	}
+	// And an ordinary version is still named as it was sent.
+	if got := Mismatch("0.1.4"); !strings.Contains(got, "0.1.4") {
+		t.Errorf("the refusal does not name the caller's version: %q", got)
+	}
+}
+
+// And the cut does not point at a record that was never written: a caller
+// refused for its version is refused before the op is read, so nothing is
+// audited and "the audit record has all of it" sends the operator to look up
+// nothing.
+func TestAMismatchDoesNotPromiseAnAuditRecord(t *testing.T) {
+	why := Mismatch(strings.Repeat("x", 300))
+	if strings.Contains(why, "audit record") {
+		t.Errorf("the refusal points at an audit record: %q", why)
+	}
+	if !strings.Contains(why, "more bytes") {
+		t.Errorf("the refusal does not say it was cut: %q", why)
+	}
+}

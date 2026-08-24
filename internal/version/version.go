@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"runtime/debug"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/termsafe"
 )
 
 // Version is the build version reported by the version command. A var rather
@@ -115,11 +117,21 @@ func releaseVersion(v string) string {
 //
 // Lives here rather than in the protocol package because all three sockets make
 // the same check and say the same thing about it.
+// maxCallerChars is how much of a claimed version the refusal quotes back:
+// every version anything releases is far shorter, so this only ever cuts a
+// caller that sent something else.
+const maxCallerChars = 64
+
 func Mismatch(caller string) string {
 	if caller == Version {
 		return ""
 	}
-	named := "faramir " + caller
+	// Quoted and cut: this comes off the wire, so it can be a screenful of
+	// escape sequences or a quarter of a megabyte of anything, and the answer
+	// goes back to a terminal. Truncate rather than Bound, which points the
+	// reader at an audit record: a caller refused for its version is refused
+	// before the op is read, so no record is written.
+	named := "faramir " + termsafe.Truncate(termsafe.Arg(caller), maxCallerChars)
 	if caller == "" {
 		named = "no version"
 	}

@@ -152,6 +152,28 @@ func TestRecipientNamesAFileWithNoKeyInIt(t *testing.T) {
 	}
 }
 
+// A refusal quotes what it was given, and what it was given can be a whole key
+// file: the parsers below quote it too, so an unbounded message is as long as
+// the paste. A hundred kilobytes of refusal buries the sentence that says what
+// to do.
+func TestARefusalDoesNotEchoTheWholePaste(t *testing.T) {
+	huge := "age1" + strings.Repeat("q", 100_000)
+	err := ValidateRecipient(huge)
+	if err == nil {
+		t.Fatal("accepted")
+	}
+	if len(err.Error()) > 4*maxRefusalBytes {
+		t.Errorf("the refusal is %d bytes for a %d-byte paste", len(err.Error()), len(huge))
+	}
+	// Still says what was wrong and that it was cut.
+	if !strings.Contains(err.Error(), "not an age recipient") {
+		t.Errorf("the refusal no longer says what was wrong: %.120s", err)
+	}
+	if !strings.Contains(err.Error(), "more bytes") {
+		t.Errorf("the refusal does not say it was cut: %.120s", err)
+	}
+}
+
 // .sops.yaml is written once, kept, and 0644 by design. Everything below is a
 // string that must never reach it, or one that must.
 func TestValidateRecipient(t *testing.T) {

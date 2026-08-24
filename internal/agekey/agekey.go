@@ -13,6 +13,8 @@ import (
 
 	"filippo.io/age"
 	"filippo.io/age/agessh"
+
+	"github.com/andornaut/faramir/internal/termsafe"
 )
 
 // recipientPattern matches the public half; nothing outside the keeper needs the
@@ -65,6 +67,20 @@ func Generate(path string) (recipient string, created bool, err error) {
 // plugin recipient is taken on its shape alone, the plugin binary being the
 // only thing that can parse one.
 func ValidateRecipient(s string) error {
+	if err := validateRecipient(s); err != nil {
+		// Bounded here rather than at each message: what is quoted back is what
+		// was pasted, and a pasted key file is a hundred kilobytes of refusal.
+		// The parsers below quote it too, so the cut is made on the way out.
+		return errors.New(termsafe.Truncate(err.Error(), maxRefusalBytes))
+	}
+	return nil
+}
+
+// maxRefusalBytes is how much of what was given a refusal quotes back: enough
+// to recognise the paste, and not the paste.
+const maxRefusalBytes = 512
+
+func validateRecipient(s string) error {
 	if s == "" {
 		return errors.New("empty age recipient")
 	}

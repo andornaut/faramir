@@ -186,28 +186,28 @@ func blockedWarnings(report *Report, refused config.BlockedPath, links []config.
 			"%s blocks the agent's shell from running it. The words are literal and "+
 				"are matched where a command starts, so a line that names them without "+
 				"running them, a grep or an editor's argument, is left alone",
-			refused.Command))
+			config.Shown(refused.Command)))
 		return
 	}
 	if refused.Name != "" {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
 			"%s refuses %s. Nothing announces a pattern that matches more than it "+
 				"was meant to: the agent meets it as file tools failing on files "+
-				"nobody discussed", refused.Name, BlockedNameMatches(refused.Name)))
+				"nobody discussed", config.Shown(refused.Name), BlockedNameMatches(refused.Name)))
 		return
 	}
 	if _, statErr := os.Stat(refused.Path); statErr != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
 			"%s is not there. The rule is written and will hold when it appears, "+
 				"which is what an unmounted volume looks like. A path spelled wrong "+
-				"looks the same, so check it", refused.Path))
+				"looks the same, so check it", config.Shown(refused.Path)))
 	}
 	for _, link := range links {
 		if link.Path == refused.Path {
 			report.Warnings = append(report.Warnings, fmt.Sprintf(
 				"%s is already refused by the [[secret.link]] entry for %s, which "+
 					"renders the same rule and also keeps the value out of any "+
-					"output. This entry adds nothing to that", refused.Path, link.Ref))
+					"output. This entry adds nothing to that", config.Shown(refused.Path), config.Shown(link.Ref)))
 		}
 	}
 }
@@ -337,7 +337,7 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 					"%s is still blocked: it is under %s, which this install occupies and "+
 						"renders a rule for on every run. What was removed is this install's "+
 						"own entry, which was asking for what the layout already blocks",
-					entry.Blocks(), dir))
+					config.Shown(entry.Blocks()), dir))
 			}
 		}
 	}
@@ -391,7 +391,7 @@ func builtInRuleError(configDir string, refused config.BlockedPath) error {
 		"blocked by the layout rather than by a [[secret.block]] entry: there is "+
 		"nothing here to remove and the host goes on blocking it. Those rules are "+
 		"rendered on every run and change only with the install; `faramir block "+
-		"ls` shows which rules are which", refused.Blocks(), dir)
+		"ls` shows which rules are which", config.Shown(refused.Blocks()), dir)
 }
 
 // BlockedPaths is what the install declares, for `faramir block ls`.

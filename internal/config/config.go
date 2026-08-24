@@ -934,7 +934,7 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		}
 		if seen[key] {
 			return nil, fmt.Errorf("%s: %q is named by more than one entry",
-				at, refused.Blocks())
+				at, Shown(refused.Blocks()))
 		}
 		seen[key] = true
 		out = append(out, refused)
@@ -1001,11 +1001,11 @@ func refuseControl(form, value, at string) error {
 		r, size := utf8.DecodeRuneInString(value[i:])
 		if r == utf8.RuneError && size == 1 {
 			return fmt.Errorf("%s: %s %q carries a byte at offset %d that is not valid UTF-8, so the rule it "+
-				"renders does not compile and refuses nothing", at, form, value, i)
+				"renders does not compile and refuses nothing", at, form, Shown(value), i)
 		}
 		if termsafe.Actionable(r) {
 			return fmt.Errorf("%s: %s %q carries %q at offset %d. %s",
-				at, form, value, r, i, whyControlIsRefused(r))
+				at, form, Shown(value), r, i, whyControlIsRefused(r))
 		}
 		i += size
 	}
@@ -1024,6 +1024,19 @@ func whyControlIsRefused(r rune) string {
 		"row read as something other than what is stored"
 }
 
+// Shown is an entry as a message quotes it back. Bounded because the entry is
+// whatever was pasted at the flag, and a message that repeats it is as long as
+// the paste: a mistyped argument otherwise answers with a hundred kilobytes,
+// with the sentence that says what to do at the far end of it.
+//
+// Exported for the warnings an add prints alongside these refusals, which
+// quote the same entries and are bounded by the same number.
+func Shown(entry string) string { return termsafe.Truncate(entry, maxShownBytes) }
+
+// maxShownBytes is enough of an entry to recognise which one was refused. Past
+// PATH_MAX, so no path this could name is cut.
+const maxShownBytes = 8192
+
 // validateBlockedCommand holds a command entry to what can be rendered. The
 // words are taken literally, so there is no pattern to get wrong; what is left
 // to check is that each word is long enough to mean one.
@@ -1036,13 +1049,13 @@ func whyControlIsRefused(r rune) string {
 // most of them, and is the same failure "/" is as a path.
 func validateBlockedCommand(command, at string) error {
 	if strings.TrimSpace(command) != command {
-		return fmt.Errorf("%s: command %q is padded with whitespace", at, command)
+		return fmt.Errorf("%s: command %q is padded with whitespace", at, Shown(command))
 	}
 	for word := range strings.FieldsSeq(command) {
 		if len(word) < 2 {
 			return fmt.Errorf("%s: command %q carries the single-character word %q, "+
 				"which matches nearly every command line. Write the command as it "+
-				"would be typed", at, command, word)
+				"would be typed", at, Shown(command), Shown(word))
 		}
 	}
 	return nil
@@ -1055,18 +1068,18 @@ func validateBlockedPath(refused BlockedPath, at string) error {
 	}
 	if strings.HasPrefix(refused.Path, "~") {
 		return fmt.Errorf("%s: path %q starts with ~, which nothing expands here. "+
-			"Write the path in full", at, refused.Path)
+			"Write the path in full", at, Shown(refused.Path))
 	}
 	if !filepath.IsAbs(refused.Path) {
 		return fmt.Errorf("%s: path %q is relative, and a deny rule is matched "+
-			"against a path the agent names in full. Write it in full", at, refused.Path)
+			"against a path the agent names in full. Write it in full", at, Shown(refused.Path))
 	}
 	// A rule is a literal string in someone else's config, so the path that
 	// reaches it has to be the one an agent would name. "/etc/./k" and "/etc/k"
 	// are one file and would be two rules, one of which matches nothing.
 	if clean := filepath.Clean(refused.Path); clean != refused.Path {
 		return fmt.Errorf("%s: path %q is not in its shortest form, and a deny rule "+
-			"matches the path as written. Use %q", at, refused.Path, clean)
+			"matches the path as written. Use %q", at, Shown(refused.Path), Shown(clean))
 	}
 	// "/" would render a rule refusing the whole filesystem, which fails closed
 	// and leaves the agent unable to read anything at all.
@@ -1092,19 +1105,19 @@ func validateBlockedName(name, at string) error {
 	switch {
 	case strings.TrimSpace(name) != name:
 		return fmt.Errorf("%s: name %q is padded with whitespace, and a rule matches "+
-			"the pattern as written", at, name)
+			"the pattern as written", at, Shown(name))
 	case strings.HasPrefix(name, "~"):
-		return fmt.Errorf("%s: name %q starts with ~, which nothing expands here", at, name)
+		return fmt.Errorf("%s: name %q starts with ~, which nothing expands here", at, Shown(name))
 	case strings.HasPrefix(name, "/"):
 		return fmt.Errorf("%s: name %q is an absolute path, and a name is matched "+
 			"against the end of what an agent names rather than the whole of it. "+
-			"Write it as a path entry, or drop the leading /", at, name)
+			"Write it as a path entry, or drop the leading /", at, Shown(name))
 	case strings.Contains(name, "**"):
 		return fmt.Errorf("%s: name %q carries **, and a name already matches in "+
-			"any directory. Write the name itself", at, name)
+			"any directory. Write the name itself", at, Shown(name))
 	case slices.Contains(strings.Split(name, "/"), ".."):
 		return fmt.Errorf("%s: name %q carries a .. segment, and a rule matches the "+
-			"pattern as written rather than a path it resolves", at, name)
+			"pattern as written rather than a path it resolves", at, Shown(name))
 	}
 	// What is left once the wildcards and the separators are taken out. Nothing
 	// left is a pattern matching every file the agent can name, which fails
@@ -1113,7 +1126,7 @@ func validateBlockedName(name, at string) error {
 	if strings.Trim(name, "*/") == "" {
 		return fmt.Errorf("%s: name %q matches every file on the host, which would "+
 			"refuse the agent all of them. Name the file, the suffix or the "+
-			"directory that holds it", at, name)
+			"directory that holds it", at, Shown(name))
 	}
 	return nil
 }
@@ -1126,7 +1139,7 @@ func validateLink(link Link, at string) error {
 	}
 	if !secretref.Valid(link.Ref) {
 		return fmt.Errorf("%s: ref %q is not a name a faramir:// reference can carry; "+
-			"letters, digits, and then any of . _ - /", at, link.Ref)
+			"letters, digits, and then any of . _ - /", at, Shown(link.Ref))
 	}
 	if link.Path == "" {
 		return fmt.Errorf("%s: path is required", at)

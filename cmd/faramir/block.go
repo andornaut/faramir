@@ -169,11 +169,11 @@ func runBlockAdd(f blockFlags, args []string) int {
 	// would not say which was which.
 	for i, entry := range blocked {
 		if added[i] {
-			fmt.Fprintf(os.Stderr, "blocked %s\n", entry.Blocks())
+			fmt.Fprintf(os.Stderr, "blocked %s\n", config.Shown(entry.Blocks()))
 			continue
 		}
 		fmt.Fprintf(os.Stderr, "%s was already blocked, so nothing was added; the "+
-			"rules naming it were rendered again\n", entry.Blocks())
+			"rules naming it were rendered again\n", config.Shown(entry.Blocks()))
 	}
 	return 0
 }
@@ -241,11 +241,11 @@ func runBlockRemove(f blockFlags, args []string) int {
 	for i, entry := range removed {
 		if entry.Blocks() == "" {
 			fmt.Fprintf(os.Stderr, "%s was not blocked, so nothing was removed; "+
-				"`faramir block ls` lists what is\n", asked[i].Blocks())
+				"`faramir block ls` lists what is\n", config.Shown(asked[i].Blocks()))
 			continue
 		}
 		gone = true
-		fmt.Fprintf(os.Stderr, "stopped blocking %s\n", entry.Blocks())
+		fmt.Fprintf(os.Stderr, "stopped blocking %s\n", config.Shown(entry.Blocks()))
 	}
 	if gone {
 		fmt.Fprintf(os.Stderr, "the deny rules naming them stay in your agent's "+

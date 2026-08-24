@@ -194,7 +194,10 @@ func Refusal(path, kind string, cause error) error {
 	// where it is written.
 	shown := make([]string, len(keys))
 	for i, key := range keys {
-		shown[i] = termsafe.Field(key, maxKeyChars)
+		// Truncate rather than Bound, which points the reader at an audit
+		// record: this is a refusal printed to a terminal, and no record holds
+		// the keys a file offers.
+		shown[i] = termsafe.Truncate(termsafe.Arg(key), maxKeyChars)
 	}
 	return fmt.Errorf("%w\nthis file offers: %s", cause, strings.Join(shown, ", "))
 }
