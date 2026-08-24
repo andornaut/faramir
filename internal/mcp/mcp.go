@@ -263,7 +263,28 @@ func refuseUnknownArguments(tool string, known []string, arguments map[string]an
 		tool, strings.Join(named, ", "), takes), true)
 }
 
-// nearest is the declared argument a misspelling most likely meant: one that
+// unknownTool answers a call naming a tool this server does not have. The two
+// it does have are named back: a model that wrote faramir_ref otherwise gets
+// its own spelling returned and nothing to correct it to, while the same slip
+// in an argument is answered with the list.
+func unknownTool(name string) string {
+	have := make([]string, 0, len(tools))
+	for _, t := range tools {
+		have = append(have, t.Name)
+	}
+	slices.Sort(have)
+	held := strings.Join(have, ", ")
+	if name == "" {
+		return "this call names no tool. This server has " + held + "."
+	}
+	if near := nearest(have, name); near != "" {
+		return fmt.Sprintf("unknown tool: %q (did you mean %s?). This server has %s.",
+			name, near, held)
+	}
+	return fmt.Sprintf("unknown tool: %q. This server has %s.", name, held)
+}
+
+// nearest is the declared name a misspelling most likely meant: one that
 // begins with what was written, or that is contained in it. Enough for the case
 // this exists for (env for env_refs) and silent about anything less obvious, a
 // wrong guess reading as an instruction.
@@ -326,7 +347,7 @@ func callTool(name string, arguments map[string]any) map[string]any {
 		}
 		request = map[string]any{"op": "refs"}
 	default:
-		return textResult("unknown tool: "+name, true)
+		return textResult(unknownTool(name), true)
 	}
 
 	response, err := call(request)

@@ -133,7 +133,17 @@ func TestRefusedToolCalls(t *testing.T) {
 			wants: []string{"does not take", "takes no arguments"}},
 		{name: "a tool that does not exist",
 			tool: "faramir_delete_everything", args: map[string]any{},
-			wants: []string{"unknown tool", "faramir_delete_everything"}},
+			wants: []string{"unknown tool", "faramir_delete_everything",
+				"faramir_refs, faramir_run"}},
+		// The same slip an argument gets a suggestion for. Answered with the
+		// spelling it wrote and nothing else, a model has no way back to the
+		// tool it meant.
+		{name: "a near-miss for a tool name",
+			tool: "faramir_ref", args: map[string]any{},
+			wants: []string{"unknown tool", "did you mean faramir_refs"}},
+		{name: "a call naming no tool at all",
+			tool: "", args: map[string]any{},
+			wants: []string{"names no tool", "faramir_refs, faramir_run"}},
 		{name: "a command that failed",
 			reply: map[string]any{"exit_code": 2, "output": "nope\n"},
 			tool:  "faramir_run", args: map[string]any{"cmd": []any{"false"}},
