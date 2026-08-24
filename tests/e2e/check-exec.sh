@@ -382,6 +382,64 @@ grep -q '"timed_out":true' /var/log/faramir/audit.log 2>/dev/null \
   && ok "and the timed-out run is in the audit log" \
   || bad "no timed_out record: $(tail -1 /var/log/faramir/audit.log | head -c 120)"
 
+head_ "7b. a run whose caller has gone"
+# A Ctrl-C on `faramir run`, or an agent killed mid-command. The caller's
+# connection goes and nothing is left to read the answer, so the run is killed
+# rather than left holding a concurrency slot until its timeout. Same teardown
+# as the section above: the cgroup, and everything in it.
+before_strays=$(strays); before_cgroups=$(runCgroups)
+start=$(date +%s)
+runuser -u op -- /usr/local/bin/faramir run --quiet -t 300 -- /bin/sleep 280 \
+  >/tmp/aband.out 2>&1 &
+caller=$!
+sleep 3
+[ -n "$(strays)" ] && ok "the command is running" || bad "nothing started"
+# The client itself, not the runuser that started it: `kill PID` reaches one
+# process and runuser does not pass a signal on to what it forked. TERM rather
+# than the INT a terminal sends, because a shell running a command in the
+# background sets INT to be ignored, so the signal a Ctrl-C would deliver
+# arrives at nothing here. What is under test is the connection closing, which
+# either one does.
+pkill -TERM -x -u op faramir
+wait "$caller" 2>/dev/null
+sleep 4
+elapsed=$(( $(date +%s) - start ))
+# Bounded, or a regression that leaves the run going is a suite that waits out
+# the sleep and then reports it gone.
+[ "$elapsed" -lt 60 ] && ok "the caller was released after ${elapsed}s" \
+  || bad "the caller was not released for ${elapsed}s"
+after=$(strays)
+if [ -z "$after" ]; then
+  ok "and the command went with it, 276s short of its timeout"
+else
+  bad "the command outlived its caller:$after"
+  pkill -u faramir-exec -x sleep 2>/dev/null
+fi
+[ "$(runCgroups)" = "$before_cgroups" ] && ok "and the run's cgroup went with it" \
+  || bad "cgroups went $before_cgroups -> $(runCgroups)"
+# Nobody is left to be told, so the record is the whole of what is reported.
+sleep 1
+grep -q '"abandoned":true' /var/log/faramir/audit.log 2>/dev/null \
+  && ok "and the record says the caller went, not that it timed out" \
+  || bad "no abandoned record: $(tail -1 /var/log/faramir/audit.log | head -c 140)"
+python3 -c "
+import json,sys
+for line in reversed(sys.stdin.read().splitlines()):
+    try: r=json.loads(line)
+    except ValueError: continue
+    if r.get('abandoned'):
+        print('TIMEDOUT' if r.get('timed_out') else 'NOTTIMEDOUT'); break
+" < /var/log/faramir/audit.log | grep -q NOTTIMEDOUT \
+  && ok "and it is not recorded as a timeout, the command being inside its time" \
+  || bad "an abandoned run was recorded as a timeout"
+
+# And an ordinary run is not killed by the same watcher: the caller holds its
+# write side open until it has the answer, and a run that ends on its own must
+# not read as one that was abandoned.
+out=$(run -- /bin/bash -c 'sleep 2; echo survived' 2>&1)
+grep -q survived <<<"$out" && ok "a run nobody interrupted still finishes" \
+  || bad "an uninterrupted run did not finish: ${out:0:120}"
+
 head_ "8. output limits"
 cap=262144
 out=$(run -- /bin/sh -c "yes abcdefgh | head -c $(( cap * 2 ))")

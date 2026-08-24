@@ -36,9 +36,10 @@ func tellBrokerToReRead() string {
 		"op": "refresh", "version": version.Version}); err != nil {
 		return ""
 	}
-	if uc, ok := conn.(*net.UnixConn); ok {
-		_ = uc.CloseWrite()
-	}
+	// The write half stays open. The broker reads this connection for the whole
+	// of a run and takes an EOF as the caller having gone, killing the command;
+	// nothing on this socket half-closes, so there is no per-op rule to get
+	// wrong when an op becomes a long one.
 	// Read the answer rather than closing on it: the refresh runs while the
 	// broker is answering, so returning before it lands would leave the same
 	// window this exists to close, just a shorter one. And the answer is what

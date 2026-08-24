@@ -282,7 +282,13 @@ func (s *Server) serveConnection(conn net.Conn) {
 			_ = sockutil.Send(conn, protocol.ErrorResponse("bad_request", parseErr.Error(), ""))
 			return
 		}
-		response := s.dispatch(request, peer, stream)
+		// Watched for the whole of a run, and only for a run: the caller holds
+		// its write side open until it has the answer, so an EOF here is a
+		// caller that is gone rather than one that has finished asking. A run
+		// nobody is waiting for is killed rather than left to its timeout.
+		abandoned, stopWatching := s.watchPeer(conn, request.Op)
+		response := s.dispatch(request, peer, stream, abandoned)
+		stopWatching()
 		s.extend(conn, peerWait, true)
 		if err := sockutil.Send(conn, response); err != nil {
 			return
@@ -329,19 +335,56 @@ func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 
 // Handle dispatches one request that stands on its own, which is every op but a
 // chunked redact: those need the connection's state, so serveConnection parses
-// and dispatches them itself.
+// and dispatches them itself. No connection to watch either, so a run through
+// here is not one anything can abandon.
 func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Response {
 	request, err := protocol.Parse(payload)
 	if err != nil {
 		return protocol.ErrorResponse("bad_request", err.Error(), "")
 	}
-	return s.dispatch(request, peer, nil)
+	return s.dispatch(request, peer, nil, nil)
+}
+
+// watchPeer reports when the caller's connection goes, for the ops worth
+// killing: a run, which may hold a concurrency slot for an hour. Everything
+// else answers in a round trip, so watching it would cost a goroutine per
+// request to catch a window too short to be in.
+//
+// The read is what detects it. Nothing else is sent down this connection while
+// a run is in flight, so the read blocks until the peer closes, and the caller
+// no longer half-closes its write side for exactly this reason. Any error is
+// treated as the caller having gone: what would be lost is a request this
+// connection is not going to answer anyway.
+//
+// The returned stop is called before the response is written, so the watcher
+// is not reading the connection while the loop is deciding what to do with it.
+func (s *Server) watchPeer(conn net.Conn, op string) (<-chan struct{}, func()) {
+	if op != protocol.OpRun {
+		return nil, func() {}
+	}
+	gone, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		var one [1]byte
+		read := make(chan struct{})
+		go func() {
+			defer close(read)
+			_, _ = conn.Read(one[:])
+		}()
+		select {
+		case <-read:
+			close(gone)
+		case <-done:
+			// The run ended first. The read is left parked on a connection the
+			// loop is about to answer on and close, which is what ends it.
+		}
+	}()
+	return gone, func() { close(done) }
 }
 
 // dispatch routes a parsed request. stream is the connection's redact state,
 // nil for a caller that answers one request and is done with it.
 func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
-	stream *redactStream) protocol.Response {
+	stream *redactStream, abandoned <-chan struct{}) protocol.Response {
 	// Not on a chunk continuing a stream: that stream's redactor was built when
 	// it started and is what the whole of it is scanned against, so a refresh
 	// here would take a lock per chunk and change nothing.
@@ -365,7 +408,7 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 	case "escalate":
 		return s.opEscalate(request, peer)
 	default:
-		return s.opRun(request, peer)
+		return s.opRun(request, peer, abandoned)
 	}
 }
 
@@ -817,7 +860,8 @@ func (s *Server) execFields(a execAudit) map[string]any {
 	}
 }
 
-func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
+	abandoned <-chan struct{}) protocol.Response {
 	execCfg := s.Config.Command
 	logID := audit.NewLogID()
 	if refused := s.refuseUnreadable("run", "this command", logID, peer); refused != nil {
@@ -930,27 +974,12 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	if s.Config.Server.AgentUser != "" {
 		env[protocol.OperatorEnv] = s.Config.Server.AgentUser
 	}
-	injected := map[string]string{}
-	for name, uri := range envRefs {
-		ref, err := secretref.Parse(uri)
-		if err != nil {
-			return s.refuse("unknown_secret", err.Error(), logID, peer, cmd, cwd)
-		}
-		value, err := s.Store.Value(ref)
-		if err != nil {
-			return s.refuse("unknown_secret", err.Error(), logID, peer, cmd, cwd)
-		}
-		env[name] = value
-		injected[name] = ref
+	injected, why := s.inject(env, envRefs)
+	if why != "" {
+		return s.refuse("unknown_secret", why, logID, peer, cmd, cwd)
 	}
 
-	timeout := request.TimeoutSec
-	if timeout == 0 {
-		timeout = execCfg.TimeoutSec
-	}
-	if timeout > execCfg.MaxTimeoutSec {
-		timeout = execCfg.MaxTimeoutSec
-	}
+	timeout := clampTimeout(request.TimeoutSec, execCfg)
 
 	// Every known secret, not only the injected ones: a managed host can print one
 	// the broker never injected.
@@ -977,6 +1006,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 		Env:        env,
 		TimeoutSec: timeout,
 		RunID:      runID,
+		Abandoned:  abandoned,
 	})
 	// Drop the plaintext as soon as the child has it; the store keeps the values.
 	for k := range env {
@@ -1017,6 +1047,12 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	if result.InvalidBytes > 0 {
 		record["invalid_bytes"] = result.InvalidBytes
 	}
+	// The record is the whole of what is left of an abandoned run: the response
+	// below goes to a connection nobody is reading. Without this the log shows a
+	// command killed at a second nobody asked for and no reason beside it.
+	if result.Abandoned {
+		record["abandoned"] = true
+	}
 	maps.Copy(record, judged.fields())
 	s.Audit.Write(record, collector.Output())
 
@@ -1030,7 +1066,41 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	return execResponse(logID, judged, result)
 }
 
-// redactor takes a redactor over the whole value set. Fresh each call because a
+// inject puts the requested values into the child's environment and returns
+// what each name was filled from, for the audit record: the refs, never the
+// values. The string is why a ref could not be filled, empty where every one
+// was.
+//
+// A failure stops at the ref that caused it, so env may already hold the values
+// named before it. Nothing runs with them: the caller answers a non-empty
+// reason with a refusal, and the map goes no further.
+func (s *Server) inject(env map[string]string, envRefs map[string]string) (map[string]string, string) {
+	injected := map[string]string{}
+	for name, uri := range envRefs {
+		ref, err := secretref.Parse(uri)
+		if err != nil {
+			return nil, err.Error()
+		}
+		value, err := s.Store.Value(ref)
+		if err != nil {
+			return nil, err.Error()
+		}
+		env[name] = value
+		injected[name] = ref
+	}
+	return injected, ""
+}
+
+// clampTimeout is what this run actually gets: what it asked for, the config's
+// default where it asked for nothing, and never more than the ceiling.
+func clampTimeout(asked int, execCfg config.CommandConfig) int {
+	if asked == 0 {
+		asked = execCfg.TimeoutSec
+	}
+	return min(asked, execCfg.MaxTimeoutSec)
+}
+
+// redactor takes a redactor over the whole value set.// redactor takes a redactor over the whole value set. Fresh each call because a
 // Redactor carries per-stream state and counts, but the matcher it scans with
 // is the store's, compiled once per load: building one here cost every command
 // the size of the value set. The sudo grant adds nothing to it: an escalation

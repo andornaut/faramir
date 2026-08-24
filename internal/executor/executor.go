@@ -36,7 +36,11 @@ type Result struct {
 	Truncated   bool
 	DurationSec float64
 	TimedOut    bool
-	Redactions  []redact.Count
+	// Abandoned is a run killed because its caller's connection went. Reported
+	// separately from a timeout: both end in a killed process, and only one of
+	// them is the command taking too long.
+	Abandoned  bool
+	Redactions []redact.Count
 	// Non-zero when the command's output was not text; see redact.InvalidBytes.
 	InvalidBytes int
 }
@@ -52,6 +56,13 @@ type Request struct {
 	// executor can say which run forked a process asking to sudo. Empty where the
 	// host grants no escalation.
 	RunID string
+	// Abandoned is closed when the caller's connection has gone. The run is then
+	// killed rather than left to its timeout: nothing is waiting for its output,
+	// and it holds a concurrency slot for as long as it would have run, so a
+	// handful of interrupted callers would hold every slot for an hour.
+	//
+	// nil where nothing watches, which is every caller but the broker.
+	Abandoned <-chan struct{}
 }
 
 // Run executes a request through the executor, returning redacted merged
@@ -105,7 +116,16 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	var carry []byte
 	buf := make([]byte, readSize)
 
+	abandoned := false
 	for {
+		// Asked once per pass, so a run ends within one read deadline of its
+		// caller going. Torn down the way an overrun is: the cgroup goes, and
+		// with it everything the command started.
+		if isClosed(req.Abandoned) {
+			abandoned = true
+			client.Abort()
+			break
+		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			aborted = true
@@ -145,9 +165,14 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 
 	var exitCode int
 	var timedOut bool
-	if aborted {
+	switch {
+	case abandoned:
+		// Killed, so the status is the signal's, and not a timeout: the command
+		// was inside the time it was given.
+		exitCode = 128 + 9
+	case aborted:
 		exitCode, timedOut = 128+9, true
-	} else {
+	default:
 		result, err := client.Result(30 * time.Second)
 		if err != nil {
 			return nil, err
@@ -155,8 +180,13 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		exitCode, timedOut = result.ExitCode, result.TimedOut
 	}
 	output, truncated := out.result()
-	if timedOut {
+	switch {
+	case timedOut:
 		output += fmt.Sprintf("\n[faramir] timed out after %ds; process killed\n", timeoutSec)
+	case abandoned:
+		// Written for the audit record rather than for a caller: there is nobody
+		// left to read the response this goes into.
+		output += "\n[faramir] the caller went away; process killed\n"
 	}
 
 	return &Result{
@@ -165,9 +195,21 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		Truncated:    truncated,
 		DurationSec:  round3(time.Since(started).Seconds()),
 		TimedOut:     timedOut,
+		Abandoned:    abandoned,
 		Redactions:   redactor.Summary(),
 		InvalidBytes: redactor.InvalidBytes(),
 	}, nil
+}
+
+// isClosed reports whether a channel has been closed, without blocking. A nil
+// channel is never ready, which is what a caller nothing watches passes.
+func isClosed(done <-chan struct{}) bool {
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
 }
 
 // cutAtRune returns the first limit bytes of s, backing off only far enough not

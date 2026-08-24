@@ -72,6 +72,8 @@ Field | Required | Notes
 `env_refs` | no | `NAME` to `faramir://ref`. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$` and must not be reserved. Values cannot be passed.
 `timeout_sec` | no | Positive integer, clamped down to `[command] max_timeout_sec`. Omitted means `[command] timeout_sec`.
 
+A caller keeps its write side open until it has the answer. The broker reads the connection for the whole of a run, and an EOF there is the caller having gone: the run is killed and the record carries `abandoned`. A half-close would read as one, so a client that shuts down its write half after sending is a client whose every command dies the moment it starts. Nothing else on this socket is watched that way, every other op answering in a round trip.
+
 Reserved `env_refs` names, refused so injection cannot redirect the loader, the interpreter, sops or the agent relay. Anything outside this set is accepted:
 
 ```text
@@ -138,6 +140,7 @@ Field | Meaning
 `waited_sec` | How much of `duration_sec` the command spent blocked on its own escalation, present only where a `sudo` waited at all. Written to the `run` record and carried on `finished` as well. `duration_sec` is wall time from fork to exit and the child sits inside `sudo` for the whole question, so an escalation answered slowly reads as a slow command without this. Reported beside the duration rather than subtracted from it: `[command] max_timeout_sec` is enforced against the same clock, and a duration that no longer matched it would be a second, quieter number.
 `escalation_code`, `escalation` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `rejected` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [escalate codes](#escalations); the same pair is written to the `run` record.
 `truncated` | Output hit the output cap.
+`abandoned` | The audit record only: the caller's connection went and the run was killed rather than left to its timeout. Told apart from `timed_out`, which is the command taking too long; this one was inside the time it was given. There is nobody left to send a response to, so the record is the whole of what is reported.
 
 A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `exit_code` and adds `error`:
 

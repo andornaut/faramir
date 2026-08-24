@@ -602,13 +602,6 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 	if err := sockutil.Send(rc.conn, request); err != nil {
 		return "", err
 	}
-	if !more {
-		// Nothing more is coming, so the write half closes: the broker is done with
-		// this connection once it has answered.
-		if uc, ok := rc.conn.(*net.UnixConn); ok {
-			_ = uc.CloseWrite()
-		}
-	}
 	line, err := rc.lines.Next()
 	if err != nil {
 		// Named, not flattened: an oversized request and a reset connection want
@@ -728,9 +721,10 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, err)
 		return 69
 	}
-	if uc, ok := conn.(*net.UnixConn); ok {
-		_ = uc.CloseWrite()
-	}
+	// The write half stays open, though nothing more is sent down it. It is what
+	// tells the broker this caller is still here: a run is killed when its
+	// caller's connection goes, and a half-close would read as one, so every
+	// brokered command would die the moment it started.
 	line, err := sockutil.ReadLine(conn, 1<<26)
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		// Named apart from a close: the socket is listening and nothing behind it

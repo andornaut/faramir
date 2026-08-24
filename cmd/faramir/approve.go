@@ -798,9 +798,10 @@ func roundTrip(socketPath string, request map[string]any, timeout time.Duration)
 	if err := sockutil.Send(conn, request); err != nil {
 		return nil, err
 	}
-	if uc, ok := conn.(*net.UnixConn); ok {
-		_ = uc.CloseWrite()
-	}
+	// The write half stays open. The broker reads this connection for the whole
+	// of a run and takes an EOF as the caller having gone, killing the command;
+	// nothing on this socket half-closes, so there is no per-op rule to get
+	// wrong when an op becomes a long one.
 	line, err := sockutil.ReadLine(conn, 1<<20)
 	if err != nil {
 		return nil, fmt.Errorf("reading the response: %w", err)
