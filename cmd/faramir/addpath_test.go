@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -72,5 +73,81 @@ func TestARefusalNamesWhatWasTyped(t *testing.T) {
 func TestNoPatternsIsRefused(t *testing.T) {
 	if _, err := newManagedPath(&config.Config{}, "prod"); err == nil {
 		t.Fatal("a config naming no store accepted a new file")
+	}
+}
+
+// A name that is not a name. Join drops an empty component and a ".", so both
+// would build the secrets directory with the suffix glued on and be refused as
+// a path matching no pattern: the operator reads a path they never typed and
+// has nothing to correct.
+func TestANameThatNamesNothingIsRefusedAsThat(t *testing.T) {
+	cfg, dir := store(t, "*.sops.yml")
+	for _, name := range []string{"", " ", "\t", "."} {
+		t.Run(strconv.Quote(name), func(t *testing.T) {
+			_, err := newManagedPath(cfg, name)
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(err.Error(), "name the file") {
+				t.Errorf("refusal is %q, want it to ask for a name", err)
+			}
+			// And it says where one goes, rather than quoting a path built out
+			// of nothing.
+			if !strings.Contains(err.Error(), dir) {
+				t.Errorf("refusal is %q, want it to name %q", err, dir)
+			}
+			if strings.Contains(err.Error(), dir+".sops.yml") {
+				t.Errorf("refusal quotes a path nobody typed: %v", err)
+			}
+		})
+	}
+}
+
+// The patterns a refusal quotes are the ones a path is matched against, in
+// full. Their file names alone make the refusal read false: "*.sops.yml" is a
+// pattern /tmp/outside.sops.yml plainly matches, and what it misses is the
+// directory.
+func TestARefusalQuotesThePatternsInFull(t *testing.T) {
+	cfg, dir := store(t, "*.sops.yml")
+	_, err := newManagedPath(cfg, "/tmp/outside")
+	if err == nil {
+		t.Fatal("a path outside the store was accepted")
+	}
+	if !strings.Contains(err.Error(), filepath.Join(dir, "*.sops.yml")) {
+		t.Errorf("refusal is %q, want it to quote the whole pattern", err)
+	}
+}
+
+// A managed file's name is printed back by every command that touches the file
+// and typed into every shell command that reaches it, so it is held to bytes
+// that can be shown and typed. Refused where it is written rather than escaped
+// where it is shown, which would leave an operator with a file they cannot
+// name: `vault ls` escaped it and `vault add` printed it raw, so a newline
+// split the success line in two and an ESC reached the terminal.
+func TestAManagedNameCarriesNoByteATerminalActsOn(t *testing.T) {
+	cfg, _ := store(t, "*.sops.yml")
+	for _, tc := range []struct{ name, says string }{
+		{"two\nlines", "acts on"},
+		{"esc\x1b[31mred", "acts on"},
+		{"bell\a", "acts on"},
+		{"del\x7f", "acts on"},
+		{"c1\u009b", "acts on"},
+		{"bad\xffbyte", "not valid UTF-8"},
+	} {
+		t.Run(strconv.Quote(tc.name), func(t *testing.T) {
+			_, err := newManagedPath(cfg, tc.name)
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(err.Error(), tc.says) {
+				t.Errorf("refusal is %q, want it to say %q", err, tc.says)
+			}
+		})
+	}
+	// And an ordinary name, in any script, is still a name.
+	for _, name := range []string{"prod", "prod-eu", "prod_1", "\u65e5\u672c\u8a9e", "na\u00efve"} {
+		if _, err := newManagedPath(cfg, name); err != nil {
+			t.Errorf("newManagedPath(%q) = %v, want it accepted", name, err)
+		}
 	}
 }

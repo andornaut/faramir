@@ -20,12 +20,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/fserr"
+	"github.com/andornaut/faramir/internal/termsafe"
 )
 
 // opAdd is the audit record a creation writes. Distinct from an edit: when a
@@ -134,6 +136,16 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 		return "", errors.New("[secret] patterns names no location for a managed file")
 	}
 	dir := filepath.Dir(cfg.Secret.Patterns[0])
+	// Asked before a path is built out of it: Join drops an empty name and a
+	// ".", so both would be answered about the secrets directory with a suffix
+	// glued on, which is a path the operator never typed and cannot correct.
+	if strings.TrimSpace(name) == "" || filepath.Clean(name) == "." {
+		return "", fmt.Errorf("name the file to create: a name relative to %s, "+
+			"which is where a managed file lives", dir)
+	}
+	if err := refuseUnprintable(name); err != nil {
+		return "", err
+	}
 	target := name
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(dir, target)
@@ -149,9 +161,12 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 		target += managedSuffix
 	}
 	if !matchesPatterns(cfg.Secret.Patterns, target) {
+		// The patterns in full, not their file names: a pattern shown as
+		// "*.sops.yml" is one /tmp/outside.sops.yml plainly matches, and what it
+		// misses is the directory the glob names.
 		return "", fmt.Errorf("%s matches none of the [secret] patterns (%s), so the "+
-			"broker would never read it and nothing in it could be named as a ref. A "+
-			"managed file lives in %s", target, joinPatterns(cfg.Secret.Patterns), dir)
+			"broker would never read it and nothing in it could be named as a ref",
+			target, joinPatterns(cfg.Secret.Patterns))
 	}
 	if exists(target) {
 		return "", fmt.Errorf("%s is already there; `faramir vault edit %s` opens it",
@@ -166,7 +181,34 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 	return target, nil
 }
 
-// matchesPatterns reports whether the broker would read this path.
+// refuseUnprintable holds a managed file's name to bytes that can be shown and
+// typed. The same check a [[secret.block]] entry gets, for a different reason:
+// a name is not a rule, so a newline splits nothing, but it is printed back by
+// every command that touches the file and typed into every shell command that
+// reaches it. Refused where it is written rather than escaped where it is
+// shown, which would leave an operator with a file they cannot name.
+//
+// Decoded byte by byte rather than ranged over: ranging yields U+FFFD for a
+// byte that is not valid UTF-8, which is not Actionable, so the check would
+// not see it.
+func refuseUnprintable(name string) error {
+	for i := 0; i < len(name); {
+		r, size := utf8.DecodeRuneInString(name[i:])
+		if r == utf8.RuneError && size == 1 {
+			return fmt.Errorf("name %q carries a byte at offset %d that is not "+
+				"valid UTF-8, so nothing can print the file's name back to you",
+				config.Shown(name), i)
+		}
+		if termsafe.Actionable(r) {
+			return fmt.Errorf("name %q carries %q at offset %d, which a terminal "+
+				"acts on rather than draws", config.Shown(name), r, i)
+		}
+		i += size
+	}
+	return nil
+}
+
+// matchesPatterns reports whether the broker would read this path.// matchesPatterns reports whether the broker would read this path.
 func matchesPatterns(patterns []string, target string) bool {
 	for _, pattern := range patterns {
 		if ok, _ := filepath.Match(pattern, target); ok {
@@ -176,11 +218,10 @@ func matchesPatterns(patterns []string, target string) bool {
 	return false
 }
 
+// joinPatterns names the configured entries as a message quotes them: in full,
+// each one being what a path is actually matched against.
 func joinPatterns(patterns []string) string {
-	out := make([]string, 0, len(patterns))
-	for _, pattern := range patterns {
-		out = append(out, filepath.Base(pattern))
-	}
+	out := append([]string{}, patterns...)
 	slices.Sort(out)
 	return strings.Join(out, ", ")
 }
