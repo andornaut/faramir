@@ -510,7 +510,9 @@ def give_up(why):
     sys.exit(0)
 
 
-if not pump(lambda b: "waiting for escalation requests" in b, 30):
+# Case-insensitive: this waits for the watcher to be up, and the banner's
+# capitalization is not what it asserts.
+if not pump(lambda b: "waiting for escalation requests" in b.lower(), 30):
     give_up("the watcher never started")
 
 # Before the question exists, which is the whole of the first case: these have
@@ -641,7 +643,9 @@ def raise_question(marker):
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-if not pump(lambda b: "waiting for escalation requests" in b, 30):
+# Case-insensitive: this waits for the watcher to be up, and the banner's
+# capitalization is not what it asserts.
+if not pump(lambda b: "waiting for escalation requests" in b.lower(), 30):
     give_up("the watcher never started")
 
 first = raise_question("first")
@@ -821,10 +825,11 @@ head_ "15c. a watcher does not hold the broker open"
 /usr/local/bin/faramir sudo watch >/tmp/hold.watch 2>&1 </dev/null &
 WATCHER=$!
 for _ in $(seq 30); do
-  grep -q 'waiting for escalation requests' /tmp/hold.watch && break
+  grep -qi 'waiting for escalation requests' /tmp/hold.watch && break
   sleep 1
 done
-if ! grep -q 'waiting for escalation requests' /tmp/hold.watch; then
+# -i for the reason the python probes above give.
+if ! grep -qi 'waiting for escalation requests' /tmp/hold.watch; then
   bad "the watcher never started, so the check below has no subject"
 else
   start=$(date +%s)
