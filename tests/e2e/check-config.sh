@@ -92,10 +92,10 @@ head_ "3. every tunable survives a bare re-run"
 # names none of them.
 
 reinit --command-timeout-sec 900 --command-max-timeout-sec 7200 \
-  --command-concurrency 4 --secret-min-refresh-sec 30 \
+  --command-concurrency 4 --secret-min-length 12 \
   || bad "init refused the tunables: $(tail -2 /tmp/init.log)"
 reinit || bad "the bare re-run failed"
-for pair in "timeout_sec=900" "max_timeout_sec=7200" "concurrency=4" "min_refresh_sec=30"; do
+for pair in "timeout_sec=900" "max_timeout_sec=7200" "concurrency=4" "min_length=12"; do
   key=${pair%%=*}; want=${pair#*=}
   [ "$(value "$key")" = "$want" ] && ok "$key survived at $want" \
     || bad "$key = $(value "$key") after a bare re-run, want $want"
@@ -109,10 +109,10 @@ head_ "4. no tunable takes zero"
 # the install's old value back. Refused at the loader instead.
 
 cp $CFG /tmp/config.good
-addkey secret "min_refresh_sec = 0"
+addkey command "concurrency = 0"
 case "$(why)" in
-  *"must be at least"*) ok "a zero refresh is refused rather than taken" ;;
-  *) bad "min_refresh_sec = 0 was accepted: $(why | head -1)" ;;
+  *"must be between"*) ok "a zero concurrency is refused rather than taken" ;;
+  *) bad "concurrency = 0 was accepted: $(why | head -1)" ;;
 esac
 cp /tmp/config.good $CFG
 settle || bad "the host did not come back"
@@ -173,7 +173,8 @@ cp $CFG /tmp/config.good
 for case in "an unknown key:secret:nonsense = 1" \
             "a key in the wrong section:secret:timeout_sec = 30" \
             "a value under its floor:secret:min_length = 2" \
-            "a key that stopped being one:command:max_output_bytes = 999"; do
+            "a key that stopped being one:command:max_output_bytes = 999" \
+            "a key retired since:secret:min_refresh_sec = 1"; do
   name=${case%%:*}; rest=${case#*:}
   addkey "${rest%%:*}" "${rest#*:}"
   out=$(why)
@@ -192,7 +193,8 @@ head_ "8. and the values that stopped being keys stay out"
 # Each is a constant in the binary now. Naming one is a mistake worth reporting
 # rather than a setting that quietly does nothing.
 
-for key in max_output_bytes term_cols kill_grace_sec max_request_bytes max_record_bytes; do
+for key in max_output_bytes term_cols kill_grace_sec max_request_bytes max_record_bytes \
+           min_refresh_sec; do
   grep -q "^$key" $CFG && bad "$key is still rendered into the config" \
     || ok "$key is not in the file"
 done
@@ -261,10 +263,10 @@ head_ "9. put the host back"
 # make it fail.
 
 reinit --command-timeout-sec 600 --command-max-timeout-sec 3600 \
-  --command-concurrency 10 --secret-min-refresh-sec 10 --secret-min-length 8 \
+  --command-concurrency 10 --secret-min-length 8 \
   || bad "could not restore the defaults: $(tail -2 /tmp/init.log)"
 settle || bad "the host did not come back"
-[ "$(value min_length)" = "8" ] && [ "$(value min_refresh_sec)" = "10" ] \
-  && ok "the defaults are back" || bad "min_length=$(value min_length) min_refresh_sec=$(value min_refresh_sec)"
+[ "$(value min_length)" = "8" ] && [ "$(value concurrency)" = "10" ] \
+  && ok "the defaults are back" || bad "min_length=$(value min_length) concurrency=$(value concurrency)"
 
 summary

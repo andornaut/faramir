@@ -211,7 +211,6 @@ type Layout struct {
 	BrokerMaxMemoryPercent int
 	SudoTimeoutSec         int
 	SecretMinLength        int
-	SecretMinRefreshSec    int
 
 	// AllowSudo is the switch for the whole arrangement: unset renders no
 	// [sudo] section, writes no sudoers file and no PAM service, so nothing

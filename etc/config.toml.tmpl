@@ -146,21 +146,13 @@ timeout_sec = {{.SudoTimeoutSec}}
 # refused, absent from the redactor, and printed in the clear if it ever reaches
 # output. The second is the direction that leaks.
 min_length = {{.SecretMinLength}}
-# The soonest the broker will ask the keeper again whether a managed sops file
-# changed. A minimum rather than a schedule: the check runs when a command
-# arrives and nothing polls in the background, so an idle host costs nothing at
-# all and this only bounds how often a busy one repeats the question.
 #
-# The linked files below are not on this clock: the broker stats those itself,
-# per request, so a credential another tool has just rotated is covered at once.
-#
-# This is also how long a rotated managed value stays outside the redactor, so a
-# command run in that window prints the new value in the clear. `faramir vault`
-# does not wait for it -- it tells the broker to re-read as soon as it has
-# written -- but anything else that writes the store does. The question is a
-# stat per managed file, so raising this saves nothing measurable and widens
-# that window.
-min_refresh_sec = {{.SecretMinRefreshSec}}
+# How soon the broker will ask the keeper again whether a managed sops file
+# changed is not a key either: it is one second, and the check runs when a
+# command arrives rather than on a timer, so an idle host makes no round trip.
+# Every larger value saves nothing measurable -- the question is a stat per
+# managed file -- and widens the window in which a value rotated outside faramir
+# is still outside the redactor.
 #
 # The managed store is not a key. It is {{.SecretsDir}}, derived from where this
 # file sits, matching *.sops.yml. The agent's deny rules refuse that suffix and

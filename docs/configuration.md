@@ -13,7 +13,7 @@ the executor's uid | The real bound.
 
 ## What a flag sets
 
-Seven values, each rendered into the file and read back out of it on the next run, so a flag left out keeps the install rather than reverting it. Naming one again changes it. Zero is how a flag says "left out", which is why none of them takes zero as a value: `--command-concurrency 0` installs the default rather than being refused.
+Six values, each rendered into the file and read back out of it on the next run, so a flag left out keeps the install rather than reverting it. Naming one again changes it. Zero is how a flag says "left out", which is why none of them takes zero as a value: `--command-concurrency 0` installs the default rather than being refused.
 
 Flag | Key | Default | Bounds
 --- | --- | --- | ---
@@ -25,11 +25,10 @@ Flag | Key | Default | Bounds
 `--command-max-process-memory-mb` | `[command] max_process_memory_mb` | 4096 | at least 256, rendered as `LimitDATA=` on the executor unit and inherited by every child. The **bound**: a command that runs away is one process asking for far more than a real one, and this is what refuses it. Anonymous memory only, so a command is never charged for page cache, and a process that reaches it is handed an allocation failure it can report rather than being chosen by the OOM killer
 `--sudo-timeout-sec` | `[sudo] timeout_sec` | 120 | 1 to 600
 `--secret-min-length` | `[secret] min_length` | 8 | at least 6
-`--secret-min-refresh-sec` | `[secret] min_refresh_sec` | 1 | at least 1. A minimum, not a schedule: the check runs when a command arrives and nothing polls in the background, so an idle host costs nothing. It bounds the keeper round trip only; linked files are stat'ed on every request
 
 **Both memory settings are read by `init`**, so a change to either key alone does not reach the unit until the next `sudo faramir init`.
 
-`[[secret.link]]` is the eighth thing the file carries and is `faramir link`'s, [below](#linked-secrets). `[[secret.block]]` is the ninth and is `faramir block`'s, [below that](#blocked-paths).
+`[[secret.link]]` is the seventh thing the file carries and is `faramir link`'s, [below](#linked-secrets). `[[secret.block]]` is the eighth and is `faramir block`'s, [below that](#blocked-paths).
 
 **`--secret-min-length` has a floor of 6, and a reason for being low.** The two failures are not symmetric: a value refused for being too short is absent from the redactor and reaches output in the clear, while one matched too eagerly only mangles the operator's own text. `password` is eight characters, so the default is not the safe point it looks like. [What the gate is for](redaction.md#the-pipeline-in-order).
 
@@ -54,13 +53,14 @@ Key | Derived from
 
 ## What is not a key at all
 
-Eight values are constants in the binary, none of them ever set by an install:
+Nine values are constants in the binary, none of them ever set by an install:
 
 Value | Is
 --- | ---
 `max_output_bytes` | 256 KiB, roughly 64k tokens. It bounds how much text reaches the model, so it belongs to the conversation rather than to the host; truncation is reported rather than silent
 `max_request_bytes` | 256 KiB
 `max_record_bytes` | 256 KiB, matched to the output cap: a record keeps the head and the tail of the same output and cuts every other field to fit
+`min_refresh_sec` | 1 second, the soonest the broker asks the keeper again whether a managed file changed. Checked when a command arrives rather than on a timer, so an idle host makes no round trip. Not a key because every larger value is worse in the only direction that leaks: the question costs a stat per managed file, and what a longer one buys with that is a wider window in which a value rotated outside faramir is still outside the redactor. Linked files are not on this clock at all, being stat'ed every request
 `term_cols`, `term_rows` | 120x40, where a program folds its own output
 `kill_grace_sec` | 5 seconds, opening only once a command has overrun its timeout
 the managed store | `<config-dir>/secrets/` matching `*.sops.yml`. Derived from where the config sits, so the store cannot be pointed at a checkout. What the agent cannot open is the directory, which the deny rules name by path

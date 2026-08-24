@@ -115,11 +115,12 @@ head_ "2. what landed on disk is still ciphertext"
   || bad "the edit changed ownership: $(stat -c '%a %U:%G' "$MANAGED")"
 
 head_ "3. the running broker picks the change up with no restart"
-# [secret] min_refresh_sec bounds how often the broker may ask the keeper
-# whether a file changed, so the pickup is on the first request after that
-# window rather than on the next request. Polled to the interval plus slack,
-# which is the claim: no restart, not instantaneous.
-interval=$(grep -oP 'min_refresh_sec = \K[0-9]+' /etc/faramir/config.toml)
+# The refresh interval bounds how often the broker may ask the keeper whether a
+# file changed, so the pickup is on the first request after that window rather
+# than on the next request. Polled to the interval plus slack, which is the
+# claim: no restart, not instantaneous. One second, a constant in the binary
+# rather than a key this could read out of the config.
+interval=1
 took=""
 for i in $(seq $(( interval + 10 )) ); do
   refs=$(runuser -u op -- faramir refs 2>/dev/null | tr '\n' ' ')

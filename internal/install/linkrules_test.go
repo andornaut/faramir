@@ -304,7 +304,6 @@ func TestAConfigThatWouldNotLoadIsNotWritten(t *testing.T) {
 		"a ceiling below the default":    {CommandTimeoutSec: 600, CommandMaxTimeoutSec: 300},
 		"an escalation past its ceiling": {SudoTimeoutSec: 700, AllowSudo: true},
 		"a length under the floor":       {SecretMinLength: 2},
-		"a zero refresh":                 {SecretMinRefreshSec: -1},
 		"an env name that is not one":    {CommandEnv: map[string]string{"MY VAR": "1"}},
 	} {
 		t.Run(name, func(t *testing.T) {

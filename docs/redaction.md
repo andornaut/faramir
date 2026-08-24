@@ -8,13 +8,13 @@
 
 So the broker holds every managed value, not the subset the current command names. It refetches on startup, when a file's fingerprint changes, and when the previous fetch could not reach the keeper: the files are unchanged in that case, so the poll would never notice, and an empty value set redacts nothing.
 
-The fingerprints come from the keeper rather than a stat, the secrets being group-readable by the keeper alone, and the managed store globs are expanded there per request, so a file dropped into the secrets directory is picked up within `min_refresh_sec` with no daemon to restart.
+The fingerprints come from the keeper rather than a stat, the secrets being group-readable by the keeper alone, and the managed store globs are expanded there per request, so a file dropped into the secrets directory is picked up within a second with no daemon to restart.
 
 `[[secret.link]]` values are in the same set, on a different clock:
 
 Source | When it is re-read
 --- | ---
-the managed store | At most once per [`min_refresh_sec`](configuration.md#what-a-flag-sets), checked when a command arrives rather than on a timer, so an idle host makes no round trip
+the managed store | At most once a second, [not a key](configuration.md#what-is-not-a-key-at-all), and checked when a command arrives rather than on a timer, so an idle host makes no round trip
 a linked file | **Every** request. The file is the operator's own and this uid can stat it, so nothing is saved by waiting
 
 The difference is deliberate. A linked file changes when another tool rotates the credential, which is not something the operator schedules, and a value missing from the redactor for up to a minute is a window nobody chose. That is what linking is for: the file is one the agent could read directly, and a value in the set is one a brokered command cannot print in the clear.

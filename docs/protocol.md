@@ -44,7 +44,7 @@ Op | Does | Notes
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
 `refs` | ref names only | Adds `refs`.
 `status` | version, `build`, `config`, the managed store's `patterns` and resolved `files`, secret count, load errors, `degraded`, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never a value. The store's paths are already the agent's to know: `config` names the config file, which is `0644`, and its `[secret]` patterns name the directory. So `files` lists which of those globs resolved, never what any holds. `degraded` is why the exit status is `1`, counted rather than named: a ref in no redactor is a value nothing tokenizes, so how many there are is said and which they are is `doctor`'s.
-`refresh` | re-read the managed store now | Root only. Adds `refs`. For a writer of the store: `faramir vault` sends it so a rotated value is redacted before the command that rotated it returns, instead of up to `[secret] min_refresh_sec` later.
+`refresh` | re-read the managed store now | Root only. Adds `refs`. For a writer of the store: `faramir vault` sends it so a rotated value is redacted before the command that rotated it returns, instead of up to a second later, which is what the staleness check bounds.
 `escalations` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
 `answer` | answer a question by `id`, carrying `approved` | Root only.
 `escalate` | the PAM helper's half | Root only. Adds `approved`, `outcome_code`, `reason`.
@@ -189,7 +189,7 @@ Every managed value, never a subset: the redactor is built from the whole value 
  "errors": [], "unresolved_patterns": []}
 ```
 
-The staleness poll, and where the managed store globs are expanded, so a file added to the secrets directory appears without a restart. The broker cannot stat those files itself, being outside `2750 root:faramir-keeper`. This answers without the key and without execing sops, so it stays cheap enough to serve on every request when `min_refresh_sec` is 0.
+The staleness poll, and where the managed store globs are expanded, so a file added to the secrets directory appears without a restart. The broker cannot stat those files itself, being outside `2750 root:faramir-keeper`. This answers without the key and without execing sops, so it stays cheap enough to serve on every request.
 
 - A file that could not be stat-ed or decrypted comes back in `errors` rather than as an error response, so one broken file does not blank the whole value set. Key material is stripped from those strings before they cross the socket.
 - `unresolved_patterns` is separate, and the separation is the point: an entry that named no file is a secrets directory not written yet, which is what every first install looks like, while a file that is there and will not open is a value the redactor is missing without knowing it. Neither stops the daemon; both fail `faramir broker --check` and `faramir doctor`.

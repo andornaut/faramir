@@ -335,7 +335,7 @@ func TestALinksOnlyStoreServesWhenTheKeeperGoesAway(t *testing.T) {
 	}
 }
 
-// The whole point of separating the two clocks. min_refresh_sec bounds the keeper
+// The whole point of separating the two clocks. The refresh interval bounds the keeper
 // round trip; a linked file is the operator's own and this uid can stat it, so
 // it is checked every request. With them on one clock, a token another tool
 // had just rotated would be missing from the redactor for up to a minute, and a

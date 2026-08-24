@@ -96,11 +96,25 @@ func DefaultCommand() CommandConfig {
 
 // DefaultSecret is DefaultCommand for the store.
 func DefaultSecret() SecretConfig {
-	return SecretConfig{DecryptCommand: DecryptCommand(), MinRefreshSec: 1, MinLength: 8}
+	return SecretConfig{DecryptCommand: DecryptCommand(), MinRefreshSec: DefaultMinRefreshSec, MinLength: 8}
 }
 
 // DefaultSudoTimeoutSec is how long a question waits for a human.
 const DefaultSudoTimeoutSec = 120
+
+// DefaultMinRefreshSec is the soonest the broker will ask the keeper again
+// whether a managed file changed. Never a config key, having only one sensible
+// value: the question is a stat per managed file and costs about 0.04 ms on a
+// command that already costs two milliseconds, so a larger one saves nothing
+// measurable. What it would cost is real -- this is how long a value rotated
+// outside faramir stays outside the redactor, and that window opens exactly
+// when an operator has just rotated a value and runs a command to see that it
+// took. Every value above this one is worse in the only direction that leaks,
+// which is not a choice to hand an install.
+//
+// It does not bound the linked files: the broker stats those on every request,
+// so a credential another tool has just rotated is in the redactor at once.
+const DefaultMinRefreshSec = 1
 
 // DecryptCommand is how the keeper invokes sops. Never a config key: the
 // account this runs as is the one holding the age key.
@@ -386,16 +400,10 @@ type SecretConfig struct {
 	Patterns       []string
 	DecryptCommand []string
 	// MinRefreshSec is the soonest the broker will ask the keeper again whether a
-	// managed file changed. It does not bound the linked files: the broker stats
-	// those on every request, so a credential another tool has just rotated is in
-	// the redactor at once.
-	//
-	// It is how long a rotated managed value stays outside the redactor, which is
-	// why the default is a second rather than something an idle host would notice
-	// saving. The question is a stat per managed file and costs about 0.04 ms on a
-	// command that already costs two milliseconds; raising it buys nothing worth
-	// the window it opens, and the window opens exactly when an operator has just
-	// rotated a value and runs a command to see that it took.
+	// managed file changed. Derived rather than configured, like Patterns and
+	// DecryptCommand: see DefaultMinRefreshSec for why it is not a key. Settable
+	// in-process, and a test that wants no gate at all sets it to zero, which the
+	// file could never say.
 	MinRefreshSec int
 	// MinLength is the floor a value has to clear to be held at all. Below it a
 	// value matches inside ordinary words and the redactor eats the output; above
@@ -611,7 +619,7 @@ var (
 		"ssh_agent", "ssh_add"}
 	sudoKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
 		"notify_command", "timeout_sec"}
-	secretKeys = []string{"min_length", "min_refresh_sec", "link", "block"}
+	secretKeys = []string{"min_length", "link", "block"}
 	linkKeys   = []string{"ref", keyPath, "type", "key"}
 	blockKeys  = []string{keyPath, "name", keyCommand}
 	auditKeys  = []string{"log_path"}
@@ -817,12 +825,6 @@ func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
 		return err
 	}
 	if out.Blocked, err = loadBlocked(sec["block"], where); err != nil {
-		return err
-	}
-	// At least 1: zero is what an unset flag looks like, so it cannot also mean
-	// "ask on every request". A second is indistinguishable from none in
-	// practice, and the linked files are not on this clock at all.
-	if out.MinRefreshSec, err = atLeast(sec, "min_refresh_sec", where, out.MinRefreshSec, 1); err != nil {
 		return err
 	}
 	// Six, not one: a shorter value is a matcher for something that occurs in

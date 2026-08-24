@@ -232,7 +232,6 @@ type initFlags struct {
 	commandMaxProcMB     int
 	sudoTimeoutSec       int
 	secretMinLength      int
-	secretMinRefreshSec  int
 }
 
 // tunables maps each flag to where it lands, for clearUnset. One table, so a
@@ -247,7 +246,6 @@ func (f *initFlags) tunables() map[string]func() {
 		"command-max-process-memory-mb": func() { f.commandMaxProcMB = 0 },
 		"sudo-timeout-sec":              func() { f.sudoTimeoutSec = 0 },
 		"secret-min-length":             func() { f.secretMinLength = 0 },
-		"secret-min-refresh-sec":        func() { f.secretMinRefreshSec = 0 },
 	}
 }
 
@@ -347,8 +345,6 @@ func newInitCmd() *cobra.Command {
 		"how long a sudo question waits for a human before it is refused (1 to 600)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
 		"refuse a secret shorter than this: it cannot be redacted without matching inside ordinary words (at least 6)")
-	fl.IntVar(&f.secretMinRefreshSec, "secret-min-refresh-sec", secret.MinRefreshSec,
-		"the soonest the broker will ask the keeper again whether a managed file changed, at least 1; nothing polls in the background, and linked files are checked every request regardless")
 	return c
 }
 
@@ -425,7 +421,6 @@ func runInit(f initFlags) int {
 		CommandMaxProcessMemoryMB: f.commandMaxProcMB,
 		SudoTimeoutSec:            f.sudoTimeoutSec,
 		SecretMinLength:           f.secretMinLength,
-		SecretMinRefreshSec:       f.secretMinRefreshSec,
 		MoveConfig:                f.moveConfig,
 		DryRun:                    f.dryRun,
 	}

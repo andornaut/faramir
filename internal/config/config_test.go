@@ -190,7 +190,6 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 		{"zero timeout_sec", "[command]\ntimeout_sec = 0\n"},
 		{"zero max_timeout_sec", "[command]\nmax_timeout_sec = 0\n"},
 		{"zero max_output_bytes", "[command]\nmax_output_bytes = 0\n"},
-		{"negative refresh", minimal + "\n[secret]\nmin_refresh_sec = -1\n"},
 		{"min_length under the floor", minimal + "\n[secret]\nmin_length = 5\n"},
 		{"zero concurrency", "[command]\nconcurrency = 0\n"},
 	} {
@@ -219,7 +218,6 @@ func TestNoTunableTakesZero(t *testing.T) {
 	// and a second header is a duplicate table TOML refuses before any of these
 	// rules is reached.
 	for _, body := range []string{
-		"[secret]\nmin_refresh_sec = 0\n",
 		"[secret]\nmin_length = 0\n",
 		"[command]\ntimeout_sec = 0\n",
 		"[command]\nconcurrency = 0\n",

@@ -8,7 +8,7 @@
 //
 // Cached, and reloaded on start and when a managed file's mtime changes. The
 // keeper reports those fingerprints too, the secrets being readable by their
-// group alone, so the poll is a socket round trip bounded by min_refresh_sec.
+// group alone, so the poll is a socket round trip bounded by the refresh interval.
 // Nothing reloads on a signal: the file list comes from config.toml, which the
 // daemons read once at startup.
 package secretstore
@@ -223,7 +223,7 @@ func (s *Store) Reload() {
 // Refresh re-reads the whole set now, whatever the interval says. For a writer
 // of the managed store that knows it just changed one: `faramir vault` calls it
 // so a rotated value is in the redactor before the command that rotated it has
-// returned, rather than up to [secret] min_refresh_sec later. Everything else
+// returned, rather than up to the refresh interval later. Everything else
 // arrives through RefreshIfStale.
 func (s *Store) Refresh(wait time.Duration) bool {
 	// Waits for a refresh already under way rather than returning on its
@@ -269,7 +269,7 @@ func (s *Store) RefreshIfStale() {
 	// operator's own files and this uid can stat them, so the cost is a stat per
 	// linked file. The interval bounds the round trip, and applying it here
 	// would leave a credential another tool has just rotated missing from the
-	// redactor for up to min_refresh_sec.
+	// redactor for up to the refresh interval.
 	s.mu.Lock()
 	retrying := s.retry
 	previousLinks := make(map[keeperclient.FileState]bool, len(s.linkState))
@@ -324,7 +324,7 @@ func (s *Store) intervalElapsed() bool {
 
 // keeperIfStale asks the keeper whether a managed file changed, no more often
 // than the interval allows. This one is the socket round trip
-// min_refresh_sec exists to bound.
+// config.DefaultMinRefreshSec exists to bound.
 func (s *Store) keeperIfStale() {
 	if !s.intervalElapsed() {
 		return

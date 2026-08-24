@@ -128,7 +128,6 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 		{&o.CommandMaxProcessMemoryMB, cfg.Command.MaxProcessMemoryMB},
 		{&o.SudoTimeoutSec, cfg.Sudo.TimeoutSec},
 		{&o.SecretMinLength, cfg.Secret.MinLength},
-		{&o.SecretMinRefreshSec, cfg.Secret.MinRefreshSec},
 	} {
 		if *tunable.into == 0 {
 			*tunable.into = tunable.found

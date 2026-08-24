@@ -75,7 +75,6 @@ type Options struct {
 	CommandMaxProcessMemoryMB int
 	SudoTimeoutSec            int
 	SecretMinLength           int
-	SecretMinRefreshSec       int
 
 	// links is the [[secret.link]] entries, read off the installed config's base
 	// file during adoption. Unexported: no flag names one, and `faramir link` is
@@ -439,9 +438,6 @@ func (o *Options) applyDefaults() {
 	if o.SecretMinLength == 0 {
 		o.SecretMinLength = secret.MinLength
 	}
-	if o.SecretMinRefreshSec == 0 {
-		o.SecretMinRefreshSec = secret.MinRefreshSec
-	}
 	// Merged, never replaced: a flag naming one variable keeps the rest.
 	env := command.Env
 	maps.Copy(env, o.CommandEnv)
@@ -505,7 +501,6 @@ func (o *Options) layout() (Layout, error) {
 	layout.CommandMaxProcessMemoryMB = o.CommandMaxProcessMemoryMB
 	layout.SudoTimeoutSec = o.SudoTimeoutSec
 	layout.SecretMinLength = o.SecretMinLength
-	layout.SecretMinRefreshSec = o.SecretMinRefreshSec
 	return layout, layout.validate()
 }
 
