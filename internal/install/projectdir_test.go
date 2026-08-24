@@ -114,6 +114,46 @@ func TestAnEnrolmentSaysWhichTreeALinkResolvedTo(t *testing.T) {
 	}
 }
 
+// And the same warning is not raised for a path that only had to be made
+// absolute. `.`, a relative name and a trailing slash all name the tree the
+// operator is standing in, and being told each of them resolves to the tree
+// being enrolled says nothing while making the one warning that matters look
+// like more of the same.
+func TestAnEnrolmentDoesNotWarnAboutMerelyAbsolutingAPath(t *testing.T) {
+	base := t.TempDir()
+	// The temporary directory may itself sit under a link (/tmp -> /private/tmp
+	// and the like), which is a real resolution and would warn for its own
+	// reason.
+	base, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(base, "project")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(base)
+
+	for _, named := range []string{"project", "./project", "project/", target, target + "/", "."} {
+		t.Run(named, func(t *testing.T) {
+			want := target
+			if named == "." {
+				want = base
+			}
+			report, err := dryRunProject(t, named)
+			if err != nil {
+				t.Fatalf("a dry run of %q failed: %v", named, err)
+			}
+			if report.Dir != want {
+				t.Fatalf("Dir = %q, want %q", report.Dir, want)
+			}
+			if warned := strings.Join(report.Warnings, "\n"); strings.Contains(warned, "resolves to") {
+				t.Errorf("%q warned that it resolves to the tree being enrolled:\n%s", named, warned)
+			}
+		})
+	}
+}
+
 // A path that is not a directory is refused by name rather than reported as
 // whichever step first fell over it.
 func TestAnEnrolmentRefusesAPathThatIsNotADirectory(t *testing.T) {

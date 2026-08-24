@@ -100,8 +100,12 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		DryRun:  opts.DryRun,
 		log:     opts.Log,
 	}
-	// The tree being changed is not the one that was named.
-	if dir != named {
+	// The tree being changed is somewhere other than where it was named. Made
+	// absolute and cleaned first: `.`, a relative path and a trailing slash all
+	// name the tree in front of the operator, and saying that one of them
+	// resolves to the tree being enrolled tells them nothing. A symlink is what
+	// this is for, where the enrolment lands on a directory they did not type.
+	if abs, err := filepath.Abs(named); err != nil || filepath.Clean(abs) != dir {
 		run.warnf("%s resolves to %s, which is the tree being enrolled", named, dir)
 	}
 	if err := run.preflight(); err != nil {
