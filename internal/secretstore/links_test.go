@@ -371,7 +371,7 @@ func TestALinkIsPickedUpInsideTheKeeperInterval(t *testing.T) {
 // With the keeper unreachable, a load records no link state, so the link
 // comparison cannot match. Left to itself it would call every request a
 // change: a full round trip each time, and a log line saying a file changed
-// when none did. The retry belongs under the interval instead.
+// when none did. An unconfirmed set re-loads on the interval instead.
 func TestAnUnreachableKeeperDoesNotReloadOnEveryRequest(t *testing.T) {
 	path := writeLinked(t, "token", "gho_linked_example\n")
 	k := keepertest.New(t, map[string]string{})

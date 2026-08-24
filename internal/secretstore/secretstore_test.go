@@ -207,7 +207,7 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	}
 
 	keepertest.Serve(t, sock, map[string]string{"x": "hunter2-correct-horse"})
-	// No edit, no SIGHUP: only the retry recovers this.
+	// No edit, no SIGHUP: only the interval-gated re-load recovers this.
 	s.RefreshIfStale()
 
 	if got, err := s.Value("x"); err != nil || got != "hunter2-correct-horse" {
@@ -225,7 +225,7 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 		config.SecretConfig{MinLength: 8},
 		config.KeeperConfig{SocketPath: sock},
 	)
-	s.Reload() // fails: nothing is listening, so every later poll wants a retry
+	s.Reload() // fails: nothing is listening, so the set is left unconfirmed
 
 	var served atomic.Int32
 	// serving closes once a reload is inside the keeper call; release holds it

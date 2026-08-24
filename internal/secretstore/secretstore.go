@@ -43,10 +43,15 @@ type Store struct {
 	// apart from state because the broker stats these itself, they being the
 	// operator's own files and reachable from this uid.
 	linkState []keeperclient.FileState
-	// retry is set when the keeper could not be reached: the mtime poll would
-	// never notice, the files not having changed.
-	retry     bool
-	checkedAt time.Time
+	// unconfirmed is set when the last load did not reach the keeper, so the
+	// value set held here was never checked against what is on disk. Two things
+	// read it. Unreadable tells an unconfirmed set apart from one that never
+	// loaded at all: the first serves, the second refuses. RefreshIfStale sends
+	// an unconfirmed set to the interval instead of the fingerprint comparison,
+	// which would call every request a change, a failed load having recorded no
+	// fingerprints to compare against.
+	unconfirmed bool
+	checkedAt   time.Time
 
 	// A managed file that is there and did not load. The redactor is missing
 	// values it should have and cannot name which, one file holding any number of
@@ -106,16 +111,15 @@ func (s *Store) Reload() {
 	values, state := loaded.Values, loaded.State
 	errors, unresolved := loaded.Errors, loaded.UnresolvedPatterns
 	if goerrors.Is(err, keeperclient.ErrReplyTooLarge) {
-		// Permanent, so not the retry path below: retrying re-decrypts the whole
-		// store on every refresh and never succeeds, while the values that could
-		// not be carried are absent from the redactor and the broker goes on
-		// serving against the set it happened to have. Recorded as a load failure,
-		// which is what refuses: a managed file was read and its values did not
-		// reach the redactor.
+		// Not marked unconfirmed, which would re-load on the interval: this
+		// failure is permanent, so that would re-decrypt the whole store on every
+		// refresh and never succeed. Recorded as a load failure instead, which is
+		// what refuses: a managed file was read and its values did not reach the
+		// redactor.
 		s.mu.Lock()
 		s.loadErrors = []string{err.Error()}
 		s.unresolvedPatterns = nil
-		s.retry = false
+		s.unconfirmed = false
 		s.checkedAt = time.Now()
 		s.mu.Unlock()
 		log.Printf("refusing exec and redact: %v", err)
@@ -129,11 +133,12 @@ func (s *Store) Reload() {
 		s.mu.Lock()
 		s.loadErrors = []string{err.Error()}
 		s.unresolvedPatterns = nil
-		s.retry = true
+		s.unconfirmed = true
 		s.checkedAt = time.Now()
 		s.mu.Unlock()
 		log.Printf("keeper unreachable, keeping the previous value set "+
-			"and retrying on the next request: %v", err)
+			"unconfirmed and loading again on the next request past the "+
+			"refresh interval: %v", err)
 		return
 	}
 	// The links, read here rather than asked of the keeper. Merged before the
@@ -184,7 +189,7 @@ func (s *Store) Reload() {
 	s.refused = refused
 	s.state = state
 	s.linkState = linkState
-	s.retry = false
+	s.unconfirmed = false
 	s.loadErrors = errors
 	s.unresolvedPatterns = unresolved
 	s.shadowedRefs = loaded.ShadowedRefs
@@ -271,18 +276,18 @@ func (s *Store) RefreshIfStale() {
 	// would leave a credential another tool has just rotated missing from the
 	// redactor for up to the refresh interval.
 	s.mu.Lock()
-	retrying := s.retry
+	unconfirmed := s.unconfirmed
 	previousLinks := make(map[keeperclient.FileState]bool, len(s.linkState))
 	for _, st := range s.linkState {
 		previousLinks[st] = true
 	}
 	s.mu.Unlock()
 
-	// Not while a load is outstanding: a failed load records no link state, so
-	// the comparison below would call every request a change. The
-	// interval-gated retry covers it.
-	if retrying {
-		s.retryUnderTheInterval()
+	// An unconfirmed set skips the comparison below: a failed load records no
+	// link state, so every request would compare against nothing and read as a
+	// change. Reloading on the interval is what covers it.
+	if unconfirmed {
+		s.reloadUnderTheInterval()
 		return
 	}
 
@@ -299,13 +304,15 @@ func (s *Store) RefreshIfStale() {
 	s.keeperIfStale()
 }
 
-// retryUnderTheInterval re-loads a set that never loaded, no more often than
-// the interval allows.
-func (s *Store) retryUnderTheInterval() {
+// reloadUnderTheInterval re-loads a set whose last load did not reach the
+// keeper, no more often than the interval allows. This is what recovers a
+// broker that started before the keeper's socket was bound, with no restart
+// and no file having changed.
+func (s *Store) reloadUnderTheInterval() {
 	if !s.intervalElapsed() {
 		return
 	}
-	log.Printf("the last load did not reach the keeper; retrying")
+	log.Printf("the last load did not reach the keeper; loading again")
 	s.Reload()
 }
 
@@ -339,7 +346,7 @@ func (s *Store) keeperIfStale() {
 	state, _, err := keeperclient.FetchState(s.keeper.SocketPath)
 	if err != nil {
 		// A keeper that cannot describe the files cannot call them unchanged.
-		// Reload fails the same way, keeps the values, and sets retry.
+		// Reload fails the same way, keeps the values, and marks them unconfirmed.
 		s.Reload()
 		return
 	}
@@ -671,9 +678,9 @@ func (s *Store) Unreadable() string {
 	switch {
 	// linkState as well as state: an install whose only secrets are linked holds
 	// its whole value set without the keeper contributing anything.
-	case s.retry && (len(s.state) > 0 || len(s.linkState) > 0):
+	case s.unconfirmed && (len(s.state) > 0 || len(s.linkState) > 0):
 		return ""
-	case s.retry:
+	case s.unconfirmed:
 		return "the keeper could not be reached and no value set was ever loaded: " +
 			strings.Join(s.loadErrors, "; ")
 	case len(s.loadErrors) > 0:
