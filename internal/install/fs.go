@@ -464,14 +464,14 @@ func (f fsys) writeEdited(e *edited, data []byte, mode os.FileMode, uid, gid int
 	if e.root == nil {
 		return f.writeFile(e.path, data, mode, uid, gid)
 	}
-	return f.writeInto(e.root, e.name, data, mode, uid, gid, nil)
+	return f.writeInto(e.root, e.name, data, mode, uid, gid, unread())
 }
 
 // writeInto is writeFile relative to an open directory: same comparison, same
 // temp-and-rename, and no path resolved twice. The temp is created O_EXCL, so
 // one already sitting there is an error rather than something to truncate.
 func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMode,
-	uid, gid int, expect []byte) (bool, error) {
+	uid, gid int, prior priorState) (bool, error) {
 	current, err := root.ReadFile(name)
 	if err == nil && bytes.Equal(current, data) {
 		info, statErr := root.Stat(name)
@@ -523,7 +523,7 @@ func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMod
 	// above or gets here after the first has renamed and sees the change. Asked
 	// before the write rather than after, so nothing is written for a rename that
 	// is not going to happen.
-	if err := unchangedFrom(root, name, expect); err != nil {
+	if err := unchangedFrom(root, name, prior); err != nil {
 		return false, err
 	}
 	if _, err := handle.Write(data); err != nil {
@@ -549,20 +549,56 @@ func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMod
 	return true, nil
 }
 
-// unchangedFrom refuses a write onto a file something else has written since the
-// caller read what it is writing back. expect is nil for a write that is not an
-// edit of what was read, which is most of them.
-func unchangedFrom(root *os.Root, name string, expect []byte) error {
-	if expect == nil {
+// priorState is what the caller found when it read the file it is now writing
+// back. Two things, and they are refused differently: a file something else
+// rewrote, and a file something else created where this caller found none.
+//
+// Absence has to be one of them. A record's first write has no digest to
+// expect, so treating "nothing to compare" as "nothing to check" left two
+// concurrent first runs both writing and one entry lost with no error, which
+// is the window the digest exists to close.
+type priorState struct {
+	// digest is the sha256 of what was there, nil where nothing was.
+	digest []byte
+	// read is whether the caller looked at all. A write that is not an edit of
+	// anything sets neither field and is refused for nothing, which is most of
+	// them.
+	read bool
+}
+
+// unread is the state of a write that is not an edit: nothing was read, so
+// nothing is expected.
+func unread() priorState { return priorState{} }
+
+// after is the state of a caller that read the file, digest or not.
+func after(digest []byte) priorState { return priorState{digest: digest, read: true} }
+
+// unchangedFrom refuses a write onto a file something else has written, or
+// created, since the caller read.
+func unchangedFrom(root *os.Root, name string, prior priorState) error {
+	if !prior.read {
 		return nil
 	}
 	body, err := root.ReadFile(name)
-	if err != nil {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// Gone, or never there. Either matches a caller that read nothing.
+		if prior.digest == nil {
+			return nil
+		}
+	case err != nil:
 		return err
-	}
-	sum := sha256.Sum256(body)
-	if bytes.Equal(sum[:], expect) {
-		return nil
+	case prior.digest == nil:
+		// The caller read no file and one is here now: another run created it,
+		// and renaming over it would take whatever it wrote.
+		return fmt.Errorf("%s was created while this was working on it, so nothing "+
+			"was written: another faramir command wrote it first. Run them one at a "+
+			"time, then run this again", filepath.Join(root.Name(), name))
+	default:
+		sum := sha256.Sum256(body)
+		if bytes.Equal(sum[:], prior.digest) {
+			return nil
+		}
 	}
 	return fmt.Errorf("%s changed while this was working on it, so nothing was "+
 		"written: another faramir command edited it. Run them one at a time, then "+
@@ -596,22 +632,27 @@ func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int
 		return false, err
 	}
 	defer func() { _ = root.Close() }()
-	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid, nil)
+	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid, unread())
 }
 
 // writeFileExpecting is writeFile for a file the caller read and is writing
-// back: the write is refused where something else has written it since.
+// back: the write is refused where something else has written it since, and
+// where something else created one the caller did not find. expect is the
+// digest of what was read, nil where nothing was there.
 func (f fsys) writeFileExpecting(path string, data []byte, mode os.FileMode,
 	uid, gid int, expect []byte) (bool, error) {
-	if expect == nil {
-		return f.writeFile(path, data, mode, uid, gid)
-	}
 	root, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
+		// The directory a record lives in is the config directory, which every
+		// caller of this has already created. Reported as a write for a dry run,
+		// as writeFile does.
+		if f.dryRun {
+			return true, nil
+		}
 		return false, err
 	}
 	defer func() { _ = root.Close() }()
-	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid, expect)
+	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid, after(expect))
 }
 
 // copyFile writes src's contents to dst under dst's own mode and ownership.

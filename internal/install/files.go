@@ -290,12 +290,20 @@ func (r *runner) stepConfig() error {
 	}
 	// root:root wherever it sits: this file decides what the executor runs.
 	//
-	// Expecting what the caller read, where it read one: an edit of the entries
-	// this file carries is a read-modify-write, and another landing in between is
-	// refused rather than overwritten.
+	// Expecting what the caller read, where it read at all: an edit of the
+	// entries this file carries is a read-modify-write, and another landing in
+	// between is refused rather than overwritten. `init` reads nothing and
+	// renders the whole file, so it writes plainly: there is no earlier state it
+	// is preserving, and refusing it would leave a re-run unable to rewrite its
+	// own config.
 	owner, group := 0, 0
-	changed, err := r.fs.writeFileExpecting(
-		r.layout.ConfigFile, body, 0o644, owner, group, r.opts.configDigest)
+	write := r.fs.writeFile
+	if r.opts.configRead {
+		write = func(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
+			return r.fs.writeFileExpecting(path, data, mode, uid, gid, r.opts.configDigest)
+		}
+	}
+	changed, err := write(r.layout.ConfigFile, body, 0o644, owner, group)
 	if err != nil {
 		return err
 	}

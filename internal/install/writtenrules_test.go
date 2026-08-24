@@ -162,7 +162,7 @@ func TestASecondRunRemovesTheRuleTheConfigStoppedDeclaring(t *testing.T) {
 		t.Helper()
 		render := func(agentFile) ([]byte, error) { return settings(rules...), nil }
 		if _, _, err := writeAgentFiles(
-			fsys{}, home, configDir, os.Getuid(), keep, 0o700, false, render, files); err != nil {
+			fsys{}, nil, home, configDir, os.Getuid(), keep, 0o700, false, render, files); err != nil {
 			t.Fatal(err)
 		}
 		body, err := os.ReadFile(filepath.Join(home, ".claude/settings.json"))
@@ -201,5 +201,108 @@ func TestASecondRunRemovesTheRuleTheConfigStoppedDeclaring(t *testing.T) {
 	}
 	if !slices.Contains(second, `Read(**/mine)`) {
 		t.Errorf("the operator's own rule was removed: %v", second)
+	}
+}
+
+// The record is a read-modify-write, and it lost the same way the config and
+// the enrolment record did: two runs each read the file, each add their own
+// entry, and the second write drops the first. What goes with a lost entry is
+// doctor's ability to tell faramir's rules from the operator's in that file,
+// so it stops offering to clean them up.
+func TestRecordingRulesRefusesToClobberAnotherRun(t *testing.T) {
+	dir := t.TempDir()
+	const mine, theirs = "/home/op/.claude/settings.json", "/home/op/.config/opencode/opencode.json"
+
+	if err := recordWrittenRules(dir, mine, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	// What a second run holds: the record as it was before the first wrote.
+	before, err := writtenRulesDigest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := recordWrittenRules(dir, theirs, []string{"b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first run writing now would drop the entry the second added.
+	body, err := json.MarshalIndent(map[string][]string{mine: {"a", "c"}}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fsys{}.writeFileExpecting(
+		writtenRulesPath(dir), append(body, '\n'), 0o600, keep, keep, before)
+	if err == nil {
+		t.Fatal("a stale write was accepted, so the other run's entry is gone")
+	}
+	if !strings.Contains(err.Error(), "changed while this was working on it") {
+		t.Errorf("error is %q, want it to say the file moved under it", err)
+	}
+
+	// And both entries are still there.
+	written := readWrittenRules(dir)
+	for _, path := range []string{mine, theirs} {
+		if len(written[path]) == 0 {
+			t.Errorf("%s lost its entry: %v", path, written)
+		}
+	}
+}
+
+// A first run writes the file rather than editing it, so there is nothing to
+// expect and nothing to refuse.
+func TestRecordingRulesWritesAFirstRecord(t *testing.T) {
+	dir := t.TempDir()
+	if err := recordWrittenRules(dir, "/home/op/.claude/settings.json", []string{"a"}); err != nil {
+		t.Fatalf("a first record was refused: %v", err)
+	}
+	if got := readWrittenRules(dir); len(got) != 1 {
+		t.Errorf("readWrittenRules = %v, want the one entry", got)
+	}
+}
+
+// The removal branch takes the same guard as the write. This run's map is empty
+// because its own read found one entry and it dropped it, so a run that added
+// an entry in between would have the whole record removed under it: the branch
+// that deletes the file was the one way past the digest.
+func TestRemovingTheLastEntryRefusesToClobberAnotherRun(t *testing.T) {
+	dir := t.TempDir()
+	const mine, theirs = "/home/op/.claude/settings.json", "/home/op/.config/opencode/opencode.json"
+
+	if err := recordWrittenRules(dir, mine, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := writtenRulesDigest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Another run adds its own entry.
+	if err := recordWrittenRules(dir, theirs, []string{"b"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The first run now renders nothing for its file. Against the record it
+	// read, that empties the map and removes the file.
+	if err := unchangedSince(dir, before); err == nil {
+		t.Fatal("a stale removal was allowed, so the other run's entry goes with the file")
+	}
+	if got := readWrittenRules(dir); len(got[theirs]) == 0 {
+		t.Errorf("%s lost its entry: %v", theirs, got)
+	}
+}
+
+// And the ordinary removal still happens: a run that drops the last entry with
+// nothing else having touched the record takes the file with it, so a host that
+// has been uninstalled carries no record of files it no longer writes.
+func TestRemovingTheLastEntryTakesTheRecordWithIt(t *testing.T) {
+	dir := t.TempDir()
+	const only = "/home/op/.claude/settings.json"
+	if err := recordWrittenRules(dir, only, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordWrittenRules(dir, only, nil); err != nil {
+		t.Fatalf("dropping the last entry was refused: %v", err)
+	}
+	if _, err := os.Stat(writtenRulesPath(dir)); !os.IsNotExist(err) {
+		t.Errorf("the record is still there: %v", err)
 	}
 }

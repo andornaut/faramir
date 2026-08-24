@@ -287,9 +287,13 @@ var agentTargets = map[string]*agentTarget{
 // configDir is where the record of what faramir last wrote lives, so a merge
 // can take out a rule the config no longer declares. Empty leaves the record
 // unread and unwritten, which is a merge that only ever adds.
-func writeAgentFiles(fs fsys, root, configDir string, uid, gid int, dirMode os.FileMode,
-	inTree bool, render func(agentFile) ([]byte, error),
-	files []agentFile) (bool, []string, error) {
+// warn receives what could not be recorded, which is not a reason to stop:
+// the rules reached the file, and what was lost is the note saying faramir
+// wrote them. Said rather than swallowed, because the run that meets it next
+// removes nothing and nothing else would explain why.
+func writeAgentFiles(fs fsys, warn func(string, ...any), root, configDir string,
+	uid, gid int, dirMode os.FileMode, inTree bool,
+	render func(agentFile) ([]byte, error), files []agentFile) (bool, []string, error) {
 	changed := false
 	var written []string
 	for _, file := range files {
@@ -388,11 +392,15 @@ func writeAgentFiles(fs fsys, root, configDir string, uid, gid int, dirMode os.F
 		}
 		// After the write and not before it: a record naming rules that never
 		// reached the file would have the next run trying to remove what is not
-		// there. Best-effort, because a record that could not be kept leaves
-		// that run removing nothing, which is how this behaved before there was
-		// a record at all.
+		// there. Not fatal, because the rules did reach the file and what was
+		// lost is the note saying faramir wrote them; said, because the run that
+		// meets it next removes nothing and nothing else would explain why.
 		if rendered != nil {
-			_ = recordWrittenRules(configDir, path, rendered)
+			if err := recordWrittenRules(configDir, path, rendered); err != nil && warn != nil {
+				warn("what faramir wrote into %s was not recorded (%v), so a later "+
+					"run will not offer to take those rules out again. Re-run this "+
+					"command once nothing else is writing the install", path, err)
+			}
 		}
 		changed = changed || made
 		written = append(written, path)

@@ -38,7 +38,7 @@ func (r *runner) stepAgentConfig() error {
 	var written, refused []string
 	for _, target := range targets {
 		// 0700: these sit in the agent account's home.
-		made, paths, err := writeAgentFiles(r.fs, r.operatorHome, r.layout.ConfigDir,
+		made, paths, err := writeAgentFiles(r.fs, r.warnf, r.operatorHome, r.layout.ConfigDir,
 			r.operatorUID, r.operatorGID, 0o700, false, asLayout, target.accountFiles)
 		written = append(written, paths...)
 		switch {
@@ -239,7 +239,7 @@ func (r *runner) stepEnrolledTrees() error {
 			asTarget := func(file agentFile) ([]byte, error) {
 				return assetFor(target, file, r.layout.ConfigDir)
 			}
-			made, paths, err := writeAgentFiles(r.fs, tree.Dir, r.layout.ConfigDir,
+			made, paths, err := writeAgentFiles(r.fs, r.warnf, tree.Dir, r.layout.ConfigDir,
 				uid, gid, 0o2770|os.ModeSetgid, true, asTarget, target.files)
 			if err != nil {
 				skipped = append(skipped, tree.Dir+" ("+err.Error()+")")

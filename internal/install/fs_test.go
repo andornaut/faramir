@@ -445,9 +445,80 @@ func TestAWriteExpectingWhatItReadIsRefusedWhenThatChanged(t *testing.T) {
 		t.Errorf("the file is %q, so the refused write landed anyway", body)
 	}
 
-	// A write that expects nothing is every other write this install makes.
-	if _, err := realFS.writeFileExpecting(path, []byte("third\n"), 0o644,
+	// A nil digest is a caller whose read found no file, not a caller that read
+	// nothing: one is here now, so another run created it and renaming over it
+	// would take whatever that run wrote.
+	_, err = realFS.writeFileExpecting(path, []byte("third\n"), 0o644, keep, keep, nil)
+	if err == nil {
+		t.Fatal("a write expecting no file was accepted onto one that is there")
+	}
+	if !strings.Contains(err.Error(), "created while this was working on it") {
+		t.Errorf("the refusal does not say the file appeared: %v", err)
+	}
+
+	// And a write that is not an edit of anything is refused for nothing, which
+	// is every other write this install makes.
+	plain := filepath.Join(filepath.Dir(path), "plain.toml")
+	if _, err := realFS.writeFile(plain, []byte("first\n"), 0o644, keep, keep); err != nil {
+		t.Errorf("a plain write was refused: %v", err)
+	}
+	if _, err := realFS.writeFile(plain, []byte("second\n"), 0o644, keep, keep); err != nil {
+		t.Errorf("a plain rewrite was refused: %v", err)
+	}
+}
+
+// The first write of a record has no digest to expect, and treating that as
+// nothing to check left the window the digest exists to close: two runs each
+// find no file, each write, and one entry is gone with no error. The second is
+// refused instead.
+func TestAFirstWriteIsRefusedWhenAnotherRunGotThereFirst(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "enrolled.json")
+	realFS := fsys{}
+
+	// Both runs read: neither finds a file.
+	// The first writes.
+	if _, err := realFS.writeFileExpecting(path, []byte("first\n"), 0o600,
 		keep, keep, nil); err != nil {
-		t.Errorf("a write expecting nothing was refused: %v", err)
+		t.Fatalf("a first write was refused: %v", err)
+	}
+	// The second, still holding what its own read found, is refused.
+	if _, err := realFS.writeFileExpecting(path, []byte("second\n"), 0o600,
+		keep, keep, nil); err == nil {
+		t.Fatal("the second first-write was accepted, so the first run's record is gone")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "first\n" {
+		t.Errorf("the file is %q, so the refused write landed anyway", body)
+	}
+}
+
+// The two things a nil digest can mean, which is why the flag beside it exists.
+// `init` renders the whole config rather than editing what it read, so it
+// expects nothing and must still be able to rewrite a file that is there; a
+// command that read the entries and found no file expects absence, and a file
+// that appeared since is another run it must not write over.
+//
+// Conflating them left `faramir init` unable to rewrite its own config on
+// every host that already had one.
+func TestAWriteThatReadNothingIsNotAWriteThatFoundNothing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	realFS := fsys{}
+
+	if _, err := realFS.writeFile(path, []byte("first\n"), 0o644, keep, keep); err != nil {
+		t.Fatal(err)
+	}
+	// A render: it read nothing, so nothing is expected and the write lands.
+	if _, err := realFS.writeFile(path, []byte("second\n"), 0o644, keep, keep); err != nil {
+		t.Errorf("a render onto an existing file was refused: %v", err)
+	}
+	// An edit whose read found no file: one is here, so another run wrote it.
+	if _, err := realFS.writeFileExpecting(path, []byte("third\n"), 0o644,
+		keep, keep, nil); err == nil {
+		t.Error("a write expecting no file was accepted onto one that is there")
 	}
 }

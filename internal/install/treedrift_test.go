@@ -19,7 +19,7 @@ func enrolTree(t *testing.T, configDir string, names ...string) string {
 			return assetFor(target, file, configDir)
 		}
 		if _, _, err := writeAgentFiles(
-			fsys{}, tree, "", keep, keep, 0o2770|os.ModeSetgid, true, render, target.files); err != nil {
+			fsys{}, nil, tree, "", keep, keep, 0o2770|os.ModeSetgid, true, render, target.files); err != nil {
 			t.Fatal(err)
 		}
 	}

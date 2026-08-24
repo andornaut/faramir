@@ -93,11 +93,16 @@ type Options struct {
 	blockedSet bool
 
 	// configDigest is config.toml as it was when the caller read the entries it
-	// is about to write back, or nil where this run is not editing what it read.
+	// is about to write back, and configRead says the caller read at all. Both,
+	// because absence is one of the answers a read gives: nil with configRead
+	// set is "there was no file", which refuses a write onto one another run
+	// created, and configRead unset is `init` rendering the whole file rather
+	// than editing what it read.
 	// Checked before the file is written: two commands each reading the config,
 	// adding their own entry and writing the whole file back leave one entry, and
 	// both would otherwise report the one they added as written.
 	configDigest []byte
+	configRead   bool
 
 	// MoveConfig is consent to point this host's daemons at a different ConfigDir.
 	// Required because the units are one set with fixed names, so a second
@@ -210,10 +215,12 @@ type Report struct {
 // recordConfigDigest remembers config.toml as it stands, for a run that is
 // about to write back entries it has just read out of it.
 func recordConfigDigest(opts *Options, configFile string) error {
+	opts.configRead = true
 	body, err := os.ReadFile(configFile)
 	if errors.Is(err, os.ErrNotExist) {
-		// Nothing read, so nothing to be overwritten: a first install writes the
-		// file rather than editing it.
+		// Nothing there. The digest stays nil, which with configRead set is an
+		// expectation of its own: a file that appears before the write is another
+		// run that got there first.
 		return nil
 	}
 	if err != nil {

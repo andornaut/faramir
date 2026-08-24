@@ -686,7 +686,7 @@ func TestAgentSettingsNotOwnedByTheOperatorFailTheRun(t *testing.T) {
 
 	// An operator that is not this file's owner, which is what the check asks.
 	_, _, err := writeAgentFiles(
-		fsys{}, home, "", os.Getuid()+1, keep, 0o700, false, render, files)
+		fsys{}, nil, home, "", os.Getuid()+1, keep, 0o700, false, render, files)
 
 	if !errors.Is(err, errNotOperators) {
 		t.Fatalf("err = %v, want the file refused", err)
@@ -721,7 +721,7 @@ func TestSymlinkedAgentSettingsAreWrittenThroughToTheirTarget(t *testing.T) {
 	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
 
 	if _, _, err := writeAgentFiles(
-		fsys{}, home, "", os.Getuid(), keep, 0o700, false, render, files); err != nil {
+		fsys{}, nil, home, "", os.Getuid(), keep, 0o700, false, render, files); err != nil {
 		t.Fatal(err)
 	}
 
@@ -782,7 +782,7 @@ func TestTheGroupIsAssertedOnlyWhereItIsLoadBearing(t *testing.T) {
 				t.Skipf("cannot move the file into %d: %v", other, err)
 			}
 
-			if _, _, err := writeAgentFiles(fsys{}, root, "", os.Getuid(), os.Getgid(),
+			if _, _, err := writeAgentFiles(fsys{}, nil, root, "", os.Getuid(), os.Getgid(),
 				0o700, tc.groupMatters, render, files); err != nil {
 				t.Fatal(err)
 			}
@@ -963,7 +963,7 @@ func TestALinkOutOfAnEnrolledTreeIsRefused(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, _, err := writeAgentFiles(fsys{}, root, "", os.Getuid(), os.Getgid(),
+			_, _, err := writeAgentFiles(fsys{}, nil, root, "", os.Getuid(), os.Getgid(),
 				0o700, tc.inTree, render, files)
 
 			if tc.refuse {
@@ -1149,7 +1149,7 @@ func TestASymlinkedParentCannotCarryTheWriteOutOfTheTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err := writeAgentFiles(fsys{}, tree, "", os.Getuid(), os.Getgid(),
+	_, _, err := writeAgentFiles(fsys{}, nil, tree, "", os.Getuid(), os.Getgid(),
 		0o2770|os.ModeSetgid, true, render, files)
 
 	if err == nil {
@@ -1179,7 +1179,7 @@ func TestASymlinkedParentCannotCarryACreationOutOfTheTree(t *testing.T) {
 	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
 	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
 
-	_, _, err := writeAgentFiles(fsys{}, tree, "", os.Getuid(), os.Getgid(),
+	_, _, err := writeAgentFiles(fsys{}, nil, tree, "", os.Getuid(), os.Getgid(),
 		0o2770|os.ModeSetgid, true, render, files)
 
 	if err == nil {
@@ -1204,7 +1204,7 @@ func TestASymlinkedParentIsFollowedInAHome(t *testing.T) {
 	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
 	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
 
-	if _, _, err := writeAgentFiles(fsys{}, home, "", os.Getuid(), os.Getgid(),
+	if _, _, err := writeAgentFiles(fsys{}, nil, home, "", os.Getuid(), os.Getgid(),
 		0o700, false, render, files); err != nil {
 		t.Fatal(err)
 	}
