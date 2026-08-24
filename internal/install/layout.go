@@ -442,6 +442,31 @@ func (l Layout) validate() error {
 		}
 		seen[account] = name
 	}
+	// And the operator is not one of them. Separate from the loop above, which is
+	// about the three daemons keeping their boundary from each other: this is
+	// about the boundary that makes the whole arrangement work, a brokered command
+	// running as an account holding nothing the agent's account holds. An operator
+	// who is also a daemon leaves none of it, every injected value sitting in a
+	// process of the operator's own uid and every path refused to the agent being
+	// that account's to read.
+	//
+	// Empty is left alone here as it is above, the step that resolves it not
+	// having run on every path that builds a layout.
+	if l.AgentUser != "" {
+		for _, daemon := range []struct{ role, flag, account string }{
+			{"broker", BrokerUserFlag, l.BrokerUser},
+			{"keeper", KeeperUserFlag, l.KeeperUser},
+			{"executor", ExecUserFlag, l.ExecUser},
+		} {
+			if l.AgentUser == daemon.account {
+				return fmt.Errorf("--agent-user %s is the account the %s runs as, so the "+
+					"operator and that daemon would be one uid and nothing a brokered "+
+					"command holds would be out of the agent's reach. Name a different "+
+					"account, or move the daemon with %s",
+					l.AgentUser, daemon.role, daemon.flag)
+			}
+		}
+	}
 	return l.validateNotifyCommand()
 }
 
