@@ -294,7 +294,7 @@ func listAsJSON(questions []escalation.Question, code int) int {
 // type, so run it somewhere the agent does not reach.
 func watchEscalations(socketPath string, paint palette) int {
 	warnIfTypeable()
-	fmt.Fprintln(os.Stderr, "waiting for escalation requests. Ctrl-c to stop.")
+	fmt.Fprintln(os.Stderr, "Waiting for escalation requests. Ctrl-c to stop.")
 	// No set of ids already answered: the broker drops a question the moment it
 	// is answered, refused or expired, and only one is ever outstanding. A set
 	// would be worse than unnecessary, an id being three random bytes, so a later
