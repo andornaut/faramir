@@ -598,3 +598,33 @@ func TestAnAccountIsAskedAboutEveryGroupItIsIn(t *testing.T) {
 		t.Errorf("traversalAction for the owner = %v (%v), want leaveAlone", got, err)
 	}
 }
+
+// The kernel takes the first class that matches and does not fall through: a
+// directory whose group is the one being asked about is answered by the group
+// bits alone, whatever the other bits say. Checking the world bit first called
+// a directory at 0701 traversable by its own group, which cannot enter it, so
+// an enrolment reported a tree reachable that the executor met with EACCES.
+func TestTheOwningGroupIsAnsweredByItsOwnBits(t *testing.T) {
+	dir := t.TempDir()
+	var st syscall.Stat_t
+	if err := syscall.Stat(dir, &st); err != nil {
+		t.Fatal(err)
+	}
+	// Open to everyone but the group that owns it.
+	if err := os.Chmod(dir, 0o701); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := traversalAction(info, groupEntrant(int(st.Gid))); err != nil || got == leaveAlone {
+		t.Errorf("traversalAction for the owning group = %v (%v), want it reported: "+
+			"the group bits are empty and the group is what was asked about", got, err)
+	}
+	// A group that does not own it is answered by the other bits, which are open.
+	const foreign = 1
+	if got, err := traversalAction(info, groupEntrant(foreign)); err != nil || got != leaveAlone {
+		t.Errorf("traversalAction for a foreign group = %v (%v), want leaveAlone", got, err)
+	}
+}
