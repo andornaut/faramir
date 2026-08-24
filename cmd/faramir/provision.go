@@ -276,7 +276,9 @@ func newInitCmd() *cobra.Command {
 	}
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
-		"account the coding agent runs as (default $SUDO_USER, then you)")
+		"account the coding agent runs as, which is the one this host belongs to. "+
+			"The only command that names it; everything else reads what this "+
+			"records (default $FARAMIR_OPERATOR, then $SUDO_USER, then you)")
 	// One admits a caller to the broker socket and shares the working tree, the
 	// other owns the ciphertext; holding one is not holding the other.
 	fl.StringVar(&f.clientGroup, "client-group", "",
@@ -480,7 +482,6 @@ func reportToOperator(report install.Report) {
 // directory, which is safe here and not on init: that one means "provision this
 // host" and would otherwise enrol wherever it was run from.
 type initProjectFlags struct {
-	agentUser   string
 	clientGroup string
 	agents      []string
 	dryRun      bool
@@ -497,9 +498,8 @@ func newInitProjectCmd() *cobra.Command {
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runInitProject(f, args)) },
 	}
 	fl := c.Flags()
-	fl.StringVar(&f.agentUser, "agent-user", "",
-		"account that works in the tree (default $FARAMIR_OPERATOR, then $SUDO_USER, "+
-			"then you, then [server] agent_user)")
+	// No --agent-user. The tree belongs to the account this host belongs to, which
+	// [server] agent_user records; `faramir init --agent-user` is what names it.
 	fl.StringVar(&f.clientGroup, "client-group", "",
 		"share the tree with this group instead of the one the installed config admits. It "+
 			"overrides that one value; the config still has to load")
@@ -528,7 +528,7 @@ func runInitProject(f initProjectFlags, args []string) int {
 
 	opts := install.ProjectOptions{
 		Dir:         firstArg(args),
-		AgentUser:   operatorFromConfig(filepath.Join(dir, "config.toml"), f.agentUser),
+		AgentUser:   operatorFromConfig(filepath.Join(dir, "config.toml")),
 		ConfigDir:   dir,
 		ClientGroup: f.clientGroup,
 		Agents:      f.agents,
@@ -570,7 +570,6 @@ func runInitProject(f initProjectFlags, args []string) int {
 }
 
 type doctorFlags struct {
-	agentUser    string
 	clientGroup  string
 	secretsGroup string
 	brokerUser   string
@@ -590,7 +589,9 @@ func newDoctorCmd() *cobra.Command {
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runDoctor(f)) },
 	}
 	fl := c.Flags()
-	fl.StringVar(&f.agentUser, "agent-user", "", "account the coding agent runs as")
+	// No --agent-user, as on every command but `init`: doctor reports on an
+	// install, and the account that install belongs to is one of the things it
+	// reads rather than one it is told.
 	// Empty rather than the install defaults: doctor reads what this host runs
 	// out of the units, the config and the secrets directory, and a default here
 	// would answer about accounts a host installed with other names does not
@@ -623,12 +624,12 @@ func newDoctorCmd() *cobra.Command {
 // Behind SUDO_USER rather than in front of it: a person running `sudo faramir
 // doctor` is answering the same question in the present tense, and a config
 // that has gone stale should not outrank them.
-func operatorFromConfig(configFile, flagValue string) string {
+func operatorFromConfig(configFile string) string {
 	// Once, and for both steps: the recorded answer is held to the same accounts
 	// the resolved one is, or a config naming a service account would pass where
 	// SUDO_USER naming it does not.
 	refused := notTheOperator()
-	if name := operatorName(refused, flagValue); name != "" {
+	if name := operatorName(refused, ""); name != "" {
 		return name
 	}
 	cfg, err := config.Load(configFile)
@@ -655,38 +656,33 @@ func operatorFromConfig(configFile, flagValue string) string {
 // operator's own home, which is silent, because dropping a spelling is not a
 // step that failed.
 //
-// A flag that disagrees is refused rather than obeyed or ignored: naming another
-// account here is asking to change the operator, and `faramir init --agent-user`
-// is what does that. Obeying it would leave a second route to the rewrite this
-// exists to close, and ignoring it would act on an install the caller did not
-// name.
+// No flag reaches here, these commands having none: one that agreed with the
+// record changed nothing and one that disagreed was refused, so the whole of
+// what it could do was fail. `faramir init --agent-user` is the one place an
+// operator is named.
 //
-// The fallback is only for an install whose config records nothing, which is one
+// The fallback is for an install whose config records nothing, which is one
 // `init` has not finished: there is no recorded answer to prefer, so this is the
 // resolution every other command uses. A config that will not load records
 // nothing either, and is not reported here: every caller writes that same file a
 // moment later and fails with an error naming it, where this would name only the
 // operator it could not read.
 //
-// A recorded service account is not an answer to keep. It is what this change
-// prevents being written, so a host that already carries one is repaired by the
-// next run rather than held at it.
-func recordedOperator(configFile, flagValue string) (string, error) {
+// A recorded service account is not an answer to keep. It is what this prevents
+// being written, so a host that already carries one is repaired by the next run
+// rather than held at it.
+func recordedOperator(configFile string) string {
 	refused := notTheOperator()
-	recorded := ""
-	if cfg, err := config.Load(configFile); err == nil && !refused[cfg.Server.AgentUser] {
-		recorded = cfg.Server.AgentUser
+	if cfg, err := config.Load(configFile); err == nil {
+		// Held to being an answer as well as loading: a config that records no
+		// operator, or one this refuses, has nothing to prefer over the resolution
+		// below. Checked for empty rather than left to the refusal set, which does
+		// not carry "" and would take an unrecorded operator for a recorded one.
+		if recorded := cfg.Server.AgentUser; recorded != "" && !refused[recorded] {
+			return recorded
+		}
 	}
-	switch {
-	case recorded == "":
-		return operatorName(refused, flagValue), nil
-	case flagValue != "" && flagValue != recorded:
-		return "", fmt.Errorf("--agent-user %s, and %s records the operator as %s. "+
-			"This command rewrites the config and does not decide who the host "+
-			"belongs to; `sudo faramir init --agent-user %s` is what changes that",
-			flagValue, configFile, recorded, flagValue)
-	}
-	return recorded, nil
+	return operatorName(refused, "")
 }
 
 func runDoctor(f doctorFlags) int {
@@ -722,7 +718,7 @@ func runDoctor(f doctorFlags) int {
 		BrokerVersion: broker.version,
 		BrokerBuild:   broker.build,
 		SocketStates:  sockets,
-		AgentUser:     operatorFromConfig(configFile, f.agentUser),
+		AgentUser:     operatorFromConfig(configFile),
 		ClientGroup:   f.clientGroup,
 		BrokerUser:    f.brokerUser,
 		KeeperUser:    f.keeperUser,

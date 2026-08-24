@@ -102,7 +102,7 @@ for agent in opencode kilocode; do
 
   head_ "$agent"
   if [ ! -f "$plugin" ]; then
-    /usr/local/bin/faramir init-project --agent-user op --agent "$agent" "$PROJECT" >/dev/null 2>&1
+    /usr/local/bin/faramir init-project --agent "$agent" "$PROJECT" >/dev/null 2>&1
   fi
   if [ ! -f "$plugin" ]; then
     bad "$agent: enrolment wrote no plugin at $plugin"
@@ -149,7 +149,7 @@ head_ "pi"
 # guard; what is checked here is the enrolled file against the real binary.
 
 PI_EXT=$PROJECT/.pi/extensions/faramir.ts
-[ -f "$PI_EXT" ] || /usr/local/bin/faramir init-project --agent-user op --agent pi "$PROJECT" >/dev/null 2>&1
+[ -f "$PI_EXT" ] || /usr/local/bin/faramir init-project --agent pi "$PROJECT" >/dev/null 2>&1
 if [ ! -f "$PI_EXT" ]; then
   bad "pi: enrolment wrote no extension at $PI_EXT"
 else

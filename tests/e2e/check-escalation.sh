@@ -872,7 +872,7 @@ esac
 # the arrangement branch below: the restore at the end asks for it whichever way
 # that branch went.
 grant_status() {
-  /usr/local/bin/faramir doctor --agent-user op --json 2>/dev/null \
+  /usr/local/bin/faramir doctor --json 2>/dev/null \
     | jq -r '[.findings[]|select(.check=="sudo grant")|.status]|first // "missing"'
 }
 # The finding's own text. Read out of --json rather than grepped off the
@@ -881,7 +881,7 @@ grant_status() {
 # line break and a check written against one width silently stops checking at
 # another.
 grant_detail() {
-  /usr/local/bin/faramir doctor --agent-user op --json 2>/dev/null \
+  /usr/local/bin/faramir doctor --json 2>/dev/null \
     | jq -r '[.findings[]|select(.check=="sudo grant")|.detail]|first // ""'
 }
 restore_sudo() {

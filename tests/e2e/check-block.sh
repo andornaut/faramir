@@ -35,9 +35,10 @@ MADE_CLAUDE_HOME=
 faramir=/usr/local/bin/faramir
 asop() { runuser -u op -- env HOME=/home/op "$faramir" "$@"; }
 brokered() { asop run --quiet -t 25 "$@" 2>&1; }
-# `faramir block` as an operator runs it. --agent-user because this suite runs
-# as root with no SUDO_USER to carry it.
-block() { "$faramir" block --agent-user op "$@" 2>&1; }
+# `faramir block` as an operator runs it. No --agent-user: no command but `init`
+# takes one, and these read the operator [server] agent_user records, which the
+# install this suite runs against has.
+block() { "$faramir" block "$@" 2>&1; }
 
 # This suite writes entries into a shared install and renders them into the
 # operator's rule files. Later suites read both, so put the config back and take
@@ -47,15 +48,15 @@ cp -a $CFG "$BACKUP/config.toml"
 restore_baseline() {
   local rc=$?
   for path in "$KEY" "$ABSENT" "$SSHDIR"; do
-    "$faramir" block rm --agent-user op --path "$path" >/dev/null 2>&1 || true
+    "$faramir" block rm --path "$path" >/dev/null 2>&1 || true
   done
   cp -a "$BACKUP/config.toml" $CFG
   # Section 9 empties the rule file to check that a re-add restores it.
   [ -f "$BACKUP/settings.json" ] && cp -a "$BACKUP/settings.json" $RULES
   rm -rf "$BACKUP" "$KEYDIR" "$SSHDIR"
   rm -f /etc/refused-world.key
-  "$faramir" link rm --agent-user op gh/refuse-suite >/dev/null 2>&1 || true
-  "$faramir" block rm --agent-user op --path /etc/beside-a-link.key >/dev/null 2>&1 || true
+  "$faramir" link rm gh/refuse-suite >/dev/null 2>&1 || true
+  "$faramir" block rm --path /etc/beside-a-link.key >/dev/null 2>&1 || true
   rm -rf /home/op/.config/gh
   [ -n "$MADE_CLAUDE_HOME" ] && rm -rf "$CLAUDE_HOME"
   "$faramir" reload >/dev/null 2>&1 || true
@@ -226,7 +227,7 @@ head_ "6. doctor"
 # The JSON report rather than the table, where a detail wraps across lines and a
 # grep for a phrase would match on where the wrap happened to fall.
 JSON=/tmp/refuse-doctor.json
-snap() { "$faramir" doctor --agent-user op --json >$JSON 2>/dev/null; }
+snap() { "$faramir" doctor --json >$JSON 2>/dev/null; }
 st() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.status]|join(",")' $JSON; }
 dt() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.detail]|join(" ")' $JSON; }
 snap
@@ -288,7 +289,7 @@ chown op:op $LINKFILE
 # The arrangement a link needs, which faramir checks and does not apply.
 chgrp "$(id -gn faramir-broker)" $LINKFILE
 chmod 640 $LINKFILE
-"$faramir" link add --agent-user op gh/refuse-suite $LINKFILE \
+"$faramir" link add gh/refuse-suite $LINKFILE \
   --type yaml --key github.com/oauth_token >/dev/null 2>&1
 waitfor 25 asop refs >/dev/null 2>&1
 if asop refs 2>/dev/null | grep -q 'faramir://gh/refuse-suite'; then
@@ -305,7 +306,7 @@ if asop refs 2>/dev/null | grep -q 'faramir://gh/refuse-suite'; then
 else
   bad "the link never started serving, so this section asserts nothing"
 fi
-"$faramir" link rm --agent-user op gh/refuse-suite >/dev/null 2>&1
+"$faramir" link rm gh/refuse-suite >/dev/null 2>&1
 rm -rf $LINKDIR
 
 # --------------------------------------------------------------------------
@@ -649,7 +650,7 @@ done
 # re-render cannot: a skipped rule refuses nothing and the file still matches
 # itself. Asked of doctor rather than of another regexp engine, so the question
 # is put to the one that decides it.
-out=$("$faramir" doctor --agent-user op 2>&1 | grep 'deny patterns')
+out=$("$faramir" doctor 2>&1 | grep 'deny patterns')
 grep -q '^ok' <<<"$out" \
   && ok "doctor finds every rendered rule compiles" \
   || bad "doctor on the rendered rules: ${out:0:200}"

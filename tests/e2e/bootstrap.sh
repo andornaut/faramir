@@ -73,7 +73,7 @@ chmod g=x /home/op
 
 step "the tree the agent works in"
 install -d -o op -g op "$PROJECT"
-faramir init-project --agent-user op --agent claude "$PROJECT" >/tmp/project.log 2>&1 || {
+faramir init-project --agent claude "$PROJECT" >/tmp/project.log 2>&1 || {
   tail -20 /tmp/project.log; exit 1; }
 echo "enrolled $PROJECT"
 

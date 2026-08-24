@@ -493,7 +493,7 @@ ran && bad "the editor ran first, so what was typed was discarded at the encrypt
 [ "$(sum)" = "$before" ] && ok "the store is untouched" || bad "the refused edit wrote to the file"
 # What doctor says about the same host, which is where an operator would meet
 # this before an edit does.
-faramir doctor --agent-user op --json >/tmp/doc-cover.json 2>/dev/null
+faramir doctor --json >/tmp/doc-cover.json 2>/dev/null
 cover=$(jq -r '[.findings[]|select(.check=="rule coverage")|.status]|join(",")' /tmp/doc-cover.json)
 [ "$cover" = failed ] && ok "doctor reports it under rule coverage before anybody edits" \
   || bad "doctor says rule coverage is [$cover] for a rule that reaches no managed file"
@@ -558,7 +558,7 @@ grep -q "$SECOND" /etc/faramir/.sops.yaml || bad "staging lost the rule's second
 grep -q "$SECOND" "$MANAGED" && bad "staging did not put the store back" \
   || ok "staged: the rule names the second recipient and the ciphertext does not"
 
-faramir doctor --agent-user op --json >/tmp/doc-drift.json 2>/dev/null
+faramir doctor --json >/tmp/doc-drift.json 2>/dev/null
 drift=$(jq -r '[.findings[]|select(.check=="recipient drift")|.status]|join(",")' /tmp/doc-drift.json)
 [ "$drift" = failed ] && ok "doctor reports it under recipient drift" \
   || bad "doctor says recipient drift is [$drift] for a store that lags its rule"
@@ -569,7 +569,7 @@ faramir reader add "$SECOND" >/tmp/resume.log 2>&1 \
 grep -q "$SECOND" "$MANAGED" \
   && ok "and it resealed the store the rule had run ahead of" \
   || bad "the rule was taken as proof and the store was left behind"
-faramir doctor --agent-user op --json >/tmp/doc-drift2.json 2>/dev/null
+faramir doctor --json >/tmp/doc-drift2.json 2>/dev/null
 [ "$(jq -r '[.findings[]|select(.check=="recipient drift")|.status]|join(",")' /tmp/doc-drift2.json)" = ok ] \
   && ok "and doctor reports no drift afterwards" || bad "doctor still reports drift"
 

@@ -28,8 +28,8 @@ import (
 func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
 		report.unaskedf("agent rule drift", 1, "the agent account is not named, so "+
-			"the agent rule files were not read: pass --agent-user, or run through "+
-			"sudo so SUDO_USER carries it")
+			"the agent rule files were not read: run through sudo so SUDO_USER "+
+			"carries it, or record the account with `faramir init --agent-user`")
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)
@@ -113,8 +113,9 @@ func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.C
 	}
 	if opts.AgentUser == "" {
 		report.unaskedf(name, len(links), "the agent account is not named, so the "+
-			"deny rules were not compared with the %d linked file(s): pass "+
-			"--agent-user, or run through sudo so SUDO_USER carries it", len(links))
+			"deny rules were not compared with the %d linked file(s): run through "+
+			"sudo so SUDO_USER carries it, or record the account with "+
+			"`faramir init --agent-user`", len(links))
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)
@@ -209,7 +210,8 @@ func diagnoseInstallRules(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
 		report.unaskedf(name, len(paths), "the agent account is not named, so the "+
 			"deny rules were not compared with the %d path(s) this install writes: "+
-			"pass --agent-user, or run through sudo so SUDO_USER carries it", len(paths))
+			"run through sudo so SUDO_USER carries it, or record the account with "+
+			"`faramir init --agent-user`", len(paths))
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)
@@ -263,8 +265,9 @@ func diagnoseBlockedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.
 	}
 	if opts.AgentUser == "" {
 		report.unaskedf(name, len(paths), "the agent account is not named, so the "+
-			"deny rules were not compared with the %d blocked path(s): pass "+
-			"--agent-user, or run through sudo so SUDO_USER carries it", len(paths))
+			"deny rules were not compared with the %d blocked path(s): run through "+
+			"sudo so SUDO_USER carries it, or record the account with "+
+			"`faramir init --agent-user`", len(paths))
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)

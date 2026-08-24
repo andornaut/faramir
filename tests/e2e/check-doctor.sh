@@ -44,7 +44,7 @@ settle() {
 
 # snap is one examination, named to the operator account so the checks that ask
 # what it can reach actually run.
-snap() { /usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null; }
+snap() { /usr/local/bin/faramir doctor --json >$JSON 2>/dev/null; }
 # st is every status reported under a check name, joined: several findings share
 # one name (the three sockets), and a suite that read only the first would miss
 # the one that broke.
@@ -100,21 +100,17 @@ else
   bad "failed checks are [$failed], want [refused refs]: $(jq -r '[.findings[]|select(.status=="failed")|"\(.check): \(.detail)"]|join(" | ")' $JSON | head -c 400)"
 fi
 # The exit code follows the report, so it is non-zero for the same one reason.
-if /usr/local/bin/faramir doctor --agent-user "$OP" >/dev/null 2>&1; then
+if /usr/local/bin/faramir doctor >/dev/null 2>&1; then
   bad "doctor exits 0 on a host holding a ref it cannot redact"
 else
   ok "and exits non-zero, the report and the status agreeing"
 fi
 
-# A root shell with no SUDO_USER and no flag is a container, `su -`, cron or a
-# configuration manager's become. The install recorded who the agent account is,
-# so the checks that ask what it can reach are put anyway rather than reported as
-# unasked with a flag naming what the config already said.
-snap; withOp=$(unasked)
-/usr/local/bin/faramir doctor --json >$JSON 2>/dev/null; without=$(unasked)
-[ "$withOp" = "$without" ] \
-  && ok "the recorded agent_user asks as much as --agent-user does ($withOp unasked either way)" \
-  || bad "naming the operator changed what was asked ($withOp with the flag, $without without it)"
+# A root shell with no SUDO_USER is a container, `su -`, cron or a configuration
+# manager's become. The install recorded who the agent account is, and that is the
+# whole of how this is known: no command but `init` names it, so a run here either
+# reads the record or reports the checks as unasked.
+snap
 [ "$(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON)" = 0 ] \
   && ok "and there is no boundaries warning, the account being known" \
   || bad "boundaries reported $(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON) findings: $(dt boundaries)"
@@ -133,15 +129,17 @@ noname=$(jq -r '[.findings[]|select(.check=="boundaries")|.status]|first // "mis
 [ "$noname" = warn ] \
   && ok "a config naming no account degrades to a warning rather than a pass" \
   || bad "boundaries is [$noname] with no account named anywhere, want warn"
-for want in "--agent-user" "SUDO_USER"; do
+for want in "faramir init --agent-user" "SUDO_USER"; do
   grep -qF -- "$want" <<<"$(jq -r '[.findings[]|select(.check=="boundaries")|.detail]|first // ""' /tmp/doctor.noop.json)" \
     && ok "and says how to ask it ($want)" \
     || bad "the warning does not mention $want: $(jq -r '[.findings[]|select(.check=="boundaries")|.detail]|first' /tmp/doctor.noop.json)"
 done
-# An account that is not on the host. Without this every check that asks what
-# the agent can reach answers about a uid nothing has, and the report reads as
-# an examination of the host rather than of a name.
-out=$(/usr/local/bin/faramir doctor --agent-user nosuchuser-e2e --json 2>/dev/null)
+# An account that is not on the host, recorded rather than passed: nothing but
+# `init` names one, so this is the shape the case takes. Without the refusal every
+# check that asks what the agent can reach answers about a uid nothing has, and
+# the report reads as an examination of the host rather than of a name.
+sed -i 's/^agent_user = .*/agent_user = "nosuchuser-e2e"/' /etc/faramir/config.toml
+out=$(/usr/local/bin/faramir doctor --json 2>/dev/null)
 n=$(jq '.findings|length' <<<"$out" 2>/dev/null)
 [ "$n" = 1 ] && ok "an account that is not there stops the examination" \
   || bad "doctor made $n finding(s) about an account that does not exist"
@@ -266,7 +264,7 @@ probe "an outsider in the client group" "client group" warn \
 # round trip, and the report names the host doctor met rather than the one it
 # made. Nothing suppresses the asking, and no command takes a directory.
 systemctl stop faramir-broker.service faramir-broker.socket faramir-keeper.socket >/dev/null 2>&1
-/usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null
+/usr/local/bin/faramir doctor --json >$JSON 2>/dev/null
 if [[ "$(st sockets)" == *failed* ]]; then
   ok "a stopped socket is reported failed, sampled before the broker is asked"
 else
@@ -334,7 +332,7 @@ snap
 # its own way.
 [ "$(jq '.findings|length' $JSON)" -eq 1 ] && ok "and it is the only finding, the rest having nothing to read" \
   || bad "$(jq '.findings|length' $JSON) findings with no config"
-crash=$(/usr/local/bin/faramir doctor --agent-user "$OP" 2>&1 >/dev/null | grep -ci 'panic\|goroutine')
+crash=$(/usr/local/bin/faramir doctor 2>&1 >/dev/null | grep -ci 'panic\|goroutine')
 [ "$crash" -eq 0 ] && ok "without a panic" || bad "doctor panicked with no config"
 mv /tmp/config.bak $CFG
 
@@ -479,7 +477,7 @@ chmod 0400 $KEY
 # asked, and reporting them as holding would be the same unearned pass.
 if [ -x /usr/sbin/runuser ]; then
   mv /usr/sbin/runuser /usr/sbin/runuser.hidden
-  PATH=/usr/local/bin:/usr/bin:/bin /usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null
+  PATH=/usr/local/bin:/usr/bin:/bin /usr/local/bin/faramir doctor --json >$JSON 2>/dev/null
   if jq -e '[.findings[]|select(.check=="boundaries" and .status!="ok")]|length > 0' $JSON >/dev/null; then
     ok "with runuser gone, the boundary checks are declared unasked"
   else
@@ -511,7 +509,7 @@ done
 # failed and the exit code have to agree, an operator scripting this reads one
 # or the other.
 chmod 0644 $KEY; snap
-/usr/local/bin/faramir doctor --agent-user "$OP" >/dev/null 2>&1; code=$?
+/usr/local/bin/faramir doctor >/dev/null 2>&1; code=$?
 withFault=$(jq -r '[.findings[]|select(.status=="failed")|.check]|sort|join(",")' $JSON)
 [ "$(broke)" = true ] && [ $code -eq 1 ] && ok "a failure sets .failed and exit 1 together" \
   || bad "failed=$(broke) but exit $code"

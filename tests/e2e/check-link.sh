@@ -47,9 +47,9 @@ asop() { runuser -u op -- env HOME=/home/op "$faramir" "$@"; }
 # brokered runs a command through the broker as the agent's own uid, which is
 # the account an agent's tool call arrives as.
 brokered() { asop run --quiet -t 25 "$@" 2>&1; }
-# addlink is `faramir link add` as an operator runs it. --agent-user because
-# this suite runs as root with no SUDO_USER to carry it.
-addlink() { "$faramir" link add --agent-user op "$@" 2>&1; }
+# addlink is `faramir link add` as an operator runs it. No --agent-user, for the
+# reason check-block.sh gives: the operator comes from the config.
+addlink() { "$faramir" link add "$@" 2>&1; }
 
 # This suite adds refs to a shared install and regroups two files in the
 # operator's home. Later suites read the config and the refs, so put both back:
@@ -60,7 +60,7 @@ cp -a $CFG "$BACKUP/config.toml"
 restore_baseline() {
   local rc=$?
   for ref in gh/token npm/token; do
-    "$faramir" link rm --agent-user op "$ref" >/dev/null 2>&1 || true
+    "$faramir" link rm "$ref" >/dev/null 2>&1 || true
   done
   cp -a "$BACKUP/config.toml" $CFG
   rm -rf "$BACKUP"
@@ -164,7 +164,7 @@ out=$(addlink gh/shut $SHUT/inner/hosts.yml --type yaml --key github.com/oauth_t
 grep -q 'gh/shut' $CFG \
   && ok "  and the link is taken once the walk is open" \
   || bad "  the link was still refused with the walk open: ${out:0:140}"
-"$faramir" link rm --agent-user op gh/shut >/dev/null 2>&1
+"$faramir" link rm gh/shut >/dev/null 2>&1
 rm -rf $SHUT
 
 # A ref the managed store already defines. Refused before the entry is written,
@@ -302,7 +302,7 @@ head_ "6. what doctor makes of it"
 # The JSON report rather than the table: a detail wraps across lines there, so a
 # grep for a phrase would match on where the wrap happened to fall.
 JSON=/tmp/link-doctor.json
-snap() { "$faramir" doctor --agent-user op --json >$JSON 2>/dev/null; }
+snap() { "$faramir" doctor --json >$JSON 2>/dev/null; }
 st() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.status]|join(",")' $JSON; }
 dt() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.detail]|join(" ")' $JSON; }
 snap
@@ -446,7 +446,7 @@ jq -e '.secrets.degraded_links["npm/token"]' <<<"$(asop status 2>/dev/null)" >/d
 
 # --------------------------------------------------------------------------
 head_ "9. removing one"
-out=$("$faramir" link rm --agent-user op gh/token 2>&1)
+out=$("$faramir" link rm gh/token 2>&1)
 grep -q 'gh/token' $CFG \
   && bad "the entry is still in $CFG" \
   || ok "the entry is gone from $CFG"
@@ -470,7 +470,7 @@ printf '%s\n' "$GH_VALUE" | asop redact 2>/dev/null | grep -qF "$GH_VALUE" \
   || bad "the value is still being redacted after the entry was removed"
 
 before=$(cat $CFG)
-out=$("$faramir" link rm --agent-user op no/such-ref 2>&1)
+out=$("$faramir" link rm no/such-ref 2>&1)
 rc=$?
 [ $rc -eq 0 ] \
   && ok "removing a ref this install does not carry is not an error" \

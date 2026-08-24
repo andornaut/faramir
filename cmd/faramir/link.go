@@ -34,26 +34,10 @@ func newLinkCmd() *cobra.Command {
 }
 
 type linkFlags struct {
-	agentUser string
-	kind      string
-	key       string
-	json      bool
-	when      string
-}
-
-func (f *linkFlags) register(c *cobra.Command) {
-	fl := c.Flags()
-	fl.StringVar(&f.agentUser, "agent-user", "",
-		"account the coding agent runs as. Defaults to what [server] agent_user "+
-			"records, and naming a different one is refused: 'faramir init "+
-			"--agent-user' is what changes who the host belongs to")
-}
-
-// registerUnread is the flag on the listing, for the reason `block ls` gives.
-func (f *linkFlags) registerUnread(c *cobra.Command) {
-	c.Flags().StringVar(&f.agentUser, "agent-user", "",
-		"accepted so it can be passed to every subcommand alike, and not read "+
-			"here: a listing renders no rule files, so it resolves no operator")
+	kind string
+	key  string
+	json bool
+	when string
 }
 
 func newLinkAddCmd() *cobra.Command {
@@ -76,7 +60,6 @@ func newLinkAddCmd() *cobra.Command {
 			return codeErr(runLinkAdd(f, secretref.Bare(args[0]), args[1]))
 		},
 	}
-	f.register(c)
 	c.Flags().StringVar(&f.kind, "type", "",
 		"how to read the file: "+strings.Join(secretlink.Kinds(), ", "))
 	c.Flags().StringVar(&f.key, "key", "",
@@ -95,12 +78,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 		return 1
 	}
 	link := config.Link{Ref: ref, Path: path, Type: f.kind, Key: f.key}
-	opts, err := installOptions(f, dir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
-		return 2
-	}
-	report, added, err := install.AddLink(opts, link)
+	report, added, err := install.AddLink(installOptions(f, dir), link)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
 	}
@@ -158,7 +136,6 @@ func newLinkRemoveCmd() *cobra.Command {
 			return codeErr(runLinkRemove(f, secretref.Bare(args[0])))
 		},
 	}
-	f.register(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
@@ -172,12 +149,7 @@ func runLinkRemove(f linkFlags, ref string) int {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 		return 1
 	}
-	opts, err := installOptions(f, dir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
-		return 2
-	}
-	report, removed, err := install.RemoveLink(opts, ref)
+	report, removed, err := install.RemoveLink(installOptions(f, dir), ref)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 	}
@@ -222,7 +194,6 @@ func newLinkListCmd() *cobra.Command {
 		Args:  noArgs,
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runLinkList(f)) },
 	}
-	f.registerUnread(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the entries as JSON")
 	addColorFlag(c, &f.when)
 	return c
@@ -301,21 +272,17 @@ func runLinkList(f linkFlags) int {
 
 // installOptions is the install this command acts on, at the directory the
 // caller has already resolved.
-func installOptions(f linkFlags, dir string) (install.Options, error) {
-	// The recorded agent_user ahead of everything, for the reason recordedOperator
-	// gives: these commands re-render the agent's rule files, and the account
-	// those rules are rendered against is not theirs to choose.
-	operator, err := recordedOperator(filepath.Join(dir, "config.toml"), f.agentUser)
-	if err != nil {
-		return install.Options{}, err
-	}
+func installOptions(f linkFlags, dir string) install.Options {
 	return install.Options{
 		ConfigDir: dir,
-		AgentUser: operator,
+		// What [server] agent_user records, for the reason recordedOperator gives:
+		// these re-render the agent's rule files, and the account those are
+		// rendered against is not theirs to choose.
+		AgentUser: recordedOperator(filepath.Join(dir, "config.toml")),
 		// Progress goes to stderr so --json owns stdout, and is suppressed under
 		// --json entirely, as `init` suppresses it: the steps are in the document.
 		Log: stepLog(f.json),
-	}, nil
+	}
 }
 
 // stepLog is where a run's per-step lines go: stderr, or nowhere under --json.

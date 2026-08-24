@@ -25,7 +25,7 @@ Flag left out | Taken from
 
 Flag | Default | Sets
 --- | --- | ---
-`--agent-user NAME` | `$SUDO_USER`, then you | The account the coding agent runs as. It owns the checkouts brokered commands run in, so root is refused
+`--agent-user NAME` | `$FARAMIR_OPERATOR`, then `$SUDO_USER`, then you | The account the coding agent runs as, and the one this host belongs to. It owns the checkouts brokered commands run in, so root is refused, as is any of faramir's own service accounts. `init` is the only command that takes this: every other one reads what it records
 `--client-group NAME` | the install's, then `faramir-client` | The group admitted to the broker socket and group-owning an enrolled tree. Membership is permission to ask the broker for any managed value, so name it for that rather than for a team: a group the host already has is adopted rather than refused, and every current member gains the grant
 `--secrets-group NAME` | the install's, then the keeper's own group | The group owning the ciphertext. `doctor` fails if the operator is in it
 `--config-dir DIR` | the install's, [found the usual way](operating.md#checking-an-install), then `/etc/faramir` | Where `config.toml`, the age key and the managed sops files live. `init` is the only command that takes this: every other one finds the install and refuses to guess. Absolute, parent must exist, and a *different* one needs `--move-config`

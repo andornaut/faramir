@@ -532,8 +532,11 @@ func (r *runner) preflight() error {
 			"writes under /etc and installs systemd units")
 	}
 	if r.opts.AgentUser == "" || r.opts.AgentUser == "root" {
-		return errors.New("name the account the coding agent runs as: pass --agent-user, or run through " +
-			"sudo. It must not be root")
+		// Reached by `block` and `link` as well, which have no flag of their own:
+		// they read what the config records, and `init` is what records it.
+		return errors.New("name the account the coding agent runs as: run through " +
+			"sudo so SUDO_USER carries it, or record it with " +
+			"`faramir init --agent-user`. It must not be root")
 	}
 	if !userExists(r.opts.AgentUser) {
 		return fmt.Errorf("no such user: %s", r.opts.AgentUser)

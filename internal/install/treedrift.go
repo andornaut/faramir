@@ -138,8 +138,9 @@ func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir str
 func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
 		report.unaskedf("agent file ownership", 1, "the agent account is not "+
-			"named, so who owns the files an install edits was not asked: pass "+
-			"--agent-user, or run through sudo so SUDO_USER carries it")
+			"named, so who owns the files an install edits was not asked: run "+
+			"through sudo so SUDO_USER carries it, or record the account with "+
+			"`faramir init --agent-user`")
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)

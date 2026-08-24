@@ -37,14 +37,13 @@ func newBlockCmd() *cobra.Command {
 }
 
 type blockFlags struct {
-	agentUser string
-	paths     []string
-	names     []string
-	commands  []string
-	declared  bool
-	builtIn   bool
-	json      bool
-	when      string
+	paths    []string
+	names    []string
+	commands []string
+	declared bool
+	builtIn  bool
+	json     bool
+	when     string
 }
 
 // entries is the refusals a command was asked for: every path given as an
@@ -89,26 +88,6 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 	return out, nil
 }
 
-func (f *blockFlags) register(c *cobra.Command) {
-	fl := c.Flags()
-	fl.StringVar(&f.agentUser, "agent-user", "",
-		"account the coding agent runs as. Defaults to what [server] agent_user "+
-			"records, and naming a different one is refused: 'faramir init "+
-			"--agent-user' is what changes who the host belongs to")
-}
-
-// registerUnread is the same flag on a listing, which renders no rule files and
-// so resolves no operator. Taken rather than refused because the flag is passed
-// uniformly to every subcommand of `block` by anything scripting it, this
-// install's own e2e suite included, and rejecting it there would break that for
-// a listing it does not affect. The usage says so rather than repeating the
-// promise above, which a listing does not keep.
-func (f *blockFlags) registerUnread(c *cobra.Command) {
-	c.Flags().StringVar(&f.agentUser, "agent-user", "",
-		"accepted so it can be passed to every subcommand alike, and not read "+
-			"here: a listing renders no rule files, so it resolves no operator")
-}
-
 // registerForms is on add and rm and not on ls, which takes none of them. Each
 // form is a flag, including the path: three things are blocked here and a
 // positional argument would make one of them the default.
@@ -142,7 +121,6 @@ func newBlockAddCmd() *cobra.Command {
 			return codeErr(runBlockAdd(f, args))
 		},
 	}
-	f.register(c)
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
@@ -162,12 +140,7 @@ func runBlockAdd(f blockFlags, args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 		return 1
 	}
-	opts, err := blockOptions(f, dir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
-		return 2
-	}
-	report, added, err := install.AddBlockedPaths(opts, blocked)
+	report, added, err := install.AddBlockedPaths(blockOptions(f, dir), blocked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 	}
@@ -212,7 +185,6 @@ func newBlockRemoveCmd() *cobra.Command {
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockRemove(f, args)) },
 	}
-	f.register(c)
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
@@ -243,12 +215,7 @@ func runBlockRemove(f blockFlags, args []string) int {
 	if !requireRoot("block rm", "it writes the config") {
 		return 1
 	}
-	opts, err := blockOptions(f, dir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
-		return 2
-	}
-	report, removed, err := install.RemoveBlockedPaths(opts, asked)
+	report, removed, err := install.RemoveBlockedPaths(blockOptions(f, dir), asked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 	}
@@ -295,7 +262,6 @@ func newBlockListCmd() *cobra.Command {
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockList(f)) },
 	}
-	f.registerUnread(c)
 	c.Flags().BoolVar(&f.declared, "declared", false,
 		"only the [[secret.block]] entries this install declares")
 	c.Flags().BoolVar(&f.builtIn, "built-in", false,
@@ -591,16 +557,13 @@ func errReason(err error) string {
 	return "stat failed"
 }
 
-func blockOptions(f blockFlags, dir string) (install.Options, error) {
-	// The recorded agent_user ahead of everything, for the reason recordedOperator
-	// gives: this rewrites the config and is not what decides who owns the host.
-	operator, err := recordedOperator(filepath.Join(dir, "config.toml"), f.agentUser)
-	if err != nil {
-		return install.Options{}, err
-	}
+func blockOptions(f blockFlags, dir string) install.Options {
 	return install.Options{
 		ConfigDir: dir,
-		AgentUser: operator,
+		// What [server] agent_user records, and nothing else: this rewrites the
+		// config and does not decide who owns the host. `faramir init` is the one
+		// command that names the operator.
+		AgentUser: recordedOperator(filepath.Join(dir, "config.toml")),
 		Log:       stepLog(f.json),
-	}, nil
+	}
 }

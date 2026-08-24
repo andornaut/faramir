@@ -903,41 +903,11 @@ func TestARewriteKeepsTheRecordedOperator(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(protocol.OperatorEnv, tc.operator)
 			t.Setenv("SUDO_USER", tc.sudoUser)
-			got, err := recordedOperator(writeAgentUserConfig(t, tc.recorded), "")
-			if err != nil {
-				t.Fatal(err)
-			}
+			got := recordedOperator(writeAgentUserConfig(t, tc.recorded))
 			if got != tc.want {
 				t.Errorf("recordedOperator = %q, want %q", got, tc.want)
 			}
 		})
-	}
-}
-
-// A flag naming another account is asking to change the operator, which is
-// `init`'s to do. Refused rather than obeyed, which would leave a second route
-// to the rewrite this closes, and rather than ignored, which would act on an
-// install the caller did not name.
-func TestARewriteRefusesAFlagThatDisagrees(t *testing.T) {
-	t.Setenv(protocol.OperatorEnv, "")
-	t.Setenv("SUDO_USER", "")
-	path := writeAgentUserConfig(t, "op")
-
-	if _, err := recordedOperator(path, "someoneelse"); err == nil {
-		t.Fatal("a flag naming another account was accepted")
-	} else {
-		for _, want := range []string{"someoneelse", "op", "faramir init --agent-user"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("the refusal does not carry %q: %v", want, err)
-			}
-		}
-	}
-	// The same account is agreement rather than a change, so it is not refused: a
-	// converge that passes what the config already says must not fail.
-	got, err := recordedOperator(path, "op")
-	if err != nil || got != "op" {
-		t.Errorf("recordedOperator with the recorded name = %q, %v; want %q and no error",
-			got, err, "op")
 	}
 }
 
@@ -947,11 +917,7 @@ func TestARewriteRefusesAFlagThatDisagrees(t *testing.T) {
 func TestARewriteFallsBackWhereNothingIsRecorded(t *testing.T) {
 	t.Setenv(protocol.OperatorEnv, "")
 	t.Setenv("SUDO_USER", "sudo")
-	got, err := recordedOperator(writeAgentUserConfig(t, ""), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "sudo" {
+	if got := recordedOperator(writeAgentUserConfig(t, "")); got != "sudo" {
 		t.Errorf("recordedOperator = %q, want the resolved %q", got, "sudo")
 	}
 }
@@ -961,11 +927,7 @@ func TestARewriteFallsBackWhereNothingIsRecorded(t *testing.T) {
 func TestARewriteDoesNotKeepAServiceAccountAsTheOperator(t *testing.T) {
 	t.Setenv(protocol.OperatorEnv, "")
 	t.Setenv("SUDO_USER", "op")
-	got, err := recordedOperator(writeAgentUserConfig(t, install.DefaultExecUser), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "op" {
+	if got := recordedOperator(writeAgentUserConfig(t, install.DefaultExecUser)); got != "op" {
 		t.Errorf("recordedOperator = %q, want %q: a recorded service account is not "+
 			"an operator to keep", got, "op")
 	}

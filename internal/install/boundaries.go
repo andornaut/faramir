@@ -161,13 +161,13 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	for _, check := range aboutTheHost {
 		check()
 	}
-	// With no SUDO_USER and no --agent-user there is no account to put these to.
+	// With no SUDO_USER and nothing recorded there is no account to put these to.
 	// Named as unasked rather than run: each would otherwise report its boundary
 	// as holding on the strength of a question nobody could ask.
 	if opts.AgentUser == "" {
 		report.unaskedf("boundaries", len(aboutTheOperator), "the agent account is not named, so %d check(s) that ask what it "+
-			"can reach were not made: pass --agent-user, or run through sudo so "+
-			"SUDO_USER carries it", len(aboutTheOperator))
+			"can reach were not made: run through sudo so SUDO_USER carries it, or "+
+			"record the account with `faramir init --agent-user`", len(aboutTheOperator))
 		return
 	}
 	for _, check := range aboutTheOperator {
@@ -591,8 +591,9 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	// No name to ask about is how doctor was invoked -- a root login shell, a cron
 	// job, a timer -- rather than anything wrong with the install.
 	if opts.AgentUser == "" {
-		report.unaskedf("agent keys", 1, "no agent account to ask about: "+
-			"run under sudo so SUDO_USER carries it, or pass --agent-user")
+		report.unaskedf("agent keys", 1, "no agent account to ask about: run under "+
+			"sudo so SUDO_USER carries it, or record the account with "+
+			"`faramir init --agent-user`")
 		return
 	}
 	// A name that was given and does not resolve is different: every finding here
@@ -600,8 +601,8 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	entry, err := user.Lookup(opts.AgentUser)
 	if err != nil || entry.HomeDir == "" {
 		report.addf("agent keys", StatusFailed, "%s does not resolve to an account "+
-			"with a home (%v), and it is the name every check here is about. Pass "+
-			"--agent-user", opts.AgentUser, err)
+			"with a home (%v), and it is the name every check here is about. Record "+
+			"it with `faramir init --agent-user`", opts.AgentUser, err)
 		return
 	}
 	home := filepath.Clean(entry.HomeDir)

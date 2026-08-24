@@ -162,7 +162,8 @@ func (p *project) steps() []namedStep {
 // tree.
 func (p *project) preflight() error {
 	if p.opts.AgentUser == "" || p.opts.AgentUser == "root" {
-		return fmt.Errorf("name the account that works in %s: pass --agent-user, or run through sudo. Root "+
+		return fmt.Errorf("no account is named for %s: run through sudo so SUDO_USER "+
+			"carries it, or record the account with `faramir init --agent-user`. Root "+
 			"here would chown a checkout away from its owner", p.opts.Dir)
 	}
 	if os.Geteuid() != 0 && !p.opts.DryRun {

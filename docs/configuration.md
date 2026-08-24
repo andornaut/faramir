@@ -41,7 +41,7 @@ Key | Derived from
 --- | ---
 `socket_path` on `[server]`, `[keeper]`, `[executor]` | rendered with the `.socket` units
 `[server] allowed_group` | `--client-group`
-`[server] agent_user` | `--agent-user`, defaulting to `$SUDO_USER` and then to you. Given to every brokered command as `FARAMIR_OPERATOR`, and to its `sudo` through the environment file its PAM service reads
+`[server] agent_user` | `faramir init --agent-user`, defaulting to `$FARAMIR_OPERATOR`, then `$SUDO_USER`, then you. No other command takes the flag: each reads this instead, so adding an entry cannot rename the host's owner. Given to every brokered command as `FARAMIR_OPERATOR`, and to its `sudo` through the environment file its PAM service reads
 `[keeper] allowed_user`, `[executor] allowed_user` | `--broker-user`
 `[keeper] age_key_file` | `--config-dir`
 `[keeper] age_key_credential` | rendered with the keeper unit's `LoadCredential=`

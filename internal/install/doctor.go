@@ -186,8 +186,8 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 		if _, err := lookupUser(opts.AgentUser); err != nil {
 			report.addf(labelConfig, StatusFailed, "there is no account %q on this "+
 				"host, so what the agent can reach was not examined. Name the account "+
-				"the coding agent runs as, or leave --agent-user out to skip those "+
-				"checks", opts.AgentUser)
+				"the coding agent runs as; `faramir init --agent-user` is what records "+
+				"one", opts.AgentUser)
 			return report
 		}
 	}
@@ -263,8 +263,8 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
 		report.unaskedf("agent rules", 1, "the agent account is not named, so what "+
-			"each agent has in its home was not asked: pass --agent-user, or run "+
-			"through sudo so SUDO_USER carries it")
+			"each agent has in its home was not asked: run through sudo so SUDO_USER "+
+			"carries it, or record the account with `faramir init --agent-user`")
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)
@@ -1267,8 +1267,8 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
 		report.unaskedf("client group", len(groups), "the agent account is not "+
 			"named, so a member of %s cannot be told from an account left behind: "+
-			"pass --agent-user, or run through sudo so SUDO_USER carries it",
-			opts.ClientGroup)
+			"run through sudo so SUDO_USER carries it, or record the account with "+
+			"`faramir init --agent-user`", opts.ClientGroup)
 		return
 	}
 	// The agent's account belongs in the client group and nowhere near the
