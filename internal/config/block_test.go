@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -363,5 +364,39 @@ func TestAByteThatIsNotValidUTF8IsRefused(t *testing.T) {
 	// And the multi-byte path that is valid is still ordinary.
 	if err := ValidateBlocked(BlockedPath{Path: "/home/op/na\u00efve"}); err != nil {
 		t.Errorf("a valid multi-byte path was refused: %v", err)
+	}
+}
+
+// And it says which of the two reasons refused it. Every control was told the
+// newline's reason, so an operator whose entry carried a tab read that a
+// newline had split a rule and went looking for a line that was never split.
+func TestTheControlRefusalSaysWhyThatByteIsRefused(t *testing.T) {
+	const splits = "ends a line"
+	const displays = "prints an entry back to a terminal"
+	for _, tc := range []struct {
+		r    rune
+		want string
+		not  string
+	}{
+		{'\n', splits, displays},
+		{'\r', splits, displays},
+		{'\t', displays, splits},
+		{0x1b, displays, splits},
+		{0x07, displays, splits},
+		{0x7f, displays, splits},
+		{0x9b, displays, splits},
+	} {
+		t.Run(strconv.QuoteRune(tc.r), func(t *testing.T) {
+			err := ValidateBlocked(BlockedPath{Name: "aa" + string(tc.r) + "bb"})
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("refusal is %q, want it to say %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), tc.not) {
+				t.Errorf("refusal is %q, which gives the other reason (%q)", err, tc.not)
+			}
+		})
 	}
 }

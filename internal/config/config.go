@@ -1004,12 +1004,24 @@ func refuseControl(form, value, at string) error {
 				"renders does not compile and refuses nothing", at, form, value, i)
 		}
 		if termsafe.Actionable(r) {
-			return fmt.Errorf("%s: %s %q carries %q at offset %d. A rule is one line of a generated file, so a "+
-				"newline splits it and leaves neither half working", at, form, value, r, i)
+			return fmt.Errorf("%s: %s %q carries %q at offset %d. %s",
+				at, form, value, r, i, whyControlIsRefused(r))
 		}
 		i += size
 	}
 	return nil
+}
+
+// whyControlIsRefused is which of the two reasons this character is refused
+// for. The two are told apart because an operator reading that a tab splits a
+// line goes looking for a line it did not split.
+func whyControlIsRefused(r rune) string {
+	if r == '\n' || r == '\r' {
+		return "A rule is one line of a generated file, and this ends a line: " +
+			"it splits the rule and leaves neither half working"
+	}
+	return "A listing prints an entry back to a terminal, and this makes the " +
+		"row read as something other than what is stored"
 }
 
 // validateBlockedCommand holds a command entry to what can be rendered. The
