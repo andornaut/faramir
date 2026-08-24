@@ -263,8 +263,9 @@ func TestOperatorNameResolution(t *testing.T) {
 	// Unless the caller is one this refuses at every position, root or a faramir
 	// account: run that way with nothing set, no operator is named rather than
 	// one claimed.
+	refused := notTheOperator()
 	fallback := current.Username
-	if notTheOperator[fallback] {
+	if refused[fallback] {
 		fallback = ""
 	}
 	for _, tc := range []struct{ name, flag, operator, sudoUser, want string }{
@@ -293,7 +294,7 @@ func TestOperatorNameResolution(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(protocol.OperatorEnv, tc.operator)
 			t.Setenv("SUDO_USER", tc.sudoUser)
-			if got := operatorName(tc.flag); got != tc.want {
+			if got := operatorName(refused, tc.flag); got != tc.want {
 				t.Errorf("operatorName(%q) = %q, want %q", tc.flag, got, tc.want)
 			}
 		})
@@ -967,5 +968,47 @@ func TestARewriteDoesNotKeepAServiceAccountAsTheOperator(t *testing.T) {
 	if got != "op" {
 		t.Errorf("recordedOperator = %q, want %q: a recorded service account is not "+
 			"an operator to keep", got, "op")
+	}
+}
+
+// The refusal set is this host's accounts rather than the compiled-in names, so
+// an install that renamed one still refuses it. A default list is right about a
+// default install and silently wrong here, and wrong means recording a service
+// account as the operator.
+func TestARenamedServiceAccountIsStillNotTheOperator(t *testing.T) {
+	t.Setenv(protocol.OperatorEnv, "")
+	// What a host installed with `faramir init --exec-user` carries. The set is a
+	// parameter for exactly this: no test can rename an account on the machine it
+	// runs on.
+	renamed := map[string]bool{"root": true, "faramir-runner": true}
+	t.Setenv("SUDO_USER", "faramir-runner")
+	if got := operatorName(renamed, ""); got == "faramir-runner" {
+		t.Error("a renamed executor account was taken for the operator")
+	}
+	// And the compiled-in name is not refused on such a host, there being no
+	// account of that name to refuse: the set says what this install has.
+	t.Setenv("SUDO_USER", install.DefaultExecUser)
+	if got := operatorName(renamed, ""); got != install.DefaultExecUser {
+		t.Errorf("operatorName = %q, want %q: the default name is not this host's "+
+			"executor, so it is an ordinary account here", got, install.DefaultExecUser)
+	}
+}
+
+// What notTheOperator reads. Held because the whole point of the change is that
+// this comes off the units rather than out of the binary, and a set missing an
+// account is one that records it as the operator.
+func TestTheRefusalSetCarriesRootAndEveryServiceAccount(t *testing.T) {
+	refused := notTheOperator()
+	if !refused["root"] {
+		t.Error("root is not refused")
+	}
+	for _, account := range install.InstalledAccounts() {
+		if !refused[account] {
+			t.Errorf("%q is installed as a service account and is not refused", account)
+		}
+	}
+	if len(refused) != len(install.InstalledAccounts())+1 {
+		t.Errorf("the set holds %d entries, want root plus the %d service accounts",
+			len(refused), len(install.InstalledAccounts()))
 	}
 }

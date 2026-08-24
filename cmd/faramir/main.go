@@ -86,34 +86,45 @@ func requireRoot(command, reason string) bool {
 // SUDO_USER rather than behind it, unlike the config fallback in
 // operatorFromConfig: a stale config should not outrank a person answering in
 // the present tense, but a brokered run has no person in SUDO_USER to outrank.
-func operatorName(flagValue string) string {
+// refused is the accounts that cannot be the answer whichever position they
+// arrive in; notTheOperator builds this host's.
+func operatorName(refused map[string]bool, flagValue string) string {
 	candidates := []string{flagValue, os.Getenv(protocol.OperatorEnv), os.Getenv("SUDO_USER")}
 	if current, err := user.Current(); err == nil {
 		candidates = append(candidates, current.Username)
 	}
 	for _, candidate := range candidates {
-		if candidate != "" && !notTheOperator[candidate] {
+		if candidate != "" && !refused[candidate] {
 			return candidate
 		}
 	}
 	return ""
 }
 
-// notTheOperator is the accounts that cannot be the answer whichever position
-// they arrive in. root chowns a checkout away from its owner; faramir's own
-// service accounts hold none of the operator's configuration, and one of them
-// reaching this means SUDO_USER was read from a brokered command whose
-// $FARAMIR_OPERATOR was missing.
+// notTheOperator is the accounts that cannot be the operator on this host. root
+// chowns a checkout away from its owner; faramir's own service accounts hold
+// none of the operator's configuration, and one of them reaching the resolver
+// means SUDO_USER was read from a brokered command whose $FARAMIR_OPERATOR was
+// missing.
 //
-// The installed names rather than whatever this host called them: a renamed
-// account is covered by $FARAMIR_OPERATOR above, which is a marker rather than a
-// name, and a list that has to be right about every host is one that reports a
-// wrong answer as a right one.
-var notTheOperator = map[string]bool{
-	"root":                    true,
-	install.DefaultBrokerUser: true,
-	install.DefaultKeeperUser: true,
-	install.DefaultExecUser:   true,
+// The names this host actually uses, read off the installed units, rather than
+// the compiled-in defaults. A default list is right about a default install and
+// silently wrong about a renamed one, and there being wrong means recording a
+// service account as the operator: the rules are then rendered against its home
+// and every blocked path under the operator's own loses the spellings a shell
+// expands to it.
+//
+// A parameter rather than read inside the resolver, so what a run refuses is
+// visible at the call site and a test can name accounts this host does not have.
+func notTheOperator() map[string]bool {
+	accounts := install.InstalledAccounts()
+	refused := make(map[string]bool, len(accounts)+1)
+	// Whatever the units say, and root at every install.
+	refused["root"] = true
+	for _, account := range accounts {
+		refused[account] = true
+	}
+	return refused
 }
 
 // brokerOptions is what every broker-facing subcommand shares.

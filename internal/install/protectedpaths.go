@@ -117,6 +117,29 @@ func InstalledDirs(configDir string) []string {
 	return installDirs(ruleLayout(configDir))
 }
 
+// InstalledAccounts is faramir's three service accounts at the names this host
+// uses, read off the installed units the way `doctor` and the rule renderer
+// read them, and the standard name where a unit cannot be read.
+//
+// Exported for the caller that has to refuse them as answers to "which account
+// is the operator". A compiled-in list is right about a default install and
+// silently wrong about a renamed one, and being wrong there means recording a
+// service account as the operator and rendering every path rule against its
+// home.
+//
+// No config directory: these come from the units, whose paths this package
+// already knows, and a host that renamed an account renamed it there.
+func InstalledAccounts() []string {
+	broker, _ := unitUser(brokerUnit)
+	keeper, _ := unitUser(keeperUnit)
+	exec, _ := unitUser(execUnit)
+	return []string{
+		orDefault(broker, DefaultBrokerUser),
+		orDefault(keeper, DefaultKeeperUser),
+		orDefault(exec, DefaultExecUser),
+	}
+}
+
 // InstalledDirCovering is the install's own directory that already blocks a
 // path, and whether there is one. These are the only rules an entry cannot take
 // back: they come out of the layout on every render, so removing an entry that

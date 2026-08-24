@@ -396,7 +396,7 @@ func runInit(f initFlags) int {
 	}
 
 	opts := install.Options{
-		AgentUser:     operatorName(f.agentUser),
+		AgentUser:     operatorName(notTheOperator(), f.agentUser),
 		ClientGroup:   f.clientGroup,
 		SecretsGroup:  f.secretsGroup,
 		BrokerUser:    f.brokerUser,
@@ -618,14 +618,18 @@ func newDoctorCmd() *cobra.Command {
 // doctor` is answering the same question in the present tense, and a config
 // that has gone stale should not outrank them.
 func operatorFromConfig(configFile, flagValue string) string {
-	if name := operatorName(flagValue); name != "" {
+	// Once, and for both steps: the recorded answer is held to the same accounts
+	// the resolved one is, or a config naming a service account would pass where
+	// SUDO_USER naming it does not.
+	refused := notTheOperator()
+	if name := operatorName(refused, flagValue); name != "" {
 		return name
 	}
 	cfg, err := config.Load(configFile)
 	if err != nil {
 		return ""
 	}
-	if notTheOperator[cfg.Server.AgentUser] {
+	if refused[cfg.Server.AgentUser] {
 		return ""
 	}
 	return cfg.Server.AgentUser
@@ -662,13 +666,14 @@ func operatorFromConfig(configFile, flagValue string) string {
 // prevents being written, so a host that already carries one is repaired by the
 // next run rather than held at it.
 func recordedOperator(configFile, flagValue string) (string, error) {
+	refused := notTheOperator()
 	recorded := ""
-	if cfg, err := config.Load(configFile); err == nil && !notTheOperator[cfg.Server.AgentUser] {
+	if cfg, err := config.Load(configFile); err == nil && !refused[cfg.Server.AgentUser] {
 		recorded = cfg.Server.AgentUser
 	}
 	switch {
 	case recorded == "":
-		return operatorName(flagValue), nil
+		return operatorName(refused, flagValue), nil
 	case flagValue != "" && flagValue != recorded:
 		return "", fmt.Errorf("--agent-user %s, and %s records the operator as %s. "+
 			"This command rewrites the config and does not decide who the host "+
