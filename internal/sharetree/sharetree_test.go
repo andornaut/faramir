@@ -156,7 +156,7 @@ func TestTraversalAction(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := traversalAction(info, tc.gid)
+			got, err := traversalAction(info, groupEntrant(tc.gid))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,7 +188,7 @@ func TestBlockersNamesThePathAndChangesNothing(t *testing.T) {
 		}
 	}
 
-	blocked, err := blockers(home, tree, int(st.Gid))
+	blocked, err := blockers(home, tree, groupEntrant(int(st.Gid)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,7 +477,7 @@ func TestGrantTraversalDoesNotFollowASwappedComponent(t *testing.T) {
 	}
 	// It fails rather than following: os.Root refuses a name that resolves
 	// outside the directory it was opened on.
-	if _, err := blockers(home, tree, int(st.Gid)); err == nil {
+	if _, err := blockers(home, tree, groupEntrant(int(st.Gid))); err == nil {
 		t.Error("a swapped component was walked into")
 	}
 
@@ -504,7 +504,7 @@ func TestBlockersOnTheHomeItselfReportsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	blocked, err := blockers(home, home, int(st.Gid))
+	blocked, err := blockers(home, home, groupEntrant(int(st.Gid)))
 	if err != nil {
 		t.Fatalf("asking about the home itself: %v", err)
 	}
@@ -551,5 +551,50 @@ func TestComponentsStopAboveTheLastElement(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A directory the account can already enter is not a blocker, whichever of its
+// groups opens it. The broker is in its own group and in the client group, so
+// asking the client group alone reports a path the broker walks every day as
+// one it cannot reach, and hands the operator a chgrp that changes nothing.
+func TestAnAccountIsAskedAboutEveryGroupItIsIn(t *testing.T) {
+	dir := t.TempDir()
+	var st syscall.Stat_t
+	if err := syscall.Stat(dir, &st); err != nil {
+		t.Fatal(err)
+	}
+	// Grouped to the account's own group, open to that group and to nobody
+	// else: the arrangement the client group would be asked about and miss.
+	if err := os.Chmod(dir, 0o710); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const foreign = 1 // a gid the directory is not in
+	mine := int(st.Gid)
+
+	// Asked about a group that does not own it, this is a blocker.
+	if got, err := traversalAction(info, groupEntrant(foreign)); err != nil || got == leaveAlone {
+		t.Errorf("traversalAction for a foreign group = %v (%v), want it reported", got, err)
+	}
+	// Asked about an account that is in the owning group, it is not.
+	who := entrant{uid: -1, gids: []int{foreign, mine}}
+	if got, err := traversalAction(info, who); err != nil || got != leaveAlone {
+		t.Errorf("traversalAction for an account in the owning group = %v (%v), want leaveAlone", got, err)
+	}
+	// And the owner's own execute bit answers for the owner.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if info, err = os.Stat(dir); err != nil {
+		t.Fatal(err)
+	}
+	owner := entrant{uid: int(st.Uid), gids: []int{foreign}}
+	if got, err := traversalAction(info, owner); err != nil || got != leaveAlone {
+		t.Errorf("traversalAction for the owner = %v (%v), want leaveAlone", got, err)
 	}
 }

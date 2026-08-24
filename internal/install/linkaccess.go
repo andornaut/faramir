@@ -35,16 +35,22 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	}
 	// A directory above it answers for the file whatever the file's own bits say,
 	// so it is asked first.
+	//
+	// Asked about the broker rather than about the client group, this being the
+	// one account that has to get there: it is in more than one group, and a
+	// directory the operator opened to another of them is one it can already
+	// enter. The client group is still what a remedy names.
 	blocked, err := sharetree.Traversable(sharetree.Options{
 		Dir: link.Path, Operator: r.opts.AgentUser, Group: r.layout.ClientGroup,
+		Account: r.layout.BrokerUser,
 	})
 	if err != nil {
 		return "", err
 	}
 	if len(blocked) > 0 {
-		return fmt.Sprintf("%s cannot reach %s (%s): %s cannot enter %s. Open "+
+		return fmt.Sprintf("%s cannot reach %s (%s): it cannot enter %s. Open "+
 			"them:\n%s", r.layout.BrokerUser, link.Path, link.Ref,
-			r.layout.ClientGroup, sharetree.Describe(blocked),
+			sharetree.Describe(blocked),
 			sharetree.Fix(blocked, r.layout.ClientGroup)), nil
 	}
 

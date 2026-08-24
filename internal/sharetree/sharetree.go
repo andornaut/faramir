@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -45,6 +46,16 @@ type Options struct {
 	// can move a secret. `faramir doctor` reports a tree whose agent files
 	// stopped carrying what the enrolment wrote.
 	Keep []string
+	// Account, when set, is who has to get there, rather than which group does.
+	// Traversable then asks the kernel's question -- owner, then any group the
+	// account is in, then other -- so a directory already open to the account
+	// another way is not a blocker. Group is still the one a remedy names.
+	//
+	// Set where the caller knows which account has to reach a path: the broker
+	// reaching a linked file is one account, and it is in more than one group.
+	// Left empty where the question really is about the group, as it is for a
+	// tree three accounts share.
+	Account string
 	// Log receives one line per step, already formatted.
 	Log func(string)
 }
@@ -147,7 +158,8 @@ type Blocker struct {
 
 // Traversable reports which directories from the operator's home down to the
 // path named the group cannot enter, and alters none of them. Empty means the
-// group can already reach it.
+// group can already reach it. With Options.Account set the question is asked
+// about that account instead; see the field.
 //
 // The last component is left out of the question, because whatever names it
 // grants it: Share sets the tree it is about to share, and a link's own file is
@@ -173,7 +185,65 @@ func Traversable(opts Options) ([]Blocker, error) {
 	if home == "" || !within(home, dir) {
 		return nil, nil
 	}
-	return blockers(home, dir, gid)
+	who := groupEntrant(gid)
+	if opts.Account != "" {
+		who, err = entrantFor(opts.Account, gid)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return blockers(home, dir, who)
+}
+
+// entrant is who has to get in: a uid, or -1 where the caller asked about a
+// group and no account owns the question, and every gid that counts.
+type entrant struct {
+	uid  int
+	gids []int
+}
+
+// groupEntrant is the question asked about a group alone, where the owner bits
+// answer for nobody the caller is speaking for.
+func groupEntrant(gid int) entrant { return entrant{uid: -1, gids: []int{gid}} }
+
+// entrantFor is the account's own uid and groups, with the group a remedy would
+// name folded in: a dry run against a group nobody is in yet still reports what
+// that group would open.
+func entrantFor(account string, gid int) (entrant, error) {
+	entry, err := user.Lookup(account)
+	if err != nil {
+		return entrant{}, fmt.Errorf("no such user %q: %w", account, err)
+	}
+	uid, _ := strconv.Atoi(entry.Uid)
+	who := entrant{uid: uid, gids: []int{gid}}
+	ids, err := entry.GroupIds()
+	if err != nil {
+		return entrant{}, err
+	}
+	for _, id := range ids {
+		n, convErr := strconv.Atoi(id)
+		if convErr != nil {
+			continue
+		}
+		if !slices.Contains(who.gids, n) {
+			who.gids = append(who.gids, n)
+		}
+	}
+	return who, nil
+}
+
+// canEnter reports whether this account may traverse a directory at that
+// ownership and mode: the kernel's own order, owner then group then other.
+// ACLs and CAP_DAC_OVERRIDE are not read, so this is the answer for an
+// ordinary account on an ordinary filesystem.
+func (e entrant) canEnter(st *syscall.Stat_t, mode os.FileMode) bool {
+	if e.uid >= 0 && int(st.Uid) == e.uid {
+		return mode&0o100 != 0
+	}
+	if slices.Contains(e.gids, int(st.Gid)) {
+		return mode&0o010 != 0
+	}
+	return mode&0o001 != 0
 }
 
 // Fix is what the operator runs to open the reported directories, one command
@@ -386,7 +456,7 @@ func components(home, dir string) []string {
 // this runs as root over paths the agent's uid can replace, so resolving a name
 // once to stat it and again to report it can answer about two different
 // directories.
-func blockers(home, dir string, gid int) ([]Blocker, error) {
+func blockers(home, dir string, who entrant) ([]Blocker, error) {
 	parts := components(home, dir)
 	if len(parts) == 0 {
 		// The tree is the home, so there is nothing above it to walk.
@@ -400,7 +470,7 @@ func blockers(home, dir string, gid int) ([]Blocker, error) {
 
 	var found []Blocker
 	add := func(name string, info os.FileInfo) error {
-		action, err := traversalAction(info, gid)
+		action, err := traversalAction(info, who)
 		if err != nil || action == leaveAlone {
 			return err
 		}
@@ -450,24 +520,24 @@ const (
 	regroup
 )
 
-// traversalAction decides what one directory on the path needs.
-func traversalAction(info os.FileInfo, gid int) (traversal, error) {
+// traversalAction decides what one directory on the path needs. Nothing, where
+// whoever was asked about can already enter it: tightening a directory the
+// operator left open is not this command's business, and neither is regrouping
+// one that is already open to the account another way.
+func traversalAction(info os.FileInfo, who entrant) (traversal, error) {
 	mode := info.Mode().Perm()
-	// Already open to everyone. Tightening a directory the operator left open is
-	// not this command's business.
-	if mode&0o001 != 0 {
-		return leaveAlone, nil
-	}
 	// Read off the same FileInfo the mode came from, rather than stat-ing the path
 	// a second time.
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return leaveAlone, errors.New("cannot read ownership")
 	}
-	if int(st.Gid) == gid {
-		if mode&0o010 != 0 {
-			return leaveAlone, nil
-		}
+	if who.canEnter(st, mode) {
+		return leaveAlone, nil
+	}
+	// Blocked. The remedy is the execute bit alone where the group a fix would
+	// name already owns it, and a regroup otherwise.
+	if len(who.gids) > 0 && int(st.Gid) == who.gids[0] {
 		return addExecute, nil
 	}
 	return regroup, nil
