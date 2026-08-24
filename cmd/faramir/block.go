@@ -92,7 +92,9 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 func (f *blockFlags) register(c *cobra.Command) {
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
-		"account the coding agent runs as (default $SUDO_USER, then you)")
+		"account the coding agent runs as. Defaults to what [server] agent_user "+
+			"records, and naming a different one is refused: `faramir init "+
+			"--agent-user` is what changes who the host belongs to")
 }
 
 // registerForms is on add and rm and not on ls, which takes none of them. Each
@@ -148,7 +150,12 @@ func runBlockAdd(f blockFlags, args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 		return 1
 	}
-	report, added, err := install.AddBlockedPaths(blockOptions(f, dir), blocked)
+	opts, err := blockOptions(f, dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
+		return 2
+	}
+	report, added, err := install.AddBlockedPaths(opts, blocked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 	}
@@ -224,7 +231,12 @@ func runBlockRemove(f blockFlags, args []string) int {
 	if !requireRoot("block rm", "it writes the config") {
 		return 1
 	}
-	report, removed, err := install.RemoveBlockedPaths(blockOptions(f, dir), asked)
+	opts, err := blockOptions(f, dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
+		return 2
+	}
+	report, removed, err := install.RemoveBlockedPaths(opts, asked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 	}
@@ -567,12 +579,16 @@ func errReason(err error) string {
 	return "stat failed"
 }
 
-func blockOptions(f blockFlags, dir string) install.Options {
+func blockOptions(f blockFlags, dir string) (install.Options, error) {
+	// The recorded agent_user ahead of everything, for the reason recordedOperator
+	// gives: this rewrites the config and is not what decides who owns the host.
+	operator, err := recordedOperator(filepath.Join(dir, "config.toml"), f.agentUser)
+	if err != nil {
+		return install.Options{}, err
+	}
 	return install.Options{
 		ConfigDir: dir,
-		// The recorded agent_user behind the flag and SUDO_USER, for the reason
-		// link's installOptions gives.
-		AgentUser: operatorFromConfig(filepath.Join(dir, "config.toml"), f.agentUser),
+		AgentUser: operator,
 		Log:       stepLog(f.json),
-	}
+	}, nil
 }

@@ -631,6 +631,53 @@ func operatorFromConfig(configFile, flagValue string) string {
 	return cfg.Server.AgentUser
 }
 
+// recordedOperator is operatorFromConfig the other way round, for a command that
+// rewrites the config without being `init`: what [server] agent_user records
+// wins, and the environment does not get a say.
+//
+// `init` decides who the host belongs to; every other command that writes the
+// config re-renders the whole of it, so one that resolved the operator afresh
+// would rename the host's owner as a side effect of adding an entry. A brokered
+// `sudo faramir block add` is where that lands: sudo sets SUDO_USER to the
+// executor, the rewrite records that account as the operator, and every path
+// rule is then rendered against its home. The rules keep the absolute spelling
+// and lose the `~`, `$HOME` and `${HOME}` ones of every path under the
+// operator's own home, which is silent, because dropping a spelling is not a
+// step that failed.
+//
+// A flag that disagrees is refused rather than obeyed or ignored: naming another
+// account here is asking to change the operator, and `faramir init --agent-user`
+// is what does that. Obeying it would leave a second route to the rewrite this
+// exists to close, and ignoring it would act on an install the caller did not
+// name.
+//
+// The fallback is only for an install whose config records nothing, which is one
+// `init` has not finished: there is no recorded answer to prefer, so this is the
+// resolution every other command uses. A config that will not load records
+// nothing either, and is not reported here: every caller writes that same file a
+// moment later and fails with an error naming it, where this would name only the
+// operator it could not read.
+//
+// A recorded service account is not an answer to keep. It is what this change
+// prevents being written, so a host that already carries one is repaired by the
+// next run rather than held at it.
+func recordedOperator(configFile, flagValue string) (string, error) {
+	recorded := ""
+	if cfg, err := config.Load(configFile); err == nil && !notTheOperator[cfg.Server.AgentUser] {
+		recorded = cfg.Server.AgentUser
+	}
+	switch {
+	case recorded == "":
+		return operatorName(flagValue), nil
+	case flagValue != "" && flagValue != recorded:
+		return "", fmt.Errorf("--agent-user %s, and %s records the operator as %s. "+
+			"This command rewrites the config and does not decide who the host "+
+			"belongs to; `sudo faramir init --agent-user %s` is what changes that",
+			flagValue, configFile, recorded, flagValue)
+	}
+	return recorded, nil
+}
+
 func runDoctor(f doctorFlags) int {
 
 	paint, err := newPalette(f.when)

@@ -44,7 +44,9 @@ type linkFlags struct {
 func (f *linkFlags) register(c *cobra.Command) {
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
-		"account the coding agent runs as (default $SUDO_USER, then you)")
+		"account the coding agent runs as. Defaults to what [server] agent_user "+
+			"records, and naming a different one is refused: `faramir init "+
+			"--agent-user` is what changes who the host belongs to")
 }
 
 func newLinkAddCmd() *cobra.Command {
@@ -86,7 +88,12 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 		return 1
 	}
 	link := config.Link{Ref: ref, Path: path, Type: f.kind, Key: f.key}
-	report, added, err := install.AddLink(installOptions(f, dir), link)
+	opts, err := installOptions(f, dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
+		return 2
+	}
+	report, added, err := install.AddLink(opts, link)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
 	}
@@ -158,7 +165,12 @@ func runLinkRemove(f linkFlags, ref string) int {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 		return 1
 	}
-	report, removed, err := install.RemoveLink(installOptions(f, dir), ref)
+	opts, err := installOptions(f, dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
+		return 2
+	}
+	report, removed, err := install.RemoveLink(opts, ref)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 	}
@@ -282,18 +294,21 @@ func runLinkList(f linkFlags) int {
 
 // installOptions is the install this command acts on, at the directory the
 // caller has already resolved.
-func installOptions(f linkFlags, dir string) install.Options {
+func installOptions(f linkFlags, dir string) (install.Options, error) {
+	// The recorded agent_user ahead of everything, for the reason recordedOperator
+	// gives: these commands re-render the agent's rule files, and the account
+	// those rules are rendered against is not theirs to choose.
+	operator, err := recordedOperator(filepath.Join(dir, "config.toml"), f.agentUser)
+	if err != nil {
+		return install.Options{}, err
+	}
 	return install.Options{
 		ConfigDir: dir,
-		// The recorded agent_user behind the flag and SUDO_USER, as doctor reads
-		// it: these commands re-render the agent's rule files, and a root shell
-		// with no SUDO_USER was told to pass a flag naming what the config already
-		// said.
-		AgentUser: operatorFromConfig(filepath.Join(dir, "config.toml"), f.agentUser),
+		AgentUser: operator,
 		// Progress goes to stderr so --json owns stdout, and is suppressed under
 		// --json entirely, as `init` suppresses it: the steps are in the document.
 		Log: stepLog(f.json),
-	}
+	}, nil
 }
 
 // stepLog is where a run's per-step lines go: stderr, or nowhere under --json.
