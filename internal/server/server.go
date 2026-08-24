@@ -654,7 +654,13 @@ func (s *Server) opEscalations(request *protocol.Request, peer *sockutil.Peer) p
 	if refused := s.requireRoot("escalations", peer); refused != nil {
 		return *refused
 	}
-	wait := min(time.Duration(request.WaitSec)*time.Second, maxEscalationWait)
+	// Clamped in seconds, before the multiplication rather than after it: int64
+	// nanoseconds run out somewhere past 292 years, so a large enough WaitSec
+	// wraps negative and the min below keeps the negative. Poll would then return
+	// at once on a request that asked to wait, which reads as a watcher that will
+	// not hold. The parser bounds this below and not above, any non-negative
+	// integer reaching here.
+	wait := time.Duration(min(request.WaitSec, maxEscalationWaitSec)) * time.Second
 	questions, finished := s.Escalation.Poll(wait, request.AwaitLogID)
 	// Present only when the caller named a run and that run has ended, rather
 	// than carrying a null nothing asked for.
@@ -710,7 +716,14 @@ func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) proto
 
 // maxEscalationWait bounds a watcher's long poll. It returns an empty list and
 // the watcher asks again, so a broker restarted under it is noticed.
-const maxEscalationWait = 60 * time.Second
+//
+// In seconds as well, for the clamp in opEscalations: a caller's WaitSec is a
+// count of seconds, and holding it to this before it becomes a Duration is what
+// keeps the multiplication from wrapping.
+const (
+	maxEscalationWaitSec = 60
+	maxEscalationWait    = maxEscalationWaitSec * time.Second
+)
 
 func (s *Server) opListSecrets() protocol.Response {
 	// Names only, and only refs that loaded: a value the redactor cannot cover is

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -454,5 +455,34 @@ func TestExecNamesTheOperator(t *testing.T) {
 	if !protocol.ReservedEnv[protocol.OperatorEnv] {
 		t.Errorf("%s is not reserved, so a caller could name the operator",
 			protocol.OperatorEnv)
+	}
+}
+
+// A watcher's long poll is built from a count of seconds the caller sends, and
+// the parser bounds that below and not above. Clamping after the multiplication
+// would be too late: int64 nanoseconds run out somewhere past 292 years, so a
+// large enough value wraps negative and a min against the ceiling keeps the
+// negative. Poll then returns at once on a request that asked to wait.
+//
+// The same shape the command timeout had before responseWait saturated it.
+func TestTheEscalationWaitDoesNotWrapOnAHugeWaitSec(t *testing.T) {
+	for _, seconds := range []int{
+		0, 1, 30, maxEscalationWaitSec, maxEscalationWaitSec + 1,
+		1 << 30, 1 << 62, math.MaxInt64,
+	} {
+		wait := time.Duration(min(seconds, maxEscalationWaitSec)) * time.Second
+		switch {
+		case wait < 0:
+			t.Errorf("wait_sec %d gives %v, a deadline already past", seconds, wait)
+		case wait > maxEscalationWait:
+			t.Errorf("wait_sec %d gives %v, past the ceiling of %v",
+				seconds, wait, maxEscalationWait)
+		}
+	}
+	// And a wait under the ceiling is still the one asked for. Through a variable,
+	// the constants folding away otherwise and asserting nothing about the clamp.
+	asked := 30
+	if got := time.Duration(min(asked, maxEscalationWaitSec)) * time.Second; got != 30*time.Second {
+		t.Errorf("wait_sec %d gives %v, want 30s", asked, got)
 	}
 }
