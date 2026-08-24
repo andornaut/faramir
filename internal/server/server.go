@@ -283,12 +283,11 @@ func (s *Server) serveConnection(conn net.Conn) {
 			return
 		}
 		// Watched for the whole of a run, and only for a run: the caller holds
-		// its write side open until it has the answer, so an EOF here is a
-		// caller that is gone rather than one that has finished asking. A run
-		// nobody is waiting for is killed rather than left to its timeout.
-		abandoned, stopWatching := s.watchPeer(conn, request.Op)
-		response := s.dispatch(request, peer, stream, abandoned)
-		stopWatching()
+		// its write side open until it has the answer, so a read that fails
+		// here is a caller that is gone rather than one that has finished
+		// asking. A run nobody is waiting for is killed rather than left to its
+		// timeout.
+		response := s.dispatch(request, peer, stream, s.watchPeer(conn, request.Op))
 		s.extend(conn, peerWait, true)
 		if err := sockutil.Send(conn, response); err != nil {
 			return
@@ -347,38 +346,47 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 
 // watchPeer reports when the caller's connection goes, for the ops worth
 // killing: a run, which may hold a concurrency slot for an hour. Everything
-// else answers in a round trip, so watching it would cost a goroutine per
-// request to catch a window too short to be in.
+// else answers without running anything, so watching it would cost a goroutine
+// per request to catch a window too short to be in.
 //
 // The read is what detects it. Nothing else is sent down this connection while
-// a run is in flight, so the read blocks until the peer closes, and the caller
-// no longer half-closes its write side for exactly this reason. Any error is
-// treated as the caller having gone: what would be lost is a request this
-// connection is not going to answer anyway.
+// a run is in flight, so it blocks until the peer closes, and the caller no
+// longer half-closes its write side for exactly this reason.
 //
-// The returned stop is called before the response is written, so the watcher
-// is not reading the connection while the loop is deciding what to do with it.
-func (s *Server) watchPeer(conn net.Conn, op string) (<-chan struct{}, func()) {
+// The goroutine outlives the run: serveConnection closes the connection on its
+// way out, which is what ends the read. Whatever it decides then reaches
+// nobody, the run having already returned.
+func (s *Server) watchPeer(conn net.Conn, op string) <-chan struct{} {
 	if op != protocol.OpRun {
-		return nil, func() {}
+		return nil
 	}
-	gone, done := make(chan struct{}), make(chan struct{})
+	gone := make(chan struct{})
 	go func() {
-		var one [1]byte
-		read := make(chan struct{})
-		go func() {
-			defer close(read)
-			_, _ = conn.Read(one[:])
-		}()
-		select {
-		case <-read:
-			close(gone)
-		case <-done:
-			// The run ended first. The read is left parked on a connection the
-			// loop is about to answer on and close, which is what ends it.
+		// Read until it fails, rather than until it returns: bytes arriving are
+		// a caller that is still here, whatever it sent. Killing the run on them
+		// would answer a caller that spoke out of turn by taking its command
+		// away. Nothing on this socket sends a second request down a connection
+		// carrying a run, so they are discarded.
+		var buf [64]byte
+		for {
+			_, err := conn.Read(buf[:])
+			switch {
+			case err == nil:
+			// A deadline in the past is Close sweeping this connection, which is
+			// the broker stopping rather than the caller leaving. The run ends
+			// either way -- the executor tears down a run whose broker has gone,
+			// which is what keeps an orphan from holding a credential -- and
+			// this is about which reason is recorded. A stop is not a caller
+			// walking away from its command.
+			case os.IsTimeout(err):
+				return
+			default:
+				close(gone)
+				return
+			}
 		}
 	}()
-	return gone, func() { close(done) }
+	return gone
 }
 
 // dispatch routes a parsed request. stream is the connection's redact state,

@@ -1,10 +1,12 @@
 package server
 
 import (
+	"net"
 	"testing"
 	"time"
 
 	"github.com/andornaut/faramir/internal/executor"
+	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
@@ -113,16 +115,106 @@ func TestOnlyARunIsWatched(t *testing.T) {
 	conn, _ := serving(t, s)()
 	for _, op := range []string{"status", "refs", "redact", "refresh"} {
 		t.Run(op, func(t *testing.T) {
-			watched, stop := s.watchPeer(conn, op)
-			defer stop()
-			if watched != nil {
+			if s.watchPeer(conn, op) != nil {
 				t.Errorf("%s is watched", op)
 			}
 		})
 	}
-	watched, stop := s.watchPeer(conn, "run")
-	defer stop()
-	if watched == nil {
+	if s.watchPeer(conn, "run") == nil {
 		t.Error("a run is not watched")
+	}
+}
+
+// Bytes arriving on the connection are a caller that is still here, whatever
+// it sent. Reading one and calling it an EOF would answer a caller that spoke
+// out of turn by taking its command away, which is the opposite of what the
+// watch is for.
+func TestABusyCallerIsNotMistakenForOneThatHasGone(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": goodValue})
+	var abandonedEarly bool
+	running := make(chan struct{})
+	s.exec = func(_ *redact.Redactor, _ func(string), req executor.Request) (*executor.Result, error) {
+		close(running)
+		select {
+		case <-req.Abandoned:
+			abandonedEarly = true
+		case <-time.After(500 * time.Millisecond):
+		}
+		return &executor.Result{ExitCode: 0, Output: "done\n"}, nil
+	}
+
+	dial := serving(t, s)
+	conn, lines := dial()
+	if err := sockutil.Send(conn, map[string]any{
+		"version": version.Version, "op": "run",
+		"cmd": []string{"true"}, "cwd": t.TempDir(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-running:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the run never started")
+	}
+	// More down the same connection while the run is in flight. Nothing faramir
+	// ships does this; what matters is that it is not read as a caller leaving.
+	if _, err := conn.Write([]byte("{\"op\":\"status\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := lines.Next(); err != nil {
+		t.Fatalf("no answer: %v", err)
+	}
+	if abandonedEarly {
+		t.Error("a caller that sent something read as one that had gone, so its " +
+			"command was killed")
+	}
+}
+
+// Close sweeps its connections by setting a deadline in the past, so a read
+// parked on one returns a timeout. That is the broker stopping, not the caller
+// leaving. The run ends either way, the executor tearing down a run whose
+// broker has gone; what this decides is the reason, and a stop is not a caller
+// walking away from its command.
+//
+// The watch ends there rather than resuming. A swept connection is not
+// un-swept, and nothing else sets a deadline on one carrying a run.
+func TestABrokerStoppingIsNotACallerLeaving(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": goodValue})
+	left, right := net.Pipe()
+	defer func() { _ = left.Close(); _ = right.Close() }()
+
+	gone := s.watchPeer(left, protocol.OpRun)
+	if gone == nil {
+		t.Fatal("a run is not watched")
+	}
+	// What Close does to a live connection.
+	if err := left.SetDeadline(time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-gone:
+		t.Fatal("a swept connection read as a caller that had gone, so a broker " +
+			"stop would kill the command it is waiting for")
+	case <-time.After(500 * time.Millisecond):
+	}
+}
+
+// And a connection that simply closes is the caller leaving, which is the
+// other half of the same question.
+func TestAClosedConnectionIsACallerLeaving(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": goodValue})
+	left, right := net.Pipe()
+	defer func() { _ = left.Close() }()
+
+	gone := s.watchPeer(left, protocol.OpRun)
+	if gone == nil {
+		t.Fatal("a run is not watched")
+	}
+	_ = right.Close()
+	select {
+	case <-gone:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the caller left and the run was not told")
 	}
 }

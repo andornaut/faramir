@@ -72,7 +72,7 @@ Field | Required | Notes
 `env_refs` | no | `NAME` to `faramir://ref`. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$` and must not be reserved. Values cannot be passed.
 `timeout_sec` | no | Positive integer, clamped down to `[command] max_timeout_sec`. Omitted means `[command] timeout_sec`.
 
-A caller keeps its write side open until it has the answer. The broker reads the connection for the whole of a run, and an EOF there is the caller having gone: the run is killed and the record carries `abandoned`. A half-close would read as one, so a client that shuts down its write half after sending is a client whose every command dies the moment it starts. Nothing else on this socket is watched that way, every other op answering in a round trip.
+A caller keeps its write side open until it has the answer. The broker reads the connection for the whole of a run, and a read that fails there is the caller having gone: the run is killed and the record carries `abandoned`. A half-close would read as one, so a client that shuts down its write half after sending is a client whose every command dies the moment it starts. Bytes arriving are a caller that is still there, whatever it sent, so a second request down a connection already carrying a run is discarded rather than answered. No other op is watched: a run is the only one that holds a `[command] concurrency` slot and can outlive its caller by an hour.
 
 Reserved `env_refs` names, refused so injection cannot redirect the loader, the interpreter, sops or the agent relay. Anything outside this set is accepted:
 
