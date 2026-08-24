@@ -246,6 +246,12 @@ func TestPreflightBoundsCommandConcurrency(t *testing.T) {
 		refused bool
 	}{
 		{"below the floor", -1, true},
+		// Not refused: zero is the unset signal every tunable shares, and
+		// applyDefaults has turned it into the default before preflight looks.
+		// A caller that builds Options directly and never calls applyDefaults
+		// leaves it at zero, and refusing that would refuse the run over a value
+		// nobody typed.
+		{"the unset signal", 0, false},
 		{"at the floor", 1, false},
 		{"at the ceiling", config.MaxConcurrentRuns, false},
 		{"past the ceiling", config.MaxConcurrentRuns + 1, true},

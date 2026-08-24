@@ -42,7 +42,7 @@ Flag | Key | Default | Bounds
 `--command-env NAME=VALUE` | `[command.env] NAME` | `PATH`, `TERM`, `LANG`, `LC_ALL`, `DEBIAN_FRONTEND` | Repeatable, and it **adds**: naming one variable keeps the rest. `PATH` may not be empty, and every component must be absolute.
 `--command-timeout-sec` | `[command] timeout_sec` | 600 | At least 1. Zero would kill every command as it started.
 `--command-max-timeout-sec` | `[command] max_timeout_sec` | 3600 | At least 1, and not below `timeout_sec`. A lower value would silently replace `timeout_sec` for every command.
-`--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor forks at once. `init` refuses either end: below 1 the broker runs nothing, and above 16 the surplus is refused by the executor *after* the run was recorded as started.
+`--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor forks at once. `init` refuses a negative value and anything above 16, where the surplus is refused by the executor *after* the run was recorded as started. Zero is the unset signal, so `--command-concurrency 0` installs the default.
 `--command-max-memory-percent` | `[command] max_memory_percent` | 25 | 10 to 100. Rendered as `MemoryMax=` on the executor unit.
 `--command-max-process-memory-mb` | `[command] max_process_memory_mb` | 4096 | 256 to 1048576. Rendered as `LimitDATA=` on the executor unit and inherited by every child.
 `--sudo-timeout-sec` | `[sudo] timeout_sec` | 120 | 1 to 600. How long a sudo question waits for a human.

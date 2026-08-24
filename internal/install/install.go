@@ -545,16 +545,18 @@ func (r *runner) preflight() error {
 			"or fewer",
 			r.opts.CommandConcurrency, config.MaxConcurrentRuns, config.MaxConcurrentRuns)
 	}
-	// The same bound from the other side. Zero never reaches here: it is the
-	// unset signal every tunable shares, and applyDefaults has already turned it
-	// into the default. A negative one panics the broker as it sizes its slot
-	// channel, so the loader refuses it and the config is never written -- but
-	// that arrives as a parse error from a file the operator did not type, after
-	// preflight has already passed. Named here it is the flag that is wrong.
-	if r.opts.CommandConcurrency < 1 {
-		return fmt.Errorf("--command-concurrency %d is below the 1 a broker needs to run "+
-			"anything: zero refuses every command as busy and a negative one will not "+
-			"start. Name 1 or more",
+	// The same bound from the other side, and negative rather than below 1:
+	// zero is the unset signal every tunable shares, so applyDefaults turns it
+	// into the default and a caller that builds Options directly leaves it there.
+	// Refusing zero here would refuse every such caller for a value nobody typed.
+	//
+	// A negative one panics the broker as it sizes its slot channel, so the
+	// loader refuses it and the config is never written. That arrives as a parse
+	// error about a file the operator did not type, after preflight has already
+	// passed; named here it is the flag that is wrong.
+	if r.opts.CommandConcurrency < 0 {
+		return fmt.Errorf("--command-concurrency %d is negative, and a broker cannot "+
+			"size itself to run fewer than no commands at all. Name 1 or more",
 			r.opts.CommandConcurrency)
 	}
 	// Read before an account or a key exists: reporting a typo at the step would

@@ -153,11 +153,15 @@ head_ "6. a config.d beside the file is not read"
 # Counted before and after: this host holds a value shorter than min_length of
 # its own, so "none refused" is not the question. Whether the number moves is.
 was=$(check | jq -r '.secrets.not_redactable | length' 2>/dev/null)
+# Whatever the suite above left, not a fixed number: this asks whether the
+# drop-in changed anything, and hard-coding the value made it ask instead
+# which tunables the earlier sections happened to set.
+before=$(value min_length)
 mkdir -p $CONFIG_DIR/config.d
 printf '[secret]\nmin_length = 30\n' > $CONFIG_DIR/config.d/50-stale.toml
 settle || bad "the host did not come back with a stale drop-in present"
-[ "$(value min_length)" = "8" ] && ok "the config still says 8" \
-  || bad "min_length = $(value min_length)"
+[ "$(value min_length)" = "$before" ] && ok "the config still says $before" \
+  || bad "min_length = $(value min_length), want $before"
 now=$(check | jq -r '.secrets.not_redactable | length' 2>/dev/null)
 [ "${now:-0}" = "${was:-0}" ] && ok "and the drop-in refused nothing new (${now:-0} either way)" \
   || bad "a drop-in was applied: ${was:-0} ref(s) refused before, ${now:-0} after"
