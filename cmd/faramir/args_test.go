@@ -140,3 +140,26 @@ func TestCommandEnvHoldsTheNameToWhatAShellCanRead(t *testing.T) {
 		t.Errorf("K = %q, want %q", got["K"], "a=b")
 	}
 }
+
+// Every broker op is one request and one response, and --json prints it. A
+// redaction is neither: the command streams chunks and its output is the
+// redacted text. The flag was accepted there and read by nothing, so a caller
+// that asked for the raw response got the plain output and exit 0, which reads
+// as a response with nothing in it.
+func TestRedactHasNoRawResponseToPrint(t *testing.T) {
+	if flag := newRedactCmd().Flags().Lookup("json"); flag != nil {
+		t.Fatalf("redact offers --json (%q); nothing reads it", flag.Usage)
+	}
+	var usage bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&usage)
+	root.SetErr(&usage)
+	root.SetArgs([]string{"redact", "--json"})
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("--json was accepted")
+	}
+	if code := exitCode(err); code != 2 {
+		t.Errorf("exit = %d, want 2 for a flag this command does not take", code)
+	}
+}

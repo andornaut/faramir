@@ -317,8 +317,12 @@ const chunkBytes = 32 << 10
 // filters what it prints, preserving its exit status. One failure policy for
 // both shapes: text that could not be redacted is never written, and the exit
 // status is non-zero.
+//
+// It takes no --json. Every other broker op is one request and one response,
+// which that flag prints; a redaction is a stream of them, and the output is
+// the redacted text rather than a reply to render. A flag accepted here and
+// read by nothing said this command had a raw response to show.
 func newRedactCmd() *cobra.Command {
-	var o brokerOptions
 	c := &cobra.Command{
 		Use:     "redact [options] [-- command [args...]]",
 		Short:   "Scrub secrets out of text, or out of a command's output",
@@ -334,7 +338,6 @@ func newRedactCmd() *cobra.Command {
 			return nil
 		},
 	}
-	o.add(c)
 	return c
 }
 
