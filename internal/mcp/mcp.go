@@ -29,6 +29,7 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/termsafe"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -359,9 +360,13 @@ func callTool(name string, arguments map[string]any) map[string]any {
 }
 
 type message struct {
-	Method string          `json:"method"`
-	ID     json.RawMessage `json:"id"`
-	Params struct {
+	// JSONRPC is the version the caller claims. Required, and required to be
+	// "2.0": MCP is JSON-RPC 2.0, and a message that names another version or
+	// none is a client speaking something this does not implement.
+	JSONRPC string          `json:"jsonrpc"`
+	Method  string          `json:"method"`
+	ID      json.RawMessage `json:"id"`
+	Params  struct {
 		ProtocolVersion string         `json:"protocolVersion"`
 		Name            string         `json:"name"`
 		Arguments       map[string]any `json:"arguments"`
@@ -446,12 +451,26 @@ func serve(stdin io.Reader, stdout io.Writer) int {
 		if line == "" {
 			continue
 		}
+		// A batch is a JSON array: JSON-RPC 2.0 has them and MCP took them out,
+		// so this is a client of a protocol version this does not speak rather
+		// than a client with a bug. Asked before the decode, which cannot hold
+		// an array and would answer it as damaged bytes.
+		if strings.HasPrefix(line, "[") {
+			emit(out, rpcError(-32600,
+				"batches are not supported; MCP carries one message per line"))
+			continue
+		}
 		var m message
 		if err := json.Unmarshal([]byte(line), &m); err != nil {
-			emit(out, map[string]any{
-				"jsonrpc": jsonrpcVersion, "id": nil,
-				"error": map[string]any{"code": -32700, "message": "parse error"},
-			})
+			// Told apart from the refusal below: a line that is not JSON at all
+			// is the transport having gone wrong, and one that parses and is not
+			// a request this speaks is the client. Answering both as a parse
+			// error left a caller correcting the wrong half of its message.
+			emit(out, rpcError(-32700, "parse error: "+err.Error()))
+			continue
+		}
+		if why := unsupported(&m); why != "" {
+			emit(out, rpcError(-32600, why))
 			continue
 		}
 		if response := handle(&m); response != nil {
@@ -465,6 +484,36 @@ func serve(stdin io.Reader, stdout io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// unsupported is why this message is not a request this server speaks, or
+// empty where it is one. Answered as -32600 rather than -32700: the bytes
+// parsed, and what is wrong is what they say.
+//
+// The id is not echoed back, there being no id to trust in a message this does
+// not understand.
+func unsupported(m *message) string {
+	switch {
+	case m.JSONRPC == "":
+		return "this is JSON-RPC " + jsonrpcVersion + " and the message names no version"
+	case m.JSONRPC != jsonrpcVersion:
+		return fmt.Sprintf("this is JSON-RPC %s and the message names %s", jsonrpcVersion,
+			termsafe.Truncate(termsafe.Arg(m.JSONRPC), maxNamedVersion))
+	}
+	return ""
+}
+
+// maxNamedVersion is how much of a claimed version the refusal quotes back.
+// Every version anything sends is far shorter, so this only ever cuts a client
+// that sent something else.
+const maxNamedVersion = 64
+
+// rpcError is a failure with no id to answer under.
+func rpcError(code int, message string) map[string]any {
+	return map[string]any{
+		"jsonrpc": jsonrpcVersion, "id": nil,
+		"error": map[string]any{"code": code, "message": message},
+	}
 }
 
 func emit(out *bufio.Writer, response map[string]any) {

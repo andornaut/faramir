@@ -416,3 +416,46 @@ func TestDeclaredArgumentsAreTheOnesTheSchemaAdvertises(t *testing.T) {
 		t.Error("a _meta key from the client was refused")
 	}
 }
+
+// A line that parses and is not a request this speaks is the client, not the
+// transport. Both came back as -32700 "parse error", which sent a batch --
+// valid JSON, and JSON-RPC that MCP removed -- back as though the bytes were
+// damaged, and left a client naming another protocol version answered as
+// though it had spoken this one.
+func TestAMessageThisDoesNotSpeakIsRefusedAsTheRequestItIs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		line string
+		code float64
+		says string
+	}{
+		{"a batch", `[{"jsonrpc":"2.0","id":1,"method":"ping"}]`, -32600, "batches"},
+		{"another jsonrpc version", `{"jsonrpc":"1.0","id":1,"method":"ping"}`, -32600, "1.0"},
+		{"no jsonrpc version", `{"id":1,"method":"ping"}`, -32600, "no version"},
+		// Still told apart from bytes that are not JSON at all.
+		{"not JSON", `{not json`, -32700, "parse error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out strings.Builder
+			serve(strings.NewReader(tc.line+"\n"), &out)
+
+			var reply map[string]any
+			if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &reply); err != nil {
+				t.Fatalf("no answer: %v (%q)", err, out.String())
+			}
+			errObj, _ := reply["error"].(map[string]any)
+			if got, _ := errObj["code"].(float64); got != tc.code {
+				t.Errorf("code = %v, want %v: %s", got, tc.code, out.String())
+			}
+			if message, _ := errObj["message"].(string); !strings.Contains(message, tc.says) {
+				t.Errorf("message = %q, want it to say %q", message, tc.says)
+			}
+		})
+	}
+	// And an ordinary 2.0 request is still answered.
+	var out strings.Builder
+	serve(strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`+"\n"), &out)
+	if !strings.Contains(out.String(), `"result"`) {
+		t.Errorf("a 2.0 ping was not answered: %s", out.String())
+	}
+}
