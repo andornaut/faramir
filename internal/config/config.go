@@ -99,8 +99,8 @@ func DefaultSecret() SecretConfig {
 	return SecretConfig{DecryptCommand: DecryptCommand(), MinRefreshSec: 1, MinLength: 8}
 }
 
-// DefaultEscalationTimeoutSec is how long a question waits for a human.
-const DefaultEscalationTimeoutSec = 120
+// DefaultSudoTimeoutSec is how long a question waits for a human.
+const DefaultSudoTimeoutSec = 120
 
 // DecryptCommand is how the keeper invokes sops. Never a config key: the
 // account this runs as is the one holding the age key.
@@ -345,11 +345,11 @@ type SshConfig struct {
 	SshAdd      string
 }
 
-// EscalationConfig is how a brokered command becomes root on this host: it does
+// SudoConfig is how a brokered command becomes root on this host: it does
 // not authenticate, it asks. With no ExecUser nothing is granted and no
 // question can be raised, which is the install that never passed --allow-sudo.
 // Everything here but TimeoutSec is init's.
-type EscalationConfig struct {
+type SudoConfig struct {
 	// ExecUser is the account the sudoers entry was written for, and the switch
 	// for the whole arrangement. The helper checks PAM_USER against it, so a PAM
 	// service reached for some other account authenticates nothing.
@@ -498,15 +498,15 @@ type AuditConfig struct {
 
 type Config struct {
 	// The file this config was loaded from. Reported by status and --check.
-	Path       string
-	Server     ServerConfig
-	Keeper     KeeperConfig
-	Executor   ExecutorConfig
-	Command    CommandConfig
-	Ssh        SshConfig
-	Escalation EscalationConfig
-	Secret     SecretConfig
-	Audit      AuditConfig
+	Path     string
+	Server   ServerConfig
+	Keeper   KeeperConfig
+	Executor ExecutorConfig
+	Command  CommandConfig
+	Ssh      SshConfig
+	Sudo     SudoConfig
+	Secret   SecretConfig
+	Audit    AuditConfig
 }
 
 func Load(path string) (*Config, error) {
@@ -600,7 +600,7 @@ var (
 	// describe faramir's own processes. The rest are named for what an operator
 	// is deciding.
 	sections = []string{"server", "keeper", "executor", keyCommand, "ssh",
-		"escalation", "secret", "audit"}
+		"sudo", "secret", "audit"}
 	serverKeys = []string{keySocketPath, "allowed_group", "agent_user"}
 	keeperKeys = []string{keySocketPath, "allowed_user",
 		"age_key_credential", "age_key_file"}
@@ -609,7 +609,7 @@ var (
 		"max_memory_percent", "max_process_memory_mb"}
 	sshKeys = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
-	escalationKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
+	sudoKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
 		"notify_command", "timeout_sec"}
 	secretKeys = []string{"min_length", "min_refresh_sec", "link", "block"}
 	linkKeys   = []string{"ref", keyPath, "type", "key"}
@@ -644,7 +644,7 @@ func fromMap(raw map[string]any, path string) (*Config, error) {
 	if err := loadSsh(raw, path, &cfg.Ssh); err != nil {
 		return nil, err
 	}
-	if err := loadEscalation(raw, path, &cfg.Escalation); err != nil {
+	if err := loadSudo(raw, path, &cfg.Sudo); err != nil {
 		return nil, err
 	}
 	if err := loadAudit(raw, path, &cfg.Audit); err != nil {
@@ -1232,18 +1232,18 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 	return nil
 }
 
-func loadEscalation(raw map[string]any, path string, out *EscalationConfig) error {
-	where := path + ": [escalation]"
-	sec, err := table(raw, "escalation", path)
+func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
+	where := path + ": [sudo]"
+	sec, err := table(raw, "sudo", path)
 	if err != nil {
 		return err
 	}
-	if err := rejectUnknownKeys(sec, escalationKeys, where); err != nil {
+	if err := rejectUnknownKeys(sec, sudoKeys, where); err != nil {
 		return err
 	}
 	// No exec_user by default, which is the install that granted no sudoers
 	// entry: the rest describes where things would go if one ever did.
-	*out = EscalationConfig{
+	*out = SudoConfig{
 		PamService: "faramir-sudo",
 		// No default: which file carries the stack depends on which sudo the host
 		// has, and a guess here would be a config asserting something nobody
@@ -1254,7 +1254,7 @@ func loadEscalation(raw map[string]any, path string, out *EscalationConfig) erro
 		// Nothing by default: `faramir sudo watch` is where a question is
 		// seen and answered.
 		NotifyCommand: nil,
-		TimeoutSec:    DefaultEscalationTimeoutSec,
+		TimeoutSec:    DefaultSudoTimeoutSec,
 	}
 	if out.ExecUser, err = str(sec["exec_user"], where, ""); err != nil {
 		return err

@@ -125,7 +125,7 @@ func runPamEscalate(f pamEscalateFlags, granted *bool) int {
 }
 
 // askBrokerToApprove puts the question and waits for a human's answer. No
-// deadline of its own: the broker holds the question for [escalation]
+// deadline of its own: the broker holds the question for [sudo]
 // timeout_sec and refuses it after that.
 func askBrokerToApprove(socketPath string, ancestors []int) (bool, string, error) {
 	line, err := roundTrip(socketPath, map[string]any{"op": "escalate", "procs": ancestors}, escalationWait)
@@ -156,7 +156,7 @@ func askBrokerToApprove(socketPath string, ancestors []int) (bool, string, error
 // hold, or the helper gives up on a question still open and the operator's yes
 // lands on a sudo that has gone; and it must be short, because until it fires
 // sudo is blocked and the host refuses every other brokered command. So it is
-// [escalation] timeout_sec's own ceiling plus a margin for the round trip: the
+// [sudo] timeout_sec's own ceiling plus a margin for the round trip: the
 // helper cannot read the config, and the broker refuses to load a longer
 // timeout, so the broker always decides first.
 const escalationMarginSec = 30

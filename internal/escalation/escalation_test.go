@@ -12,8 +12,8 @@ import (
 
 // baseConfig is an enabled escalation with nothing announcing a question: the
 // tests answer through the same channel `faramir approve` does.
-func baseConfig() config.EscalationConfig {
-	return config.EscalationConfig{
+func baseConfig() config.SudoConfig {
+	return config.SudoConfig{
 		ExecUser:   "faramir-exec",
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-escalate",
@@ -21,7 +21,7 @@ func baseConfig() config.EscalationConfig {
 	}
 }
 
-func started(t *testing.T, cfg config.EscalationConfig) *Server {
+func started(t *testing.T, cfg config.SudoConfig) *Server {
 	t.Helper()
 	s := New(cfg)
 	// A quiet host, which is what these tests are about the other half of. It has
@@ -743,7 +743,7 @@ func TestPollBlocksUntilSomethingIsAsked(t *testing.T) {
 }
 
 // And the refusal is this one rather than a wait: the sudo comes back rather
-// than blocking for [escalation] timeout_sec on a question nobody can grant.
+// than blocking for [sudo] timeout_sec on a question nobody can grant.
 func TestTheEarlyRefusalDoesNotBlock(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
@@ -977,7 +977,7 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 	})
 
 	t.Run("a host that grants nothing", func(t *testing.T) {
-		s := started(t, config.EscalationConfig{})
+		s := started(t, config.SudoConfig{})
 		if _, code, _ := s.Ask(procsFor("whatever")); code != CodeNoGrant {
 			t.Errorf("code = %q, want %q", code, CodeNoGrant)
 		}

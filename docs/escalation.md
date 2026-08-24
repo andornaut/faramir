@@ -71,9 +71,9 @@ sudo faramir sudo watch
 
    **Colour**, where stdout is a terminal. The sentence at the top is bold, the labels down the left are painted, and the two ids are dimmed, being what the question is looked up by afterwards rather than what it is judged on. The values are never painted: everything to the right of a label came from the account that asked, so the colour stops where faramir's own words stop and a value cannot dress itself as part of the prompt. The endings the watcher prints take the green and red the `faramir logs` outcome column uses, the same operator reading both. `--color=never` or [`NO_COLOR`](https://no-color.org) turns it off, `--color=always` keeps it through a pipe.
 
-   The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits. `[escalation] notify_command` gets the whole sentence, having no second line to put the command on.
+   The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits. `[sudo] notify_command` gets the whole sentence, having no second line to put the command on.
 
-4. Anything but `y` is a refusal, `yes` included, and so is silence: the question expires after `[escalation] timeout_sec`, 120s by default and at most 600, counted from when it was raised. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
+4. Anything but `y` is a refusal, `yes` included, and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 600, counted from when it was raised. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
 
    ```text
      approve? [y/n]
@@ -109,7 +109,7 @@ There is no password anywhere: what satisfies `sudo` is a decision, so nothing i
 
 Approving from your own shell is the last resort: reaching root that way leaves a warm sudo timestamp in a shell the agent can use. Consider `Defaults:<you> timestamp_timeout=0`.
 
-`[escalation] notify_command` optionally announces a pending question. It carries no answer and nothing waits on it. Set it at install time, one argument per flag:
+`[sudo] notify_command` optionally announces a pending question. It carries no answer and nothing waits on it. Set it at install time, one argument per flag:
 
 ```sh
 faramir init --allow-sudo \

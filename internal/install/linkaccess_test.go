@@ -285,11 +285,11 @@ func TestLinkStepsResolveTheAgentsBeforeWritingThem(t *testing.T) {
 
 // Adding a link rewrites the whole of config.toml, and the sudo grant is not
 // adopted from anywhere: without this, `link add` on a host installed with
-// --allow-sudo would drop [escalation] and leave the sudoers entry and PAM service
+// --allow-sudo would drop [sudo] and leave the sudoers entry and PAM service
 // naming a broker that no longer names them.
 func TestALinkOperationKeepsTheSudoGrant(t *testing.T) {
 	dir := t.TempDir()
-	body := "[command]\ntimeout_sec = 600\n\n[escalation]\nexec_user = \"faramir-exec\"\n" +
+	body := "[command]\ntimeout_sec = 600\n\n[sudo]\nexec_user = \"faramir-exec\"\n" +
 		"notify_command = [\"/usr/bin/wall\", \"{prompt}\"]\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)

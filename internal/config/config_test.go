@@ -44,13 +44,13 @@ func TestEscalationIsOffUnlessConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Escalation.ExecUser != "" {
-		t.Errorf("exec_user = %q, want unset", cfg.Escalation.ExecUser)
+	if cfg.Sudo.ExecUser != "" {
+		t.Errorf("exec_user = %q, want unset", cfg.Sudo.ExecUser)
 	}
 	// The rest still has values, describing where things would go if one were
 	// ever set.
-	if cfg.Escalation.PamService == "" || cfg.Escalation.TimeoutSec == 0 {
-		t.Errorf("escalation defaults are incomplete: %+v", cfg.Escalation)
+	if cfg.Sudo.PamService == "" || cfg.Sudo.TimeoutSec == 0 {
+		t.Errorf("escalation defaults are incomplete: %+v", cfg.Sudo)
 	}
 }
 
@@ -62,10 +62,10 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Escalation.NotifyCommand) != 0 {
-		t.Errorf("notify_command = %q, want nothing by default", cfg.Escalation.NotifyCommand)
+	if len(cfg.Sudo.NotifyCommand) != 0 {
+		t.Errorf("notify_command = %q, want nothing by default", cfg.Sudo.NotifyCommand)
 	}
-	_, err = load(t, minimal+"[escalation]\nnotify_command = [\"wall\", \"something happened\"]\n")
+	_, err = load(t, minimal+"[sudo]\nnotify_command = [\"wall\", \"something happened\"]\n")
 	if err == nil {
 		t.Fatal("accepted a notifier that names neither the command nor the question")
 	}
@@ -73,7 +73,7 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 		t.Errorf("error does not name the key: %v", err)
 	}
 	// One that names either is fine.
-	if _, err := load(t, minimal+"[escalation]\nnotify_command = [\"wall\", \"{prompt}\"]\n"); err != nil {
+	if _, err := load(t, minimal+"[sudo]\nnotify_command = [\"wall\", \"{prompt}\"]\n"); err != nil {
 		t.Errorf("refused a usable notifier: %v", err)
 	}
 }
@@ -86,8 +86,8 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 // relationship between them true.
 func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
-		{"zero", "[escalation]\ntimeout_sec = 0\n"},
-		{"past the ceiling", fmt.Sprintf("[escalation]\ntimeout_sec = %d\n", MaxSudoTimeoutSec+1)},
+		{"zero", "[sudo]\ntimeout_sec = 0\n"},
+		{"past the ceiling", fmt.Sprintf("[sudo]\ntimeout_sec = %d\n", MaxSudoTimeoutSec+1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := load(t, minimal+tc.body)
@@ -100,12 +100,12 @@ func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
 		})
 	}
 	// The ceiling itself loads: it is the bound, not the first refusal.
-	cfg, err := load(t, minimal+fmt.Sprintf("[escalation]\ntimeout_sec = %d\n", MaxSudoTimeoutSec))
+	cfg, err := load(t, minimal+fmt.Sprintf("[sudo]\ntimeout_sec = %d\n", MaxSudoTimeoutSec))
 	if err != nil {
 		t.Fatalf("refused the ceiling itself: %v", err)
 	}
-	if cfg.Escalation.TimeoutSec != MaxSudoTimeoutSec {
-		t.Errorf("timeout_sec = %d, want %d", cfg.Escalation.TimeoutSec, MaxSudoTimeoutSec)
+	if cfg.Sudo.TimeoutSec != MaxSudoTimeoutSec {
+		t.Errorf("timeout_sec = %d, want %d", cfg.Sudo.TimeoutSec, MaxSudoTimeoutSec)
 	}
 }
 
@@ -165,7 +165,7 @@ func TestUnknownSectionsAreRefused(t *testing.T) {
 	for _, mistake := range []string{
 		"\n[" + "secrets" + "]\nmin_length = 12\n",
 		"\n[" + "exec" + "]\ntimeout_sec = 30\n",
-		"\n[" + "sudo" + "]\ntimeout_sec = 30\n",
+		"\n[" + "escalation" + "]\ntimeout_sec = 30\n",
 	} {
 		err := func() error { _, err := load(t, minimal+mistake); return err }()
 		if err == nil {
@@ -223,7 +223,7 @@ func TestNoTunableTakesZero(t *testing.T) {
 		"[secret]\nmin_length = 0\n",
 		"[command]\ntimeout_sec = 0\n",
 		"[command]\nconcurrency = 0\n",
-		"[escalation]\ntimeout_sec = 0\n",
+		"[sudo]\ntimeout_sec = 0\n",
 	} {
 		if _, err := load(t, body); err == nil {
 			t.Errorf("accepted a zero: %s", body)
@@ -358,7 +358,7 @@ func TestTheLoadedFileIsReported(t *testing.T) {
 func TestEveryKeyRefusesAValueOfTheWrongType(t *testing.T) {
 	byName := map[string][]string{
 		"server": serverKeys, "keeper": keeperKeys, "executor": executorKeys,
-		keyCommand: commandKeys, "ssh": sshKeys, "escalation": escalationKeys,
+		keyCommand: commandKeys, "ssh": sshKeys, "sudo": sudoKeys,
 		"secret": secretKeys, "audit": auditKeys,
 	}
 	checked := 0

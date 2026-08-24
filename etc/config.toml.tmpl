@@ -112,7 +112,7 @@ ssh_add = "{{.SshAdd}}"
 #
 # Re-run `faramir init --allow-sudo` to change the arrangement, or re-run
 # without it to take the grant away.
-[escalation]
+[sudo]
 exec_user = "{{.ExecUser}}"
 pam_service = "{{.PamService}}"
 # Which file actually carries that stack here. Not always the one above names: a
@@ -137,7 +137,7 @@ helper = "{{.PamHelper}}"
 # 600: the PAM helper derives its own deadline from that ceiling, so a question
 # held longer than it would be one the helper had already abandoned. While a
 # question is open, sudo blocks and every other brokered command is refused.
-timeout_sec = {{.EscalationTimeoutSec}}
+timeout_sec = {{.SudoTimeoutSec}}
 {{end}}
 [secret]
 # A value shorter than this matches inside ordinary words, so the broker refuses

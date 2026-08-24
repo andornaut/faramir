@@ -41,7 +41,7 @@ func SharedStacks(pamDir string) []string {
 // Stack is the file carrying the stack a brokered command's sudo authenticates
 // against, preferring what the install recorded.
 //
-// recorded is [escalation] pam_stack, which says which arrangement this host is
+// recorded is [sudo] pam_stack, which says which arrangement this host is
 // in and is the whole answer where it is set and the file is there. Empty in a
 // config written before that key existed, and wrong on a host somebody has since
 // rearranged, so a miss falls through to looking for either arrangement rather

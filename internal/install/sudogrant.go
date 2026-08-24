@@ -33,7 +33,7 @@ import (
 // executor's account against a service whose auth step asks the broker, so an
 // escalation is a decision rather than a value.
 //
-// After stepConfig, which renders [escalation] from the same layout, and before
+// After stepConfig, which renders [sudo] from the same layout, and before
 // anything restarts a daemon.
 func (r *runner) stepSudoGrant() error {
 	if !r.layout.AllowSudo {

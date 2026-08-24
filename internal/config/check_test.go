@@ -27,7 +27,7 @@ func TestCheckRefusesWhatLoadRefuses(t *testing.T) {
 		{"a timeout out of range", "[command]\ntimeout_sec = 0\n"},
 		{"a link with a relative path", minimal + "\n[[secret.link]]\nref = \"a/ref\"\n" +
 			"path = \"relative\"\ntype = \"text\"\n"},
-		{"a notifier that says nothing", minimal + "\n[escalation]\n" +
+		{"a notifier that says nothing", minimal + "\n[sudo]\n" +
 			"notify_command = [\"/usr/bin/notify-send\", \"faramir\"]\n"},
 		{"not TOML at all", "this is not a config\n"},
 	} {

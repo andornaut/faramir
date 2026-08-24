@@ -18,8 +18,8 @@ CFG=/etc/faramir/config.toml
 # reads the wrong one and a bare `sed -i` rewrites both -- which puts a command
 # timeout into a section whose ceiling is 600 and leaves the broker refusing to
 # start at all.
-escalation_timeout() { sed -n '/^\[escalation\]/,/^\[/{s/^timeout_sec *= *\([0-9]*\).*/\1/p}' "$CFG" | head -1; }
-set_escalation_timeout() { sed -i "/^\[escalation\]/,/^\[/{s/^timeout_sec = .*/timeout_sec = $1/}" "$CFG"; }
+escalation_timeout() { sed -n '/^\[sudo\]/,/^\[/{s/^timeout_sec *= *\([0-9]*\).*/\1/p}' "$CFG" | head -1; }
+set_escalation_timeout() { sed -i "/^\[sudo\]/,/^\[/{s/^timeout_sec = .*/timeout_sec = $1/}" "$CFG"; }
 LOG=/var/log/faramir/audit.log
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
@@ -69,7 +69,7 @@ chmod 0755 /usr/local/bin/e2e-notify
 
 # Re-installed when the grant is absent OR when it carries no notifier: the
 # suites share one install, so this may run after another has already written a
-# [escalation] section without one.
+# [sudo] section without one.
 if ! grep -q '^notify_command' $CFG; then
   /usr/local/bin/faramir init --allow-sudo --agent-user op \
     --notify-command /usr/local/bin/e2e-notify --notify-command '{prompt}' \
@@ -79,7 +79,7 @@ if ! grep -q '^notify_command' $CFG; then
   sleep 3
 fi
 rm -f "$NOTIFY"
-echo "grant installed; [escalation] timeout_sec=$(escalation_timeout)"
+echo "grant installed; [sudo] timeout_sec=$(escalation_timeout)"
 pkill -u faramir-exec 2>/dev/null; sleep 1
 
 # --------------------------------------------------------------------------
@@ -282,7 +282,7 @@ systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; 
 start=$(date +%s)
 runuser -u op -- /usr/local/bin/faramir run --quiet -t 40 -- /usr/bin/sudo /usr/bin/id -un >/tmp/to.out 2>&1
 elapsed=$(( $(date +%s) - start ))
-[ "$elapsed" -lt 25 ] && ok "an unanswered question ends in ${elapsed}s, near [escalation] timeout_sec=5" \
+[ "$elapsed" -lt 25 ] && ok "an unanswered question ends in ${elapsed}s, near [sudo] timeout_sec=5" \
   || bad "it took ${elapsed}s to give up on an unanswered question"
 grep -q 'uid=0\|^root$' /tmp/to.out && bad "*** an unanswered command became root ***" \
   || ok "and the command did not become root"
@@ -429,7 +429,7 @@ id=$(jq -r 'select(.op=="escalate" and .approved==true) | .run_log_id' $LOG 2>/d
 # --------------------------------------------------------------------------
 head_ "12. the notifier"
 #
-# [escalation] notify_command is what says a question is waiting, and it is init's:
+# [sudo] notify_command is what says a question is waiting, and it is init's:
 # a drop-in setting it is refused, so `faramir init --notify-command` is the
 # only way onto a host, and this is the check that the flag reaches the broker
 # rather than only the file.
@@ -727,9 +727,9 @@ owner=$(stat -c '%U:%G %a' "$ENVFILE" 2>/dev/null)
 # Read by pam_env in whichever file carries faramir's stack, rather than named as
 # the grant's env_file: sudo-rs has no such setting, so one mechanism is carried
 # for both. Which file that is, the install recorded.
-STACK=$(sed -n '/^\[escalation\]/,/^\[/{s/^pam_stack *= *"\(.*\)".*/\1/p}' $CFG | head -1)
+STACK=$(sed -n '/^\[sudo\]/,/^\[/{s/^pam_stack *= *"\(.*\)".*/\1/p}' $CFG | head -1)
 [ -n "$STACK" ] \
-  && ok "[escalation] pam_stack names $STACK" \
+  && ok "[sudo] pam_stack names $STACK" \
   || bad "the config records no pam_stack, so nothing says where the stack is"
 [ -e "$STACK" ] \
   && ok "and that file is there" || bad "$STACK is recorded and absent"

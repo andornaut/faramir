@@ -8,7 +8,7 @@ Setting | Effect
 --- | ---
 `[command.env] PATH` | Where a bare name is looked up, and the only `PATH` the child gets.
 `[command] max_timeout_sec` | How long a command may run.
-`[secret] min_length` | A value too short to redact is refused at load, so nothing can inject it. There is no matching maximum: a value at or over 128 KiB is refused whatever this says, one environment variable being unable to carry it.
+`[secret] min_length` | A value too short to redact is refused at load, so nothing can inject it. There is no matching maximum key: a value at or over 16 KiB is refused whatever this says, being more than the broker will hold.
 the executor's uid | The real bound.
 
 ## What a flag sets
@@ -23,7 +23,7 @@ Flag | Key | Default | Bounds
 `--command-concurrency` | `[command] concurrency` | 10 | at least 1: zero refuses every request as busy
 `--command-max-memory-percent` | `[command] max_memory_percent` | 25 | 10 to 100, rendered as `MemoryMax=` on the executor unit. The **backstop**, not the bound: it is a cgroup total, so it cannot tell one process holding everything from twenty holding a fair share each, and it counts page cache besides. What it catches is fan-out, which no per-process limit sees. A percentage because nothing here knows how much memory the host has. Cache is reclaimable and is reclaimed before anything is killed, so a source build meets this as reclaim and a process that has allocated the memory meets the OOM killer; 100 is the whole machine, which is the same as no bound
 `--command-max-process-memory-mb` | `[command] max_process_memory_mb` | 4096 | at least 256, rendered as `LimitDATA=` on the executor unit and inherited by every child. The **bound**: a command that runs away is one process asking for far more than a real one, and this is what refuses it. Anonymous memory only, so a command is never charged for page cache, and a process that reaches it is handed an allocation failure it can report rather than being chosen by the OOM killer
-`--escalation-timeout-sec` | `[escalation] timeout_sec` | 120 | 1 to 600
+`--sudo-timeout-sec` | `[sudo] timeout_sec` | 120 | 1 to 600
 `--secret-min-length` | `[secret] min_length` | 8 | at least 6
 `--secret-min-refresh-sec` | `[secret] min_refresh_sec` | 1 | at least 1. A minimum, not a schedule: the check runs when a command arrives and nothing polls in the background, so an idle host costs nothing. It bounds the keeper round trip only; linked files are stat'ed on every request
 
@@ -49,8 +49,8 @@ Key | Derived from
 `[ssh] exec_group` | `--exec-user`, resolved to that account's own group
 `[ssh] ssh_agent`, `[ssh] ssh_add` | resolved on `PATH` at install time; the broker execs them as its own uid
 `[ssh] agent_socket`, `[audit] log_path` | no flag: `/run/faramir` and `/var/log/faramir`, fixed at build time
-`[escalation] exec_user`, `pam_service`, `pam_stack`, `helper` | `--allow-sudo`. `pam_stack` is the file that carries faramir's PAM stack on this host, which is not always what `pam_service` names: see [the two sudos](escalation.md#the-two-sudos)
-`[escalation] notify_command` | `--notify-command`, repeatable, one argument each
+`[sudo] exec_user`, `pam_service`, `pam_stack`, `helper` | `--allow-sudo`. `pam_stack` is the file that carries faramir's PAM stack on this host, which is not always what `pam_service` names: see [the two sudos](escalation.md#the-two-sudos)
+`[sudo] notify_command` | `--notify-command`, repeatable, one argument each
 
 ## What is not a key at all
 
@@ -200,7 +200,7 @@ An unknown key or `[section]`, or a value out of range | A config that reads as 
 A ref too short to redact | Refused at load, so covered by nothing. `init` warns and carries on, an install being unable to lengthen a secret; `doctor` fails on it, a refused value being injected by nothing and covered by nothing
 A `[[secret.link]]` entry whose file is not there, or is there and did not read | The same two meanings, reported with the ref in front. The second is what an ACL dropped by a tool rewriting its own file looks like
 An `[ssh] key` the agent cannot load | `ssh-add` refuses it, leaving every host unreachable. Passphrase-protected, unreadable, or pointed at the `.pub`
-An `[escalation] helper` or PAM service file that is not there, or a `notify_command` that is not installed | Escalation is configured and either every request fails with `sudo` reporting an authentication error, or nothing announces the questions waiting
+An `[sudo] helper` or PAM service file that is not there, or a `notify_command` that is not installed | Escalation is configured and either every request fails with `sudo` reporting an authentication error, or nothing announces the questions waiting
 `[keeper]` or `[executor] allowed_user` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route; the executor's runs a command with no policy, no redaction and no audit record
 The bound broker socket having world bits | Every account on the host reaches the broker, whatever `allowed_group` says. Stat'ed rather than read from the config. Unbound is reported as unchecked
 An audit log that cannot be written | A command that cannot be recorded is not run

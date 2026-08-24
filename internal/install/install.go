@@ -62,7 +62,7 @@ type Options struct {
 	//
 	// A flag rather than a drop-in because the broker execs it as the uid holding
 	// every decrypted value. Requires AllowSudo: without the grant there is no
-	// [escalation] section and nothing to announce.
+	// [sudo] section and nothing to announce.
 	NotifyCommand []string
 
 	// The tunables, each named for what it bounds rather than for the section it
@@ -73,7 +73,7 @@ type Options struct {
 	CommandConcurrency        int
 	CommandMaxMemoryPercent   int
 	CommandMaxProcessMemoryMB int
-	EscalationTimeoutSec      int
+	SudoTimeoutSec            int
 	SecretMinLength           int
 	SecretMinRefreshSec       int
 
@@ -371,7 +371,7 @@ func (r *runner) steps() []namedStep {
 		// The other half of reaching a managed host: the key authenticates to it,
 		// these say which host answering is that host.
 		{"known hosts", r.stepKnownHosts},
-		// After the config, which renders [escalation] from the same layout, and
+		// After the config, which renders [sudo] from the same layout, and
 		// before anything restarts a daemon: a broker that came up without the PAM
 		// service and the sudoers entry in place would refuse every escalation
 		// until the next activation.
@@ -433,8 +433,8 @@ func (o *Options) applyDefaults() {
 	if o.CommandMaxProcessMemoryMB == 0 {
 		o.CommandMaxProcessMemoryMB = command.MaxProcessMemoryMB
 	}
-	if o.EscalationTimeoutSec == 0 {
-		o.EscalationTimeoutSec = config.DefaultEscalationTimeoutSec
+	if o.SudoTimeoutSec == 0 {
+		o.SudoTimeoutSec = config.DefaultSudoTimeoutSec
 	}
 	if o.SecretMinLength == 0 {
 		o.SecretMinLength = secret.MinLength
@@ -482,7 +482,7 @@ func (o *Options) layout() (Layout, error) {
 	if layout.SSHKey == "" {
 		layout.SSHKey = filepath.Join(layout.ConfigDir, "id_ed25519")
 	}
-	// Off unless asked for, and the config template keys the whole [escalation]
+	// Off unless asked for, and the config template keys the whole [sudo]
 	// section off it: an install that never passed --allow-sudo renders no
 	// section, writes no PAM service and grants no sudoers entry.
 	layout.AllowSudo = o.AllowSudo
@@ -503,7 +503,7 @@ func (o *Options) layout() (Layout, error) {
 	layout.CommandMaxMemoryPercent = o.CommandMaxMemoryPercent
 	layout.BrokerMaxMemoryPercent = BrokerMaxMemoryPercent
 	layout.CommandMaxProcessMemoryMB = o.CommandMaxProcessMemoryMB
-	layout.EscalationTimeoutSec = o.EscalationTimeoutSec
+	layout.SudoTimeoutSec = o.SudoTimeoutSec
 	layout.SecretMinLength = o.SecretMinLength
 	layout.SecretMinRefreshSec = o.SecretMinRefreshSec
 	return layout, layout.validate()

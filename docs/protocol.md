@@ -108,7 +108,7 @@ Code | Means
 --- | ---
 `approved` | a human said yes, or this sudo was covered by the yes given for the same command
 `rejected` | a human said no
-`expired` | nobody answered within `[escalation] timeout_sec`
+`expired` | nobody answered within `[sudo] timeout_sec`
 `not_quiescent` | a yes was turned into a no: a process of the executor's uid was alive outside the run
 `run_ended` | the command exited before the question was answered
 `broker_stopped` | the broker stopped, or was stopping when the request arrived

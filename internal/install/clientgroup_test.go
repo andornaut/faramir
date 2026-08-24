@@ -35,7 +35,7 @@ func TestTheClientGroupIsReadOffTheInstalledConfig(t *testing.T) {
 		t.Errorf("group = %q, want the one the config admits", run.report.ClientGroup)
 	}
 	if run.allowSudo {
-		t.Error("a config with no [escalation] exec_user was read as granting sudo")
+		t.Error("a config with no [sudo] exec_user was read as granting sudo")
 	}
 }
 
@@ -88,7 +88,7 @@ func TestAnEnrolmentWithNoConfigToReadSaysWhatToDo(t *testing.T) {
 // of the credentials section, and a section describing an escalation that
 // cannot be raised here is one the agent learns to skim.
 func TestANamedGroupTakesTheSudoGrantOnlyFromTheSameInstall(t *testing.T) {
-	const granted = sharedGroupConfig + "\n[escalation]\nexec_user = \"faramir-exec\"\n"
+	const granted = sharedGroupConfig + "\n[sudo]\nexec_user = \"faramir-exec\"\n"
 	for _, tc := range []struct {
 		name string
 		// config is the file this host carries; empty writes none at all.
@@ -140,7 +140,7 @@ func TestTheSectionFollowsTheGrantTheEnrolmentRead(t *testing.T) {
 	const marker = "escalation_in_progress"
 	run := &project{opts: ProjectOptions{
 		ConfigDir: configDirWith(t,
-			sharedGroupConfig+"\n[escalation]\nexec_user = \"faramir-exec\"\n"),
+			sharedGroupConfig+"\n[sudo]\nexec_user = \"faramir-exec\"\n"),
 	}}
 	if err := run.resolveGroup(); err != nil {
 		t.Fatal(err)

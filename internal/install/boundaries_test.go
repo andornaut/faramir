@@ -135,10 +135,10 @@ func sudoArrangement(t *testing.T) (*config.Config, string) {
 
 	helper := filepath.Join(dir, "faramir-approve")
 	cfg := &config.Config{}
-	cfg.Escalation.ExecUser = "ex"
-	cfg.Escalation.PamService = "faramir-sudo"
-	cfg.Escalation.Helper = helper
-	if err := os.WriteFile(filepath.Join(dir, cfg.Escalation.PamService),
+	cfg.Sudo.ExecUser = "ex"
+	cfg.Sudo.PamService = "faramir-sudo"
+	cfg.Sudo.Helper = helper
+	if err := os.WriteFile(filepath.Join(dir, cfg.Sudo.PamService),
 		[]byte("auth requisite pam_exec.so seteuid quiet "+helper+"\n"+
 			"auth optional pam_env.so envfile="+filepath.Join(dir, "sudo-env")+" readenv=1\n"),
 		0o644); err != nil {
@@ -193,10 +193,10 @@ func TestTheSudoGrantCheckReadsTheEnvironmentFile(t *testing.T) {
 // anything doctor could not reach.
 func TestWithAGrantTheSameChecksAreAnswered(t *testing.T) {
 	granted := &config.Config{}
-	granted.Escalation.ExecUser = "ex"
+	granted.Sudo.ExecUser = "ex"
 	// A service name no host has: the arrangement check reports the unreadable
 	// file, which is an answer about this host rather than a skip.
-	granted.Escalation.PamService = "faramir-no-such-service"
+	granted.Sudo.PamService = "faramir-no-such-service"
 	for _, check := range []struct {
 		name string
 		run  func(*DoctorReport)
@@ -247,7 +247,7 @@ func TestTheSudoGrantCheckReadsTheHelper(t *testing.T) {
 			got.Status, StatusOK, got.Detail)
 	}
 
-	if err := os.Remove(cfg.Escalation.Helper); err != nil {
+	if err := os.Remove(cfg.Sudo.Helper); err != nil {
 		t.Fatal(err)
 	}
 	var without DoctorReport
@@ -257,7 +257,7 @@ func TestTheSudoGrantCheckReadsTheHelper(t *testing.T) {
 		t.Fatalf("status %q, want %q with the helper gone: %s",
 			finding.Status, StatusFailed, finding.Detail)
 	}
-	if !strings.Contains(finding.Detail, cfg.Escalation.Helper) {
+	if !strings.Contains(finding.Detail, cfg.Sudo.Helper) {
 		t.Errorf("the failure does not name the helper it is about: %s", finding.Detail)
 	}
 }
@@ -276,9 +276,9 @@ func TestUserNamespacesDecideNothingWithoutAnEscalationGrant(t *testing.T) {
 		cfg  *config.Config
 	}{
 		{"the config did not load", nil},
-		{"no [escalation] section", &config.Config{}},
-		{"an escalation section naming no account", &config.Config{
-			Escalation: config.EscalationConfig{},
+		{"no [sudo] section", &config.Config{}},
+		{"a [sudo] section naming no account", &config.Config{
+			Sudo: config.SudoConfig{},
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

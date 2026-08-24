@@ -18,7 +18,7 @@ import (
 // does. Nothing to place: there is no credential in this design.
 func allowSudo(t *testing.T, s *Server) {
 	t.Helper()
-	s.Config.Escalation = config.EscalationConfig{
+	s.Config.Sudo = config.SudoConfig{
 		ExecUser:   "faramir-exec",
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-escalate",

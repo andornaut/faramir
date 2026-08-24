@@ -888,8 +888,8 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 // pass. All of it exists only on a host installed with --allow-sudo, so any other
 // host reports n/a.
 func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
-	if cfg == nil || cfg.Escalation.ExecUser == "" {
-		report.addf("sudo grant", StatusNA, "no [escalation] section, so brokered commands cannot sudo. That is the default; "+
+	if cfg == nil || cfg.Sudo.ExecUser == "" {
+		report.addf("sudo grant", StatusNA, "no [sudo] section, so brokered commands cannot sudo. That is the default; "+
 			"`faramir init --allow-sudo` writes the arrangement")
 		return
 	}
@@ -915,14 +915,14 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	// that is found and reported at the end, so the verdict is reached after the
 	// stack it actually uses has been examined rather than instead of it.
 	crossed := false
-	execUser := cfg.Escalation.ExecUser
-	pamFile := filepath.Join(pamDir, cfg.Escalation.PamService)
+	execUser := cfg.Sudo.ExecUser
+	pamFile := filepath.Join(pamDir, cfg.Sudo.PamService)
 	var (
 		body []byte
 		err  error
 	)
 	if sudoRs {
-		if problem := sudoPamBranchProblem(execUser, cfg.Escalation.Helper); problem != "" {
+		if problem := sudoPamBranchProblem(execUser, cfg.Sudo.Helper); problem != "" {
 			report.addf("sudo grant", StatusFailed, "%s", problem)
 			return
 		}
@@ -930,7 +930,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		// The first shared file that is actually there: a distribution that does not
 		// split the login case out has no sudo-i, and one that names sudo-i only is
 		// not a host to report a missing sudo about.
-		pamFile = cfg.Escalation.PamStack
+		pamFile = cfg.Sudo.PamStack
 		if pamFile == "" || !exists(pamFile) {
 			pamFile = firstExistingStack()
 		}
@@ -947,7 +947,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 			return
 		}
 	}
-	if problem := pamStackProblem(string(body), cfg.Escalation.Helper); problem != "" {
+	if problem := pamStackProblem(string(body), cfg.Sudo.Helper); problem != "" {
 		report.addf("sudo grant", StatusFailed, "%s: %s", pamFile, problem)
 		return
 	}
@@ -966,20 +966,20 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	// this host. Checked here as well as by the installed-files diagnosis, so that
 	// this verdict is true on its own terms -- an operator reading the grant line
 	// alone is told the grant works only where it does.
-	if _, err := os.Stat(cfg.Escalation.Helper); err != nil {
+	if _, err := os.Stat(cfg.Sudo.Helper); err != nil {
 		report.addf("sudo grant", StatusFailed, "%s execs %s, which cannot be read "+
 			"(%v): that line is requisite, so no escalation can be approved on this "+
 			"host. Re-run `faramir init --allow-sudo`",
-			pamFile, cfg.Escalation.Helper, err)
+			pamFile, cfg.Sudo.Helper, err)
 		return
 	}
 	// An account that can write the helper chooses what decides every escalation.
 	accounts, skipped := askable(opts.ExecUser, opts.AgentUser)
 	for _, account := range accounts {
-		if canWrite(account, cfg.Escalation.Helper) {
+		if canWrite(account, cfg.Sudo.Helper) {
 			report.addf("sudo grant", StatusFailed, "%s can write %s, which is what "+
 				"decides every escalation: it would be choosing its own answer",
-				account, cfg.Escalation.Helper)
+				account, cfg.Sudo.Helper)
 			return
 		}
 	}
@@ -991,7 +991,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	// Read by a pam_env line in faramir's own service, on every host: sudoers has
 	// an env_file that does the same job and sudo-rs has no such setting, so the
 	// one mechanism that works on both is the one this asks about.
-	sudoEnv := filepath.Join(filepath.Dir(cfg.Escalation.Helper), "sudo-env")
+	sudoEnv := filepath.Join(filepath.Dir(cfg.Sudo.Helper), "sudo-env")
 	names := pamFile + " reads it with pam_env"
 	if !strings.Contains(string(body), "pam_env.so") {
 		report.addf("sudo grant", StatusFailed, "%s has no pam_env line, so %s does not reach a brokered "+
@@ -1027,7 +1027,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	if skipped {
 		report.unaskedf("sudo grant", 1, "%s asks the broker, and %s cannot write "+
 			"%s. The agent account is not named, so whether it can was not asked",
-			pamFile, strings.Join(accounts, " or "), cfg.Escalation.Helper)
+			pamFile, strings.Join(accounts, " or "), cfg.Sudo.Helper)
 		return
 	}
 	if crossed {
@@ -1064,10 +1064,10 @@ func originalSudoOnRsStack(execUser, pamFile string, readErr error, cfg *config.
 			"that account. Re-run `faramir init --allow-sudo`",
 			execUser, pamFile, readErr, pamDir)
 	}
-	if branch := sudoPamBranchProblem(execUser, cfg.Escalation.Helper); branch != "" {
+	if branch := sudoPamBranchProblem(execUser, cfg.Sudo.Helper); branch != "" {
 		return nil, pamFile, false, branch
 	}
-	stack = cfg.Escalation.PamStack
+	stack = cfg.Sudo.PamStack
 	if stack == "" || !exists(stack) {
 		stack = firstExistingStack()
 	}
@@ -1115,8 +1115,8 @@ var usernsSwitches = []struct {
 // Reported rather than enforced: this is a kernel-wide sysctl every other
 // container and browser sandbox on the host depends on.
 func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
-	if cfg == nil || cfg.Escalation.ExecUser == "" {
-		report.addf("user namespaces", StatusNA, "no [escalation] section, so the executor unit carries "+
+	if cfg == nil || cfg.Sudo.ExecUser == "" {
+		report.addf("user namespaces", StatusNA, "no [sudo] section, so the executor unit carries "+
 			"SystemCallFilter=@system-service, which excludes @mount: a namespace confers "+
 			"capabilities with nothing to act on")
 		return
@@ -1162,8 +1162,8 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // opinions about. N/a without a grant: that host's unit carries
 // SystemCallFilter=@system-service, which excludes @ptrace.
 func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
-	if cfg == nil || cfg.Escalation.ExecUser == "" {
-		report.addf("ptrace scope", StatusNA, "no [escalation] section, so the executor unit carries "+
+	if cfg == nil || cfg.Sudo.ExecUser == "" {
+		report.addf("ptrace scope", StatusNA, "no [sudo] section, so the executor unit carries "+
 			"SystemCallFilter=@system-service, which excludes @ptrace: the syscall is refused "+
 			"whatever %s says",
 			ptraceScopeFile)
@@ -1174,19 +1174,19 @@ func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 		report.unaskedf("ptrace scope", 1, "%s cannot be read (%v), so whether one process running as %s can ptrace another "+
 			"is unknown. On a host granting an escalation that decides whether a run's "+
 			"processes are separate",
-			ptraceScopeFile, err, cfg.Escalation.ExecUser)
+			ptraceScopeFile, err, cfg.Sudo.ExecUser)
 		return
 	}
 	scope := strings.TrimSpace(string(raw))
 	if scope == "0" {
 		report.addf("ptrace scope", StatusWarn, "%s is 0, so any process running as %s may ptrace any other of that uid, and this "+
 			"host grants an escalation. Set it to 1 or higher: sysctl -w "+
-			"kernel.yama.ptrace_scope=1, and a line in /etc/sysctl.d", ptraceScopeFile, cfg.Escalation.ExecUser)
+			"kernel.yama.ptrace_scope=1, and a line in /etc/sysctl.d", ptraceScopeFile, cfg.Sudo.ExecUser)
 		return
 	}
 	report.addf("ptrace scope", StatusOK, "%s is %s, so one process running as %s "+
 		"cannot attach to another that is not its own descendant",
-		ptraceScopeFile, scope, cfg.Escalation.ExecUser)
+		ptraceScopeFile, scope, cfg.Sudo.ExecUser)
 }
 
 // diagnoseCgroupDelegation checks the reaper every run depends on: the executor

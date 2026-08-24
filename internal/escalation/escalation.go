@@ -14,7 +14,7 @@
 //   - The broker files a question, a human answers it through `faramir
 //     approve`, and the answer releases every request from that one command.
 //
-// Optional: with no [escalation] exec_user nothing is granted and no question can be
+// Optional: with no [sudo] exec_user nothing is granted and no question can be
 // raised.
 package escalation
 
@@ -115,7 +115,7 @@ const maxCommandChars = 240
 
 // Command is the run as one line, rendered for a terminal. Every string in it
 // is the caller's and reaches the operator through `faramir sudo ls`, the
-// refusal messages and [escalation] notify_command, so left raw a run could
+// refusal messages and [sudo] notify_command, so left raw a run could
 // return the cursor with a "\r" and overwrite the question it is judged on.
 // termsafe says what survives that rendering.
 func (r Run) Command() string {
@@ -149,7 +149,7 @@ func safeUnlessEmpty(value string) string {
 }
 
 type Server struct {
-	config config.EscalationConfig
+	config config.SudoConfig
 
 	// Record writes one audit entry per request. Set by the broker; nil records
 	// nothing, which is the case in tests.
@@ -265,7 +265,7 @@ func (s *Server) owner(ancestors []int) (runID, detail string) {
 	return s.Owner(ancestors)
 }
 
-func New(cfg config.EscalationConfig) *Server {
+func New(cfg config.SudoConfig) *Server {
 	return &Server{
 		config:  cfg,
 		runs:    map[string]Run{},
@@ -291,7 +291,7 @@ func (s *Server) Enabled() bool { return s.config.ExecUser != "" }
 // occupancy. A merely pending question holds a new command too, or a caller
 // free to keep starting commands decides whether the host is ever quiet enough
 // for a yes to take; the cost is that one unanswered question stalls unrelated
-// work for up to [escalation] timeout_sec.
+// work for up to [sudo] timeout_sec.
 func (s *Server) Register(run Run) (runID, heldBy string) {
 	if !s.Enabled() {
 		return "", ""
@@ -728,7 +728,7 @@ type Question struct {
 	// at all, so it answers whether anything was watching only at the sizes
 	// where that dwarfs a round trip.
 	WaitingSec int `json:"waiting_sec"`
-	// ExpiresInSec is what is left of [escalation] timeout_sec, after which the
+	// ExpiresInSec is what is left of [sudo] timeout_sec, after which the
 	// question is refused. It matters most where the answer is a second command
 	// typed after this one was read, which is `faramir sudo ls` without
 	// --watch.

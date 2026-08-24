@@ -199,12 +199,12 @@ type Layout struct {
 	// the broker is using against this, so a store growing towards it is seen
 	// before it is met.
 	BrokerMaxMemoryPercent int
-	EscalationTimeoutSec   int
+	SudoTimeoutSec         int
 	SecretMinLength        int
 	SecretMinRefreshSec    int
 
 	// AllowSudo is the switch for the whole arrangement: unset renders no
-	// [escalation] section, writes no sudoers file and no PAM service, so nothing
+	// [sudo] section, writes no sudoers file and no PAM service, so nothing
 	// can be asked for.
 	AllowSudo bool
 
@@ -247,7 +247,7 @@ func sudoPamFiles() []string { return []string{pamDir + "/sudo", pamDir + "/sudo
 // PamStack is the file that carries the stack a brokered command's sudo
 // authenticates against on this host: faramir's own service where sudo can be
 // sent to one by name, and the shared stack it reads for every account where it
-// cannot. Rendered into [escalation] pam_stack, so nothing downstream has to
+// cannot. Rendered into [sudo] pam_stack, so nothing downstream has to
 // work out which arrangement an install made.
 func (l Layout) PamStack() string {
 	if l.SudoRs {
@@ -454,7 +454,7 @@ func hasControlChar(text string) (string, bool) {
 // validateNotifyCommand holds the announcement to what the loader will accept,
 // so a bad one is refused before anything is written rather than at the
 // daemon's next start. The rules are the loader's: see
-// config.loadEscalation.
+// config.loadSudo.
 func (l Layout) validateNotifyCommand() error {
 	if len(l.NotifyCommand) == 0 {
 		return nil
@@ -462,7 +462,7 @@ func (l Layout) validateNotifyCommand() error {
 	if !l.AllowSudo {
 		return fmt.Errorf("--notify-command announces a pending escalation, and this "+
 			"install grants none: pass --allow-sudo as well, or drop it. Without the "+
-			"grant no [escalation] section is written and there is nothing to announce (%s)",
+			"grant no [sudo] section is written and there is nothing to announce (%s)",
 			strings.Join(l.NotifyCommand, " "))
 	}
 	if !slices.ContainsFunc(l.NotifyCommand, func(arg string) bool {

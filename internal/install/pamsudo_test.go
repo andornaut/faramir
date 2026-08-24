@@ -210,16 +210,16 @@ func sudoRsArrangement(t *testing.T) (*config.Config, string) {
 	run.layout.LibexecDir = dir
 	run.layout.SudoRs = true
 	cfg := &config.Config{}
-	cfg.Escalation.ExecUser = run.layout.ExecUser
-	cfg.Escalation.PamService = pamServiceName
-	cfg.Escalation.Helper = run.layout.PamHelper()
+	cfg.Sudo.ExecUser = run.layout.ExecUser
+	cfg.Sudo.PamService = pamServiceName
+	cfg.Sudo.Helper = run.layout.PamHelper()
 	if err := os.WriteFile(run.layout.SudoEnvFile(),
 		[]byte("FARAMIR_OPERATOR=op\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Named on the block's requisite line, so the arrangement is not whole
 	// without it.
-	if err := os.WriteFile(cfg.Escalation.Helper, []byte("#!/bin/sh\nexit 0\n"),
+	if err := os.WriteFile(cfg.Sudo.Helper, []byte("#!/bin/sh\nexit 0\n"),
 		0o755); err != nil {
 		t.Fatal(err)
 	}

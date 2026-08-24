@@ -71,10 +71,6 @@ func runCommand(c *cobra.Command, args []string) int {
 // cli.Operator and cli.Internal name the same set for the guard; a test holds
 // the two together.
 func newRootCmd() *cobra.Command {
-	// The listing follows the order the commands are added: run first, because it
-	// is what faramir is for.
-	cobra.EnableCommandSorting = false
-
 	root := &cobra.Command{
 		Use:   "faramir",
 		Short: "A secrets broker for local AI coding agents",
@@ -114,15 +110,19 @@ func newRootCmd() *cobra.Command {
 
 	root.AddGroup(
 		&cobra.Group{ID: groupOperator, Title: "Commands:"},
-		&cobra.Group{ID: groupProvisioning, Title: "Provisioning (require root; they act on files, and ask a running broker where the install is):"},
+		&cobra.Group{ID: groupProvisioning, Title: "Provisioning (need root; they change files, and ask a running broker where the install is):"},
 		&cobra.Group{ID: groupInternal, Title: "Run by systemd and by the coding agent, not by you:"},
 	)
 
 	root.SetVersionTemplate("faramir {{.Version}}\n")
+	// Every group is listed alphabetically, which is cobra's default sorting: a
+	// reader looking one up has a name in mind, and no group is short enough to
+	// read through. The three AddCommand calls stay grouped so the source says
+	// which listing a command lands in.
 	root.AddCommand(
-		newRunCmd(),
 		newRedactCmd(),
 		newRefsCmd(),
+		newRunCmd(),
 		newCallCmd("status", "Show what the broker loaded and what it can reach"),
 		// `faramir version` as well as --version, the subcommand being what the
 		// docs name.
@@ -138,20 +138,18 @@ func newRootCmd() *cobra.Command {
 		},
 	)
 	root.AddCommand(
+		newBlockCmd(),
+		newDoctorCmd(),
 		newInitCmd(),
 		newInitProjectCmd(),
-		newVaultCmd(),
-		newRecipientCmd(),
 		newLinkCmd(),
-		newBlockCmd(),
 		newLogsCmd(),
-		newSudoCmd(),
-		newDoctorCmd(),
+		newRecipientCmd(),
 		newReloadCmd(),
+		newSudoCmd(),
 		newUninstallCmd(),
+		newVaultCmd(),
 	)
-	// Sorted, unlike the two groups above: nothing runs these in an order, and
-	// a reader who is here has a name in mind.
 	root.AddCommand(
 		newAccessCmd(),
 		newBrokerCmd(),

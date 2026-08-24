@@ -67,7 +67,7 @@ func New(cfg *config.Config) *Server {
 		Store:      secretstore.New(cfg.Secret, cfg.Keeper),
 		Audit:      audit.NewLog(cfg.Audit),
 		Ssh:        sshagent.New(cfg.Ssh),
-		Escalation: escalation.New(cfg.Escalation),
+		Escalation: escalation.New(cfg.Sudo),
 		slots:      make(chan struct{}, cfg.Command.Concurrency),
 		exec: func(r *redact.Redactor, sink func(string), req executor.Request) (*executor.Result, error) {
 			return executor.Run(cfg.Command, cfg.Executor, r, sink, req)
@@ -1274,7 +1274,7 @@ func (s *Server) describeEscalation() (map[string]any, []string) {
 		// The install that granted no sudoers entry, which is the default one.
 		return info, nil
 	}
-	cfg := s.Config.Escalation
+	cfg := s.Config.Sudo
 	info["exec_user"] = cfg.ExecUser
 	info["pam_service"] = cfg.PamService
 	info["helper"] = cfg.Helper
@@ -1306,7 +1306,7 @@ func (s *Server) describeEscalation() (map[string]any, []string) {
 	if len(cfg.NotifyCommand) > 0 {
 		if _, err := osexec.LookPath(cfg.NotifyCommand[0]); err != nil {
 			problems = append(problems, cfg.NotifyCommand[0]+": "+err.Error()+
-				" ([escalation] notify_command names it, so nothing announces a pending request)")
+				" ([sudo] notify_command names it, so nothing announces a pending request)")
 		}
 	}
 	return info, problems

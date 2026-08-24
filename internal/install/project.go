@@ -469,7 +469,7 @@ func (p *project) warnf(format string, args ...any) {
 // resolveGroup reads the shared group out of the installed config.
 // allowed_group is what the broker socket admits, so it is the only value that
 // makes a shared tree usable. The sudo grant is read from the same load,
-// [escalation] exec_user being the switch for the whole arrangement.
+// [sudo] exec_user being the switch for the whole arrangement.
 //
 // The config has to load, --client-group or not. It is where the linked and
 // blocked paths are, and those are rules an enrolment writes into the tree: a
@@ -499,7 +499,7 @@ func (p *project) resolveGroup() error {
 	// this host's socket does not admit: that names another install, whose
 	// escalation arrangement is its own.
 	if p.opts.ClientGroup == "" || cfg.Server.AllowedGroup == p.opts.ClientGroup {
-		p.allowSudo = cfg.Escalation.ExecUser != ""
+		p.allowSudo = cfg.Sudo.ExecUser != ""
 	}
 	if p.opts.ClientGroup != "" {
 		p.report.ClientGroup = p.opts.ClientGroup

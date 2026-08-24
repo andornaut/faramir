@@ -186,7 +186,7 @@ func TestAQuestionHoldsNewCommandsToo(t *testing.T) {
 	}
 }
 
-// A question says how much of [escalation] timeout_sec is left, not only how long it
+// A question says how much of [sudo] timeout_sec is left, not only how long it
 // has been there.
 //
 // It matters most where the answer is a second command: `faramir approve`

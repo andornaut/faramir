@@ -188,15 +188,15 @@ func (r *runner) LinkSteps() []namedStep {
 // that rewriting config.toml does not remove it. `init` does the opposite,
 // --allow-sudo being a switch a re-run without takes away; adding a link is not
 // a request to change that, and stepConfig renders the whole file from the
-// layout, so without this a `link add` would drop [escalation] and leave the
+// layout, so without this a `link add` would drop [sudo] and leave the
 // sudoers entry pointing at a broker that no longer names it.
 func keepInstalledGrant(opts *Options, configDir string) error {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {
 		return err
 	}
-	opts.AllowSudo = cfg.Escalation.ExecUser != ""
-	opts.NotifyCommand = cfg.Escalation.NotifyCommand
+	opts.AllowSudo = cfg.Sudo.ExecUser != ""
+	opts.NotifyCommand = cfg.Sudo.NotifyCommand
 	return nil
 }
 
