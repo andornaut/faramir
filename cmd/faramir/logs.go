@@ -687,6 +687,14 @@ func outcome(record map[string]any) (string, bool) {
 	if timedOut, _ := boolean(record, "timed_out"); timedOut {
 		return "timed out", true
 	}
+	// Killed because its caller went, which is the one ending nobody was told
+	// about: the response went to a connection that had closed, so this row is
+	// the whole of what is reported. Told apart from a timeout, and from the
+	// bare "exit 137" it would otherwise read as, which says a signal and not
+	// which one sent it.
+	if abandoned, _ := boolean(record, "abandoned"); abandoned {
+		return "caller gone", true
+	}
 	// An escalation ends in an answer rather than an exit code. Everything but a
 	// yes is painted as a failure, not because refusing is wrong but because
 	// something asked, which is what an operator is scanning for. Which no it

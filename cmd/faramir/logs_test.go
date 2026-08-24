@@ -596,7 +596,29 @@ func TestOutcomeReportsATimeout(t *testing.T) {
 	}
 }
 
-// A refused request never reached a command, so it has no exit code. The
+// A run killed because its caller went. The record is the whole of what is
+// reported -- the response went to a connection that had closed -- and read as
+// a bare "exit 137" it says a signal without saying who sent it, which is the
+// one thing this row is for.
+func TestOutcomeReportsACallerThatWent(t *testing.T) {
+	label, failed := outcome(rec(t, `{"log_id":"x","op":"run","exit_code":137,"abandoned":true}`))
+	if label != "caller gone" || !failed {
+		t.Errorf("outcome = (%q, %v), want (caller gone, true)", label, failed)
+	}
+	// And a timeout is still a timeout: both end in a killed process, and only
+	// one of them is the command taking too long.
+	label, _ = outcome(rec(t, `{"log_id":"x","op":"run","exit_code":137,"timed_out":true}`))
+	if label != "timed out" {
+		t.Errorf("outcome = %q, want timed out", label)
+	}
+	// An ordinary ending is untouched.
+	if label, failed := outcome(rec(t, `{"log_id":"x","op":"run","exit_code":0}`)); failed ||
+		!strings.Contains(label, "0") {
+		t.Errorf("outcome = (%q, %v), want a clean exit", label, failed)
+	}
+}
+
+// A refused request never reached a command, so it has no exit code. The// A refused request never reached a command, so it has no exit code. The
 // listing has to say so: the alternative renders it as a command that ran and
 // produced nothing, which is a different event.
 func TestOutcomeReportsTheRefusalCode(t *testing.T) {

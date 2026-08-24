@@ -432,6 +432,11 @@ for line in reversed(sys.stdin.read().splitlines()):
 " < /var/log/faramir/audit.log | grep -q NOTTIMEDOUT \
   && ok "and it is not recorded as a timeout, the command being inside its time" \
   || bad "an abandoned run was recorded as a timeout"
+# And the surface an operator reads says it: the record is the whole of what is
+# reported, and "exit 137" alone names a signal without saying who sent it.
+/usr/local/bin/faramir logs -n 4 2>/dev/null | grep -q "caller gone" \
+  && ok "and the listing says the caller went" \
+  || bad "the listing renders it as a bare exit: $(/usr/local/bin/faramir logs -n 2 2>&1 | tail -1)"
 
 # And an ordinary run is not killed by the same watcher: the caller holds its
 # write side open until it has the answer, and a run that ends on its own must
