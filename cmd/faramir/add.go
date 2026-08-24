@@ -208,7 +208,7 @@ func refuseUnprintable(name string) error {
 	return nil
 }
 
-// matchesPatterns reports whether the broker would read this path.// matchesPatterns reports whether the broker would read this path.
+// matchesPatterns reports whether the broker would read this path.
 func matchesPatterns(patterns []string, target string) bool {
 	for _, pattern := range patterns {
 		if ok, _ := filepath.Match(pattern, target); ok {

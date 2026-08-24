@@ -149,7 +149,7 @@ func privateHalf(s string) string {
 	return ""
 }
 
-// Recipient reads the public half out of an identity file.// Recipient reads the public half out of an identity file.
+// Recipient reads the public half out of an identity file.
 //
 // Derived from the private half wherever there is one: the "# public key:"
 // comment is a comment, absent from a hand-written key and free to disagree
