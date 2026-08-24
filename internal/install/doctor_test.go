@@ -768,6 +768,15 @@ func TestDiagnoseLogRotationAsksWhatIsOnDisk(t *testing.T) {
 			rule: "LOG {\n    weekly\n}\n", state: applied, size: 65 << 20,
 			want: StatusWarn, says: []string{"past", "timer or cron"},
 		},
+		{
+			// A file that is there and names no log: the directives are all
+			// this parser can see, so it cannot say whether the log is bounded.
+			// Told apart from no rule at all, which is a failure with a remedy;
+			// this one asks the operator to confirm it with logrotate itself.
+			name: "a rule file naming no log",
+			rule: "# only a comment\n", state: applied,
+			want: StatusWarn, says: []string{"names no log file", "logrotate -d"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -903,6 +912,20 @@ func TestLogrotateCoversMatchesAGlob(t *testing.T) {
 	} {
 		if got := logrotateCovers([]string{tc.named}, "/var/log/faramir/audit.log"); got != tc.want {
 			t.Errorf("a rule naming %s covers the audit log = %v, want %v", tc.named, got, tc.want)
+		}
+	}
+
+	// A rule naming the log exactly, where matching it as a pattern does not.
+	// filepath.Match reads a backslash as an escape on Unix, so a path holding
+	// one never matches itself, and a pattern it rejects outright matches
+	// nothing at all. Equality is what covers both, and without a case here a
+	// reader takes that branch for something Match already does.
+	for _, path := range []string{`/var/log/faramir/a\b.log`, "/var/log/faramir/[.log"} {
+		if matched, err := filepath.Match(path, path); matched && err == nil {
+			t.Fatalf("%q matches itself as a pattern, so this case proves nothing", path)
+		}
+		if !logrotateCovers([]string{path}, path) {
+			t.Errorf("a rule naming %s exactly does not cover it", path)
 		}
 	}
 }
