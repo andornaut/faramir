@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	goerrors "errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -244,7 +245,7 @@ func unresolvedReason(entry string) string {
 		if isPattern(dir) {
 			return NoMatchReason
 		}
-		if _, err := os.ReadDir(dir); err != nil {
+		if err := readable(dir); err != nil {
 			return refusedPrefix + fserr.At(dir, err).Error()
 		}
 		return NoMatchReason
@@ -254,6 +255,21 @@ func unresolvedReason(entry string) string {
 	}
 	// Glob uses Lstat and os.Stat follows, so this is a dangling symlink.
 	return "no such file"
+}
+
+// readable is whether this process could have listed a directory, asked with
+// one entry rather than with ReadDir: the answer is the open, and a store that
+// matched no *.sops.yml can still hold a great many other files.
+func readable(dir string) error {
+	handle, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = handle.Close() }()
+	if _, err := handle.Readdirnames(1); err != nil && !goerrors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
 }
 
 // isPattern reports whether an entry has glob metacharacters. The set filepath
