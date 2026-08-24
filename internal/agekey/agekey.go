@@ -68,20 +68,17 @@ func ValidateRecipient(s string) error {
 	if s == "" {
 		return errors.New("empty age recipient")
 	}
+	// Asked first, and of every line rather than the first: an identity is
+	// usually pasted with the file around it, and the line-break refusal below
+	// would answer a paste of the private half with a note about YAML.
+	if why := privateHalf(s); why != "" {
+		return errors.New(why)
+	}
 	// A line break would close the list item and let what follows be read as
 	// YAML. Blocked rather than escaped: no recipient sops accepts carries
 	// one.
 	if strings.ContainsAny(s, "\n\r") {
 		return fmt.Errorf("age recipient contains a line break: %q", s)
-	}
-	// Named before the shapes below: both are prefixes no recipient has, and
-	// the two halves sit adjacent in one file with only one safe to publish.
-	if strings.HasPrefix(s, "AGE-SECRET-KEY-") || strings.HasPrefix(s, "AGE-PLUGIN-") {
-		return errors.New("that is an age identity, the private half, not a recipient. " +
-			".sops.yaml is world-readable, so writing it there hands the key that " +
-			"opens the secrets to every account on this host. Pass the public half " +
-			"instead: the age1... line, which is also the '# public key:' comment " +
-			"above the identity")
 	}
 	switch {
 	case strings.HasPrefix(s, "age1pq1"):
@@ -108,7 +105,35 @@ func ValidateRecipient(s string) error {
 	return nil
 }
 
-// Recipient reads the public half out of an identity file.
+// privateHalf is why this paste is the half that must not be published, or
+// empty where it is not one. Both halves sit adjacent in one file and only one
+// is safe to write into a world-readable .sops.yaml, so this is the refusal
+// worth making by name rather than leaving to "unknown recipient type".
+//
+// By line, with the line trimmed: an ssh public key carries a free-text
+// comment, and a substring search would refuse a valid recipient whose comment
+// happened to name one of these.
+func privateHalf(s string) string {
+	const published = ". .sops.yaml is world-readable, so writing it there hands " +
+		"the key that opens the secrets to every account on this host. Pass the " +
+		"public half instead"
+	for line := range strings.SplitSeq(s, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "AGE-SECRET-KEY-"), strings.HasPrefix(line, "AGE-PLUGIN-"):
+			return "that is an age identity, the private half, not a recipient" +
+				published + ": the age1... line, which is also the '# public key:' " +
+				"comment above the identity"
+		case strings.HasPrefix(line, "-----BEGIN") && strings.Contains(line, "PRIVATE KEY"):
+			return "that is a private key, not a recipient" + published +
+				": for an ssh key that is the one-line .pub file beside it, " +
+				"ssh-ed25519 ... or ssh-rsa ..."
+		}
+	}
+	return ""
+}
+
+// Recipient reads the public half out of an identity file.// Recipient reads the public half out of an identity file.
 //
 // Derived from the private half wherever there is one: the "# public key:"
 // comment is a comment, absent from a hand-written key and free to disagree

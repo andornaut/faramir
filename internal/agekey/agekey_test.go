@@ -197,6 +197,38 @@ func TestValidateRecipient(t *testing.T) {
 			says:      "line break",
 		},
 		{name: "nothing at all", recipient: "", says: "empty"},
+		{
+			// An identity is pasted with the file around it more often than on
+			// its own, and the line-break refusal answered that with a note
+			// about YAML while the dangerous half went unnamed.
+			name: "an identity file pasted whole",
+			recipient: "# created: 2026-01-01T00:00:00Z\n# public key: " +
+				id.Recipient().String() + "\n" + id.String(),
+			says: "private half",
+		},
+		{
+			// The same slip with an ssh key, which is the other half people
+			// have lying about. Refused for the reason that matters rather
+			// than for carrying a newline.
+			name: "an ssh private key",
+			recipient: "-----BEGIN OPENSSH PRIVATE KEY-----\n" +
+				"b3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----",
+			says: "private key, not a recipient",
+		},
+		{
+			// A PEM that is not a key is nothing to warn about: it falls
+			// through to the ordinary refusals.
+			name:      "a certificate",
+			recipient: "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----",
+			says:      "line break",
+		},
+		{
+			// An ssh comment naming one of these is still a valid recipient: the
+			// check is by line, not by substring.
+			name: "an ssh key whose comment names an identity", ok: true,
+			recipient: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE7mQ0TawUvfWHLeaoBg0q1So2tY3VIpiGMzBGsDbOZi " +
+				"AGE-SECRET-KEY-backup@host",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := ValidateRecipient(tc.recipient)
