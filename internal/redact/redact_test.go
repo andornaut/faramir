@@ -355,21 +355,21 @@ func TestEveryValueIsOneAutomaton(t *testing.T) {
 	}
 }
 
-// A value at or over the kernel's cap on one environment variable is one
-// faramir could never inject, and holding it is not free: the automaton costs
-// about 19 KB of memory per byte, so a 200 KB value takes the broker to several
-// gigabytes and the OOM killer takes it from there, at which point nothing on
-// the host is redacted.
-func TestAValueTooLargeToInjectIsRefused(t *testing.T) {
+// Holding a value is not free: the automaton costs about 15 KB of memory per
+// byte of secret, so the cap is what keeps one value from taking the broker to
+// gigabytes, where the host kills it and nothing is redacted at all until it
+// comes back.
+func TestAValueTooLargeToHoldIsRefused(t *testing.T) {
 	policy := DefaultPolicy()
 	for _, tc := range []struct {
 		name    string
 		size    int
 		refused bool
 	}{
+		// The credentials this is for, which all sit far below the cap.
 		{"an ordinary token", 40, false},
-		{"a private key", 3000, false},
-		{"a kubeconfig", 20000, false},
+		{"an ssh private key", 3000, false},
+		{"a kubeconfig with embedded CAs", 10000, false},
 		{"just under the cap", MaxValueBytes - 1, false},
 		{"at the cap", MaxValueBytes, true},
 		{"far over it", MaxValueBytes * 2, true},
@@ -380,12 +380,24 @@ func TestAValueTooLargeToInjectIsRefused(t *testing.T) {
 				tc.name, tc.size, refused, why, tc.refused)
 		}
 	}
-	// The reason says which limit and why it matters, or an operator is told a
-	// size and no reason to care about it.
+	// The reason says the size, the cost that decided the cap, and what to do
+	// instead, or an operator is told a number and no reason to care about it.
 	why := policy.Check(strings.Repeat("a", MaxValueBytes))
-	for _, want := range []string{"environment variable", "injected"} {
+	for _, want := range []string{"memory per byte", "block --path"} {
 		if !strings.Contains(why, want) {
 			t.Errorf("the reason does not mention %q: %s", want, why)
 		}
+	}
+	// And it does not send the operator to `link`, which puts the value in the
+	// same automaton at the same cost.
+	if strings.Contains(why, "faramir link") {
+		t.Errorf("the reason offers link, which costs the same: %s", why)
+	}
+	// The kernel's own cap is the other bound, and this one has to stay under
+	// it: a value faramir holds has to be one it can inject.
+	const maxArgStrLen = 128 << 10
+	if MaxValueBytes >= maxArgStrLen {
+		t.Errorf("MaxValueBytes = %d, which is at or past MAX_ARG_STRLEN (%d): a "+
+			"value this holds could not be injected", MaxValueBytes, maxArgStrLen)
 	}
 }

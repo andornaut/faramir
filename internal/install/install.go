@@ -494,6 +494,7 @@ func (o *Options) layout() (Layout, error) {
 	layout.CommandMaxTimeoutSec = o.CommandMaxTimeoutSec
 	layout.CommandConcurrency = o.CommandConcurrency
 	layout.CommandMaxMemoryPercent = o.CommandMaxMemoryPercent
+	layout.BrokerMaxMemoryPercent = BrokerMaxMemoryPercent
 	layout.CommandMaxProcessMemoryMB = o.CommandMaxProcessMemoryMB
 	layout.EscalationTimeoutSec = o.EscalationTimeoutSec
 	layout.SecretMinLength = o.SecretMinLength

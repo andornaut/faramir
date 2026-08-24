@@ -1000,3 +1000,48 @@ func TestDoctorRefusesAnAccountThatIsNotThere(t *testing.T) {
 		t.Errorf("naming no account stopped the examination: %v", quiet.Findings)
 	}
 }
+
+// The broker's memory is the size of the value set rather than a property of
+// the code: the automaton costs roughly 15 KB per byte of secret, so it grows
+// as the store does and is met by an operator who added secrets. The report has
+// to say so before the bound is met, since past it the broker is killed and
+// nothing is redacted while it is down.
+func TestBrokerMemoryIsReportedAgainstItsBound(t *testing.T) {
+	const gb = int64(1) << 30
+	for _, tc := range []struct {
+		name      string
+		used      int64
+		haveUsed  bool
+		limit     int64
+		haveLimit bool
+		want      Status
+		says      string
+	}{
+		{name: "no bound at all", haveUsed: true, used: gb,
+			want: StatusWarn, says: "OOM killer"},
+		{name: "room to spare", used: gb, haveUsed: true, limit: 8 * gb, haveLimit: true,
+			want: StatusOK, says: "of the"},
+		{name: "close to the bound", used: 7 * gb, haveUsed: true, limit: 8 * gb, haveLimit: true,
+			want: StatusWarn, says: "per byte of secret"},
+		{name: "at the bound", used: 8 * gb, haveUsed: true, limit: 8 * gb, haveLimit: true,
+			want: StatusWarn, says: "nothing is redacted while it is down"},
+		// A bound with no reading beside it is still worth stating.
+		{name: "bounded, usage unknown", limit: 8 * gb, haveLimit: true,
+			want: StatusOK, says: "held to"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var report DoctorReport
+			reportBrokerMemory(&report, tc.used, tc.haveUsed, tc.limit, tc.haveLimit)
+			if len(report.Findings) != 1 {
+				t.Fatalf("got %d findings, want 1", len(report.Findings))
+			}
+			got := report.Findings[0]
+			if got.Status != tc.want {
+				t.Errorf("status = %q, want %q: %s", got.Status, tc.want, got.Detail)
+			}
+			if !strings.Contains(got.Detail, tc.says) {
+				t.Errorf("detail does not say %q: %s", tc.says, got.Detail)
+			}
+		})
+	}
+}

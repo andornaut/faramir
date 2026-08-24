@@ -65,6 +65,16 @@ PrivateTmp=true
 # writable. Nothing here is debugged from a core on a host that manages
 # credentials.
 LimitCORE=0
+# This process holds the whole decrypted value set, and the automaton it scans
+# with costs roughly 15 KB per byte of secret, so its memory is the size of the
+# store rather than a property of the code. Bounded so a store that has outgrown
+# the machine kills the broker rather than leaving the host's OOM killer to pick
+# something else; `faramir doctor` reports what it is using against this, so a
+# store growing towards it is seen before it is met.
+#
+# The other half is a cap on one value, which is in internal/redact: a single
+# secret cannot reach this on its own.
+MemoryMax={{.BrokerMaxMemoryPercent}}%
 # PrivateDevices would hide /dev/ptmx, and every child runs on a PTY. The
 # device ACL is narrowed instead.
 PrivateDevices=false

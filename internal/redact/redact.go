@@ -367,19 +367,28 @@ type EligibilityPolicy struct {
 	MinLength int
 }
 
-// MaxValueBytes is the largest value the broker will hold, and it is the
-// kernel's number rather than a policy: Linux caps one environment variable at
-// MAX_ARG_STRLEN, 128 KiB including the name and the "=", so a value at or over
-// this can never be injected into a command. `faramir run` fails such a value
-// with the exec's own "argument list too long".
+// MaxValueBytes is the largest value the broker will hold. Two numbers meet
+// here and the smaller one wins.
 //
-// Refused rather than carried, because holding one is not free. Every value
-// enters an Aho-Corasick automaton whose states carry a dense transition table,
-// so the set costs about 19 KB of memory per byte of secret: a 200 KB value
-// takes the broker to 3.7 GB and the OOM killer takes it from there, at which
-// point nothing is redacted at all. A value this size is one faramir could not
-// have used, so refusing it costs the operator nothing it could have had.
-const MaxValueBytes = 128 << 10
+// The kernel's is 128 KiB: Linux caps one environment variable at
+// MAX_ARG_STRLEN including the name and the "=", so a value at or over that
+// can never be injected into a command at all.
+//
+// The broker's own is what actually binds. Every value enters an Aho-Corasick
+// automaton whose states carry a dense transition table, so the set costs
+// roughly 15 KB of memory per byte of secret, measured. A value at the
+// kernel's cap would take the broker past 1.9 GB on its own, and nothing
+// bounds it from there but the host: the broker is killed, and while it is
+// down nothing is redacted at all.
+//
+// 16 KiB is above every credential this is for -- an SSH private key, a TLS
+// chain, a kubeconfig with its embedded CAs, any API token -- and costs about
+// 240 MB, which is a broker an operator can run. A credential larger than this
+// is a file rather than a value: `faramir block --path` refuses it to the
+// agent's file tools while a brokered command may still read it, which is the
+// arrangement for a credential faramir should not be holding. `faramir link`
+// is not the way around it, a linked value entering the same automaton.
+const MaxValueBytes = 16 << 10
 
 func DefaultPolicy() EligibilityPolicy {
 	return EligibilityPolicy{MinLength: 8}
@@ -391,8 +400,11 @@ func (p EligibilityPolicy) Check(value string) string {
 		return fmt.Sprintf("shorter than %d characters", p.MinLength)
 	}
 	if len(value) >= MaxValueBytes {
-		return fmt.Sprintf("%d bytes, and one environment variable holds at most "+
-			"%d, so it could not be injected into a command", len(value), MaxValueBytes)
+		return fmt.Sprintf("%d bytes, and the broker holds at most %d: a value costs "+
+			"about 15 KB of the broker's memory per byte, so one this size is a "+
+			"broker the host kills. Refuse the file to the agent with `sudo faramir "+
+			"block --path` and let a brokered command read it instead",
+			len(value), MaxValueBytes)
 	}
 	// A value that is faramir's own token, guillemets and all. The redactor
 	// emits that shape for another ref, and the streaming buffer redacts the

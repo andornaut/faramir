@@ -231,6 +231,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	diagnoseLogRotation(&report, cfg)
 	diagnoseUnits(&report, opts)
 	diagnoseMemoryBounds(&report)
+	diagnoseBrokerMemory(&report)
 	diagnoseSSHAgent(&report, opts, cfg, serves)
 	diagnoseVersion(&report, opts)
 
@@ -915,6 +916,74 @@ func reportMemoryBounds(report *DoctorReport, perProcess int64, havePer bool,
 		report.addf(check, StatusOK, "one brokered process may allocate %s, and "+
 			"every brokered command together %s",
 			gib(perProcess), gib(maxMemory))
+	}
+}
+
+// diagnoseBrokerMemory reports what the broker is holding against what it is
+// allowed to hold. The broker's memory is the size of the value set rather than
+// a property of the code -- the automaton it scans with costs roughly 15 KB per
+// byte of secret -- so this grows as the store does, and it is met by an
+// operator who added secrets rather than by a bug.
+//
+// Read from systemd for the same reason the executor's is: the percentage
+// resolves against the cgroup's own limit, which inside a container is the
+// container's and not the machine's.
+func diagnoseBrokerMemory(report *DoctorReport) {
+	const check = "broker memory"
+	if !systemdRunning() {
+		report.unaskedf(check, 1, "systemd is not running here, so what the "+
+			"broker's memory limit resolves to was not asked")
+		return
+	}
+	run := &runner{}
+	value := func(property string) (int64, bool) {
+		out, err := run.command("systemctl", "show", brokerUnit, "-p", property, "--value")
+		if err != nil {
+			return 0, false
+		}
+		n, convErr := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+		// "infinity" is systemd saying there is no limit, which parses as neither
+		// a number nor an error worth reporting: it is a bound nobody set.
+		return n, convErr == nil
+	}
+	limit, haveLimit := value("MemoryMax")
+	used, haveUsed := value("MemoryCurrent")
+	reportBrokerMemory(report, used, haveUsed, limit, haveLimit)
+}
+
+// reportBrokerMemory is the verdict on the two, apart from reading them so the
+// judgement can be asserted without systemd.
+func reportBrokerMemory(report *DoctorReport, used int64, haveUsed bool,
+	limit int64, haveLimit bool) {
+	const check = "broker memory"
+	// The share at which a store is close enough to the ceiling to say so: past
+	// it, adding a few more secrets is what meets it.
+	const crowded = 80
+	switch {
+	// A drop-in may set MemoryMax=0, which parses as a number and is a broker
+	// that may hold nothing. Answered before the share below, which would
+	// divide by it.
+	case haveLimit && limit == 0:
+		report.addf(check, StatusFailed, "%s holds the broker to nothing, so it is "+
+			"killed as soon as it loads the value set. Remove the MemoryMax=0 "+
+			"drop-in, or `sudo faramir init` to write the bound faramir renders",
+			brokerUnit)
+	case !haveLimit:
+		report.addf(check, StatusWarn, "%s bounds the broker's memory not at all, "+
+			"so a value set that outgrows the machine is answered by the host's OOM "+
+			"killer, which need not choose the broker. `sudo faramir init` writes "+
+			"the bound", brokerUnit)
+	case !haveUsed:
+		report.addf(check, StatusOK, "the broker is held to %s", gib(limit))
+	case used*100/limit >= crowded:
+		report.addf(check, StatusWarn, "the broker holds %s of the %s it is allowed, "+
+			"and its memory is the size of the value set: roughly 15 KB per byte of "+
+			"secret. Past the bound it is killed and restarted, and nothing is "+
+			"redacted while it is down. Take secrets out of the store, or raise the "+
+			"machine's memory", gib(used), gib(limit))
+	default:
+		report.addf(check, StatusOK, "the broker holds %s of the %s it is allowed",
+			gib(used), gib(limit))
 	}
 }
 

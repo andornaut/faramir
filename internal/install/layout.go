@@ -77,6 +77,16 @@ var (
 // group, so the only account that can read the ciphertext is the one that
 // decrypts it, by construction rather than by a membership list.
 
+// BrokerMaxMemoryPercent is the share of the machine the broker may hold. The
+// same share the executor's cgroup gets, for the same reason: it is the number
+// above which one part of faramir is taking the host rather than using it.
+//
+// A value costs roughly 15 KB of the broker's memory per byte of secret, so a
+// store that has grown is what reaches this, not a broker misbehaving. The
+// other half is internal/redact.MaxValueBytes: one value cannot get there on
+// its own.
+const BrokerMaxMemoryPercent = 25
+
 // Layout is everything the templates and the install steps must agree on, built
 // once by Options.layout and passed down.
 type Layout struct {
@@ -177,9 +187,21 @@ type Layout struct {
 	// asking for a little, which only a cgroup total sees.
 	CommandMaxMemoryPercent   int
 	CommandMaxProcessMemoryMB int
-	EscalationTimeoutSec      int
-	SecretMinLength           int
-	SecretMinRefreshSec       int
+	// BrokerMaxMemoryPercent renders into the broker unit's MemoryMax. A
+	// constant rather than a key, and a share of the machine rather than a
+	// number of bytes: what the broker holds is the value set, whose cost is
+	// the operator's to control, and a fixed ceiling that fits one host is
+	// wrong on the next.
+	//
+	// It bounds nothing the operator wants; what it decides is who dies when
+	// the value set outgrows the machine. Without it the host's OOM killer
+	// chooses, and it may not choose the broker. `faramir doctor` reports what
+	// the broker is using against this, so a store growing towards it is seen
+	// before it is met.
+	BrokerMaxMemoryPercent int
+	EscalationTimeoutSec   int
+	SecretMinLength        int
+	SecretMinRefreshSec    int
 
 	// AllowSudo is the switch for the whole arrangement: unset renders no
 	// [escalation] section, writes no sudoers file and no PAM service, so nothing
