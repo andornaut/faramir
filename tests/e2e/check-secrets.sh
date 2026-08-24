@@ -191,6 +191,63 @@ reload_daemons || bad "the daemons did not come back"
 runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
   && ok "the secrets still decrypt after the refusal" || bad "the refusal left the secrets unreadable"
 
+head_ "6b. values the broker will not hold"
+#
+# The install's own creation rule first. Section 6 leaves a hostile one behind,
+# and a file added under that never decrypts: a check that a value is absent
+# from `refs` would then pass whatever the size rule did, which is a test that
+# cannot fail. Section 7 writes its own rule, so nothing downstream wants the
+# one being replaced here.
+cp -a "$BACKUP/sops" /etc/faramir/.sops.yaml
+reload_daemons || bad "the daemons did not come back on the install's own rule"
+
+# A value larger than the broker will hold. The value set costs about 15 KB of
+# memory per byte of secret, so one this size takes the broker to gigabytes and
+# then to the OOM killer, at which point nothing is redacted at all. 200 KB is
+# also past the kernel's cap on one environment variable, so it could never
+# have been injected either; the case below is the one that is legal to inject
+# and still too expensive to hold.
+python3 -c "open('/tmp/huge.yml','w').write('toobig: %s\n' % ('x' * 200000))"
+faramir vault add --from /tmp/huge.yml e2e-toobig >/dev/null 2>&1
+rm -f /tmp/huge.yml
+reload_daemons || bad "the daemons did not come back after a huge value"
+runuser -u op -- faramir refs 2>/dev/null | grep -q 'faramir://toobig' \
+  && bad "a value too large to inject is served" \
+  || ok "a value too large to inject is refused at load"
+pid=$(systemctl show -p MainPID --value faramir-broker.service)
+rss=$(awk '/VmRSS/{print $2}' /proc/"$pid"/status 2>/dev/null)
+[ -n "$rss" ] && [ "$rss" -lt 1000000 ] \
+  && ok "  and the broker is ${rss}kB rather than gigabytes" \
+  || bad "  the broker is ${rss:-gone}kB with one oversized value in the store"
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
+  --env V=faramir://toobig -- /bin/true 2>&1)
+[ -n "$out" ] && ok "  and asking for it is refused" \
+  || bad "  asking for a value that was refused at load ran anyway"
+faramir vault rm --force e2e-toobig >/dev/null 2>&1
+reload_daemons || bad "the daemons did not come back"
+
+# 20 KB: a value the kernel would carry in an environment variable and the
+# broker will not hold, which is the bound that actually binds. Every credential
+# this is for -- an ssh key, a TLS chain, a kubeconfig -- is far below it.
+python3 -c "open('/tmp/mid.yml','w').write('midsize: %s\n' % ('x' * 20000))"
+faramir vault add --from /tmp/mid.yml e2e-midsize >/dev/null 2>&1
+rm -f /tmp/mid.yml
+reload_daemons || bad "the daemons did not come back after a 20 KB value"
+runuser -u op -- faramir refs 2>/dev/null | grep -q 'faramir://midsize' \
+  && bad "a 20 KB value is served, and the broker pays 15 KB per byte for it" \
+  || ok "a value the broker will not hold is refused at load, under the kernel's cap"
+# The reason has to name the cost and what to do instead, or an operator reads a
+# number with nothing to act on.
+# Squeezed as well as joined: doctor wraps a detail across lines and indents the
+# continuation, so a phrase straddling the wrap is split by a run of spaces.
+detail=$(faramir doctor 2>&1 | tr '\n' ' ' | tr -s ' ')
+grep -q 'memory per byte' <<<"$detail" \
+  && ok "  and doctor says what it costs" || bad "  doctor gives no reason: $(grep -o 'midsize[^.]*' <<<"$detail" | head -c 100)"
+grep -q 'block --path' <<<"$detail" \
+  && ok "  and what to do instead" || bad "  doctor offers no alternative"
+faramir vault rm --force e2e-midsize >/dev/null 2>&1
+reload_daemons || bad "the daemons did not come back"
+
 head_ "7. an edit preserves who can read the file, whatever .sops.yaml now says"
 # reseal applies a changed rule; edit must not, or editing a value would quietly
 # reseal the file to whoever the rule names today.
@@ -256,30 +313,6 @@ runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
   && ok "  and the store still decrypts afterwards" || bad "  the store is unreadable after the race"
 rm -f /usr/local/sbin/slow-editor /usr/local/sbin/quick-editor \
   /tmp/edit-slow.log /tmp/edit-quick.log /tmp/edit-slow.rc /tmp/edit-quick.rc
-
-# A value at or over the kernel's cap on one environment variable. It could
-# never be injected -- `run` fails it with the exec's own "argument list too
-# long" -- and holding one is not free: the value set costs about 19 KB of
-# memory per byte of secret, so a value this size takes the broker to several
-# gigabytes and then to the OOM killer, at which point nothing is redacted.
-python3 -c "open('/tmp/huge.yml','w').write('toobig: %s\n' % ('x' * 200000))"
-faramir vault add --from /tmp/huge.yml e2e-toobig >/dev/null 2>&1
-rm -f /tmp/huge.yml
-reload_daemons || bad "the daemons did not come back after a huge value"
-runuser -u op -- faramir refs 2>/dev/null | grep -q 'faramir://toobig' \
-  && bad "a value too large to inject is served" \
-  || ok "a value too large to inject is refused at load"
-pid=$(systemctl show -p MainPID --value faramir-broker.service)
-rss=$(awk '/VmRSS/{print $2}' /proc/"$pid"/status 2>/dev/null)
-[ -n "$rss" ] && [ "$rss" -lt 1000000 ] \
-  && ok "  and the broker is ${rss}kB rather than gigabytes" \
-  || bad "  the broker is ${rss:-gone}kB with one oversized value in the store"
-out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
-  --env V=faramir://toobig -- /bin/true 2>&1)
-[ -n "$out" ] && ok "  and asking for it is refused" \
-  || bad "  asking for a value that was refused at load ran anyway"
-faramir vault rm --force e2e-toobig >/dev/null 2>&1
-reload_daemons || bad "the daemons did not come back"
 
 # --------------------------------------------------------------------------
 # The shapes below are the ones a reader would not think to try: a .sops.yaml

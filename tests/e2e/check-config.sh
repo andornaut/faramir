@@ -27,7 +27,7 @@ why()   { runuser -u faramir-broker -- env FARAMIR_CONFIG=$CFG /usr/local/bin/fa
 # --allow-sudo where the host already has a grant: that flag is a switch, so a
 # re-run without it takes the grant away, and this suite is about config values
 # rather than about removing the one thing later suites depend on.
-GRANT=$(grep -q '^\[escalation\]' $CFG && echo --allow-sudo || true)
+GRANT=$(grep -q '^\[sudo\]' $CFG && echo --allow-sudo || true)
 # shellcheck disable=SC2086  # GRANT is one flag or empty, deliberately unquoted
 reinit() { /usr/local/bin/faramir init --agent-user op --config-dir "$CONFIG_DIR" $GRANT "$@" >/tmp/init.log 2>&1; }
 # addkey puts a line inside a section that already exists. Appending the header
@@ -229,6 +229,22 @@ out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -- /usr/bin/pyth
 grep -qi 'memoryerror\|cannot allocate' <<<"$out" \
   && ok "and a process asking for ${over}MB is refused by it" \
   || bad "a process asking for ${over}MB was not refused: $(tail -c 120 <<<"$out")"
+# The broker has one of its own, and for a different reason: what it holds is
+# the decrypted value set, whose cost is the size of the store rather than a
+# property of the code. Bounded so a store that outgrew the machine kills the
+# broker rather than leaving the host's OOM killer to choose.
+brokermax=$(systemctl show faramir-broker.service -p MemoryMax --value)
+[ "$brokermax" != infinity ] && [ -n "$brokermax" ] \
+  && ok "and MemoryMax is set on the broker ($brokermax bytes)" \
+  || bad "the broker's MemoryMax is [$brokermax]: its value set is unbounded"
+# And doctor reports what it holds against that, so a store growing towards the
+# bound is seen before it is met.
+# Squeezed as well as joined: doctor wraps a detail and indents the
+# continuation, so a phrase straddling the wrap is split by a run of spaces.
+faramir doctor 2>&1 | tr '\n' ' ' | tr -s ' ' | grep -q 'the broker holds' \
+  && ok "and doctor reports what the broker holds against it" \
+  || bad "doctor does not report the broker's memory: $(faramir doctor 2>&1 | grep -c .)"
+
 # And an ordinary allocation is untouched, or the bound is one nobody can work
 # under.
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -- /usr/bin/python3 -c \

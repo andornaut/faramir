@@ -618,7 +618,7 @@ func TestOutcomeReportsACallerThatWent(t *testing.T) {
 	}
 }
 
-// A refused request never reached a command, so it has no exit code. The// A refused request never reached a command, so it has no exit code. The
+// A refused request never reached a command, so it has no exit code. The
 // listing has to say so: the alternative renders it as a command that ran and
 // produced nothing, which is a different event.
 func TestOutcomeReportsTheRefusalCode(t *testing.T) {
