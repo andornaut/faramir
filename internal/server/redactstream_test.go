@@ -18,8 +18,22 @@ func serving(t *testing.T, s *Server) func() (net.Conn, *sockutil.LineReader) {
 	if _, err := s.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = s.Serve() }()
-	t.Cleanup(func() { _ = s.Close() })
+	served := make(chan struct{})
+	go func() { defer close(served); _ = s.Serve() }()
+	// Close does not wait for the handlers: it unblocks the connections and shuts
+	// the listener, and Serve is what waits on the group before it returns. So the
+	// wait belongs here, or a handler still finishing races the removal of the
+	// directory it is working in. t.TempDir registers its RemoveAll on the first
+	// call, which is before this, and cleanups run last-registered-first, so this
+	// one completes before the tree goes.
+	t.Cleanup(func() {
+		_ = s.Close()
+		select {
+		case <-served:
+		case <-time.After(30 * time.Second):
+			t.Error("Serve did not return after Close, so a handler is still running")
+		}
+	})
 
 	return func() (net.Conn, *sockutil.LineReader) {
 		conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", s.Config.Server.SocketPath)
