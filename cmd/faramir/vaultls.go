@@ -55,7 +55,7 @@ func newVaultListCmd() *cobra.Command {
 	var f vaultListFlags
 	c := &cobra.Command{
 		Use:   useLs,
-		Short: "List the managed files, their refs and who can read them",
+		Short: "List the encrypted files, their refs and who can read them",
 		Long: "Reads the secrets directory rather than asking the broker, so a file the\n" +
 			"broker refused to load is listed here with the reason. `faramir refs` is\n" +
 			"the other question: what the broker is serving.\n\n" +
@@ -209,7 +209,7 @@ func newVaultRemoveCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "rm [options] NAME",
 		Aliases: []string{opRemove},
-		Short:   "Take a file out of the managed store",
+		Short:   "Remove an encrypted secret file",
 		Long: "Deletes one managed file and every value in it. Only a backup brings\n" +
 			"them back.\n\n" +
 			"It names the refs it is about to destroy and asks for the file name back.\n" +
@@ -318,7 +318,7 @@ func newRefsCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:     "refs [options]",
-		Short:   "List the secret names you can inject, never their values",
+		Short:   "List the secret names you can inject; values are never shown",
 		GroupID: groupOperator,
 		Long: "Each name is a ref: what `--env NAME=faramir://<ref>` and `env_refs`\n" +
 			"take.\n\n" +

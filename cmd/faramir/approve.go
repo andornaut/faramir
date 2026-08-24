@@ -81,7 +81,7 @@ func cmdReject(args []string) int    { return runCommand(newRejectCmd(), args) }
 func newSudoCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "sudo",
-		Short:   "The questions a brokered command's sudo raises, and the answers",
+		Short:   "Approve or refuse a brokered command's request to run sudo",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
@@ -99,7 +99,7 @@ func newSudoListCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   useLs,
-		Short: "List the question a brokered command is waiting on",
+		Short: "List the sudo requests waiting for an answer",
 		Long: "Prints what is waiting and exits. Exit status is 0 where something was\n" +
 			"waiting, 1 where nothing was, 69 where the broker could not be reached,\n" +
 			"which prints nothing rather than an empty list.\n\n" +
@@ -131,7 +131,7 @@ func newSudoWatchCmd() *cobra.Command {
 	var when string
 	c := &cobra.Command{
 		Use:   "watch",
-		Short: "Wait for questions, answer them here, and report how each run ended",
+		Short: "Watch for sudo requests and answer them as they arrive",
 		Long: "Holds this terminal: prints each question as it arrives, reads your\n" +
 			"answer, and prints how each approved run ended.\n\n" +
 			"Run it as root somewhere the coding agent cannot type. The socket check\n" +
@@ -160,7 +160,7 @@ func newApproveCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:   "approve [options] ID",
-		Short: "Say yes to one, by id",
+		Short: "Approve one sudo request, by id",
 		// The command line before the caller: a malformed one is worth saying
 		// whoever is asking, and the other two commands check in that order.
 		Args: func(c *cobra.Command, args []string) error {
@@ -192,7 +192,7 @@ func newRejectCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   "reject [options] [ID]",
-		Short: "Say no, to that one or to whatever is waiting",
+		Short: "Refuse one sudo request, or whichever is waiting",
 		Args:  atMostOneArg("id"),
 		RunE: func(c *cobra.Command, args []string) error {
 			if !requireRootToAnswer("sudo reject") {

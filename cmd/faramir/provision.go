@@ -230,7 +230,7 @@ type initFlags struct {
 	commandConcurrency   int
 	commandMaxMemoryPct  int
 	commandMaxProcMB     int
-	escalationTimeoutSec int
+	sudoTimeoutSec       int
 	secretMinLength      int
 	secretMinRefreshSec  int
 }
@@ -245,7 +245,7 @@ func (f *initFlags) tunables() map[string]func() {
 		"command-concurrency":           func() { f.commandConcurrency = 0 },
 		"command-max-memory-percent":    func() { f.commandMaxMemoryPct = 0 },
 		"command-max-process-memory-mb": func() { f.commandMaxProcMB = 0 },
-		"sudo-timeout-sec":              func() { f.escalationTimeoutSec = 0 },
+		"sudo-timeout-sec":              func() { f.sudoTimeoutSec = 0 },
 		"secret-min-length":             func() { f.secretMinLength = 0 },
 		"secret-min-refresh-sec":        func() { f.secretMinRefreshSec = 0 },
 	}
@@ -341,7 +341,7 @@ func newInitCmd() *cobra.Command {
 		"the backstop: how much of this machine's memory every brokered command together may hold, as MemoryMax on the executor unit (10 to 100). It is a cgroup total, so it catches fan-out that no per-process limit sees, and it counts page cache; 100 is the whole machine, which is no bound")
 	fl.IntVar(&f.commandMaxProcMB, "command-max-process-memory-mb", command.MaxProcessMemoryMB,
 		"what one brokered process may allocate, as LimitDATA on the executor unit (at least 256). Anonymous memory only, so a command is not charged for page cache, and one that reaches it gets an allocation failure it can report rather than the OOM killer")
-	fl.IntVar(&f.escalationTimeoutSec, "sudo-timeout-sec", config.DefaultSudoTimeoutSec,
+	fl.IntVar(&f.sudoTimeoutSec, "sudo-timeout-sec", config.DefaultSudoTimeoutSec,
 		"how long a sudo question waits for a human before it is refused (1 to 600)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
 		"refuse a secret shorter than this: it cannot be redacted without matching inside ordinary words (at least 6)")
@@ -415,7 +415,7 @@ func runInit(f initFlags) int {
 		CommandConcurrency:        f.commandConcurrency,
 		CommandMaxMemoryPercent:   f.commandMaxMemoryPct,
 		CommandMaxProcessMemoryMB: f.commandMaxProcMB,
-		SudoTimeoutSec:            f.escalationTimeoutSec,
+		SudoTimeoutSec:            f.sudoTimeoutSec,
 		SecretMinLength:           f.secretMinLength,
 		SecretMinRefreshSec:       f.secretMinRefreshSec,
 		MoveConfig:                f.moveConfig,
@@ -485,7 +485,7 @@ func newInitProjectCmd() *cobra.Command {
 	var f initProjectFlags
 	c := &cobra.Command{
 		Use:     "init-project [options] [DIR]",
-		Short:   "Enrol one working tree: share it, and configure its agents",
+		Short:   "Set up one working tree and configure its agents",
 		GroupID: groupProvisioning,
 		Args:    atMostOneArg("directory"),
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runInitProject(f, args)) },
@@ -577,7 +577,7 @@ func newDoctorCmd() *cobra.Command {
 	var f doctorFlags
 	c := &cobra.Command{
 		Use:     "doctor [options]",
-		Short:   "Report whether the install is doing its job",
+		Short:   "Check the install and report what is wrong",
 		GroupID: groupProvisioning,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runDoctor(f)) },
@@ -888,7 +888,7 @@ func runUninstall(f uninstallFlags) int {
 func newReloadCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "reload",
-		Short:   "Drop the daemons onto a changed configuration",
+		Short:   "Restart the daemons so they read a changed configuration",
 		GroupID: groupProvisioning,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runReload()) },

@@ -127,7 +127,7 @@ var fallbackOwn = []string{
 	// it, so they are the operator's whether or not sudo is in front: refused here
 	// so the agent is told that rather than meeting a permission error it will try
 	// to work around. Held to cli.OperatorOnly by a test.
-	`\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|reader[ \t]+add|reader[ \t]+rm|reader[ \t]+ls|reader[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|block[ \t]+add|block[ \t]+rm|block[ \t]+ls|logs|sudo[ \t]+ls|sudo[ \t]+watch|sudo[ \t]+approve|sudo[ \t]+reject|doctor|reload|uninstall)\b`,
+	`\bfaramir[-\s]+(block[ \t]+add|block[ \t]+ls|block[ \t]+rm|doctor|init|init-project|link[ \t]+add|link[ \t]+ls|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+ls|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Blocked for what it costs, not because it hides anything: the wrapper fails
 	// closed, so a stopped broker withholds every command's output in every
@@ -175,8 +175,11 @@ var adviceMarkers = []struct {
 	// to. Without this, `rm /srv/luks.key` is explained as faramir's own file.
 	ownPath bool
 }{
-	{`\s+faramir\b`, adviceOperator, false},          // any faramir subcommand under sudo
-	{`\bfaramir[-\s]+(init`, adviceOperator, false},  // the same set unprivileged
+	{`\s+faramir\b`, adviceOperator, false}, // any faramir subcommand under sudo
+	// Stopping at the open bracket rather than reaching into the alternation:
+	// the subcommands inside it are listed alphabetically, so which one comes
+	// first moves whenever a command is added.
+	{`\bfaramir[-\s]+(`, adviceOperator, false},      // the same set unprivileged
 	{`\bsystemctl\b`, adviceOwn, false},              // stopping or masking a unit
 	{`/usr/local/bin/faramir\b`, adviceOwn, false},   // the binary
 	{`\.opencode/plugins/faramir`, adviceOwn, false}, // the plugin an enrolment writes

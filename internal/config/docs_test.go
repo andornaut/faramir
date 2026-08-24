@@ -28,7 +28,7 @@ var documentedKey = regexp.MustCompile("\\[([a-z.]+)\\][ \t]+`?([a-z_]+)`?")
 func TestEverySettingTheDocsNameIsOneTheLoaderAccepts(t *testing.T) {
 	byName := map[string][]string{
 		"server": serverKeys, "keeper": keeperKeys, "executor": executorKeys,
-		"command": commandKeys, "ssh": sshKeys, "escalation": sudoKeys,
+		"command": commandKeys, "ssh": sshKeys, "sudo": sudoKeys,
 		"secret": secretKeys, "audit": auditKeys,
 	}
 	// Every section the loader knows has an entry above, or a document could

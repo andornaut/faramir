@@ -26,7 +26,7 @@ func newKeeperCmd() *cobra.Command {
 	var f keeperFlags
 	c := &cobra.Command{
 		Use:     "keeper",
-		Short:   "Holds the age key, serves decrypted values",
+		Short:   "Run the keeper daemon, which holds the age key",
 		GroupID: groupInternal,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runKeeper(f)) },

@@ -13,7 +13,7 @@ import (
 func newMCPCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "mcp",
-		Short:              "MCP stdio server",
+		Short:              "Run the MCP stdio server",
 		GroupID:            groupInternal,
 		DisableFlagParsing: true,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -41,7 +41,7 @@ func newPamEscalateRootCmd() *cobra.Command {
 func newGuardCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "guard",
-		Short:              "PreToolUse hook",
+		Short:              "Run the PreToolUse hook a coding agent calls",
 		GroupID:            groupInternal,
 		DisableFlagParsing: true,
 		RunE: func(c *cobra.Command, args []string) error {

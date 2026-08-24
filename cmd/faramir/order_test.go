@@ -6,14 +6,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	faramir "github.com/andornaut/faramir"
 	"github.com/andornaut/faramir/internal/cli"
 )
 
 // treeOrder is the position of every subcommand in the order the help prints
-// them, which is the order the command tree is assembled in. The tree is the
-// one of the three lists that a reader actually sees, so it is the one the
-// other two follow.
+// them, which is alphabetical within each group. The tree is the one of the
+// three lists that a reader actually sees, so it is the one the other two
+// follow.
 func treeOrder(t *testing.T) map[string]int {
 	t.Helper()
 	at := map[string]int{}
@@ -104,22 +106,53 @@ func TestTheReadmeGroupTableFollowsTheSameOrderWithinEachRow(t *testing.T) {
 	}
 }
 
-// The two groups above it are ordered for a reader working through them: the
-// commands group leads with `run`, and provisioning follows an install from
-// `init` to `uninstall`. This group is neither, so it is sorted, and a command
-// appended to the end of it is a command out of place.
-func TestTheInternalGroupIsSorted(t *testing.T) {
+// Every group is listed alphabetically. A command appended to the end of a
+// group is a command out of place, and cobra's default sorting is what keeps it
+// from being one; this fails if that is ever turned off.
+func TestEveryGroupIsSorted(t *testing.T) {
 	root := newRootCmd()
-	var names []string
+	groups := map[string][]string{}
 	for _, c := range root.Commands() {
-		if c.GroupID == groupInternal {
-			names = append(names, c.Name())
+		groups[c.GroupID] = append(groups[c.GroupID], c.Name())
+	}
+	// The generated `completion` command is in none of the three, so a group with
+	// one command in it is that one rather than a listing with an order.
+	checked := 0
+	for id, names := range groups {
+		if len(names) < 2 {
+			continue
+		}
+		checked++
+		if !slices.IsSorted(names) {
+			t.Errorf("group %q is %v, want it sorted", id, names)
 		}
 	}
-	if len(names) < 2 {
-		t.Fatalf("found %d internal commands, too few to be an order", len(names))
+	if checked < 3 {
+		t.Fatalf("checked %d group(s), so the root was not assembled", checked)
 	}
-	if !slices.IsSorted(names) {
-		t.Errorf("the internal group is %v, want it sorted", names)
+}
+
+// Sorted to the leaf, not only at the top: a reader who opens `faramir vault
+// --help` is looking a verb up the same way.
+func TestEverySubcommandListIsSorted(t *testing.T) {
+	checked := 0
+	var walk func(*cobra.Command)
+	walk = func(c *cobra.Command) {
+		names := make([]string, 0, len(c.Commands()))
+		for _, sub := range c.Commands() {
+			names = append(names, sub.Name())
+			walk(sub)
+		}
+		if len(names) < 2 {
+			return
+		}
+		checked++
+		if !slices.IsSorted(names) {
+			t.Errorf("%s lists %v, want it sorted", c.CommandPath(), names)
+		}
+	}
+	walk(newRootCmd())
+	if checked == 0 {
+		t.Fatal("no command groups others, so this asserts nothing")
 	}
 }

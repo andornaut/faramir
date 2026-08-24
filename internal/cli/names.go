@@ -14,38 +14,38 @@ import "slices"
 // naming the parent alone would sanction every subcommand added under it
 // later.
 var Operator = []string{
-	"run",
-	"redact",
-	"refs",
-	"status",
-	// version, help and completion answer without reaching the broker.
-	"version",
-	"help",
+	"block add",
+	"block ls",
+	"block rm",
+	// completion, help and version answer without reaching the broker.
 	"completion",
+	"doctor",
+	"help",
 	"init",
 	"init-project",
+	"link add",
+	"link ls",
+	"link rm",
+	"logs",
+	"reader add",
+	"reader ls",
+	"reader reseal",
+	"reader rm",
+	"redact",
+	"refs",
+	"reload",
+	"run",
+	"status",
+	"sudo approve",
+	"sudo ls",
+	"sudo reject",
+	"sudo watch",
+	"uninstall",
 	"vault add",
 	"vault edit",
 	"vault ls",
 	"vault rm",
-	"reader add",
-	"reader rm",
-	"reader ls",
-	"reader reseal",
-	"link add",
-	"link rm",
-	"link ls",
-	"block add",
-	"block rm",
-	"block ls",
-	"logs",
-	"sudo ls",
-	"sudo watch",
-	"sudo approve",
-	"sudo reject",
-	"doctor",
-	"reload",
-	"uninstall",
+	"version",
 }
 
 // Agent is the subcommands the coding agent may run, and so the only ones whose
@@ -56,13 +56,13 @@ var Operator = []string{
 // Everything in Operator and absent here acts on the install rather than
 // through it, and is refused to the agent's shell.
 var Agent = []string{
-	"run",
+	"completion",
+	"help",
 	"redact",
 	"refs",
+	"run",
 	"status",
 	"version",
-	"help",
-	"completion",
 }
 
 // OperatorOnly is Operator without Agent, in Operator's order: the subcommands

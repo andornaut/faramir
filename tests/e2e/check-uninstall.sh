@@ -22,7 +22,7 @@ gone()   { [ -e "$1" ] && bad "$2 survived: $1" || ok "$2 is gone"; }
 kept()   { [ -e "$1" ] && ok "$2 is kept" || bad "$2 was removed: $1"; }
 
 # The grant is what makes the interesting half of this suite exist.
-if ! grep -q '^\[escalation\]' $CFGDIR/config.toml; then
+if ! grep -q '^\[sudo\]' $CFGDIR/config.toml; then
   faramir init --allow-sudo --agent-user op >/tmp/u-init.log 2>&1 \
     || { echo "could not install the grant"; tail -3 /tmp/u-init.log; exit 1; }
   systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1

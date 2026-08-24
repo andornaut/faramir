@@ -325,7 +325,7 @@ const chunkBytes = 32 << 10
 func newRedactCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "redact [options] [-- command [args...]]",
-		Short:   "Scrub secrets out of text, or out of a command's output",
+		Short:   "Remove secrets from text, or from a command's output",
 		GroupID: groupOperator,
 		RunE: func(c *cobra.Command, child []string) error {
 			if len(child) > 0 {

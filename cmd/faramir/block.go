@@ -27,7 +27,7 @@ import (
 func newBlockCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "block",
-		Short:   "Paths, names and commands the agent may not reach",
+		Short:   "Block paths, names and commands from the agent",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
@@ -113,7 +113,7 @@ func newBlockAddCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
 		Use:   "add [options] (--path PATH | --name PATTERN | --command COMMAND)...",
-		Short: "Block a path, a name or a command from the agent",
+		Short: "Block one path, name or command from the agent",
 		Long: "Adds a [[secret.block]] entry per --path, --name and --command, and\n" +
 			"re-renders the agent's deny rules. For a credential faramir has no use for\n" +
 			"the value of: a LUKS keyfile, an SSH identity.\n\n" +
@@ -182,7 +182,7 @@ func newBlockRemoveCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
 		Use:   "rm [options] (--path PATH | --name PATTERN | --command COMMAND)...",
-		Short: "Stop blocking a path, a name or a command",
+		Short: "Unblock one path, name or command",
 		Long: "Removes the entry, so `faramir init` stops rendering the rule.\n\n" +
 			"The rule stays in the agent's settings, which are merged rather than\n" +
 			"replaced: remove that line yourself. This names it on the way out.\n\n" +
@@ -259,7 +259,7 @@ func newBlockListCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
 		Use:   useLs,
-		Short: "List what this host blocks from the agent",
+		Short: "List the blocked paths, names and commands",
 		Long: "Lists both halves of what this host blocks: the [[secret.block]] entries\n" +
 			"it declares, in the table, and the rules faramir carries itself, under it.\n" +
 			"--json is one list with a `source` field per row.\n\n" +

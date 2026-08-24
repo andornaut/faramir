@@ -133,7 +133,7 @@ func TestTheRefusalNamesEveryOperatorSubcommand(t *testing.T) {
 	want := "`" + `\bfaramir[-\s]+(` + sanctionAlternation(cli.OperatorOnly()) + `)\b` + "`"
 	found := false
 	for _, pattern := range fallback {
-		if strings.Contains(pattern, `\bfaramir[-\s]+(init`) {
+		if strings.Contains(pattern, `\bfaramir[-\s]+(`) {
 			found = true
 			if got := "`" + pattern + "`"; got != want {
 				t.Errorf("the operator refusal does not match cli.OperatorOnly():\n  rule: %s\n  want: %s",

@@ -37,7 +37,7 @@ const opReader = "reader"
 func newRecipientCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "reader",
-		Short:   "Who can decrypt the managed store, and who may",
+		Short:   "Manage which keys can decrypt the secret files",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
@@ -68,7 +68,7 @@ func newRecipientAddCmd() *cobra.Command {
 	var f recipientFlags
 	c := &cobra.Command{
 		Use:   "add [options] KEY",
-		Short: "Let one more key decrypt the managed store",
+		Short: "Add a key that can decrypt the secret files",
 		Long: "Adds an age recipient to .sops.yaml and re-encrypts every managed file to\n" +
 			"it, so the rule and the ciphertext never disagree.\n\n" +
 			"KEY is a PUBLIC key, age1... or ssh. The private half is refused,\n" +
@@ -88,7 +88,7 @@ func newRecipientRemoveCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "rm [options] KEY",
 		Aliases: []string{opRemove},
-		Short:   "Stop one key from decrypting the managed store",
+		Short:   "Remove a key, so it can no longer decrypt the secret files",
 		Long: "Removes an age recipient from .sops.yaml and re-encrypts every managed\n" +
 			"file without it.\n\n" +
 			"This reaches no copy of the ciphertext somebody already holds. Treat what\n" +
@@ -107,7 +107,7 @@ func newRecipientListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     useLs,
 		Aliases: []string{"list"},
-		Short:   "List the keys the store is sealed to",
+		Short:   "List the keys that can decrypt the secret files",
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runRecipientList(f)) },
 	}
@@ -119,7 +119,7 @@ func newRecipientResealCmd() *cobra.Command {
 	var f recipientFlags
 	c := &cobra.Command{
 		Use:   "reseal [options] [FILE...]",
-		Short: "Re-encrypt the store to the recipients .sops.yaml names",
+		Short: "Re-encrypt every file to the keys .sops.yaml names",
 		Long: "Makes the ciphertext agree with the rule, for what `add` and `rm` cannot\n" +
 			"reach: a `.sops.yaml` changed some other way, or a pass that failed\n" +
 			"partway.\n\n" +
