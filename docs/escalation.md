@@ -73,7 +73,7 @@ sudo faramir sudo watch
 
    The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits. `[sudo] notify_command` gets the whole sentence, having no second line to put the command on.
 
-4. Anything but `y` is a refusal, `yes` included, and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 3600, counted from when it was raised. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
+4. Anything but `y` is a refusal, `yes` included, and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 3600 -- and never more than `[command] max_timeout_sec`, since the command waits inside `sudo` for the whole question and a longer one would be answered onto a run the broker had already killed -- counted from when it was raised. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
 
    ```text
      approve? [y/n]

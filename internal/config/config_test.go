@@ -396,3 +396,49 @@ func TestEveryKeyRefusesAValueOfTheWrongType(t *testing.T) {
 		t.Fatal("no key was put to the loader, so this asserts nothing")
 	}
 }
+
+// A question and the command waiting on it are timed against the same clock:
+// the command sits inside sudo for the whole question, so one held longer than
+// the command may run is answered onto a run the broker has already killed.
+// The two keys are in different sections and each is legal on its own, so the
+// relation between them is settled at load rather than refused.
+func TestASudoTimeoutIsHeldToTheLongestCommand(t *testing.T) {
+	cfg, err := load(t, "[command]\ntimeout_sec = 60\nmax_timeout_sec = 300\n"+
+		"[sudo]\ntimeout_sec = 900\n")
+	if err != nil {
+		t.Fatalf("refused a config whose two sections are each legal: %v", err)
+	}
+	if cfg.Sudo.TimeoutSec != 300 {
+		t.Errorf("[sudo] timeout_sec = %d, want it held to the 300s a command may "+
+			"run: a longer question is answered onto a command that is gone",
+			cfg.Sudo.TimeoutSec)
+	}
+}
+
+// Only downwards. A question shorter than the longest command is the ordinary
+// case -- a human answers in seconds and the command runs for minutes -- so
+// nothing is raised to meet the ceiling.
+func TestAShorterSudoTimeoutIsLeftAlone(t *testing.T) {
+	cfg, err := load(t, "[command]\ntimeout_sec = 600\nmax_timeout_sec = 3600\n"+
+		"[sudo]\ntimeout_sec = 120\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sudo.TimeoutSec != 120 {
+		t.Errorf("[sudo] timeout_sec = %d, want the 120 the file names", cfg.Sudo.TimeoutSec)
+	}
+}
+
+// The default pair does not clamp: 120s of question inside 3600s of command.
+// Worth holding, since a default that clamped would mean every host silently
+// running on a number nobody chose.
+func TestTheDefaultTimeoutsDoNotClamp(t *testing.T) {
+	cfg, err := load(t, minimal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Sudo.TimeoutSec != DefaultSudoTimeoutSec {
+		t.Errorf("[sudo] timeout_sec = %d, want the default %d",
+			cfg.Sudo.TimeoutSec, DefaultSudoTimeoutSec)
+	}
+}

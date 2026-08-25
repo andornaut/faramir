@@ -139,6 +139,11 @@ helper = "{{.PamHelper}}"
 # held longer than it would be one the helper had already abandoned. While a
 # question is open, sudo blocks and every other brokered command is refused, so
 # a long timeout holds the whole host.
+#
+# Held to [command] max_timeout_sec as well, and by the loader rather than here:
+# the command waits inside sudo for the whole question, so a question that
+# outlasts the longest run would be answered onto a command already killed. A
+# value above it is read as that number.
 timeout_sec = {{.SudoTimeoutSec}}
 {{end}}
 [secret]

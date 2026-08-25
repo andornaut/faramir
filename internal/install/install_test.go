@@ -297,3 +297,43 @@ func anyNonRootAccount(t *testing.T) string {
 	t.Skip("no non-root account on this host for preflight to accept")
 	return ""
 }
+
+// The loader holds a question to the longest a brokered command may run, and
+// does it quietly. `init` is where the two numbers are named together, so it is
+// where an operator hears that the value they typed is not the one that will
+// hold.
+func TestInitWarnsWhenTheSudoTimeoutOutlastsTheLongestCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		opts  Options
+		warns bool
+	}{
+		{"a question longer than any command",
+			Options{AllowSudo: true, SudoTimeoutSec: 900, CommandMaxTimeoutSec: 300}, true},
+		{"a question inside it",
+			Options{AllowSudo: true, SudoTimeoutSec: 120, CommandMaxTimeoutSec: 3600}, false},
+		{"the two equal",
+			Options{AllowSudo: true, SudoTimeoutSec: 300, CommandMaxTimeoutSec: 300}, false},
+		{"no grant, so no question to hold",
+			Options{SudoTimeoutSec: 900, CommandMaxTimeoutSec: 300}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			run := &runner{opts: tc.opts}
+
+			run.warnLongSudoTimeout()
+
+			warned := len(run.report.Warnings) > 0
+			if warned != tc.warns {
+				t.Fatalf("warnings = %v, want warned=%v", run.report.Warnings, tc.warns)
+			}
+			if !warned {
+				return
+			}
+			for _, want := range []string{"--sudo-timeout-sec 900", "300s", "--command-max-timeout-sec"} {
+				if !strings.Contains(run.report.Warnings[0], want) {
+					t.Errorf("the warning does not say %q: %s", want, run.report.Warnings[0])
+				}
+			}
+		})
+	}
+}

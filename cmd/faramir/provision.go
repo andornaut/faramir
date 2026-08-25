@@ -343,7 +343,7 @@ func newInitCmd() *cobra.Command {
 	fl.IntVar(&f.commandMaxProcMB, "command-max-process-memory-mb", command.MaxProcessMemoryMB,
 		"what one brokered process may allocate, as LimitDATA on the executor unit (at least 256). Anonymous memory only, so a command is not charged for page cache, and one that reaches it gets an allocation failure it can report rather than the OOM killer")
 	fl.IntVar(&f.sudoTimeoutSec, "sudo-timeout-sec", config.DefaultSudoTimeoutSec,
-		"how long a sudo question waits for a human before it is refused (1 to 3600)")
+		"how long a sudo question waits for a human before it is refused (1 to 3600, and never more than --command-max-timeout-sec: the command waits inside sudo for the whole question)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
 		"refuse a secret shorter than this: it cannot be redacted without matching inside ordinary words (at least 6)")
 	return c

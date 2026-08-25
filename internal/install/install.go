@@ -567,6 +567,7 @@ func (r *runner) preflight() error {
 			"size itself to run fewer than no commands at all. Name 1 or more",
 			r.opts.CommandConcurrency)
 	}
+	r.warnLongSudoTimeout()
 	// Read before an account or a key exists: reporting a typo at the step would
 	// leave a half-finished install to re-run.
 	if r.opts.KnownHosts != "" {
@@ -913,6 +914,26 @@ func (r *runner) reportPresence(name, path, wouldCreate string) {
 	default:
 		r.step(name, true, wouldCreate+" "+path)
 	}
+}
+
+// warnLongSudoTimeout says when a question will be held to less than the value
+// this run names. The loader settles the relation -- a question may not outlast
+// the command waiting inside sudo for it -- and settles it quietly, so this is
+// where an operator hears about it: the two numbers are named together here and
+// nowhere else, and the file keeps what the flag asked for while the daemons
+// hold to the smaller of the two.
+//
+// A warning rather than a refusal, for the reason the loader clamps rather than
+// refusing: each value is legal on its own, and a host that lowered
+// max_timeout_sec should not be left unable to install.
+func (r *runner) warnLongSudoTimeout() {
+	if !r.opts.AllowSudo || r.opts.SudoTimeoutSec <= r.opts.CommandMaxTimeoutSec {
+		return
+	}
+	r.warnf("--sudo-timeout-sec %d is longer than the %ds a brokered command may run, "+
+		"and the command waits inside sudo for the whole question, so a question is "+
+		"held to %ds. Raise --command-max-timeout-sec to give an answer longer to arrive",
+		r.opts.SudoTimeoutSec, r.opts.CommandMaxTimeoutSec, r.opts.CommandMaxTimeoutSec)
 }
 
 // restartFor records that a running daemon is now behind what is installed.

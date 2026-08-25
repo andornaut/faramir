@@ -392,6 +392,9 @@ type SudoConfig struct {
 	// answerless: whatever it runs cannot approve anything.
 	NotifyCommand []string
 	// TimeoutSec is how long a question waits for an answer before it is refused.
+	// Held at load to [command] max_timeout_sec as well as to MaxSudoTimeoutSec:
+	// the command waits inside sudo for the whole question, so a question that
+	// outlasts the longest run cannot be answered in time. See clampSudoTimeout.
 	TimeoutSec int
 }
 
@@ -654,7 +657,27 @@ func fromMap(raw map[string]any, path string) (*Config, error) {
 	if err := loadAudit(raw, path, &cfg.Audit); err != nil {
 		return nil, err
 	}
+	// Last, both sections it reads being loaded by now.
+	clampSudoTimeout(&cfg.Sudo, cfg.Command)
 	return cfg, nil
+}
+
+// clampSudoTimeout holds a question to the longest a brokered command can be
+// given. The command sits inside sudo for the whole question, so one that
+// outlasts [command] max_timeout_sec is a question whose answer lands on a run
+// the broker has already killed: the operator types yes, and the command it
+// would have authorised is gone.
+//
+// Clamped rather than refused. The two keys are set for separate reasons and
+// neither is wrong on its own, so a host that lowers max_timeout_sec would
+// otherwise stop loading over a sudo timeout nobody thought to revisit -- and
+// what that costs is every daemon on the host, for a value this can settle. The
+// effective number is the one the config carries afterwards, so what `faramir
+// doctor` reports and what a question is actually held to are the same.
+func clampSudoTimeout(sudo *SudoConfig, command CommandConfig) {
+	if sudo.TimeoutSec > command.MaxTimeoutSec {
+		sudo.TimeoutSec = command.MaxTimeoutSec
+	}
 }
 
 func loadServer(raw map[string]any, path string, out *ServerConfig) error {
@@ -1282,7 +1305,9 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 			"would announce that something is waiting without saying what", where)
 	}
 	// 0 would refuse every question the instant it was raised. See
-	// MaxSudoTimeoutSec for the ceiling.
+	// MaxSudoTimeoutSec for the ceiling, and clampSudoTimeout for the other one:
+	// what this section will accept, and what the [command] section leaves room
+	// for, are separate questions and this is only the first.
 	if out.TimeoutSec, err = intInRange(sec, "timeout_sec", where, out.TimeoutSec,
 		1, MaxSudoTimeoutSec); err != nil {
 		return fmt.Errorf("%w. A question is a human at a terminal and a host held "+
