@@ -186,9 +186,9 @@ Form | Blocks | Matched against
 --- | --- | ---
 `--name` | every file of that name, wherever it turns up | the path your agent asks for, not this filesystem, which is what reaches a file inside a container
 `--path` | one file or directory on this host, and everything under it | the path as written, so it is absolute and in its shortest form
-`--command` | what the agent's shell may not run, written as it would be typed | where a command starts, so `grep` naming one is left alone
+`--command` | what may not be run, written as it would be typed | where a command starts, so `grep` naming one is left alone
 
-A name and a path reach the agent's file tools and its shell alike; a command reaches the shell alone, being nothing a file tool can name.
+A name and a path reach the agent's file tools and its shell alike; a command is nothing a file tool can name, so it reaches the shell. **The broker holds the same entries**, so a brokered command cannot read, copy or move a declared file either, that being the one route no rule file reaches. Changing one where it stands is left alone, so rotating a declared key still works. [How that line falls](docs/configuration.md#the-brokered-route).
 
 `faramir block ls` lists everything in force, the rules faramir carries itself included. It is one of the three operator commands that need no root, beside `reader ls` and `link ls`.
 

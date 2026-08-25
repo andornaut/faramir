@@ -251,10 +251,23 @@ if grep -qF "$GH_VALUE" <<<"$out"; then
   bad "a brokered command read the linked file directly: $out"
 elif grep -qF "$GH_TOKEN" <<<"$out"; then
   bad "a brokered command read the file; only the redactor stood between the value and the transcript: $out"
-elif grep -qiE 'permission denied|cannot open' <<<"$out"; then
+elif grep -qiE 'permission denied|cannot open|may not read' <<<"$out"; then
   ok "a brokered command is refused the file it takes the value from"
 else
   bad "the read was neither refused nor redacted, so what happened is not known: $out"
+fi
+
+# Two things refuse that read now, and the broker answers first: it holds the
+# declared entries itself, so the command never reaches the executor. That would
+# leave the mode -- the boundary this section is actually about -- asserted by
+# nothing, so it is asked of the account directly, outside the broker.
+out=$(runuser -u faramir-exec -- /bin/cat $GH 2>&1)
+if grep -qF "$GH_VALUE" <<<"$out"; then
+  bad "*** the executor's own uid reads the linked file: the mode is not holding ***"
+elif grep -qiE 'permission denied|cannot open' <<<"$out"; then
+  ok "and the mode refuses that uid the file whatever the broker decides"
+else
+  bad "what the executor's uid gets from the file is not known: ${out:0:140}"
 fi
 # The directories above it are traversable, which is what an enrolled tree
 # needs; traversal is not read.

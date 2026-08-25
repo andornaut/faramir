@@ -197,11 +197,11 @@ sudo faramir block add --command 'op read' --command 'pass show'
 
 Form | Covers | Blocks
 --- | --- | ---
-`--path` | The file at that exact path on this host | File tools and the shell
-`--name` | A pattern matched against the path the agent names | File tools and the shell
-`--command` | Command text | The shell only, a command being nothing a file tool can name
+`--path` | The file at that exact path on this host | File tools, the shell, and a brokered command that would read, copy or move it
+`--name` | A pattern matched against the path the agent names | File tools, the shell, and a brokered command that would read, copy or move it
+`--command` | Command text | The shell and a brokered command, a command being nothing a file tool can name
 
-The deny rules and the command guard's patterns are rendered from one set, so a declared path or name refuses a file tool and `cat` alike, and `faramir init` re-asserts both.
+The deny rules, the command guard's patterns and the broker's own check are built from one set, so a declared path or name refuses a file tool, `cat` and `faramir_run` alike, and `faramir init` re-asserts all of them.
 
 ### A path and a name are different rules
 
@@ -248,18 +248,37 @@ Form | Rule
 
 ### What a block does not cover
 
-**A rule matches the command as it was written.** The guard reads the text of a command and has no working directory to resolve a relative path against. So `cat /srv/keys/luks.key` is refused, `cd /srv/keys && cat luks.key` is not, and neither is a path the shell assembles from a variable. Where a file must be beyond reach whatever is typed, the file mode is what holds: this rule refuses a name, not an `open(2)`.
+**A rule matches the command as it was written.** The guard reads the text of a command and has no working directory to resolve a relative path against. So in the agent's own shell `cat /srv/keys/luks.key` is refused and `cd /srv/keys && cat luks.key` is not, and neither is a path the shell assembles from a variable. Where a file must be beyond reach whatever is typed, the file mode is what holds: this rule refuses a name, not an `open(2)`.
+
+The broker is handed the working directory along with the command, so the same relative spelling is refused there. That is the one reading the guard cannot make.
 
 A managed or linked value is covered whichever route reads it, because an enrolled tree rewrites the command so its output is redacted on the way back. A blocked path holds no value faramir has read, so the refusal is all it adds.
 
-**A brokered command can still read a blocked path.** The deny rules stop the agent's own shell and file tools. A brokered command is a different uid running with the operator's consent, and nothing of the blocked file is in the redactor to cover its output.
+### The brokered route
 
-This is why a block is the weaker of the two entries. A link reads the file, so it does three things a block cannot:
+**A brokered command may not read a declared file either.** The agent's deny rules and the guard cover its own file tools and its own shell, and neither reaches `faramir_run`: the guard is a hook over shell tools, and an MCP call is not one. So the broker holds the same entries itself and refuses the command before it runs, with the [`blocked`](protocol.md) code. The refusal names the entry that matched.
+
+`[[secret.link]]` entries are held to the same rule, for a reason of their own. A linked ref comes back tokenised wherever it appears, but a file holds more than the one key a link selects, and the rest of it is in no redactor. The mode that keeps the executor's uid out of a linked file is checked at install time and by `doctor`; this is the same bound at the moment the command runs.
+
+**What is refused is reading, copying and moving. Changing a declared file where it stands is not.**
+
+Through the broker | Example
+--- | ---
+Refused | `cat`, `head`, `python3`, `jq`, `cp`, `tar`, `scp`, `sops -d`, `< file`, and `p=/srv/keys/luks.key`
+Refused | `mv`, `ln`, `sed`, `gzip` and its kin: the contents end up under a name no rule was written for, which is the same disclosure one step later
+Left alone | `chmod`, `chown`, `setfacl`, `rm`, `shred`, `truncate`, `cryptsetup --key-file`, `stat`, `test -f`, `ls -l`
+
+That line is not the read/write one the agent's own rules are split on, and the difference is deliberate. Nobody asked for what the agent types, so it is refused both directions: a value it cannot read is one it can still destroy, and an age key replaced is every managed file unreadable retroactively. A brokered command runs as an account of its own and only where an operator asked for it, so managing a declared file is ordinary work: rotating a keyfile, fixing its mode, removing one that is finished. What none of that does is put a byte of the file into the conversation, and reading it is refused because nothing else can cover it. A declared file is one faramir either never reads or reads a single ref out of, which leaves the redactor holding nothing to replace the output with.
+
+To read the file, run it outside faramir or take the entry out with `faramir block rm` or `faramir link rm`.
+
+A link is still the stronger of the two entries, because it reads the file:
 
 What happens to the file | `[[secret.link]]` | `[[secret.block]]`
 --- | --- | ---
 Refused to the agent's file tools | Yes | Yes
-Held to the broker's group, so a brokered command is refused it too | Yes, checked and reported | No, the mode is nobody's business here
+A brokered command cannot read, copy or move it | Yes | Yes
+Held away from the executor's uid by the mode | Yes, checked and reported | No, the mode is nobody's business here
 The value is in the redactor, tokenised wherever it appears | Yes | No, faramir never reads it
 Injectable by ref | Yes | No
 

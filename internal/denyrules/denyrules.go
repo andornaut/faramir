@@ -41,6 +41,21 @@ const (
 	WriteCommands = `\b(?-i:` + gnuPrefix + `(?:rm|shred|truncate|mv|cp|tee|dd|sed|` +
 		`chmod|chown|chgrp|setfacl|ln|sops|age|ansible-vault|install|split|` +
 		`csplit|cpio|gzip|bzip2|xz|zstd))\b`
+
+	// MoveCommands is the rest of what puts a file's contents somewhere else:
+	// under another name, at another path, or in another encoding. Every other
+	// way of doing that is a reader already -- cp, tee, dd, tar, cpio, split and
+	// the decryption tools are in both vocabularies -- so this is what is left.
+	//
+	// It exists because "reads it" and "changes it" is not the whole of the
+	// question a brokered command asks. `mv key /tmp/x` and `ln -s key /tmp/x`
+	// disclose nothing themselves and leave the file readable under a name no
+	// rule was written for, which is the same disclosure one step later. `sed`
+	// is here rather than among the readers for the same reason it is a writer
+	// there, and it prints a file as surely as cat does: `sed -n p key`. The
+	// compressors re-encode in place, which walks a declared path out from under
+	// a rule that named it.
+	MoveCommands = `\b(?-i:` + gnuPrefix + `(?:mv|ln|sed|gzip|bzip2|xz|zstd))\b`
 )
 
 // gnuPrefix takes the name a tool has where it is not the default one. Ubuntu
@@ -207,8 +222,48 @@ func DirUnder(home, dir string) string {
 // No subjects is no rules rather than a rule matching everything, an empty
 // alternation being one that matches the empty string next to any reader.
 func For(subjects []string) []string {
-	if len(subjects) == 0 {
+	r, ok := fragments(subjects)
+	if !ok {
 		return nil
+	}
+	return []string{r.read, r.input, r.write, r.redirect, r.binding}
+}
+
+// Disclosing is what puts a subject's contents where they can be read: a reader
+// with the path among its arguments, a mover that leaves the contents under a
+// name no rule was written for, a file handed to whatever is on the line, and a
+// path bound to a variable to be read through later.
+//
+// What it leaves out is a subject changed where it stands: a writer that only
+// alters or removes it, and a redirect over it. That line, rather than the
+// read/write one the vocabularies are split on, is what separates the two: a
+// brokered command runs as an account of its own and only where an operator
+// asked for it, so `chmod` on a declared keyfile or `rm` of one being rotated
+// is ordinary work that puts nothing in the conversation, while `mv` of the
+// same file into /tmp discloses it one step later.
+//
+// Everything the agent types is still held to all five rules For builds. The
+// asymmetry is the point: nobody asked for what the agent types, and a value it
+// cannot read is one it can still destroy, an age key replaced being every
+// managed file unreadable retroactively.
+func Disclosing(subjects []string) []string {
+	r, ok := fragments(subjects)
+	if !ok {
+		return nil
+	}
+	return []string{r.read, r.move, r.input, r.binding}
+}
+
+// the five rules, named, so a caller takes the ones it enforces rather than
+// slicing a list by position.
+type ruleSet struct{ read, move, input, write, redirect, binding string }
+
+// fragments builds the five from one alternation, so they are written once and
+// the callers cannot drift. Not ok for no subjects, an empty alternation being
+// one that matches the empty string next to any reader.
+func fragments(subjects []string) (ruleSet, bool) {
+	if len(subjects) == 0 {
+		return ruleSet{}, false
 	}
 	alternation := `(` + strings.Join(subjects, `|`) + `)`
 	// The binding rule takes the subjects with the whitespace dropped from
@@ -219,11 +274,162 @@ func For(subjects []string) []string {
 		bound = append(bound, strings.Replace(subject, PathStart, PathStartBound, 1))
 	}
 	boundAlternation := `(` + strings.Join(bound, `|`) + `)`
-	return []string{
-		ReadCommands + ArgSpan + alternation,
-		`<\s*\S*` + alternation,
-		WriteCommands + ArgSpan + alternation,
-		`>\s*\S*` + alternation,
-		Binding + boundAlternation,
+	return ruleSet{
+		read:     ReadCommands + ArgSpan + alternation,
+		move:     MoveCommands + ArgSpan + alternation,
+		input:    `<\s*\S*` + alternation,
+		write:    WriteCommands + ArgSpan + alternation,
+		redirect: `>\s*\S*` + alternation,
+		binding:  Binding + boundAlternation,
+	}, true
+}
+
+// NameKind is the shape a declared name takes, inferred from how it is written.
+// The shapes differ only in breadth, so reading one as another refuses more or
+// fewer files of the same kind; inferring a path from a name is what could turn
+// a typo into a rule matching nothing, and nothing here does that.
+type NameKind int
+
+const (
+	// KindExact is a whole file name, wherever it appears: "age.key".
+	KindExact NameKind = iota
+	// KindSuffix is a name ending this way: ".key" covers "deploy.key".
+	KindSuffix
+	// KindPrefix is a name starting this way: ".env" covers ".env.local" but not
+	// "faramir.env", which holds refs and is meant to be read.
+	KindPrefix
+	// KindGlob is a name whose wildcards are not the single leading or trailing
+	// one the two kinds above take: "secrets*.yml", and as many as are written.
+	KindGlob
+	// KindDir is anything below a directory named by the tail of its path:
+	// "sops/age/" covers ~/.config/sops/age/keys.txt.
+	KindDir
+)
+
+// Name is how a declared name is read, and the value with the wildcard or the
+// separator that said so taken off. One inference, here, because more than one
+// spelling is derived from it -- a regex for the command rules, a glob for each
+// agent's own rule file -- and a second copy would be a name that means one
+// thing to the guard and another to the agent that typed it.
+//
+// The order is the order the shapes exclude each other in: a trailing separator
+// is a directory whatever else it holds, and a wildcard at one end is an open
+// end rather than a name with a hole in it.
+func Name(name string) (NameKind, string) {
+	switch {
+	case strings.HasSuffix(name, "/"):
+		return KindDir, name
+	case strings.Count(name, "*") == 1 && strings.HasPrefix(name, "*"):
+		return KindSuffix, strings.TrimPrefix(name, "*")
+	case strings.Count(name, "*") == 1 && strings.HasSuffix(name, "*"):
+		return KindPrefix, strings.TrimSuffix(name, "*")
+	case strings.Contains(name, "*"):
+		return KindGlob, name
 	}
+	return KindExact, name
+}
+
+// NameSubject is a declared name as a fragment of a command line, for the rules
+// For and Disclosing build. A command line carries a path inside other text, so
+// what anchors it is the reader in front of it rather than the start of a
+// string.
+func NameSubject(name string) string {
+	kind, value := Name(name)
+	q := regexp.QuoteMeta(value)
+	switch kind {
+	case KindSuffix:
+		return q + `(` + PathEnd + `)`
+	case KindPrefix:
+		// No end: a prefix is open by definition, ".env" covering ".env.local".
+		return PathStart + q
+	case KindGlob:
+		return PathStart + strings.ReplaceAll(q, regexp.QuoteMeta("*"), `[^/\s]*`) + `(` + PathEnd + `)`
+	case KindDir:
+		// The directory itself as well as what is under it. Matching only the form
+		// with the separator left `rm -rf ~/.ssh` allowed while `rm -rf ~/.ssh/`
+		// was refused, which is a rule a keystroke walks around and a deletion
+		// that destroys everything the rule was protecting.
+		return PathStart + strings.TrimSuffix(q, `/`) + `(/|` + PathEnd + `)`
+	}
+	// An exact name may carry separators, so what precedes it is a separator or
+	// the start of the word rather than the start of the line.
+	return PathStart + q + `(` + PathEnd + `)`
+}
+
+// CommandPosition is what may stand in front of a command on a line: the start
+// of it, a separator, an opening quote, and the prefixes that run something
+// else.
+//
+// Anchored rather than matched anywhere, which is the difference between an
+// entry being safe to write and being safe to write only if it is long enough.
+// "pass" matched inside "--ask-become-pass" before this, because a hyphen is a
+// non-word byte and \b holds beside it, so whether a one-word entry was usable
+// depended on whether some flag on some host happened to carry the word. That
+// is not a question an operator can answer about a fleet.
+//
+// The trade is the other way round from what it replaces: matching anywhere had
+// no holes and refused ordinary work, `grep 'pass show' defaults.yml` included.
+// This refuses none of that and misses a command reached through a prefix
+// nobody listed. That is the better error for a list the design already says is
+// not the boundary: it catches an accident, and an accident is typed rather
+// than wrapped. A refusal of real work is what gets a deny list turned off.
+//
+// RE2 has no lookbehind, so what precedes is consumed rather than asserted.
+const CommandPosition = `(?:^|[;&|(){}\n])\s*` +
+	// Anything that runs something else, repeated: `sudo nice op read` is the
+	// command at a position two prefixes deep.
+	//
+	// A flag may take an argument, so one bare word after a flag is allowed to
+	// belong to it: that is what makes `sudo -u me op read` reach the command.
+	// RE2 finds a match where one exists, so the same expression still matches
+	// `sudo -n op read`, where the word after the flag is the command itself.
+	`(?:(?:sudo|doas|nohup|time|command|xargs|stdbuf|nice|ionice)(?:\s+-\S+(?:\s+\S+)?)*\s+` +
+	`|env(?:\s+\S+=\S+)*\s+` +
+	`|\S+=\S+\s+` +
+	// A shell given a command string, where the opening quote is what the
+	// command starts after. Named rather than allowing any quote: a bare quote
+	// would put `grep -r 'op read' defaults.yml` back at a command position,
+	// which is the refusal of ordinary work this change exists to stop.
+	`|(?:ba|z|da|k)?sh\s+-\S*c\S*\s+['"` + "`" + `]?)*`
+
+// CommandPathPrefix is a directory in front of the first word, which is the
+// same command spelled with its path: an operator writing `op read` means the
+// program, and `/usr/bin/op read` is it. Without this the one an agent reaches
+// for after meeting the refusal is the one that is not refused.
+//
+// The group has to end in a separator, so it takes a path and nothing else, and
+// the anchor in front of it still holds: a word inside an argument is no more a
+// command than it was, and `--ask-become-pass` carries no separator to match on.
+const CommandPathPrefix = `(?:\S*/)?`
+
+// CommandRule is a declared command as the rules match it: the words taken
+// literally, any run of whitespace between them, and a word boundary at each
+// end that has one.
+//
+// The words rather than a regular expression the operator writes. A pattern
+// language here would be a second thing to get wrong in a file that decides
+// what an agent may run, and the failure is silent in both directions: one that
+// matches too much refuses ordinary work, and one that matches too little reads
+// exactly like one that works.
+func CommandRule(command string) string {
+	words := strings.Fields(command)
+	if len(words) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(words))
+	for _, word := range words {
+		quoted = append(quoted, regexp.QuoteMeta(word))
+	}
+	rule := CommandPosition + CommandPathPrefix + strings.Join(quoted, `\s+`)
+	if last := words[len(words)-1]; isWordByte(last[len(last)-1]) {
+		rule += `\b`
+	}
+	return rule
+}
+
+// isWordByte reports whether \b means anything beside this byte. "\b-d" never
+// matches, a hyphen being a non-word character on both sides.
+func isWordByte(b byte) bool {
+	return b == '_' ||
+		(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }

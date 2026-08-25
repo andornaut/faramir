@@ -320,7 +320,7 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 		if entry.Command != "" {
 			rows = append(rows, blockRow{
 				Source: sourceDeclared, Kind: kindCommand, Entry: entry.Command,
-				Detail: "the agent's shell may not run it",
+				Detail: "neither the agent's shell nor a brokered command may run it",
 			})
 			continue
 		}

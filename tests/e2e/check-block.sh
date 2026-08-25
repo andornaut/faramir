@@ -3,15 +3,15 @@
 # [[secret.block]].
 #
 # The weaker of the two entries a file can get, and the one thing only a real
-# install can show is exactly where that weakness sits. A link draws three
-# boundaries; this draws one, and a suite that checked only the deny rule would
+# install can show is exactly where that weakness sits. A link draws more
+# boundaries than this does, and a suite that checked only the deny rule would
 # report the two as the same feature.
 #
-# So the deny rule is asserted, and then the two things it deliberately does not
-# do are asserted just as hard: the file's mode is left alone, and the value is
-# absent from the redactor. Both are the documented trade rather than gaps, and
-# a change that quietly closed one would be a change that started reading the
-# file.
+# So the deny rule is asserted, then the broker's own refusal of the same entry,
+# and then the two things a block deliberately still does not do: the file's
+# mode is left alone, and the value is absent from the redactor. Both are the
+# documented trade rather than gaps, and a change that quietly closed one would
+# be a change that started reading the file.
 #
 # Run as root in the e2e container.
 set -u
@@ -163,31 +163,50 @@ else
   bad "redact returned neither the value nor a token, so this asserts nothing: $out"
 fi
 
-# And the consequence, which is the honest limit of the feature and the reason
-# `link` exists beside it: the deny rule stops the agent's own file tools, not a
-# command the broker runs. Asserted rather than noted, against a file whose mode
-# lets the executor read it, or the fixture's own 600 would be what refused the
-# read and this would prove nothing about faramir.
+# The other route to the same file, which no rule file reaches. The deny rules
+# and the guard cover the agent's own tools and its own shell; `faramir run` is
+# neither, so the broker holds the entries itself.
 #
-# It reads as an assertion that the value leaks, and it is. A change that made
-# this fail would be a change that started regrouping the file or holding its
-# value, and the documented trade would need rewriting with it.
-# Under /etc rather than the home, which is 710: a brokered command cannot
-# traverse into the operator's home whatever a file inside it is set to, so a
-# fixture there would be refused by the home's own mode and would prove nothing.
-# /etc is where a host keyfile of this kind actually sits.
+# The fixture is world-readable on purpose. A 0600 file would be refused by its
+# own mode and this would prove nothing about faramir: what has to be shown is
+# the broker refusing a read the executor's uid could have carried out. Under
+# /etc rather than the home, which is 710, so the home's mode is not what
+# answers either. /etc is where a host keyfile of this kind actually sits.
 WORLD=/etc/refused-world.key
 WORLD_VALUE=luks_refused_e2e_world_0002
 printf '%s\n' "$WORLD_VALUE" > $WORLD
 chmod 644 $WORLD
 block add --path "$WORLD" >/dev/null 2>&1
+
 out=$(brokered -- /bin/cat $WORLD)
 if grep -qF "$WORLD_VALUE" <<<"$out"; then
-  ok "a brokered command still reads a refused file, in the clear: only the agent's own tools are stopped"
+  bad "*** a brokered command read the blocked file in the clear ***"
 elif grep -q 'SECRET:' <<<"$out"; then
   bad "the value came back tokenised, so faramir is holding a value it never read"
 else
-  bad "the brokered read neither returned the value nor a token: ${out:0:140}"
+  ok "a brokered read of a blocked path is refused, and no value came back"
+fi
+grep -qF "$WORLD" <<<"$out" \
+  && ok "and the refusal names the entry that matched" \
+  || bad "the refusal does not say which entry stopped it: ${out:0:140}"
+
+# What the refusal deliberately does not cover. A brokered command runs where an
+# operator asked for it, so managing the file is ordinary work: none of this
+# puts a byte of it into the conversation, and refusing it would take out the
+# converge that rotates the key.
+brokered -- /bin/chmod 0640 $WORLD >/dev/null 2>&1 \
+  && ok "and changing the file where it stands is still allowed" \
+  || bad "a brokered chmod of a blocked path was refused, which breaks rotating it"
+[ "$(stat -c %a $WORLD)" = 640 ] || bad "the chmod did not take effect"
+
+# And what would be the same disclosure one step later: the contents under a
+# name no rule was written for.
+out=$(brokered -- /bin/mv $WORLD /tmp/moved-key)
+if [ -f /tmp/moved-key ]; then
+  bad "*** a brokered mv walked the blocked file out from under its rule ***"
+  rm -f /tmp/moved-key
+else
+  ok "and moving it out from under the rule is refused with the reads"
 fi
 block rm --path "$WORLD" >/dev/null 2>&1
 rm -f $WORLD

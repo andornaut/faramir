@@ -45,6 +45,11 @@ type Server struct {
 	Ssh        *sshagent.Agent
 	Escalation *escalation.Server
 
+	// declared is what this host declares under [[secret.block]] and
+	// [[secret.link]], compiled into the rules a brokered command is refused by.
+	// See declared.go.
+	declared declaredCheck
+
 	// exec runs one command. A field so a test can substitute one that records
 	// what it was handed, rather than reaching broker policy through a socket, a
 	// PTY and a forked process.
@@ -63,7 +68,11 @@ type Server struct {
 
 func New(cfg *config.Config) *Server {
 	s := &Server{
-		Config:     cfg,
+		Config: cfg,
+		// What this host declares, as the rules a brokered command is held to.
+		// Compiled once: the entries change by `faramir block add` and `faramir
+		// link add`, each of which rewrites the config and restarts what reads it.
+		declared:   newDeclaredCheck(cfg.Secret, agentHomeDir(cfg.Server.AgentUser)),
 		Store:      secretstore.New(cfg.Secret, cfg.Keeper),
 		Audit:      audit.NewLog(cfg.Audit),
 		Ssh:        sshagent.New(cfg.Ssh),
@@ -111,6 +120,12 @@ const (
 	codeNotFound      = "not_found"
 	codeNotExecutable = "not_executable"
 )
+
+// codeBlocked is a command refused for what this host declares, under
+// [[secret.block]] or [[secret.link]]. Terminal: nothing about the host will
+// change to make the same command allowed, and a caller that retries is a
+// caller reading the refusal as weather.
+const codeBlocked = "blocked"
 
 // splitExecCode takes the code the executor named off the front of its error.
 // Only the codes it answers with: another message may carry a colon of its own,
@@ -945,6 +960,14 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		// The executor decides.
 	case statErr != nil:
 		return s.refuse("bad_request", "cwd does not exist: "+cwd, logID, peer, cmd, cwd)
+	}
+
+	// Before the program is resolved and before a slot is taken: this is a
+	// refusal about what the command would disclose, not about whether it could
+	// have run. The agent's own tools are already refused what this host
+	// declares, and the broker is the one route left to the file.
+	if rule, refused := s.declared.refuses(cmd, cwd); refused {
+		return s.refuse(codeBlocked, declaredRefusal(rule), logID, peer, cmd, cwd)
 	}
 
 	argv0Path, err := resolve.Program(cmd[0], cwd, execCfg)

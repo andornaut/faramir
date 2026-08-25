@@ -91,22 +91,20 @@ func blockedNameRules(layout Layout) []protectedPath {
 	return out
 }
 
-// blockedNameRule is one pattern's kind and value. The order is the order the
-// shapes exclude each other in: a trailing separator is a directory whatever
-// else it holds, and a wildcard at one end is an open end rather than a name
-// with a hole in it.
+// blockedNameRule is one pattern's kind and value, in this package's spelling
+// of the kinds. The inference is denyrules', so a name means the same thing to
+// the rules the guard matches and to the glob each agent's own file carries:
+// more than one spelling is derived from it, and a second reading of "*.pem"
+// would be one of them refusing a different set of files.
 func blockedNameRule(name string) protectedPath {
-	switch {
-	case strings.HasSuffix(name, "/"):
-		return protectedPath{kindDir, name}
-	case strings.Count(name, "*") == 1 && strings.HasPrefix(name, "*"):
-		return protectedPath{kindSuffix, strings.TrimPrefix(name, "*")}
-	case strings.Count(name, "*") == 1 && strings.HasSuffix(name, "*"):
-		return protectedPath{kindPrefix, strings.TrimSuffix(name, "*")}
-	case strings.Contains(name, "*"):
-		return protectedPath{kindGlobName, name}
-	}
-	return protectedPath{kindName, name}
+	kind, value := denyrules.Name(name)
+	return protectedPath{map[denyrules.NameKind]pathKind{
+		denyrules.KindExact:  kindName,
+		denyrules.KindSuffix: kindSuffix,
+		denyrules.KindPrefix: kindPrefix,
+		denyrules.KindGlob:   kindGlobName,
+		denyrules.KindDir:    kindDir,
+	}[kind], value}
 }
 
 // InstalledDirs is what this install occupies, for a caller that has to show an
@@ -478,72 +476,7 @@ func commandRules(layout Layout) []string {
 // matches too much refuses ordinary work, and one that matches too little reads
 // exactly like one that works.
 func BlockedCommandRule(command string) string {
-	words := strings.Fields(command)
-	if len(words) == 0 {
-		return ""
-	}
-	quoted := make([]string, 0, len(words))
-	for _, word := range words {
-		quoted = append(quoted, regexp.QuoteMeta(word))
-	}
-	rule := commandPosition + commandPathPrefix + strings.Join(quoted, `\s+`)
-	if last := words[len(words)-1]; isWordByte(last[len(last)-1]) {
-		rule += `\b`
-	}
-	return rule
-}
-
-// commandPosition is what may stand in front of a command on a line: the start
-// of it, a separator, an opening quote, and the prefixes that run something
-// else.
-//
-// Anchored rather than matched anywhere, which is the difference between an
-// entry being safe to write and being safe to write only if it is long enough.
-// "pass" matched inside "--ask-become-pass" before this, because a hyphen is a
-// non-word byte and \b holds beside it, so whether a one-word entry was usable
-// depended on whether some flag on some host happened to carry the word. That
-// is not a question an operator can answer about a fleet.
-//
-// The trade is the other way round from what it replaces: matching anywhere had
-// no holes and refused ordinary work, `grep 'pass show' defaults.yml` included.
-// This refuses none of that and misses a command reached through a prefix
-// nobody listed. That is the better error for a list the design already says is
-// not the boundary: it catches an accident, and an accident is typed rather
-// than wrapped. A refusal of real work is what gets a deny list turned off.
-//
-// RE2 has no lookbehind, so what precedes is consumed rather than asserted.
-const commandPosition = `(?:^|[;&|(){}\n])\s*` +
-	// Anything that runs something else, repeated: `sudo nice op read` is the
-	// command at a position two prefixes deep.
-	//
-	// A flag may take an argument, so one bare word after a flag is allowed to
-	// belong to it: that is what makes `sudo -u me op read` reach the command.
-	// RE2 finds a match where one exists, so the same expression still matches
-	// `sudo -n op read`, where the word after the flag is the command itself.
-	`(?:(?:sudo|doas|nohup|time|command|xargs|stdbuf|nice|ionice)(?:\s+-\S+(?:\s+\S+)?)*\s+` +
-	`|env(?:\s+\S+=\S+)*\s+` +
-	`|\S+=\S+\s+` +
-	// A shell given a command string, where the opening quote is what the
-	// command starts after. Named rather than allowing any quote: a bare quote
-	// would put `grep -r 'op read' defaults.yml` back at a command position,
-	// which is the refusal of ordinary work this change exists to stop.
-	`|(?:ba|z|da|k)?sh\s+-\S*c\S*\s+['"` + "`" + `]?)*`
-
-// commandPathPrefix is a directory in front of the first word, which is the
-// same command spelled with its path: an operator writing `op read` means the
-// program, and `/usr/bin/op read` is it. Without this the one an agent reaches
-// for after meeting the refusal is the one that is not refused.
-//
-// The group has to end in a separator, so it takes a path and nothing else, and
-// the anchor in front of it still holds: a word inside an argument is no more a
-// command than it was, and `--ask-become-pass` carries no separator to match on.
-const commandPathPrefix = `(?:\S*/)?`
-
-// isWordByte reports whether \b means anything beside this byte. "\b-d" never
-// matches, a hyphen being a non-word character on both sides.
-func isWordByte(b byte) bool {
-	return b == '_' ||
-		(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+	return denyrules.CommandRule(command)
 }
 
 // commandSubjects is every protected thing as a regex fragment. Literal paths
@@ -552,8 +485,10 @@ func isWordByte(b byte) bool {
 // anchors it is the reader in front of it rather than the start of a string.
 func commandSubjects(layout Layout) []string {
 	out := make([]string, 0, len(layout.Blocked)+8)
-	for _, p := range blockedNameRules(layout) {
-		out = append(out, commandSubject(p))
+	for _, refused := range layout.Blocked {
+		if refused.Name != "" {
+			out = append(out, denyrules.NameSubject(refused.Name))
+		}
 	}
 	// This install's own directories, and the files it names as linked or
 	// blocked, at the paths this host uses. Bounded, so that a rule about
@@ -601,31 +536,6 @@ const (
 	// derives at run time the same way the rendered rules bound one.
 	pathEndClass = denyrules.PathEnd
 )
-
-// commandSubject is one rule as a fragment of a command line.
-func commandSubject(p protectedPath) string {
-	q := regexp.QuoteMeta(p.value)
-	switch p.kind {
-	case kindName:
-		// A name may carry separators, so what precedes it is a separator or the
-		// start of the word rather than the start of the line.
-		return pathStart + q + pathEnd
-	case kindSuffix:
-		return q + pathEnd
-	case kindPrefix:
-		// No end: a prefix is open by definition, ".env" covering ".env.local".
-		return pathStart + q
-	case kindGlobName:
-		return pathStart + strings.ReplaceAll(q, regexp.QuoteMeta("*"), `[^/\s]*`) + pathEnd
-	case kindDir:
-		// The directory itself as well as what is under it. Matching only the form
-		// with the separator left `rm -rf ~/.ssh` allowed while `rm -rf ~/.ssh/`
-		// was refused, which is a rule a keystroke walks around and a deletion
-		// that destroys everything the rule was protecting.
-		return pathStart + strings.TrimSuffix(q, `/`) + `(/|` + pathEndClass + `)`
-	}
-	return q
-}
 
 // RenderDenyPatterns is the shipped pattern file as an install would write it,
 // for a caller that has to read what a host would get. The rendering is the

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/denyrules"
 )
 
 // A declared command is the words, taken literally, with any run of whitespace
@@ -18,7 +19,7 @@ import (
 func TestADeclaredCommandIsTheWords(t *testing.T) {
 	// The path prefix is part of the words: a command is the same command
 	// wherever the program it names is installed.
-	head := commandPosition + commandPathPrefix
+	head := denyrules.CommandPosition + denyrules.CommandPathPrefix
 	for command, want := range map[string]string{
 		"op read":       head + `op\s+read\b`,
 		"sops -d":       head + `sops\s+-d\b`,
