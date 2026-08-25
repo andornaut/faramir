@@ -31,8 +31,6 @@ Two things follow:
 - **Use the flag, not the edit.** A flag is written into the file and read back next run. An edit to a derived value is discarded on the next `init` without a word, and until then the daemons are using what you typed.
 - **A file that does not parse stops the run.** `init` reads the old config before writing, so a hand edit that will not load is refused rather than replaced. No daemon can load it either, and overwriting it would destroy the evidence. Fix the file, or delete it to install fresh.
 
-**One value is not read back: `[sudo] notify_command`.** A bare `init` drops whatever `--notify-command` set on the previous run, so name the flag again on every run.
-
 ## What a flag sets
 
 Each of these is written into the file and read back on the next run.
@@ -47,6 +45,7 @@ Flag | Key | Default | Bounds
 `--command-max-process-memory-mb` | `[command] max_process_memory_mb` | 4096 | 256 to 1048576. Rendered as `LimitDATA=` on the executor unit and inherited by every child.
 `--sudo-timeout-sec` | `[sudo] timeout_sec` | 120 | 1 to 600. How long a sudo question waits for a human.
 `--secret-min-length` | `[secret] min_length` | 8 | At least 6. Counted in characters, not bytes.
+`--notify-command ARG` | `[sudo] notify_command` | none | Repeatable, one argument per flag, and it **replaces**: naming the flag at all discards the installed list. Must contain `{prompt}` or `{id}`, or it would announce that something is waiting without saying what. Needs `--allow-sudo`, which is what writes the `[sudo]` section: a re-run without that flag takes the grant back and the announcement with it. The program must be installed, so a kept notifier whose program has since been removed refuses the run rather than being written out again.
 
 On a host that grants sudo, the `[command.env]` variables are also written to `/usr/local/libexec/faramir/sudo-env`, so a command keeps them across `sudo`: `env_reset` discards what the caller held, and this file puts them back from somewhere the caller cannot write. Not all of them survive. `HOME`, `PATH` and `SUDO_*` stay sudo's own, because sudo sets those itself and this file only adds what sudo did not. A name that is not a valid variable name, or a value holding a newline or a `#`, is [left out with a warning](escalation.md#what-a-brokered-command-keeps-across-sudo).
 
@@ -80,7 +79,6 @@ Key | Derived from
 `[ssh] ssh_agent`, `[ssh] ssh_add` | Resolved on `PATH` at install time. The broker runs them as its own uid
 `[ssh] agent_socket`, `[audit] log_path` | No flag: `/run/faramir` and `/var/log/faramir`, fixed in the binary
 `[sudo] exec_user`, `pam_service`, `pam_stack`, `helper` | `--allow-sudo`. `pam_stack` is the file carrying faramir's PAM stack on this host, which is not always what `pam_service` names: see [the two sudos](escalation.md#the-two-sudos)
-`[sudo] notify_command` | `--notify-command`, repeatable, one argument per flag. Must contain `{prompt}` or `{id}`, or it would announce that something is waiting without saying what
 
 ## What is not a key at all
 

@@ -319,7 +319,8 @@ func newInitCmd() *cobra.Command {
 		"announce a waiting escalation: one `ARG` each, repeatable, --notify-command "+
 			"/usr/bin/wall --notify-command '{prompt}'. One of \"{prompt}\" and \"{id}\" must "+
 			"appear; keep \"{id}\" off anything that broadcasts. The program is resolved on "+
-			"PATH and runs inside the broker unit's sandbox. Needs --allow-sudo")
+			"PATH and runs inside the broker unit's sandbox. Needs --allow-sudo. Kept "+
+			"across a re-run that does not name it; naming it replaces the whole list")
 	fl.BoolVar(&f.moveConfig, "move-config", false,
 		"consent to point this host's daemons at a different --config-dir. The new "+
 			"directory replaces the old: the refs the old one served stop being redacted, "+

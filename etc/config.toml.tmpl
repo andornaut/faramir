@@ -127,7 +127,8 @@ helper = "{{.PamHelper}}"
 # not waited on, so anything will do: wall, a desktop notifier, a push.
 # Unset, `faramir sudo watch` is the only place a question shows up.
 # Set it with `faramir init --allow-sudo --notify-command PROGRAM --notify-command ARG`,
-# which resolves the program on PATH.
+# which resolves the program on PATH. A later `init` reads it back, so a bare
+# re-run keeps it; naming the flag again replaces the whole list.
 #
 # Keep "{id}" off anything that broadcasts: wall reaches every terminal on this
 # host, and the coding agent has one. "{prompt}" says what is waiting without

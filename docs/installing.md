@@ -35,7 +35,7 @@ Flag | Default | Sets
 `--known-hosts PATH` | none | A `known_hosts` file copied to `<exec-home>/.ssh/known_hosts` and replaced whole each run. One that is not a `known_hosts` file is refused
 `--agent NAME` | `auto` | Which agents get deny rules and a credentials section in this home ([which file, per agent](layout.md)). Finding no agent writes nothing and says so
 `--allow-sudo` | off | Lets a brokered command *ask* to become root, through a password-required sudoers entry and a PAM service of faramir's own. Not passing the flag takes it back. [What it writes](escalation.md#the-decision-is-made-at-init-per-host)
-`--notify-command ARG` | none | Announces a waiting escalation, one argument per flag. Must name `{prompt}` or `{id}`; needs `--allow-sudo`
+`--notify-command ARG` | the install's, then none | Announces a waiting escalation, one argument per flag. Must name `{prompt}` or `{id}`; needs `--allow-sudo`. Naming the flag replaces the installed list rather than adding to it
 `--dry-run` | off | Report what would change and write nothing. The one form that does not need root
 `--json` | off | The report as JSON, one entry per step with a `changed` flag
 

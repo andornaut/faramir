@@ -230,6 +230,13 @@ type Layout struct {
 	// Written by init, as pam_service and helper are: the broker execs this as
 	// the uid holding every plaintext value.
 	NotifyCommand []string
+
+	// notifyAdopted says the argv above was read back off the installed config
+	// rather than named on this run, which is what a refusal has to say: an
+	// operator who typed no flag is being told about a value they last set on
+	// another run, and one told to fix "--notify-command" would look for a flag
+	// that is not in their command line. Unexported: nothing renders it.
+	notifyAdopted bool
 }
 
 // PamHelper is what the PAM service execs, as root, to decide one sudo: a
@@ -485,6 +492,17 @@ func hasControlChar(text string) (string, bool) {
 	return "", false
 }
 
+// notifySource names where the announcement being validated came from, so a
+// refusal points at what the operator would change: the flag when they typed
+// one, and the installed config when this run kept what was already there. Both
+// refusals name the flag as the way to change it either way.
+func (l Layout) notifySource() string {
+	if l.notifyAdopted {
+		return "the installed [sudo] notify_command"
+	}
+	return "--notify-command"
+}
+
 // validateNotifyCommand holds the announcement to what the loader will accept,
 // so a bad one is refused before anything is written rather than at the
 // daemon's next start. The rules are the loader's: see
@@ -502,32 +520,33 @@ func (l Layout) validateNotifyCommand() error {
 	if !slices.ContainsFunc(l.NotifyCommand, func(arg string) bool {
 		return strings.Contains(arg, "{prompt}") || strings.Contains(arg, "{id}")
 	}) {
-		return fmt.Errorf("--notify-command names neither {prompt} nor {id}, so it "+
+		return fmt.Errorf("%s names neither {prompt} nor {id}, so it "+
 			"would announce that something is waiting without saying what: %s",
-			strings.Join(l.NotifyCommand, " "))
+			l.notifySource(), strings.Join(l.NotifyCommand, " "))
 	}
 	// Absolute by the time this runs, Options.layout resolving argv[0] on PATH.
 	// Checked rather than assumed: a name that resolved to nothing would reach
 	// the config as itself and be looked up again by the broker's PATH.
 	if !filepath.IsAbs(l.NotifyCommand[0]) {
-		return fmt.Errorf("--notify-command %q is not on PATH and is not an absolute "+
+		return fmt.Errorf("%s %q is not on PATH and is not an absolute "+
 			"path: it is run as the account holding every decrypted value, so which "+
 			"file it reaches is the install's to decide rather than the broker's PATH's",
-			l.NotifyCommand[0])
+			l.notifySource(), l.NotifyCommand[0])
 	}
 	// And it has to be there: a path written out by hand is taken as given, so a
 	// typo would reach the config and fail at the --check that follows, after
 	// every file was written.
 	info, err := os.Stat(l.NotifyCommand[0])
 	if err != nil {
-		return fmt.Errorf("--notify-command %q is not there (%v): install it, or name "+
-			"a program that exists. It announces a pending escalation, so an install "+
-			"that wrote it would come up with nothing announcing anything",
-			l.NotifyCommand[0], err)
+		return fmt.Errorf("%s %q is not there (%v): install it, or name "+
+			"a program that exists with --notify-command. It announces a pending "+
+			"escalation, so an install that wrote it would come up with nothing "+
+			"announcing anything", l.notifySource(), l.NotifyCommand[0], err)
 	}
 	if info.IsDir() || info.Mode().Perm()&0o111 == 0 {
-		return fmt.Errorf("--notify-command %q is not an executable file: the broker "+
-			"execs it directly rather than through a shell", l.NotifyCommand[0])
+		return fmt.Errorf("%s %q is not an executable file: the broker "+
+			"execs it directly rather than through a shell",
+			l.notifySource(), l.NotifyCommand[0])
 	}
 	return nil
 }

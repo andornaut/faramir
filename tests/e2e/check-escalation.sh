@@ -453,6 +453,22 @@ fi
 grep -q "$SECRET" "$NOTIFY" && bad "*** an announcement carries the plaintext value ***" \
   || ok "and no secret value"
 
+# And what a re-run keeps. notify_command is rendered from what init was given
+# rather than merged into what is there, so an init that did not read it back
+# would leave this host announcing nothing until somebody typed the flag again.
+# The flag is deliberately not repeated here.
+if /usr/local/bin/faramir init --allow-sudo --agent-user op >/tmp/notify-rerun.log 2>&1; then
+  sleep 2
+  grep -q '^notify_command = \["/usr/local/bin/e2e-notify", "{prompt}"\]' $CFG \
+    && ok "and a re-run that does not name the flag keeps it" \
+    || bad "a bare re-run dropped the notifier: $(grep '^notify_command' $CFG || echo none)"
+  grep -q -- '--notify-command /usr/local/bin/e2e-notify' /tmp/notify-rerun.log \
+    && ok "and the run says it adopted it" \
+    || bad "the run kept it without saying so: $(grep -i adopted /tmp/notify-rerun.log || echo 'nothing adopted')"
+else
+  bad "a re-run without --notify-command was refused: $(tail -2 /tmp/notify-rerun.log)"
+fi
+
 # --------------------------------------------------------------------------
 head_ "13. an Enter is not an answer"
 #

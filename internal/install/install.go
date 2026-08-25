@@ -62,7 +62,9 @@ type Options struct {
 	//
 	// A flag rather than a drop-in because the broker execs it as the uid holding
 	// every decrypted value. Requires AllowSudo: without the grant there is no
-	// [sudo] section and nothing to announce.
+	// [sudo] section and nothing to announce. Read back off the installed config
+	// when no flag names one, as the tunables below are, so a bare re-run keeps
+	// the notifier instead of installing a host that announces nothing.
 	NotifyCommand []string
 
 	// The tunables, each named for what it bounds rather than for the section it
@@ -84,6 +86,11 @@ type Options struct {
 	// last link would read as "nothing was named" and adoption would put the old
 	// list back.
 	linksSet bool
+
+	// notifyAdopted says NotifyCommand above was read back off the installed
+	// config rather than named on this run, so a refusal can say which of the two
+	// the operator would go and change.
+	notifyAdopted bool
 
 	// blocked is the [[secret.block]] entries, adopted the same way and for the
 	// same reason. `faramir block` is what changes the list.
@@ -489,6 +496,7 @@ func (o *Options) layout() (Layout, error) {
 		layout.SudoRs = sudoRsProbe()
 	}
 	layout.NotifyCommand = resolveNotifyCommand(o.NotifyCommand)
+	layout.notifyAdopted = o.notifyAdopted
 	layout.Links = o.links
 	layout.Blocked = o.blocked
 	layout.CommandEnv = o.CommandEnv

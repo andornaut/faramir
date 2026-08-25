@@ -185,11 +185,14 @@ func (r *runner) LinkSteps() []namedStep {
 }
 
 // keepInstalledGrant takes the sudo arrangement off the installed config so
-// that rewriting config.toml does not remove it. `init` does the opposite,
-// --allow-sudo being a switch a re-run without takes away; adding a link is not
-// a request to change that, and stepConfig renders the whole file from the
-// layout, so without this a `link add` would drop [sudo] and leave the
-// sudoers entry pointing at a broker that no longer names it.
+// that rewriting config.toml does not remove it. `init` does the opposite with
+// the grant, --allow-sudo being a switch a re-run without takes away; adding a
+// link is not a request to change that, and stepConfig renders the whole file
+// from the layout, so without this a `link add` would drop [sudo] and leave the
+// sudoers entry pointing at a broker that no longer names it. The notifier is
+// read back by `init` as well, under a grant it was given; this names it here
+// rather than leaving it to adoption because the grant it hangs off is the one
+// being read on this line.
 func keepInstalledGrant(opts *Options, configDir string) error {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {

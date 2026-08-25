@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -133,6 +134,17 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 			*tunable.into = tunable.found
 		}
 	}
+	// The notifier, kept like the tunables above and gated on the grant it
+	// belongs to: no [sudo] section is rendered without --allow-sudo, so a re-run
+	// that takes the grant back takes the announcement with it rather than being
+	// refused over a value nothing would write.
+	if o.AllowSudo && len(o.NotifyCommand) == 0 && len(cfg.Sudo.NotifyCommand) > 0 {
+		o.NotifyCommand, o.notifyAdopted = slices.Clone(cfg.Sudo.NotifyCommand), true
+		// Reported as the flags that would have set it, one argument each, that
+		// being the line an operator would retype rather than a rendering of a list.
+		keep("--notify-command", strings.Join(o.NotifyCommand, " --notify-command "), "")
+	}
+
 	// The environment merges the other way round: what the file holds first, then
 	// what a flag names on top, so naming one variable keeps the rest. The
 	// built-in table is the floor either way, applyDefaults laying it under this:

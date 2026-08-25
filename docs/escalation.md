@@ -117,6 +117,8 @@ faramir init --allow-sudo \
     --notify-command '{prompt}'
 ```
 
+A later `init` [reads it back](configuration.md#what-a-flag-sets), so a bare re-run keeps the notifier; naming the flag again replaces the whole list, and re-running without `--allow-sudo` drops it with the rest of the grant.
+
 **Keep `{id}` off a broadcast channel.** `wall` writes to every terminal on the host including the agent's: the id is not a credential, but publishing it is the difference between an agent that would have to guess what to type into your watcher and one that knows. `{prompt}` says what is waiting without saying what to type.
 
 **It runs as the broker, which reaches less than you do.** The environment is a fixed `PATH` and nothing else, and the uid is the broker's own, so anything needing your session is out: a desktop notifier wants `DBUS_SESSION_BUS_ADDRESS` and a path through `/run/user/<uid>`, which is `0700` and yours. It also runs inside the broker unit's sandbox: `PrivateTmp=` gives it a `/tmp` of the unit's own, so a file written there is not the `/tmp` you can see, and `ProtectSystem=strict` leaves it nowhere else to write but the broker's own directories. What works is what needs neither, `wall` (setgid `tty`) or a request to something on the network. For a notification on your desktop, run `sudo faramir sudo watch` on your own side instead: it reads the same questions and is already in your session.
