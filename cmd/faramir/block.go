@@ -118,8 +118,9 @@ func newBlockAddCmd() *cobra.Command {
 			"the value of: a LUKS keyfile, an SSH identity.\n\n" +
 			"The file is never opened, so nothing of it enters the redactor. What is\n" +
 			"refused is the agent's file tools, its shell, and a brokered command that\n" +
-			"would read, copy or move it; its mode, its owner and removing it are left\n" +
-			"alone. --any-mention refuses naming it at all.\n\n" +
+			"would read, copy or move it. A command outside that vocabulary is left\n" +
+			"alone, writing over the file included. --any-mention refuses naming it at\n" +
+			"all.\n\n" +
 			"--name matches what the agent names rather than a path on this host, for a\n" +
 			"file a container mounts somewhere of its own.\n\n" +
 			"A bare argument is refused; a missing path is recorded and reported; an\n" +

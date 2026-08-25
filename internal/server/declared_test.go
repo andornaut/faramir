@@ -182,7 +182,7 @@ func TestTheRefusalNamesTheEntryAndTheRemedy(t *testing.T) {
 		"the path /srv/keys/luks.key", // which entry, and which form it took
 		"never reads",                 // why the output cannot be covered instead
 		"faramir block rm",            // and whose the remedy is
-		"Its mode, its owner and removing it are not refused",
+		"A command outside it is not refused",
 	} {
 		if !strings.Contains(said, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, said)
@@ -395,7 +395,7 @@ func TestAnAnyMentionRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
 		t.Fatal("a listing of an any_mention path was allowed")
 	}
 	said := declaredRefusal(rule)
-	if strings.Contains(said, "Its mode, its owner and removing it are not refused") {
+	if strings.Contains(said, "A command outside it is not refused") {
 		t.Errorf("the refusal for an any_mention entry says the file can still be "+
 			"changed, having just refused a command that would:\n%s", said)
 	}
@@ -405,7 +405,7 @@ func TestAnAnyMentionRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
 	// The looser entry keeps the sentence, that being what it promises.
 	loose, _ := blocking(pathEntry("/srv/keys/luks.key")).
 		refuses([]string{"cat", "/srv/keys/luks.key"}, "/tmp")
-	if !strings.Contains(declaredRefusal(loose), "Its mode, its owner and removing it are not refused") {
+	if !strings.Contains(declaredRefusal(loose), "A command outside it is not refused") {
 		t.Error("an ordinary entry stopped naming what it leaves alone")
 	}
 }

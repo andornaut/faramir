@@ -33,7 +33,7 @@ import (
 // runs rather than tokenised after it.
 //
 // denyrules.Disclosing is the set: reading, moving and re-encoding a declared
-// file, not its mode, its owner or removing it. See its comment for where that
+// file, and nothing outside that vocabulary, writing over one included. See its comment for where that
 // line falls and why it is not the read/write one. An entry carrying any_mention is
 // held to denyrules.Mentioning instead, which is the subject with no verb in
 // front of it: the operator asked for every command naming that file to be
@@ -265,10 +265,11 @@ func declaredRefusal(rule declaredRule) string {
 	// What the entry leaves alone, which is the sentence that tells a reader
 	// whether another spelling is worth trying. An any_mention entry leaves
 	// nothing alone, and saying otherwise sends a model back for the same `ls`.
-	tail := "Its mode, its owner and removing it are not refused. What is " +
-		"refused is reading it and putting the contents anywhere else, so `cp`, " +
-		"`tee` and `sed` are refused even where the declared path is what they " +
-		"write to."
+	tail := "What is refused is a vocabulary rather than a direction: the " +
+		"readers, and the commands that move or re-encode a file, wherever the " +
+		"path appears in the line, so `cp`, `tee` and `sed` are refused even " +
+		"where it is what they write to. A command outside it is not refused, " +
+		"whatever it does to the file."
 	if rule.anyMention {
 		tail = "Changing it where it stands is refused with the rest, which is " +
 			"what this entry asks for: no command may name it."
