@@ -110,14 +110,17 @@ type Options struct {
 	configDigest []byte
 	configRead   bool
 
-	// MoveConfig is consent to point this host's daemons at a different ConfigDir.
-	// Required because the units are one set with fixed names, so a second
-	// directory replaces the first rather than standing beside it: what the first
-	// held stops being managed while its age key and ciphertext stay on disk.
+	// RepointConfig is consent to point this host's daemons at a different
+	// ConfigDir. Required because the units are one set with fixed names, so a
+	// second directory replaces the first rather than standing beside it: what
+	// the first held stops being managed while its age key and ciphertext stay
+	// on disk.
 	//
-	// Named for the one thing it permits rather than called --force, which would
-	// collect the next thing that needs overriding.
-	MoveConfig bool
+	// Named for what it permits: nothing is moved, copied or removed. The old
+	// directory stays exactly where it is and stops being read, which is why the
+	// consent is asked for at all. Not called --force, which would collect the
+	// next thing that needs overriding.
+	RepointConfig bool
 
 	// No tree is enrolled here: a tree is per project and this runs once per
 	// machine. See `faramir init-project`.
@@ -592,7 +595,7 @@ func (r *runner) preflight() error {
 			"the ownership you want first: creating it here would hand it to root",
 			parent, r.layout.ConfigDir)
 	}
-	if err := r.refuseConfigMove(); err != nil {
+	if err := r.refuseRepoint(); err != nil {
 		return err
 	}
 	if err := r.refuseSymlinks(); err != nil {
@@ -616,8 +619,8 @@ func (r *runner) preflight() error {
 	return nil
 }
 
-// refuseConfigMove stops a run that would point this host's daemons at a
-// different config directory, unless it was asked to.
+// refuseRepoint stops a run that would point this host's daemons at a different
+// config directory, unless it was asked to.
 //
 // There is one set of units, with fixed names, so naming a second directory
 // repoints the daemons and leaves the first directory where it stands: the refs
@@ -627,27 +630,29 @@ func (r *runner) preflight() error {
 //
 // A flag-less re-run never reaches this: init resolves the config directory
 // from the running broker and then from the unit.
-func (r *runner) refuseConfigMove() error {
+func (r *runner) refuseRepoint() error {
 	installed := unitConfigDir(brokerUnit)
 	if installed == "" || installed == r.layout.ConfigDir {
 		return nil
 	}
-	if !r.opts.MoveConfig {
-		// A dry run reports and writes nothing, so the move is what it has to
-		// report: refusing here would mean consenting to a move to preview it.
+	if !r.opts.RepointConfig {
+		// A dry run reports and writes nothing, so this is what it has to report:
+		// refusing here would mean consenting to the change to preview it.
 		if r.opts.DryRun {
 			r.warnf("this host's daemons load %s, and this run names %s. A real run would be refused: "+
-				"pass --move-config to move them, or leave --config-dir out",
+				"pass --repoint-config to point them at the new one, or leave --config-dir out",
 				installed, r.layout.ConfigDir)
 			return nil
 		}
 		return fmt.Errorf("this host's daemons load %s, and this run names %s.\nThere is one set of units, "+
 			"so the daemons would move and %s would be left holding its age key and its "+
-			"ciphertext, no longer redacted.\nPass --move-config to move them, then retire %s "+
+			"ciphertext, no longer redacted.\nPass --repoint-config to point them at the new "+
+			"one, then retire %s "+
 			"yourself. To provision the install this host has, leave --config-dir out",
 			installed, r.layout.ConfigDir, installed, installed)
 	}
-	// Consented to, and still worth naming: what is left behind is key material
+	// Consented to, and still worth naming: nothing moved, and what is left
+	// behind is key material
 	// and every value it opens. Said once, here, and by nothing afterwards: the
 	// old directory is not part of the install any more, so no later command
 	// looks at it. That is the reason to name the files and the commands rather

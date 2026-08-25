@@ -389,6 +389,13 @@ func (l Layout) validate() error {
 	if strings.Contains(dir, "%") {
 		return fmt.Errorf("config dir must not contain '%%': %s", dir)
 	}
+	if under := privateTmpDir(dir); under != "" {
+		return fmt.Errorf("config dir must not be under %s: %s\n"+
+			"Every unit runs with PrivateTmp=true, so each daemon gets a %s of its "+
+			"own and none of them would find what this run wrote. The install would "+
+			"finish and the host would serve nothing. Name a directory outside it, "+
+			"%s being the default", under, dir, under, DefaultConfigDir)
+	}
 	// Blocked here rather than left to whatever renders it: these paths are
 	// interpolated into the agents' JSON settings, into config.toml and into the
 	// deny patterns, and each format escapes a different set. A settings file the
@@ -474,6 +481,39 @@ func (l Layout) validate() error {
 		}
 	}
 	return l.validateNotifyCommand()
+}
+
+// privateTmp is what PrivateTmp= gives every unit its own copy of. Both
+// hierarchies, since the directive covers both.
+//
+// A variable rather than a constant for this package's own tests, which point
+// an install at a directory made by t.TempDir(): that lands under TMPDIR, which
+// is the very thing this refuses on a real host, so a test asserting on some
+// other refusal would meet this one first. Unexported and cleared only by the
+// helper those tests share, so nothing outside can turn the check off.
+var privateTmp = []string{"/tmp", "/var/tmp"}
+
+// privateTmpDir is the temporary hierarchy a path sits in, or "" for a path
+// outside both.
+//
+// Refused rather than left to fail at the daemons' next start. PrivateTmp=true
+// gives every unit a /tmp and a /var/tmp of its own, so a config directory
+// there is written by an install running in the host's namespace and looked for
+// by three daemons that each have a different one. What the operator sees is an
+// install reporting every step done and a broker that will not start, with the
+// directory sitting on disk exactly where they put it.
+//
+// Both hierarchies, since PrivateTmp= covers both. The check is on the path
+// rather than on the filesystem under it: a bind mount elsewhere is somebody's
+// deliberate arrangement, and what breaks the install is the unit directive
+// reading these two names.
+func privateTmpDir(dir string) string {
+	for _, tmp := range privateTmp {
+		if dir == tmp || strings.HasPrefix(dir, tmp+"/") {
+			return tmp
+		}
+	}
+	return ""
 }
 
 // hasControlChar reports whether a path holds a character no rendered format

@@ -193,7 +193,7 @@ func TestLayoutRefusesAnOperatorThatIsAServiceAccount(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.opts.DryRun = true
-			tc.opts.ConfigDir = t.TempDir()
+			tc.opts.ConfigDir = installDir(t)
 			tc.opts.applyDefaults()
 			_, err := tc.opts.layout()
 
@@ -335,5 +335,60 @@ func TestInitWarnsWhenTheSudoTimeoutOutlastsTheLongestCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// installDir is a temporary directory an install may be pointed at.
+//
+// t.TempDir() alone is not one: it lands under TMPDIR, and a config directory
+// there is refused because every unit runs with PrivateTmp=true and would look
+// for it in a /tmp of its own. That refusal is the subject of its own tests;
+// here it would arrive first and hide whatever the test was actually asserting.
+// So the check is lifted for the duration and put back after.
+func installDir(t *testing.T) string {
+	t.Helper()
+	was := privateTmp
+	privateTmp = nil
+	t.Cleanup(func() { privateTmp = was })
+	return t.TempDir()
+}
+
+// A config directory under /tmp installs and then serves nothing: PrivateTmp=
+// gives each daemon a temporary hierarchy of its own, so what the install
+// writes is in none of them. Refused before anything is written, the failure
+// otherwise being three daemons that will not start and a directory sitting on
+// disk exactly where the operator put it.
+func TestAConfigDirUnderATemporaryHierarchyIsRefused(t *testing.T) {
+	for _, dir := range []string{
+		"/tmp", "/tmp/faramir", "/var/tmp", "/var/tmp/faramir/nested",
+	} {
+		opts := Options{
+			AgentUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
+			BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex", ConfigDir: dir,
+		}
+		opts.applyDefaults()
+
+		_, err := opts.layout()
+
+		if err == nil {
+			t.Errorf("%s was accepted, and no daemon would find what it wrote", dir)
+			continue
+		}
+		for _, want := range []string{"PrivateTmp", dir, DefaultConfigDir} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%s: the refusal does not say %q: %v", dir, want, err)
+			}
+		}
+	}
+	// A path that merely starts the same way is somewhere else entirely.
+	for _, dir := range []string{"/tmpfiles", "/var/tmpdata", "/opt/tmp"} {
+		opts := Options{
+			AgentUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
+			BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex", ConfigDir: dir,
+		}
+		opts.applyDefaults()
+		if _, err := opts.layout(); err != nil {
+			t.Errorf("%s was refused: %v", dir, err)
+		}
 	}
 }

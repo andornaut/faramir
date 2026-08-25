@@ -307,7 +307,7 @@ func TestAConfigThatWouldNotLoadIsNotWritten(t *testing.T) {
 		"an env name that is not one":    {CommandEnv: map[string]string{"MY VAR": "1"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			dir := t.TempDir()
+			dir := installDir(t)
 			existing := filepath.Join(dir, "config.toml")
 			if err := os.WriteFile(existing, []byte("# the install that was here\n"), 0o600); err != nil {
 				t.Fatal(err)

@@ -361,7 +361,7 @@ func TestADropInIsNotRead(t *testing.T) {
 // Render the file as an install would, rebuild the options the way a link
 // operation does, render again, and hold the two to being identical.
 func TestALinkOperationRendersTheSameConfigTheInstallDid(t *testing.T) {
-	dir := t.TempDir()
+	dir := installDir(t)
 	installed := Options{
 		ConfigDir: dir,
 		AgentUser: "operator",

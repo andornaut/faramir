@@ -94,6 +94,21 @@ mode /etc/faramir/id_ed25519   0600 faramir-broker:faramir-broker
 mode /etc/faramir/id_ed25519.pub 0644 faramir-broker:faramir-broker
 mode /var/log/faramir          0750 faramir-broker:faramir-broker
 
+# And where it may not sit. PrivateTmp=true gives each unit a temporary
+# hierarchy of its own, so a config directory under one is written here and
+# looked for somewhere else by all three daemons: the install would report every
+# step done and the host would serve nothing. Refused before anything is
+# written, which is what --dry-run is asked here, so this leaves the install
+# alone.
+out=$(/usr/local/bin/faramir init --dry-run --agent-user op --config-dir /tmp/faramir-e2e 2>&1)
+if grep -q 'PrivateTmp' <<<"$out"; then
+  ok "a config directory under /tmp is refused, and the refusal says why"
+else
+  bad "a /tmp config directory was not refused: ${out##*$'\n'}"
+fi
+[ -e /tmp/faramir-e2e ] && bad "the refused run created the directory anyway" \
+  || ok "and nothing was written where it pointed"
+
 head_ "what each account can reach"
 # The age key decrypts every managed file, retroactively.
 refused faramir-exec   /etc/faramir/age.key

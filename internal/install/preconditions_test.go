@@ -117,7 +117,7 @@ func TestPreconditionsRunBeforeAnythingIsChowned(t *testing.T) {
 // one set of units, so the daemons move and the old directory is left holding
 // its age key and its ciphertext, with its refs no longer redacted. Blocked
 // unless the run said so.
-func TestAConfigMoveIsRefusedUnlessAskedFor(t *testing.T) {
+func TestRepointingTheDaemonsIsRefusedUnlessAskedFor(t *testing.T) {
 	dir := t.TempDir()
 	systemUnitDir = dir
 	t.Cleanup(func() { systemUnitDir = "/etc/systemd/system" })
@@ -129,11 +129,11 @@ func TestAConfigMoveIsRefusedUnlessAskedFor(t *testing.T) {
 	}
 
 	run := &runner{layout: Layout{ConfigDir: "/opt/faramir2"}}
-	err := run.refuseConfigMove()
+	err := run.refuseRepoint()
 	if err == nil {
-		t.Fatal("a run that moves the daemons to another config directory was allowed")
+		t.Fatal("a run that repoints the daemons at another config directory was allowed")
 	}
-	for _, want := range []string{"/etc/faramir", "/opt/faramir2", "--move-config"} {
+	for _, want := range []string{"/etc/faramir", "/opt/faramir2", "--repoint-config"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not mention %q:\n%s", want, err)
 		}
@@ -142,9 +142,9 @@ func TestAConfigMoveIsRefusedUnlessAskedFor(t *testing.T) {
 	// Consented to: allowed, and still said out loud, what is left behind being
 	// key material.
 	moving := &runner{layout: Layout{ConfigDir: "/opt/faramir2"},
-		opts: Options{MoveConfig: true}}
-	if err := moving.refuseConfigMove(); err != nil {
-		t.Fatalf("--move-config did not permit the move: %v", err)
+		opts: Options{RepointConfig: true}}
+	if err := moving.refuseRepoint(); err != nil {
+		t.Fatalf("--repoint-config did not permit it: %v", err)
 	}
 	warnings := strings.Join(moving.report.Warnings, "\n")
 	for _, want := range []string{"/etc/faramir", "age.key"} {
@@ -155,7 +155,7 @@ func TestAConfigMoveIsRefusedUnlessAskedFor(t *testing.T) {
 
 	// Provisioning the install this host already has is not a move.
 	same := &runner{layout: Layout{ConfigDir: "/etc/faramir"}}
-	if err := same.refuseConfigMove(); err != nil {
+	if err := same.refuseRepoint(); err != nil {
 		t.Errorf("re-provisioning the installed directory was refused: %v", err)
 	}
 	// Nor is a first install, where no unit names one.
@@ -163,7 +163,7 @@ func TestAConfigMoveIsRefusedUnlessAskedFor(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := &runner{layout: Layout{ConfigDir: "/opt/faramir2"}}
-	if err := first.refuseConfigMove(); err != nil {
+	if err := first.refuseRepoint(); err != nil {
 		t.Errorf("a first install was refused: %v", err)
 	}
 }

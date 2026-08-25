@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/install"
@@ -148,7 +149,7 @@ func TestInitConfigDirFallsBackToTheDefault(t *testing.T) {
 // The unit and its drop-ins, in the order systemd reads them. init refuses a
 // config move against the same reader, so a resolver that stopped at the main
 // unit would hand init a directory init then refuses as a move: the operator
-// passed no --config-dir, and the only way past would be --move-config, which
+// passed no --config-dir, and the only way past would be --repoint-config, which
 // moves the daemons the other way.
 func TestTheUnitReaderTakesTheDropInTheDaemonsLoad(t *testing.T) {
 	pointBrokerUnit(t, "[Service]\nUser=faramir-broker\n"+
@@ -225,5 +226,29 @@ func TestAskBrokerTakesTheVersionFromARefusal(t *testing.T) {
 	if got.configDir != "" {
 		t.Errorf("askBroker configDir = %q, want empty: a refusal carries no body",
 			got.configDir)
+	}
+}
+
+// The flag was called --move-config, which read as though init relocated the
+// directory. It does not: the daemons are pointed at the new one and the old
+// stays where it is. The old spelling keeps working, a fleet's converge being
+// where this is typed, and is hidden from --help so nothing learns it now.
+func TestTheRenamedRepointFlagStillTakesItsOldSpelling(t *testing.T) {
+	for _, spelling := range []string{"--repoint-config", "--move-config"} {
+		c := newInitCmd()
+		if err := c.Flags().Parse([]string{spelling}); err != nil {
+			t.Fatalf("%s: %v", spelling, err)
+		}
+		on, err := c.Flags().GetBool(strings.TrimPrefix(spelling, "--"))
+		if err != nil || !on {
+			t.Errorf("%s did not set: %v", spelling, err)
+		}
+	}
+	c := newInitCmd()
+	if flag := c.Flags().Lookup("move-config"); flag == nil || !flag.Hidden {
+		t.Error("the old spelling is still offered in --help")
+	}
+	if c.Flags().Lookup("repoint-config") == nil {
+		t.Fatal("--repoint-config is not registered")
 	}
 }

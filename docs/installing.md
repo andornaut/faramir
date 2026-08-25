@@ -28,8 +28,8 @@ Flag | Default | Sets
 `--agent-user NAME` | `$FARAMIR_OPERATOR`, then `$SUDO_USER`, then you | The account the coding agent runs as, and the one this host belongs to. It owns the checkouts brokered commands run in, so root is refused, as is any of faramir's own service accounts. `init` is the only command that takes this: every other one reads what it records
 `--client-group NAME` | the install's, then `faramir-client` | The group admitted to the broker socket and group-owning an enrolled tree. Membership is permission to ask the broker for any managed value, so name it for that rather than for a team: a group the host already has is adopted rather than refused, and every current member gains the grant
 `--secrets-group NAME` | the install's, then the keeper's own group | The group owning the ciphertext. `doctor` fails if the operator is in it
-`--config-dir DIR` | the install's, [found the usual way](operating.md#checking-an-install), then `/etc/faramir` | Where `config.toml`, the age key and the managed sops files live. `init` is the only command that takes this: every other one finds the install and refuses to guess. Absolute, parent must exist, and a *different* one needs `--move-config`
-`--move-config` | off | Consent to that move. The new directory replaces the old, so the refs the old one served stop being redacted; its age key and ciphertext stay on disk
+`--config-dir DIR` | the install's, [found the usual way](operating.md#checking-an-install), then `/etc/faramir` | Where `config.toml`, the age key and the managed sops files live. `init` is the only command that takes this: every other one finds the install and refuses to guess. Absolute, parent must exist, not under `/tmp` or `/var/tmp`, and a *different* one needs `--repoint-config`
+`--repoint-config` | off | Consent to pointing the daemons at that different directory. **Nothing is moved**: the new directory replaces the old as the one they read, so the refs the old one served stop being redacted, while its age key and ciphertext stay on disk exactly where they are, for you to retire yourself. Named `--move-config` before, which read as though `init` relocated the directory; the old spelling still works and warns
 `--broker-user`, `--exec-user`, `--keeper-user` | the install's, then `faramir-broker`, `faramir-exec`, `faramir-keeper` | The three service accounts, created if missing. No two may share a name
 `--ssh-key PATH` | the install's, then `<config-dir>/id_ed25519` | Where the keypair the broker lends lives. One is minted either way, so this relocates rather than enables. An existing key is adopted, and must be `faramir-broker`-owned `0600` with its `.pub` beside it at `0644`
 `--known-hosts PATH` | none | A `known_hosts` file copied to `<exec-home>/.ssh/known_hosts` and replaced whole each run. One that is not a `known_hosts` file is refused
@@ -44,7 +44,7 @@ Flag | Default | Sets
 The units are sandboxed, so where the config sits is bounded by what systemd will carry:
 
 - `init` refuses whitespace and `%`, which systemd splits and expands in `Environment=`.
-- A directory under `/tmp` or `/var/tmp` installs and then finds nothing, `PrivateTmp=true` giving each unit its own. Nothing refuses it at install time; the daemons fail to load when they start.
+- A directory under `/tmp` or `/var/tmp` is refused before anything is written. `PrivateTmp=true` gives each unit a temporary hierarchy of its own, so what the install wrote would be in none of them: every step would report done and no daemon would start.
 
 Every path an install creates, with its mode and owner, is in [layout.md](layout.md).
 

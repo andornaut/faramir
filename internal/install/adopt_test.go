@@ -291,7 +291,7 @@ func TestTheRenderedNotifierIsAdoptedBack(t *testing.T) {
 // one is: an install that wrote a notifier which is not there would come up
 // announcing nothing, which is the failure the check exists for.
 func TestAnAdoptedNotifierIsRefusedInItsOwnName(t *testing.T) {
-	dir := t.TempDir()
+	dir := installDir(t)
 	gone := filepath.Join(dir, "notifier-that-was-uninstalled")
 	writeNotifierConfig(t, dir, gone, "{prompt}")
 	opts := Options{

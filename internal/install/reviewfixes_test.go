@@ -44,7 +44,7 @@ func TestUnitConfigDirReadsDropIns(t *testing.T) {
 
 	// And the consequence: init must see that as a move.
 	run := &runner{layout: Layout{ConfigDir: "/etc/faramir"}}
-	if err := run.refuseConfigMove(); err == nil {
+	if err := run.refuseRepoint(); err == nil {
 		t.Error("re-provisioning /etc/faramir while the daemons load /srv/two was " +
 			"allowed, which moves them without saying so")
 	}
@@ -65,11 +65,11 @@ func TestADryRunPreviewsAConfigMoveInsteadOfRefusingIt(t *testing.T) {
 		layout: Layout{ConfigDir: "/opt/faramir2"},
 		opts:   Options{DryRun: true},
 	}
-	if err := run.refuseConfigMove(); err != nil {
+	if err := run.refuseRepoint(); err != nil {
 		t.Fatalf("a dry run could not preview the move: %v", err)
 	}
 	warnings := strings.Join(run.report.Warnings, "\n")
-	for _, want := range []string{"/etc/faramir", "/opt/faramir2", "--move-config"} {
+	for _, want := range []string{"/etc/faramir", "/opt/faramir2", "--repoint-config"} {
 		if !strings.Contains(warnings, want) {
 			t.Errorf("the preview does not mention %q:\n%s", want, warnings)
 		}

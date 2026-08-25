@@ -217,6 +217,7 @@ type initFlags struct {
 	initAgents    []string
 	allowSudo     bool
 	notifyCommand []string
+	repointConfig bool
 	moveConfig    bool
 	dryRun        bool
 	asJSON        bool
@@ -321,10 +322,17 @@ func newInitCmd() *cobra.Command {
 			"appear; keep \"{id}\" off anything that broadcasts. The program is resolved on "+
 			"PATH and runs inside the broker unit's sandbox. Needs --allow-sudo. Kept "+
 			"across a re-run that does not name it; naming it replaces the whole list")
-	fl.BoolVar(&f.moveConfig, "move-config", false,
-		"consent to point this host's daemons at a different --config-dir. The new "+
-			"directory replaces the old: the refs the old one served stop being redacted, "+
-			"while its age key and ciphertext stay on disk. Blocked without this")
+	fl.BoolVar(&f.repointConfig, "repoint-config", false,
+		"consent to point this host's daemons at a different --config-dir. Nothing is "+
+			"moved: the new directory replaces the old, so the refs the old one served "+
+			"stop being redacted while its age key and ciphertext stay on disk where "+
+			"they are. Blocked without this")
+	// The name this had when it read as though init relocated the directory. Kept
+	// so a converge that names it keeps working, and hidden so nothing learns it
+	// from --help.
+	fl.BoolVar(&f.moveConfig, "move-config", false, "renamed to --repoint-config")
+	_ = fl.MarkDeprecated("move-config", "use --repoint-config: nothing is moved, "+
+		"the daemons are pointed at the new directory and the old one stays on disk")
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
 	// The tunables, named for what they bound rather than for the section they
@@ -422,8 +430,10 @@ func runInit(f initFlags) int {
 		CommandMaxProcessMemoryMB: f.commandMaxProcMB,
 		SudoTimeoutSec:            f.sudoTimeoutSec,
 		SecretMinLength:           f.secretMinLength,
-		MoveConfig:                f.moveConfig,
-		DryRun:                    f.dryRun,
+		// Either spelling: the old one is deprecated rather than gone, so a fleet
+		// that has not been edited yet still installs.
+		RepointConfig: f.repointConfig || f.moveConfig,
+		DryRun:        f.dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
 	// --json entirely.
