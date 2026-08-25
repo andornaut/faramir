@@ -160,6 +160,12 @@ func TestTheRulesLeaveAloneWhatDoesNotReachTheSubject(t *testing.T) {
 		"echo 'a < b is true of /etc/faramirx'",
 		// A sibling in an assignment is still a sibling.
 		"p=/etc/faramirx/notes.md",
+		// A flag that ends in "=" is not an assignment. A word boundary falls
+		// after a hyphen, so the assignment rule read "file=" out of the middle
+		// of "--key-file=" and refused the spelling most tooling writes for a
+		// path a command is meant to be handed.
+		"cryptsetup luksOpen /dev/sdb x --key-file=/etc/faramir/age.key",
+		"restic --password-file=/etc/faramir/age.key snapshots",
 		// The value ends where the shell ends it, so a path further along the
 		// line is not read as this assignment's.
 		"greeting=hello /etc/faramirx",

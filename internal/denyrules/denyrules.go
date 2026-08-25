@@ -125,8 +125,18 @@ var pathWord = regexp.MustCompile(`[^\s"';&|()]*/[^\s"';&|()]*`)
 // is left alone while a path anywhere inside the quotes is not.
 //
 // A for list runs to the end of the command, so it stops at a separator.
-const Binding = `(?:\b[A-Za-z_][A-Za-z0-9_]*=(?:["'][^"']*|\S*)` +
+//
+// An assignment opens a word, which is what assignStart states and what a "\b"
+// could not: a boundary falls after a hyphen too, so `--key-file=/srv/keys/luks.key`
+// matched at "file=" and a flag was refused as though it bound a variable. The
+// separators and the quotes are there because an assignment follows each of
+// them, and the hyphen is the one thing that has to be left out.
+const Binding = `(?:` + assignStart + `[A-Za-z_][A-Za-z0-9_]*=(?:["'][^"']*|\S*)` +
 	`|\bfor\s+[A-Za-z_][A-Za-z0-9_]*\s+in\s+[^;&|]*)`
+
+// assignStart is where a shell word may begin: the start of the line, or after
+// whitespace, a separator or a quote.
+const assignStart = `(?:^|[\s;&|("'])`
 
 // PathEnd is what may follow a path in a command line: whitespace, a quote, a
 // separator, or the end of it. A class rather than \b, and shared so the two
