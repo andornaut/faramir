@@ -61,3 +61,54 @@ func TestCheckTouchesNoFilesystem(t *testing.T) {
 		t.Errorf("Check = %v, want the bytes accepted on their own", err)
 	}
 }
+
+// any_mention is how strictly one entry is matched, so it belongs on the two
+// forms that name a file. A command entry is already matched wherever a command
+// starts: there is no looser reading of it to tighten, and accepting the key
+// while changing nothing would leave an operator sure they had closed
+// something.
+func TestAnyMentionIsRefusedOnACommandEntry(t *testing.T) {
+	body := minimal + "\n[[secret.block]]\ncommand = \"op read\"\nany_mention = true\n"
+	_, err := load(t, body)
+	if err == nil {
+		t.Fatal("a command entry carrying any_mention was accepted")
+	}
+	for _, want := range []string{"any_mention", "command"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
+	}
+}
+
+// The two forms that do take it, and the default: absent is the looser reading,
+// which is what every entry written before this key existed means.
+func TestAnyMentionLoadsOnAPathAndAName(t *testing.T) {
+	cfg, err := load(t, minimal+"\n[[secret.block]]\npath = \"/home/op/.private\"\n"+
+		"any_mention = true\n\n[[secret.block]]\nname = \"*.pem\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Secret.Blocked) != 2 {
+		t.Fatalf("blocked = %+v, want two entries", cfg.Secret.Blocked)
+	}
+	if !cfg.Secret.Blocked[0].AnyMention {
+		t.Error("the entry that asked for any_mention did not get it")
+	}
+	if cfg.Secret.Blocked[1].AnyMention {
+		t.Error("an entry that did not ask for it got it anyway")
+	}
+}
+
+// A value of another type is refused rather than read as false: an entry saying
+// any_mention = "yes" means to close something, and taking it as absent leaves
+// a host the operator believes is closed and is not.
+func TestAnyMentionRefusesAValueThatIsNotABoolean(t *testing.T) {
+	_, err := load(t, minimal+"\n[[secret.block]]\npath = \"/home/op/.private\"\n"+
+		"any_mention = \"yes\"\n")
+	if err == nil {
+		t.Fatal("any_mention = \"yes\" was accepted")
+	}
+	if !strings.Contains(err.Error(), "true or false") {
+		t.Errorf("the refusal does not say what it wanted: %v", err)
+	}
+}

@@ -166,3 +166,74 @@ func TestACommandRuleDoesNotReachASiblingPath(t *testing.T) {
 		}
 	}
 }
+
+// An --any-mention entry renders a rule with no verb in it, which is the whole
+// of the difference: the five ordinary rules each need a reader, a writer or a
+// redirect in front of the path, and this one refuses the path being named.
+// Rendered into the guard's file as well as held by the broker, so one entry
+// means one thing whichever route the command took.
+//
+// Asserted by what the rendered file decides rather than by the shape of a
+// pattern: what the operator asked for is that `ls` be refused.
+func TestAnAnyMentionEntryRefusesACommandWithNoVerbInIt(t *testing.T) {
+	layout := testLayout()
+	layout.Blocked = []config.BlockedPath{
+		{Path: "/home/operator/.private", AnyMention: true},
+		{Path: "/srv/keys/luks.key"},
+	}
+
+	rules := denyRules(renderDenyPatterns(t, layout))
+
+	if !refusedByAny(t, rules, "ls -l /home/operator/.private") {
+		t.Error("`ls` of an --any-mention path is allowed, which is what the flag is for")
+	}
+	if !refusedByAny(t, rules, "cat /home/operator/.private/key") {
+		t.Error("a read of it is allowed, which every entry refuses")
+	}
+	// The ordinary entry beside it keeps the looser reading: one flag on one
+	// entry, not a mode the install is in.
+	if refusedByAny(t, rules, "ls -l /srv/keys/luks.key") {
+		t.Error("`ls` of an ordinary entry is refused, so the flag reached every entry")
+	}
+	if !refusedByAny(t, rules, "cat /srv/keys/luks.key") {
+		t.Error("a read of the ordinary entry is allowed")
+	}
+	// And the strict entry does not reach a sibling that starts the same way.
+	if refusedByAny(t, rules, "ls /home/operator/.private-notes.md") {
+		t.Error("the strict entry reached a sibling of the path it names")
+	}
+}
+
+// A host that declares no strict entry gets no verb-less rule. A bare
+// alternation over nothing matches the empty string, which with no verb in
+// front of it would refuse every command an agent ran.
+func TestNoAnyMentionEntryLeavesOrdinaryCommandsAlone(t *testing.T) {
+	layout := testLayout()
+	layout.Blocked = []config.BlockedPath{{Path: "/srv/keys/luks.key"}}
+
+	rules := denyRules(renderDenyPatterns(t, layout))
+
+	for _, command := range []string{
+		"ls -l /srv/keys/luks.key", "ls", "make build", "git status",
+	} {
+		if refusedByAny(t, rules, command) {
+			t.Errorf("%q is refused by a host that declared no strict entry", command)
+		}
+	}
+}
+
+// refusedByAny is whether any rendered rule matches, which is the guard's own
+// decision: it walks the file and stops at the first pattern that does.
+func refusedByAny(t *testing.T, rules []string, command string) bool {
+	t.Helper()
+	for _, rule := range rules {
+		re, err := regexp.Compile(rule)
+		if err != nil {
+			t.Fatalf("a rendered rule does not compile: %v (%s)", err, rule)
+		}
+		if re.MatchString(command) {
+			return true
+		}
+	}
+	return false
+}

@@ -55,6 +55,8 @@ restore_baseline() {
   [ -f "$BACKUP/settings.json" ] && cp -a "$BACKUP/settings.json" $RULES
   rm -rf "$BACKUP" "$KEYDIR" "$SSHDIR"
   rm -f /etc/refused-world.key
+  rm -rf /etc/refused-any-mention
+  "$faramir" block rm --path /etc/refused-any-mention >/dev/null 2>&1 || true
   "$faramir" link rm gh/refuse-suite >/dev/null 2>&1 || true
   "$faramir" block rm --path /etc/beside-a-link.key >/dev/null 2>&1 || true
   rm -rf /home/op/.config/gh
@@ -210,6 +212,40 @@ else
 fi
 block rm --path "$WORLD" >/dev/null 2>&1
 rm -f $WORLD
+
+# The stricter reading, asked for per entry. The default leaves a declared file
+# manageable, which is what a key being rotated needs; this is the directory the
+# agent has no business in at all, where a listing is as unwelcome as a read.
+STRICT=/etc/refused-any-mention
+mkdir -p $STRICT
+printf 'x\n' > $STRICT/notes
+chmod -R 755 $STRICT
+block add --path "$STRICT" --any-mention >/dev/null 2>&1
+grep -q 'any_mention = true' $CFG \
+  && ok "--any-mention is recorded on the entry" \
+  || bad "the config carries no any_mention key: $(grep -A2 "$STRICT" $CFG | tr '\n' ' ')"
+
+out=$(brokered -- /bin/ls -l $STRICT)
+grep -q 'notes' <<<"$out" \
+  && bad "a brokered listing of an --any-mention path came back: ${out:0:120}" \
+  || ok "and a brokered command may not even list it"
+out=$(brokered -- /bin/chmod 0700 $STRICT)
+[ "$(stat -c %a $STRICT)" = 755 ] \
+  && ok "and may not chmod it either, which is the cost the flag names" \
+  || bad "a chmod of an --any-mention path took effect"
+
+# The entry beside it keeps the looser reading: one flag on one entry, not a
+# mode the install is in.
+block add --path "$WORLD" >/dev/null 2>&1
+printf '%s\n' "$WORLD_VALUE" > $WORLD
+chmod 644 $WORLD
+brokered -- /bin/chmod 0640 $WORLD >/dev/null 2>&1 \
+  && ok "while an ordinary entry on the same host can still be managed" \
+  || bad "the strict entry changed how an ordinary one is matched"
+block rm --path "$WORLD" >/dev/null 2>&1
+rm -f $WORLD
+block rm --path "$STRICT" >/dev/null 2>&1
+rm -rf $STRICT
 
 # --------------------------------------------------------------------------
 head_ "4. a path that is not there"

@@ -44,6 +44,9 @@ type blockFlags struct {
 	builtIn  bool
 	json     bool
 	when     string
+	// anyMention tightens every path and name this invocation names. On add
+	// alone: rm takes the entry out whichever strictness it carried.
+	anyMention bool
 }
 
 // entries is the refusals a command was asked for: every --path, --name and
@@ -68,11 +71,14 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 			"default", verb, args[0])
 	}
 	out := make([]config.BlockedPath, 0, len(f.paths)+len(f.names)+len(f.commands))
+	// --any-mention rides on every path and name the command names, and on no
+	// command entry: one invocation is one strictness, which is the only reading
+	// that does not need an operator to remember which flag bound to which.
 	for _, path := range f.paths {
-		out = append(out, config.BlockedPath{Path: path})
+		out = append(out, config.BlockedPath{Path: path, AnyMention: f.anyMention})
 	}
 	for _, name := range f.names {
-		out = append(out, config.BlockedPath{Name: name})
+		out = append(out, config.BlockedPath{Name: name, AnyMention: f.anyMention})
 	}
 	for _, command := range f.commands {
 		out = append(out, config.BlockedPath{Command: command})
@@ -98,7 +104,7 @@ func (f *blockFlags) registerForms(c *cobra.Command) {
 		"a file name, suffix (*.pem), prefix (.env*), name with a wildcard "+
 			"(secrets*.yml) or directory (.storage/) rather than a path; repeatable")
 	c.Flags().StringArrayVar(&f.commands, "command", nil,
-		"a command the agent's shell may not run, as it would be typed "+
+		"a command that may not be run, as it would be typed "+
 			"(\"op read\"); the words are literal, not a pattern; repeatable")
 }
 
@@ -110,8 +116,10 @@ func newBlockAddCmd() *cobra.Command {
 		Long: "Adds a [[secret.block]] entry per --path, --name and --command, and\n" +
 			"re-renders the agent's deny rules. For a credential faramir has no use for\n" +
 			"the value of: a LUKS keyfile, an SSH identity.\n\n" +
-			"The file is never opened, so this stops the agent's file tools and nothing\n" +
-			"else: a brokered command may still read it. `faramir link` covers both.\n\n" +
+			"The file is never opened, so nothing of it enters the redactor. What is\n" +
+			"refused is the agent's file tools, its shell, and a brokered command that\n" +
+			"would read, copy or move it; changing it where it stands is left alone, so\n" +
+			"a declared key can still be rotated. --any-mention refuses naming it at all.\n\n" +
 			"--name matches what the agent names rather than a path on this host, for a\n" +
 			"file a container mounts somewhere of its own.\n\n" +
 			"A bare argument is refused; a missing path is recorded and reported; an\n" +
@@ -122,6 +130,12 @@ func newBlockAddCmd() *cobra.Command {
 		},
 	}
 	f.registerForms(c)
+	c.Flags().BoolVar(&f.anyMention, "any-mention", false,
+		"refuse every command NAMING these paths and names, not only the ones that "+
+			"would read, copy or move them: `ls`, `stat` and `chmod` included. For a "+
+			"directory the agent has no business in at all. Off by default, since a "+
+			"file nothing may touch is a file nothing may rotate; not for --command, "+
+			"which already matches wherever a command starts")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
@@ -300,6 +314,21 @@ type blockRow struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// anyMentionDetail says which of the two readings an entry gets, and says it
+// only for the stricter one: the looser is what every entry means unless the
+// operator asked otherwise, and printing it on every row would bury the
+// handful that are different.
+func anyMentionDetail(detail string, anyMention bool) string {
+	if !anyMention {
+		return detail
+	}
+	const said = "any mention refused, not only a read"
+	if detail == "" {
+		return said
+	}
+	return detail + "; " + said
+}
+
 // belowTable is whether a row is printed under the table rather than in it.
 // Every built-in is: the table is what this host declared, and the two halves
 // are sorted separately, so printing them in one table puts a seam in the
@@ -328,13 +357,14 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 			rows = append(rows, blockRow{
 				Source: sourceDeclared, Kind: kindName,
 				Entry:  entry.Name,
-				Detail: install.BlockedNameMatches(entry.Name),
+				Detail: anyMentionDetail(install.BlockedNameMatches(entry.Name), entry.AnyMention),
 			})
 			continue
 		}
 		rows = append(rows, blockRow{
 			Source: sourceDeclared, Kind: kindPath, Entry: entry.Path,
-			State: blockedPathState(entry.Path),
+			State:  blockedPathState(entry.Path),
+			Detail: anyMentionDetail("", entry.AnyMention),
 		})
 	}
 	// Sorted, so a listing is the same twice running and two hosts diff against

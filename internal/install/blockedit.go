@@ -218,10 +218,21 @@ func blockedWarnings(report *Report, refused config.BlockedPath, links []config.
 func blockedWith(existing []config.BlockedPath,
 	refused config.BlockedPath) ([]config.BlockedPath, bool) {
 	entries := append([]config.BlockedPath{}, existing...)
-	for _, other := range existing {
-		if sameBlock(other, refused) {
-			return entries, false
+	for i, other := range existing {
+		if !sameBlock(other, refused) {
+			continue
 		}
+		// The same rule, and the entry says how strictly it is matched. An add
+		// naming a stricter or looser one is a change to the entry rather than a
+		// second entry for the same file, in both directions: what a converge
+		// names every run is the state it wants, and an --any-mention dropped from
+		// the list means the operator stopped asking for it. Reported as changed,
+		// or an operator who tightened a rule is told nothing happened.
+		if other.AnyMention != refused.AnyMention {
+			entries[i].AnyMention = refused.AnyMention
+			return entries, true
+		}
+		return entries, false
 	}
 	return append(entries, refused), true
 }
@@ -244,6 +255,10 @@ func foldBlocked(existing,
 // form counts as well as the string: a path and a name that read alike render
 // different rules, so one does not stand in for the other, and two commands
 // that share an empty path and an empty name are not the same command.
+//
+// Not any_mention, which is how strictly the rule is matched rather than what
+// it names. Two entries for one path is what the loader refuses; blockedWith is
+// where the strictness of the one entry is settled.
 func sameBlock(a, b config.BlockedPath) bool {
 	return a.Path == b.Path && a.Name == b.Name && a.Command == b.Command
 }

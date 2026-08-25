@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -230,8 +231,25 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		return Report{}, false, fmt.Errorf("%s: %w", configFile, err)
 	}
 	if other, claimed := linkNamed(existing, link.Ref); claimed {
-		if other != link {
+		// The strictness is how the entry is matched rather than what it names, so
+		// a re-add that changes it edits the entry instead of colliding with it.
+		// In both directions: what a converge names every run is the state it
+		// wants, and an --any-mention left off the list means it was withdrawn.
+		tightened := other
+		tightened.AnyMention = link.AnyMention
+		if tightened != link {
 			return Report{}, false, redefinedRef(configFile, other, link)
+		}
+		if other.AnyMention != link.AnyMention {
+			updated := slices.Clone(existing)
+			for i := range updated {
+				if updated[i].Ref == link.Ref {
+					updated[i].AnyMention = link.AnyMention
+				}
+			}
+			report, err := reassertLink(opts, updated, link)
+			// Changed: the rules this renders are not the ones the host had.
+			return report, err == nil, err
 		}
 		report, err := reassertLink(opts, existing, link)
 		return report, false, err

@@ -33,7 +33,10 @@ import (
 //
 // denyrules.Disclosing is the set: reading, moving and re-encoding a declared
 // file, not changing one where it stands. See its comment for where that line
-// falls and why it is not the read/write one.
+// falls and why it is not the read/write one. An entry carrying any_mention is
+// held to denyrules.Mentioning instead, which is the subject with no verb in
+// front of it: the operator asked for every command naming that file to be
+// refused, `ls` and `chmod` with the rest.
 type declaredCheck struct{ rules []declaredRule }
 
 // declaredRule is one compiled pattern and what it was built from, so a refusal
@@ -74,21 +77,30 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 			out = append(out, declaredRule{re: re, what: what, remedy: remedy})
 		}
 	}
+	// how an entry's subject is matched: every command naming it where the
+	// operator asked for that, and the disclosing ones otherwise.
+	rulesFor := func(subject string, anyMention bool) []string {
+		if anyMention {
+			return denyrules.Mentioning([]string{subject})
+		}
+		return denyrules.Disclosing([]string{subject})
+	}
 	for _, entry := range secret.Blocked {
 		const remedy = "`faramir block rm`"
 		switch {
 		case entry.Command != "":
 			// A command entry is already about what a command does, so it is matched
-			// as itself rather than as a subject for the rules above.
+			// as itself rather than as a subject for the rules above. The loader
+			// refuses any_mention on one, there being no looser reading to tighten.
 			if rule := denyrules.CommandRule(entry.Command); rule != "" {
 				add("the command "+entry.Command, remedy, []string{rule})
 			}
 		case entry.Name != "":
-			add("the name "+entry.Name, remedy,
-				denyrules.Disclosing([]string{denyrules.NameSubject(entry.Name)}))
+			add(named("the name "+entry.Name, entry.AnyMention), remedy,
+				rulesFor(denyrules.NameSubject(entry.Name), entry.AnyMention))
 		case entry.Path != "":
-			add("the path "+entry.Path, remedy,
-				denyrules.Disclosing([]string{denyrules.DirUnder(agentHome, entry.Path)}))
+			add(named("the path "+entry.Path, entry.AnyMention), remedy,
+				rulesFor(denyrules.DirUnder(agentHome, entry.Path), entry.AnyMention))
 		}
 	}
 	for _, link := range secret.Links {
@@ -97,11 +109,21 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 		}
 		// The ref as well as the file: what a caller is meant to do with a linked
 		// credential is ask for it by name, and the refusal is where to say so.
-		add("the linked file "+link.Path+", which answers "+link.Ref,
+		add(named("the linked file "+link.Path+", which answers "+link.Ref, link.AnyMention),
 			"`faramir link rm`",
-			denyrules.Disclosing([]string{denyrules.DirUnder(agentHome, link.Path)}))
+			rulesFor(denyrules.DirUnder(agentHome, link.Path), link.AnyMention))
 	}
 	return declaredCheck{rules: out}
+}
+
+// named is how the refusal says what matched, with the stricter entry saying so
+// itself. A command refused for naming a path it never read is one whose author
+// would otherwise reach for a way round it: the sentence has to carry why.
+func named(what string, anyMention bool) string {
+	if anyMention {
+		return what + ", which no command may name at all,"
+	}
+	return what
 }
 
 // refuses reports the rule a command would disclose, and whether one did.
@@ -188,7 +210,7 @@ func resolveArgs(cmd []string, cwd string) string {
 // available, and leaves the remedy where it belongs.
 func declaredRefusal(rule declaredRule) string {
 	return "this host declares " + rule.what +
-		", and a brokered command may not read, copy or move what is declared. " +
+		" and a brokered command may not read, copy or move what is declared. " +
 		"Its contents are covered by nothing on the way back: a declared file is " +
 		"one faramir either never reads or reads a single ref out of, so there is " +
 		"no value to replace in this command's output.\n\n" +

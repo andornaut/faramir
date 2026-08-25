@@ -5,6 +5,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -463,7 +464,37 @@ func commandRules(layout Layout) []string {
 			rules = append(rules, rule)
 		}
 	}
-	return rules
+	// And the entries whose operator asked for any mention of them to be
+	// refused, which is a rule with no verb in it. Added rather than replacing
+	// the five: those are what explain a refusal, and a bare subject can say
+	// only that the path was named.
+	return append(rules, denyrules.Mentioning(anyMentionSubjects(layout))...)
+}
+
+// anyMentionSubjects is every declared file whose entry asks for any mention of
+// it to be refused, blocked and linked together. Sorted, so the rendered file
+// does not churn.
+func anyMentionSubjects(layout Layout) []string {
+	home := agentHome(layout)
+	var out []string
+	for _, entry := range layout.Blocked {
+		if !entry.AnyMention {
+			continue
+		}
+		switch {
+		case entry.Name != "":
+			out = append(out, denyrules.NameSubject(entry.Name))
+		case entry.Path != "":
+			out = append(out, denyrules.DirUnder(home, entry.Path))
+		}
+	}
+	for _, link := range layout.Links {
+		if link.AnyMention && link.Path != "" {
+			out = append(out, denyrules.DirUnder(home, link.Path))
+		}
+	}
+	sort.Strings(out)
+	return slices.Compact(out)
 }
 
 // BlockedCommandRule is a declared command as the guard matches it: the words

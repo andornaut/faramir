@@ -273,3 +273,69 @@ func TestARunNamingABlockedPathIsRefusedWithItsOwnCode(t *testing.T) {
 		t.Errorf("no audit record for %s", logID)
 	}
 }
+
+// The stricter reading, asked for per entry. The default has to be the one that
+// leaves a host working -- a keyfile nothing may chmod is a keyfile nothing may
+// rotate -- but that trade does not apply to the directory the agent has no
+// business in at all, where `ls` is as unwelcome as `cat`.
+func TestAnyMentionRefusesEveryCommandNamingTheEntry(t *testing.T) {
+	check := blocking(config.BlockedPath{Path: "/home/op/.private", AnyMention: true})
+
+	for _, cmd := range [][]string{
+		{"ls", "-l", "/home/op/.private"},
+		{"stat", "/home/op/.private/notes"},
+		{"chmod", "0700", "/home/op/.private"},
+		{"test", "-d", "/home/op/.private"},
+		{"cat", "/home/op/.private/key"},
+		{"sh", "-c", "cd /home/op/.private && make"},
+	} {
+		if _, refused := check.refuses(cmd, "/tmp"); !refused {
+			t.Errorf("%v was allowed by an --any-mention entry", cmd)
+		}
+	}
+	// A sibling that merely starts the same way is not the same path: the
+	// subject is bounded, so an entry does not reach past its own name.
+	if _, refused := check.refuses([]string{"ls", "/home/op/.private-notes.md"}, "/tmp"); refused {
+		t.Error("an entry reached a sibling that only starts the same way")
+	}
+}
+
+// And it stays per entry. Two declared files, one strict and one not, are two
+// readings on the same host: the flag is not a mode the install is in.
+func TestAnyMentionIsPerEntry(t *testing.T) {
+	check := blocking(
+		config.BlockedPath{Path: "/home/op/.private", AnyMention: true},
+		config.BlockedPath{Path: "/srv/keys/luks.key"},
+	)
+
+	if _, refused := check.refuses([]string{"chmod", "0700", "/home/op/.private"}, "/tmp"); !refused {
+		t.Error("the strict entry allowed a chmod")
+	}
+	if _, refused := check.refuses([]string{"chmod", "0600", "/srv/keys/luks.key"}, "/tmp"); refused {
+		t.Error("the ordinary entry refused a chmod, which is how a key is rotated")
+	}
+}
+
+// A link takes the same flag, for the file whose own tool is the only thing
+// that should ever touch it.
+func TestALinkTakesAnyMentionToo(t *testing.T) {
+	check := linking(config.Link{
+		Ref: "gh/token", Path: "/home/op/.config/gh/hosts.yml", Type: "yaml",
+		Key: "github.com/oauth_token", AnyMention: true})
+
+	if _, refused := check.refuses([]string{"ls", "-l", "/home/op/.config/gh/hosts.yml"}, "/tmp"); !refused {
+		t.Error("a strict link allowed a listing of its file")
+	}
+}
+
+// The refusal has to carry why, or its reader reaches for a way round it: a
+// command refused for naming a path it never read reads as a fault otherwise.
+func TestTheStricterRefusalSaysItIsStricter(t *testing.T) {
+	rule, _ := blocking(config.BlockedPath{Path: "/home/op/.private", AnyMention: true}).
+		refuses([]string{"ls", "/home/op/.private"}, "/tmp")
+
+	if !strings.Contains(declaredRefusal(rule), "no command may name at all") {
+		t.Errorf("the refusal does not say the entry is the stricter kind:\n%s",
+			declaredRefusal(rule))
+	}
+}

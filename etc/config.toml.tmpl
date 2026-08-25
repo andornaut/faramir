@@ -167,26 +167,35 @@ min_length = {{.SecretMinLength}}
 # open cannot disagree. How the keeper invokes sops is not a key either.
 {{range .Links}}
 # Managed by `faramir link`. The file stays where its own tool keeps it; init
-# grants {{$.BrokerUser}} read on it and re-asserts that every run.
+# grants {{$.BrokerUser}} read on it and re-asserts that every run. Ask for the
+# ref by name: reading the file itself is refused whichever route asks, and
+# any_mention refuses naming it at all.
 [[secret.link]]
 ref = {{quote .Ref}}
 path = {{quote .Path}}
 type = {{quote .Type}}
 {{if .Key}}key = {{quote .Key}}
+{{end}}{{if .AnyMention}}any_mention = true
 {{end}}{{end}}
 {{range .Blocked}}
-# Managed by `faramir block`. Refused to the agent's file tools and nothing
-# more: faramir never reads these, so no account is granted anything and no
-# value of theirs enters the redactor.
+# Managed by `faramir block`. Refused to the agent's file tools, to its shell,
+# and to a brokered command that would read, copy or move one: faramir never
+# reads these, so no account is granted anything and no value of theirs enters
+# the redactor.
 #
 # A path names one file on this host. A name names every file it matches,
 # wherever it turns up, which is what reaches a path this host does not have:
 # a container's own mount point, or a volume mounted somewhere else. A command
-# names something the agent's shell may not run, matched where a command starts.
+# names something that may not be run, matched where a command starts.
+#
+# any_mention refuses every command naming the entry rather than the ones that
+# would read it, `ls` and `chmod` included. Off unless the operator asked for
+# it: a file nothing may touch is a file nothing may rotate either.
 [[secret.block]]
 {{if .Name}}name = {{quote .Name}}
 {{else if .Command}}command = {{quote .Command}}
 {{else}}path = {{quote .Path}}
+{{end}}{{if .AnyMention}}any_mention = true
 {{end}}{{end}}
 [audit]
 log_path = "{{.LogDir}}/audit.log"

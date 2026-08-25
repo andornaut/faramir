@@ -38,6 +38,9 @@ type linkFlags struct {
 	key  string
 	json bool
 	when string
+	// anyMention refuses every command naming the file, not only the ones that
+	// would read it. On add alone: rm takes the entry out either way.
+	anyMention bool
 }
 
 func newLinkAddCmd() *cobra.Command {
@@ -54,7 +57,9 @@ func newLinkAddCmd() *cobra.Command {
 			"selector naming nothing is an error here rather than later.\n\n" +
 			"Re-adding the same entry re-applies it, which is what restores a grant or\n" +
 			"a rule something took away, and reports changed=false. The same ref\n" +
-			"against a different file, type or key is an error.",
+			"against a different file, type or key is an error; against a different\n" +
+			"--any-mention it changes the entry, that being how strictly one rule is\n" +
+			"matched rather than a second rule.",
 		Args: exactlyArgs(2, "a ref and a file"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runLinkAdd(f, secretref.Bare(args[0]), args[1]))
@@ -64,6 +69,11 @@ func newLinkAddCmd() *cobra.Command {
 		"how to read the file: "+strings.Join(secretlink.Kinds(), ", "))
 	c.Flags().StringVar(&f.key, "key", "",
 		"what to select out of it, for the types that select")
+	c.Flags().BoolVar(&f.anyMention, "any-mention", false,
+		"refuse every command NAMING this file, not only the ones that would read, "+
+			"copy or move it: `ls`, `stat` and `chmod` included. Ask for the ref "+
+			"instead. Off by default, since a file nothing may touch is a file its own "+
+			"tool cannot be told to rewrite either")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
@@ -77,7 +87,8 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
 		return 1
 	}
-	link := config.Link{Ref: ref, Path: path, Type: f.kind, Key: f.key}
+	link := config.Link{Ref: ref, Path: path, Type: f.kind, Key: f.key,
+		AnyMention: f.anyMention}
 	report, added, err := install.AddLink(installOptions(f, dir), link)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)

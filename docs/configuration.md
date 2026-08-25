@@ -201,6 +201,8 @@ Form | Covers | Blocks
 `--name` | A pattern matched against the path the agent names | File tools, the shell, and a brokered command that would read, copy or move it
 `--command` | Command text | The shell and a brokered command, a command being nothing a file tool can name
 
+`--path` and `--name` also take [`--any-mention`](#refusing-any-mention-of-an-entry), which refuses every command naming the entry rather than the ones that would read it.
+
 The deny rules, the command guard's patterns and the broker's own check are built from one set, so a declared path or name refuses a file tool, `cat` and `faramir_run` alike, and `faramir init` re-asserts all of them.
 
 ### A path and a name are different rules
@@ -271,6 +273,23 @@ Left alone | `chmod`, `chown`, `setfacl`, `rm`, `shred`, `truncate`, `cryptsetup
 That line is not the read/write one the agent's own rules are split on, and the difference is deliberate. Nobody asked for what the agent types, so it is refused both directions: a value it cannot read is one it can still destroy, and an age key replaced is every managed file unreadable retroactively. A brokered command runs as an account of its own and only where an operator asked for it, so managing a declared file is ordinary work: rotating a keyfile, fixing its mode, removing one that is finished. What none of that does is put a byte of the file into the conversation, and reading it is refused because nothing else can cover it. A declared file is one faramir either never reads or reads a single ref out of, which leaves the redactor holding nothing to replace the output with.
 
 To read the file, run it outside faramir or take the entry out with `faramir block rm` or `faramir link rm`.
+
+### Refusing any mention of an entry
+
+That default is the one that leaves a host working: most declared files still have to be managed, and a keyfile nothing may `chmod` is a keyfile nothing may rotate. It is the wrong default for the directory the agent has no business in at all, where `ls` is as unwelcome as `cat`.
+
+`--any-mention` says so, per entry, on `block add` and on `link add`:
+
+```sh
+sudo faramir block add --path ~/.private --any-mention
+sudo faramir link add --any-mention gh/token ~/.config/gh/hosts.yml --type yaml --key github.com/oauth_token
+```
+
+It renders one rule with no verb in it, and that rule reaches everywhere a command is matched: the agent's shell and a brokered command alike. `ls`, `stat`, `test -f`, `chmod`, a `find` that walks past it, a `cd` into it: all refused, along with everything the ordinary reading refuses. The entry's own file-tool rules do not change, the path being denied there already.
+
+The cost is exactly what it says. **Nothing converges a path declared this way**, so it is for a file whose own tool is the only thing that should ever touch it, and not for a key something has to rotate. `faramir block ls` says which entries carry it.
+
+It is not for `--command`, which is already matched wherever a command starts: an entry naming both is refused at load rather than accepted and ignored.
 
 A link is still the stronger of the two entries, because it reads the file:
 

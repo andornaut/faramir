@@ -254,6 +254,25 @@ func Disclosing(subjects []string) []string {
 	return []string{r.read, r.move, r.input, r.binding}
 }
 
+// Mentioning is the one rule an entry gets when the operator asks for any
+// mention of it to be refused: the subject on its own, with no verb in front.
+//
+// The other rules exist because naming a file is not the same as reading it,
+// and most declared files still have to be managed: a keyfile nothing may
+// `chmod` is one nothing may rotate. This is for the file where that trade does
+// not apply, a ~/.private and its kind, where the agent has no business naming
+// the path for any reason and a refusal is a better answer than a listing.
+//
+// Opt-in per entry, because it refuses exactly what it says: `ls`, `stat`,
+// `test -f`, a `find` that walks past it, and any converge that touches it.
+// Nothing infers it from the shape of a path.
+func Mentioning(subjects []string) []string {
+	if len(subjects) == 0 {
+		return nil
+	}
+	return []string{`(` + strings.Join(subjects, `|`) + `)`}
+}
+
 // the five rules, named, so a caller takes the ones it enforces rather than
 // slicing a list by position.
 type ruleSet struct{ read, move, input, write, redirect, binding string }
