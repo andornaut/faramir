@@ -135,9 +135,10 @@ helper = "{{.PamHelper}}"
 # saying what to type.
 {{if .NotifyCommand}}notify_command = {{tomlList .NotifyCommand}}{{else}}# notify_command = ["/usr/bin/wall", "{prompt}"]{{end}}
 # How long a question waits for a human before it is refused. Between 1 and
-# 600: the PAM helper derives its own deadline from that ceiling, so a question
+# 3600: the PAM helper derives its own deadline from that ceiling, so a question
 # held longer than it would be one the helper had already abandoned. While a
-# question is open, sudo blocks and every other brokered command is refused.
+# question is open, sudo blocks and every other brokered command is refused, so
+# a long timeout holds the whole host.
 timeout_sec = {{.SudoTimeoutSec}}
 {{end}}
 [secret]

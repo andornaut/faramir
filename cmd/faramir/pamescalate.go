@@ -154,11 +154,10 @@ func askBrokerToApprove(socketPath string, ancestors []int) (bool, string, error
 //
 // Derived rather than picked. It must outlast any question the broker will
 // hold, or the helper gives up on a question still open and the operator's yes
-// lands on a sudo that has gone; and it must be short, because until it fires
-// sudo is blocked and the host refuses every other brokered command. So it is
-// [sudo] timeout_sec's own ceiling plus a margin for the round trip: the
-// helper cannot read the config, and the broker refuses to load a longer
-// timeout, so the broker always decides first.
+// lands on a sudo that has gone. So it is [sudo] timeout_sec's own ceiling plus
+// a margin for the round trip: the helper cannot read the config, and the
+// broker refuses to load a longer timeout, so the broker always decides first
+// and this only ever fires on a broker that stopped answering.
 const escalationMarginSec = 30
 
 var escalationWait = time.Duration(config.MaxSudoTimeoutSec+escalationMarginSec) * time.Second

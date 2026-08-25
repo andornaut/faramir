@@ -753,11 +753,14 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 	if out.Concurrency, err = intInRange(sec, "concurrency", where, out.Concurrency, 1, MaxConcurrentRuns); err != nil {
 		return err
 	}
-	// A floor of 10: below that a converge is killed for doing its job, and a
-	// bound nobody can live with is turned off rather than lowered. 100 is the
-	// whole machine, which is the same as no bound and is spelled as one.
+	// A floor of 1 rather than 0: this renders into MemoryMax, and a cgroup
+	// allowed nothing kills every command as it starts. A percentage low enough
+	// to be unusable is still the operator's to set -- a host running one small
+	// command is a real case, and the executor's own cgroup is what the number
+	// bounds. 100 is the whole machine, which is the same as no bound and is
+	// spelled as one.
 	if out.MaxMemoryPercent, err = intInRange(sec, "max_memory_percent", where,
-		out.MaxMemoryPercent, 10, 100); err != nil {
+		out.MaxMemoryPercent, 1, 100); err != nil {
 		return err
 	}
 	// A floor of 256MB: below that ordinary commands fail to start, and a bound
@@ -1296,9 +1299,12 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 // it runs from PAM with no environment and a fixed argv -- so it derives its
 // deadline from this constant and the two cannot drift.
 //
-// Ten minutes: while a question is open sudo blocks and every other brokered
-// command on the host is refused.
-const MaxSudoTimeoutSec = 600
+// An hour: while a question is open sudo blocks and every other brokered
+// command on the host is refused, so a long timeout is a long stall on the
+// whole host. It is the operator who decides how long they are willing to hold
+// it, and a converge started before someone walks to a terminal is a real case;
+// what this bounds is a question outliving the session that raised it.
+const MaxSudoTimeoutSec = 3600
 
 func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
 	where := path + ": [audit]"

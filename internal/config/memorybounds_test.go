@@ -12,10 +12,10 @@ func TestTheMemoryBoundsAreHeldToTheirRanges(t *testing.T) {
 	for _, tc := range []struct {
 		name, body, want string
 	}{
-		{"a percentage below the floor", "max_memory_percent = 5\n",
-			"max_memory_percent must be between 10 and 100"},
+		{"a cgroup allowed nothing", "max_memory_percent = 0\n",
+			"max_memory_percent must be between 1 and 100"},
 		{"a percentage above the whole machine", "max_memory_percent = 101\n",
-			"max_memory_percent must be between 10 and 100"},
+			"max_memory_percent must be between 1 and 100"},
 		{"a per-process bound too small to start a command",
 			"max_process_memory_mb = 64\n",
 			"max_process_memory_mb must be between 256 and 1048576"},

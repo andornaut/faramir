@@ -16,7 +16,7 @@ CFG=/etc/faramir/config.toml
 # The escalation timeout, addressed by section. [command] has a key of the same
 # name, and it comes first in the file, so a bare `sed -n 's/^timeout_sec/'`
 # reads the wrong one and a bare `sed -i` rewrites both -- which puts a command
-# timeout into a section whose ceiling is 600 and leaves the broker refusing to
+# timeout into a section whose ceiling is 3600 and leaves the broker refusing to
 # start at all.
 escalation_timeout() { sed -n '/^\[sudo\]/,/^\[/{s/^timeout_sec *= *\([0-9]*\).*/\1/p}' "$CFG" | head -1; }
 set_escalation_timeout() { sed -i "/^\[sudo\]/,/^\[/{s/^timeout_sec = .*/timeout_sec = $1/}" "$CFG"; }

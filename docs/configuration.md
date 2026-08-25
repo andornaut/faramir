@@ -41,9 +41,9 @@ Flag | Key | Default | Bounds
 `--command-timeout-sec` | `[command] timeout_sec` | 600 | At least 1. Zero would kill every command as it started.
 `--command-max-timeout-sec` | `[command] max_timeout_sec` | 3600 | At least 1, and not below `timeout_sec`. A lower value would silently replace `timeout_sec` for every command.
 `--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor forks at once. `init` refuses a negative value and anything above 16, where the surplus is refused by the executor *after* the run was recorded as started. Zero is the unset signal, so `--command-concurrency 0` installs the default.
-`--command-max-memory-percent` | `[command] max_memory_percent` | 25 | 10 to 100. Rendered as `MemoryMax=` on the executor unit.
+`--command-max-memory-percent` | `[command] max_memory_percent` | 25 | 1 to 100. Rendered as `MemoryMax=` on the executor unit.
 `--command-max-process-memory-mb` | `[command] max_process_memory_mb` | 4096 | 256 to 1048576. Rendered as `LimitDATA=` on the executor unit and inherited by every child.
-`--sudo-timeout-sec` | `[sudo] timeout_sec` | 120 | 1 to 600. How long a sudo question waits for a human.
+`--sudo-timeout-sec` | `[sudo] timeout_sec` | 120 | 1 to 3600. How long a sudo question waits for a human. While a question is open every other brokered command is refused, so a long one holds the whole host.
 `--secret-min-length` | `[secret] min_length` | 8 | At least 6. Counted in characters, not bytes.
 `--notify-command ARG` | `[sudo] notify_command` | none | Repeatable, one argument per flag, and it **replaces**: naming the flag at all discards the installed list. Must contain `{prompt}` or `{id}`, or it would announce that something is waiting without saying what. Needs `--allow-sudo`, which is what writes the `[sudo]` section: a re-run without that flag takes the grant back and the announcement with it. The program must be installed, so a kept notifier whose program has since been removed refuses the run rather than being written out again.
 
@@ -176,7 +176,7 @@ What reports it:
 
 **The unreadable case costs something; the missing case does not.** If the file is there and will not read, the plaintext is still on disk while the redactor does not hold it, so that value can print in the clear through anything that touches the file. The broker cannot cover a value it does not have. Withholding every command's output over it would take out commands with no relationship to the credential, so it names the missing ref instead of stopping. A file that is *gone* leaves no plaintext to cover.
 
-**One link is refused the way a managed file is**: a link claiming a ref the managed store already defines. That ref is answered by the store, so what is missing is the *second* value the linked file holds for the same name, a value nothing reads and nothing redacts, which will eventually be rotated with nothing watching. Rename the link or remove the managed value.
+**One link is refused the way a managed file is**: a link claiming a ref the managed store already defines. That ref is answered by the store, so the *second* value the linked file holds for the same name is one nothing reads and nothing redacts. Rename the link or remove the managed value.
 
 ## Blocked paths
 

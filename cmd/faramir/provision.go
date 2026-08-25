@@ -339,11 +339,11 @@ func newInitCmd() *cobra.Command {
 	fl.IntVar(&f.commandConcurrency, "command-concurrency", command.Concurrency,
 		"how many brokered commands run at once; the rest are refused busy. Held to what the executor forks at once")
 	fl.IntVar(&f.commandMaxMemoryPct, "command-max-memory-percent", command.MaxMemoryPercent,
-		"the backstop: how much of this machine's memory every brokered command together may hold, as MemoryMax on the executor unit (10 to 100). It is a cgroup total, so it catches fan-out that no per-process limit sees, and it counts page cache; 100 is the whole machine, which is no bound")
+		"the backstop: how much of this machine's memory every brokered command together may hold, as MemoryMax on the executor unit (1 to 100). It is a cgroup total, so it catches fan-out that no per-process limit sees, and it counts page cache; 100 is the whole machine, which is no bound")
 	fl.IntVar(&f.commandMaxProcMB, "command-max-process-memory-mb", command.MaxProcessMemoryMB,
 		"what one brokered process may allocate, as LimitDATA on the executor unit (at least 256). Anonymous memory only, so a command is not charged for page cache, and one that reaches it gets an allocation failure it can report rather than the OOM killer")
 	fl.IntVar(&f.sudoTimeoutSec, "sudo-timeout-sec", config.DefaultSudoTimeoutSec,
-		"how long a sudo question waits for a human before it is refused (1 to 600)")
+		"how long a sudo question waits for a human before it is refused (1 to 3600)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
 		"refuse a secret shorter than this: it cannot be redacted without matching inside ordinary words (at least 6)")
 	return c
