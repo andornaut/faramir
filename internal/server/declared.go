@@ -4,6 +4,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -32,8 +33,8 @@ import (
 // runs rather than tokenised after it.
 //
 // denyrules.Disclosing is the set: reading, moving and re-encoding a declared
-// file, not changing one where it stands. See its comment for where that line
-// falls and why it is not the read/write one. An entry carrying any_mention is
+// file, not its mode, its owner or removing it. See its comment for where that
+// line falls and why it is not the read/write one. An entry carrying any_mention is
 // held to denyrules.Mentioning instead, which is the subject with no verb in
 // front of it: the operator asked for every command naming that file to be
 // refused, `ls` and `chmod` with the rest.
@@ -49,6 +50,11 @@ type declaredRule struct {
 	what string
 	// remedy is the command that takes the entry back out.
 	remedy string
+	// anyMention is the entry the operator asked to have refused wherever it is
+	// named. The refusal has to say so: the sentence a looser entry ends on tells
+	// the reader that changing the file is left alone, which for this one is the
+	// opposite of what just happened.
+	anyMention bool
 }
 
 // newDeclaredCheck compiles what this host declares. Built once, from the
@@ -64,7 +70,7 @@ type declaredRule struct {
 // does, and that is the spelling a model writes.
 func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredCheck {
 	var out []declaredRule
-	add := func(what, remedy string, sources []string) {
+	add := func(what, remedy string, anyMention bool, sources []string) {
 		for _, source := range sources {
 			re, err := regexp.Compile(source)
 			// A pattern that will not compile is left out rather than failing the
@@ -74,7 +80,9 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 			if err != nil {
 				continue
 			}
-			out = append(out, declaredRule{re: re, what: what, remedy: remedy})
+			out = append(out, declaredRule{
+				re: re, what: what, remedy: remedy, anyMention: anyMention,
+			})
 		}
 	}
 	// how an entry's subject is matched: every command naming it where the
@@ -93,13 +101,13 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 			// as itself rather than as a subject for the rules above. The loader
 			// refuses any_mention on one, there being no looser reading to tighten.
 			if rule := denyrules.CommandRule(entry.Command); rule != "" {
-				add("the command "+entry.Command, remedy, []string{rule})
+				add("the command "+entry.Command, remedy, false, []string{rule})
 			}
 		case entry.Name != "":
-			add(named("the name "+entry.Name, entry.AnyMention), remedy,
+			add(named("the name "+entry.Name, entry.AnyMention), remedy, entry.AnyMention,
 				rulesFor(denyrules.NameSubject(entry.Name), entry.AnyMention))
 		case entry.Path != "":
-			add(named("the path "+entry.Path, entry.AnyMention), remedy,
+			add(named("the path "+entry.Path, entry.AnyMention), remedy, entry.AnyMention,
 				rulesFor(denyrules.DirUnder(agentHome, entry.Path), entry.AnyMention))
 		}
 	}
@@ -110,7 +118,7 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 		// The ref as well as the file: what a caller is meant to do with a linked
 		// credential is ask for it by name, and the refusal is where to say so.
 		add(named("the linked file "+link.Path+", which answers "+link.Ref, link.AnyMention),
-			"`faramir link rm`",
+			"`faramir link rm`", link.AnyMention,
 			rulesFor(denyrules.DirUnder(agentHome, link.Path), link.AnyMention))
 	}
 	return declaredCheck{rules: out}
@@ -137,10 +145,8 @@ func (d declaredCheck) refuses(cmd []string, cwd string) (declaredRule, bool) {
 	}
 	spellings := declaredSpellings(cmd, cwd)
 	for _, rule := range d.rules {
-		for _, spelling := range spellings {
-			if rule.re.MatchString(spelling) {
-				return rule, true
-			}
+		if slices.ContainsFunc(spellings, rule.re.MatchString) {
+			return rule, true
 		}
 	}
 	return declaredRule{}, false
@@ -155,24 +161,71 @@ func (d declaredCheck) refuses(cmd []string, cwd string) (declaredRule, bool) {
 // /srv/keys && cat luks.key` walks past it there; here the two arrive together
 // and the file the command would open is knowable.
 //
-// Split per command first, as the guard does: a pattern matched against a whole
-// line cannot tell one command from the next, so a reader in the first would
-// reach a path named in the second.
+// An argv is one command and is matched whole. Its words are literal: a ";", a
+// "|" or an "&" inside one is an argument the program receives rather than a
+// separator, so splitting the joined line on those bytes would put `cat ';'
+// /srv/keys/luks.key` past a rule written for the reader in front of the path,
+// and would lose an ordinary `sort -t'|' -k2 <path>` by accident.
+//
+// The string a shell is handed is the one place a command list does arrive, so
+// that is what is split per command, as the guard splits one: a reader in the
+// first command must not reach a path named in the second.
 func declaredSpellings(cmd []string, cwd string) []string {
-	lines := []string{strings.Join(cmd, " ")}
-	if resolved := resolveArgs(cmd, cwd); resolved != "" {
-		lines = append(lines, resolved)
+	words, scripts := shellScripts(cmd)
+	out := make([]string, 0, 4+len(scripts)*4)
+	out = appendSpelling(out, strings.Join(words, " "))
+	if resolved := resolveArgs(words, cwd); resolved != "" {
+		out = appendSpelling(out, resolved)
 	}
-	out := make([]string, 0, len(lines)*4)
-	for _, line := range lines {
-		for _, segment := range denyrules.Segments(line) {
-			out = append(out, segment)
-			if cleaned := denyrules.NormalizePaths(segment); cleaned != segment {
-				out = append(out, cleaned)
-			}
+	for _, script := range scripts {
+		for _, segment := range denyrules.Segments(script) {
+			out = appendSpelling(out, segment)
 		}
 	}
 	return out
+}
+
+// appendSpelling adds one reading and its shortest-form twin, where they differ.
+func appendSpelling(out []string, spelling string) []string {
+	if spelling == "" {
+		return out
+	}
+	out = append(out, spelling)
+	if cleaned := denyrules.NormalizePaths(spelling); cleaned != spelling {
+		out = append(out, cleaned)
+	}
+	return out
+}
+
+// shells whose -c argument is a command line rather than a file to run.
+var shellNames = map[string]bool{
+	"sh": true, "bash": true, "dash": true, "ash": true, "zsh": true, "ksh": true,
+}
+
+// shellScripts separates an argv's own words from the command lines it hands a
+// shell, so each is read as what it is.
+//
+// Scanned across the whole argv rather than at argv[0] alone: `sudo sh -c ...`
+// and `env FOO=1 bash -c ...` are the same handoff one word later, and a model
+// writes both. A -c before any shell is some other program's flag and is left
+// among the words.
+func shellScripts(cmd []string) (words, scripts []string) {
+	words = make([]string, 0, len(cmd))
+	var shell bool
+	for i := 0; i < len(cmd); i++ {
+		word := cmd[i]
+		if shellNames[filepath.Base(word)] {
+			shell = true
+		}
+		if shell && word == "-c" && i+1 < len(cmd) {
+			words = append(words, word)
+			scripts = append(scripts, cmd[i+1])
+			i++
+			continue
+		}
+		words = append(words, word)
+	}
+	return words, scripts
 }
 
 // resolveArgs is the command with every relative argument spelled from the
@@ -184,7 +237,7 @@ func declaredSpellings(cmd []string, cwd string) []string {
 // filename, and joining a directory onto it would invent a path nobody wrote. A
 // flag is left alone for the same reason.
 func resolveArgs(cmd []string, cwd string) string {
-	if !filepath.IsAbs(cwd) {
+	if len(cmd) == 0 || !filepath.IsAbs(cwd) {
 		return ""
 	}
 	out := make([]string, len(cmd))
@@ -209,14 +262,24 @@ func resolveArgs(cmd []string, cwd string) string {
 // the operator: it names the entry that matched, says why no other answer is
 // available, and leaves the remedy where it belongs.
 func declaredRefusal(rule declaredRule) string {
+	// What the entry leaves alone, which is the sentence that tells a reader
+	// whether another spelling is worth trying. An any_mention entry leaves
+	// nothing alone, and saying otherwise sends a model back for the same `ls`.
+	tail := "Its mode, its owner and removing it are not refused. What is " +
+		"refused is reading it and putting the contents anywhere else, so `cp`, " +
+		"`tee` and `sed` are refused even where the declared path is what they " +
+		"write to."
+	if rule.anyMention {
+		tail = "Changing it where it stands is refused with the rest, which is " +
+			"what this entry asks for: no command may name it."
+	}
 	return "this host declares " + rule.what +
 		" and a brokered command may not read, copy or move what is declared. " +
 		"Its contents are covered by nothing on the way back: a declared file is " +
 		"one faramir either never reads or reads a single ref out of, so there is " +
 		"no value to replace in this command's output.\n\n" +
 		"Reading it is the operator's, either outside faramir or after " +
-		rule.remedy + ". Changing it where it stands is not refused: this covers " +
-		"reading, copying and moving alone."
+		rule.remedy + ". " + tail
 }
 
 // agentHomeDir is the home a "~" in a command stands for. The agent runs as the

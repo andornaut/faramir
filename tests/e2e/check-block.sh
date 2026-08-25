@@ -26,6 +26,10 @@ KEY_VALUE=luks_refused_e2e_value_0001
 ABSENT=/mnt/not-mounted/luks.key
 # A directory, to check that naming one refuses what is under it.
 SSHDIR=/home/op/.refused-ids
+# A declared file a brokered command can still change, for the half of the trade
+# a block leaves alone. Under the enrolled tree and owned by the executor: /home
+# is the only tree it may write, and chmod needs ownership.
+MANAGED=/home/op/project/refused-managed.key
 # The account-wide rule file, and whether this suite is what created the marker
 # that makes `--agent auto` write one. Declared before the trap that reads it.
 CLAUDE_HOME=/home/op/.claude
@@ -47,14 +51,14 @@ BACKUP=$(mktemp -d)
 cp -a $CFG "$BACKUP/config.toml"
 restore_baseline() {
   local rc=$?
-  for path in "$KEY" "$ABSENT" "$SSHDIR"; do
+  for path in "$KEY" "$ABSENT" "$SSHDIR" "$MANAGED"; do
     "$faramir" block rm --path "$path" >/dev/null 2>&1 || true
   done
   cp -a "$BACKUP/config.toml" $CFG
   # Section 9 empties the rule file to check that a re-add restores it.
   [ -f "$BACKUP/settings.json" ] && cp -a "$BACKUP/settings.json" $RULES
   rm -rf "$BACKUP" "$KEYDIR" "$SSHDIR"
-  rm -f /etc/refused-world.key
+  rm -f /etc/refused-world.key "$MANAGED"
   rm -rf /etc/refused-any-mention
   "$faramir" block rm --path /etc/refused-any-mention >/dev/null 2>&1 || true
   "$faramir" link rm gh/refuse-suite >/dev/null 2>&1 || true
@@ -192,14 +196,40 @@ grep -qF "$WORLD" <<<"$out" \
   && ok "and the refusal names the entry that matched" \
   || bad "the refusal does not say which entry stopped it: ${out:0:140}"
 
+# A separator inside an argument, which the program receives as a word rather
+# than as a break between two commands. `cat ';' <path>` reports the ';' as a
+# missing file and prints the key anyway, so a check that read the argv as a
+# shell line would hand the value back through it.
+out=$(brokered -- /bin/cat ';' $WORLD)
+grep -qF "$WORLD_VALUE" <<<"$out" \
+  && bad "*** a separator argument walked a brokered read past the entry ***" \
+  || ok "and a separator inside an argument does not split the command"
+
 # What the refusal deliberately does not cover. A brokered command runs where an
 # operator asked for it, so managing the file is ordinary work: none of this
 # puts a byte of it into the conversation, and refusing it would take out the
 # converge that rotates the key.
-brokered -- /bin/chmod 0640 $WORLD >/dev/null 2>&1 \
-  && ok "and changing the file where it stands is still allowed" \
-  || bad "a brokered chmod of a blocked path was refused, which breaks rotating it"
-[ "$(stat -c %a $WORLD)" = 640 ] || bad "the chmod did not take effect"
+#
+# On a second fixture, because $WORLD cannot answer this one whatever the policy
+# says: the executor runs under ProtectSystem=strict with /home as its only
+# writable tree, so a chmod under /etc is EROFS, and chmod needs ownership, so
+# the file has to be the executor's. Declared the same way, and read back after,
+# so a refusal and a sandbox both show as a failure here rather than one hiding
+# the other.
+printf '%s\n' "$WORLD_VALUE" > $MANAGED
+chown faramir-exec:faramir-exec $MANAGED
+chmod 644 $MANAGED
+block add --path "$MANAGED" >/dev/null 2>&1
+brokered -- /bin/chmod 0640 $MANAGED >/dev/null 2>&1 \
+  && ok "and changing its mode where it stands is still allowed" \
+  || bad "a brokered chmod of a blocked path was refused, which breaks managing it"
+[ "$(stat -c %a $MANAGED)" = 640 ] || bad "the chmod did not take effect"
+out=$(brokered -- /bin/cat $MANAGED)
+grep -qF "$WORLD_VALUE" <<<"$out" \
+  && bad "*** the manageable fixture was readable, so it declares nothing ***" \
+  || ok "while reading that same file is refused, the entry being an ordinary one"
+block rm --path "$MANAGED" >/dev/null 2>&1
+rm -f $MANAGED
 
 # And what would be the same disclosure one step later: the contents under a
 # name no rule was written for.
@@ -235,15 +265,17 @@ out=$(brokered -- /bin/chmod 0700 $STRICT)
   || bad "a chmod of an --any-mention path took effect"
 
 # The entry beside it keeps the looser reading: one flag on one entry, not a
-# mode the install is in.
-block add --path "$WORLD" >/dev/null 2>&1
-printf '%s\n' "$WORLD_VALUE" > $WORLD
-chmod 644 $WORLD
-brokered -- /bin/chmod 0640 $WORLD >/dev/null 2>&1 \
+# mode the install is in. The manageable fixture again, the strict entry still
+# standing, so what is measured is the flag's reach and not the sandbox's.
+printf '%s\n' "$WORLD_VALUE" > $MANAGED
+chown faramir-exec:faramir-exec $MANAGED
+chmod 644 $MANAGED
+block add --path "$MANAGED" >/dev/null 2>&1
+brokered -- /bin/chmod 0640 $MANAGED >/dev/null 2>&1 \
   && ok "while an ordinary entry on the same host can still be managed" \
   || bad "the strict entry changed how an ordinary one is matched"
-block rm --path "$WORLD" >/dev/null 2>&1
-rm -f $WORLD
+block rm --path "$MANAGED" >/dev/null 2>&1
+rm -f $MANAGED
 block rm --path "$STRICT" >/dev/null 2>&1
 rm -rf $STRICT
 

@@ -182,7 +182,7 @@ func TestTheRefusalNamesTheEntryAndTheRemedy(t *testing.T) {
 		"the path /srv/keys/luks.key", // which entry, and which form it took
 		"never reads",                 // why the output cannot be covered instead
 		"faramir block rm",            // and whose the remedy is
-		"Changing it where it stands is not refused",
+		"Its mode, its owner and removing it are not refused",
 	} {
 		if !strings.Contains(said, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, said)
@@ -337,5 +337,75 @@ func TestTheStricterRefusalSaysItIsStricter(t *testing.T) {
 	if !strings.Contains(declaredRefusal(rule), "no command may name at all") {
 		t.Errorf("the refusal does not say the entry is the stricter kind:\n%s",
 			declaredRefusal(rule))
+	}
+}
+
+// An argv word is literal. A ";", a "|" or an "&" inside one reaches the
+// program as an argument, and reading it as a separator splits the command in
+// two: the path lands in a piece with no reader in front of it and the rule
+// stops matching. `cat ';' <path>` prints the file with the separator as a
+// failed operand, so this is a bypass and not only an accounting error, and
+// `sort -t'|'` is an ordinary command that would miss by accident.
+func TestASeparatorInsideAnArgumentDoesNotSplitTheCommand(t *testing.T) {
+	check := blocking(pathEntry("/srv/keys/luks.key"))
+	for _, cmd := range [][]string{
+		{"/bin/cat", ";", "/srv/keys/luks.key"},
+		{"/bin/cat", "&", "/srv/keys/luks.key"},
+		{"/bin/cat", "|", "/srv/keys/luks.key"},
+		{"sort", "-t|", "-k2", "/srv/keys/luks.key"},
+		{"cp", "--suffix=;", "/srv/keys/luks.key", "/tmp/copy"},
+	} {
+		if _, refused := check.refuses(cmd, "/home/op/project"); !refused {
+			t.Errorf("%v was allowed: a separator inside an argument split the command", cmd)
+		}
+	}
+}
+
+// And the other side of that line, which is why an argv is not simply matched
+// whole: the string a shell is handed is a command list, and a reader in the
+// first command must not reach a path named in the second. Rotating a declared
+// key beside an unrelated read is the case that costs, and the entry leaves
+// changing the file where it stands alone.
+func TestAShellStringIsStillReadOneCommandAtATime(t *testing.T) {
+	check := blocking(pathEntry("/srv/keys/luks.key"))
+	if _, refused := check.refuses(
+		[]string{"sh", "-c", "cat notes.md; chmod 640 /srv/keys/luks.key"}, "/home/op"); refused {
+		t.Error("a chmod of a declared file was refused for a read of another file " +
+			"on the same line, which is the converge that rotates the key")
+	}
+	// The handoff one word later, which is how a model writes it as often as not.
+	for _, cmd := range [][]string{
+		{"sudo", "sh", "-c", "cat /srv/keys/luks.key"},
+		{"env", "FOO=1", "/bin/bash", "-c", "cat /srv/keys/luks.key"},
+	} {
+		if _, refused := check.refuses(cmd, "/home/op"); !refused {
+			t.Errorf("%v was allowed: the shell's own string went unread", cmd)
+		}
+	}
+}
+
+// The refusal reaches a model, so the sentence saying what the entry leaves
+// alone has to be true of the entry that matched. An any_mention entry leaves
+// nothing alone: telling its reader that changing the file in place is fine
+// sends it back for the same `ls` or `chmod` and a second refusal.
+func TestAnAnyMentionRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
+	strict := config.BlockedPath{Path: "/home/op/.private", AnyMention: true}
+	rule, refused := blocking(strict).refuses([]string{"ls", "-l", "/home/op/.private"}, "/home/op")
+	if !refused {
+		t.Fatal("a listing of an any_mention path was allowed")
+	}
+	said := declaredRefusal(rule)
+	if strings.Contains(said, "Its mode, its owner and removing it are not refused") {
+		t.Errorf("the refusal for an any_mention entry says the file can still be "+
+			"changed, having just refused a command that would:\n%s", said)
+	}
+	if !strings.Contains(said, "no command may name it") {
+		t.Errorf("the refusal does not say what the entry actually covers:\n%s", said)
+	}
+	// The looser entry keeps the sentence, that being what it promises.
+	loose, _ := blocking(pathEntry("/srv/keys/luks.key")).
+		refuses([]string{"cat", "/srv/keys/luks.key"}, "/tmp")
+	if !strings.Contains(declaredRefusal(loose), "Its mode, its owner and removing it are not refused") {
+		t.Error("an ordinary entry stopped naming what it leaves alone")
 	}
 }
