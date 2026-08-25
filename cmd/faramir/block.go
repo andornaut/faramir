@@ -118,8 +118,8 @@ func newBlockAddCmd() *cobra.Command {
 			"the value of: a LUKS keyfile, an SSH identity.\n\n" +
 			"The file is never opened, so nothing of it enters the redactor. What is\n" +
 			"refused is the agent's file tools, its shell, and a brokered command that\n" +
-			"would read, copy or move it; changing it where it stands is left alone, so\n" +
-			"a declared key can still be rotated. --any-mention refuses naming it at all.\n\n" +
+			"would read, copy or move it; its mode, its owner and removing it are left\n" +
+			"alone. --any-mention refuses naming it at all.\n\n" +
 			"--name matches what the agent names rather than a path on this host, for a\n" +
 			"file a container mounts somewhere of its own.\n\n" +
 			"A bare argument is refused; a missing path is recorded and reported; an\n" +
@@ -164,9 +164,18 @@ func runBlockAdd(f blockFlags, args []string) int {
 	if err != nil {
 		return 1
 	}
-	// No reload. The daemons never read these entries: nothing is served out of
-	// the path and nothing of it is redacted, so a restart would cost a running
-	// command its broker for a change no daemon reads.
+	// The broker holds these entries itself and compiles them once, at start, so
+	// an entry added into a running install is not refused until it reloads.
+	// Only when something changed: a re-assert that found the host as it should
+	// be has nothing new for a daemon to read, and reloading would restart them
+	// under whatever brokered command is running.
+	if report.Changed {
+		if err := install.Reload(); err != nil {
+			fmt.Fprintf(os.Stderr, "faramir block add: wrote the entry, but the daemons "+
+				"did not reload, so a brokered command can still reach it: %v\n", err)
+			return 1
+		}
+	}
 	if f.json {
 		return 0
 	}
@@ -238,6 +247,15 @@ func runBlockRemove(f blockFlags, args []string) int {
 	}
 	if err != nil {
 		return 1
+	}
+	// The other direction of the same staleness: until the broker reloads it goes
+	// on refusing a path the operator has just undeclared.
+	if report.Changed {
+		if err := install.Reload(); err != nil {
+			fmt.Fprintf(os.Stderr, "faramir block rm: removed the entry, but the daemons "+
+				"did not reload, so a brokered command is still refused it: %v\n", err)
+			return 1
+		}
 	}
 	if f.json {
 		return 0
