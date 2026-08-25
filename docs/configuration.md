@@ -262,7 +262,7 @@ A managed or linked value is covered whichever route reads it, because an enroll
 
 `[[secret.link]]` entries are held to the same rule, for a reason of their own. A linked ref comes back tokenised wherever it appears, but a file holds more than the one key a link selects, and the rest of it is in no redactor. The mode that keeps the executor's uid out of a linked file is checked at install time and by `doctor`; this is the same bound at the moment the command runs.
 
-**What is refused is reading, copying and moving. Changing a declared file where it stands is not.**
+**What is refused is reading, copying and moving, whichever end of the command the declared path sits at. Its mode, its owner and removing it are not.**
 
 Through the broker | Example
 --- | ---
@@ -270,7 +270,7 @@ Refused | `cat`, `head`, `python3`, `jq`, `cp`, `tar`, `scp`, `sops -d`, `< file
 Refused | `mv`, `ln`, `sed`, `gzip` and its kin: the contents end up under a name no rule was written for, which is the same disclosure one step later
 Left alone | `chmod`, `chown`, `setfacl`, `rm`, `shred`, `truncate`, `cryptsetup --key-file`, `stat`, `test -f`, `ls -l`
 
-That line is not the read/write one the agent's own rules are split on, and the difference is deliberate. Nobody asked for what the agent types, so it is refused both directions: a value it cannot read is one it can still destroy, and an age key replaced is every managed file unreadable retroactively. A brokered command runs as an account of its own and only where an operator asked for it, so managing a declared file is ordinary work: rotating a keyfile, fixing its mode, removing one that is finished. What none of that does is put a byte of the file into the conversation, and reading it is refused because nothing else can cover it. A declared file is one faramir either never reads or reads a single ref out of, which leaves the redactor holding nothing to replace the output with.
+That line is not the read/write one the agent's own rules are split on, and the difference is deliberate. Nobody asked for what the agent types, so it is refused both directions: a value it cannot read is one it can still destroy, and an age key replaced is every managed file unreadable retroactively. A brokered command runs as an account of its own and only where an operator asked for it, so managing a declared file is ordinary work: fixing its mode, changing its owner, removing one that is finished. What none of that does is put a byte of the file into the conversation, and reading it is refused because nothing else can cover it. A declared file is one faramir either never reads or reads a single ref out of, which leaves the redactor holding nothing to replace the output with.
 
 To read the file, run it outside faramir or take the entry out with `faramir block rm` or `faramir link rm`.
 

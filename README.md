@@ -196,7 +196,7 @@ Form | Blocks | Matched against
 `--path` | one file or directory on this host, and everything under it | the path as written, so it is absolute and in its shortest form
 `--command` | what may not be run, written as it would be typed | where a command starts, so `grep` naming one is left alone
 
-A name and a path reach the agent's file tools and its shell alike; a command is nothing a file tool can name, so it reaches the shell. **The broker holds the same entries**, so a brokered command cannot read, copy or move a declared file either, that being the one route no rule file reaches. Changing one where it stands is left alone, so rotating a declared key still works. [How that line falls](docs/configuration.md#the-brokered-route).
+A name and a path reach the agent's file tools and its shell alike; a command is nothing a file tool can name, so it reaches the shell. **The broker holds the same entries**, so a brokered command cannot read, copy or move a declared file either, that being the one route no rule file reaches. Its mode, its owner and removing it are left alone; `cp`, `sed` and their kin are refused wherever the declared path appears, including where it is what they write to. [How that line falls](docs/configuration.md#the-brokered-route).
 
 `faramir block ls` lists everything in force, the rules faramir carries itself included. It is one of the three operator commands that need no root, beside `reader ls` and `link ls`.
 
