@@ -355,6 +355,11 @@ func Name(name string) (NameKind, string) {
 func NameSubject(name string) string {
 	kind, value := Name(name)
 	q := regexp.QuoteMeta(value)
+	// An exact name may carry separators, so what precedes it is a separator or
+	// the start of the word rather than the start of the line. Named here rather
+	// than written twice: it is both the shape KindExact takes and the reading a
+	// kind Name does not return would get.
+	exact := PathStart + q + `(` + PathEnd + `)`
 	switch kind {
 	case KindSuffix:
 		return q + `(` + PathEnd + `)`
@@ -369,10 +374,10 @@ func NameSubject(name string) string {
 		// was refused, which is a rule a keystroke walks around and a deletion
 		// that destroys everything the rule was protecting.
 		return PathStart + strings.TrimSuffix(q, `/`) + `(/|` + PathEnd + `)`
+	case KindExact:
+		return exact
 	}
-	// An exact name may carry separators, so what precedes it is a separator or
-	// the start of the word rather than the start of the line.
-	return PathStart + q + `(` + PathEnd + `)`
+	return exact
 }
 
 // CommandPosition is what may stand in front of a command on a line: the start

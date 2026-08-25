@@ -549,25 +549,6 @@ func agentHome(layout Layout) string {
 	return u.HomeDir
 }
 
-// pathStart and pathEnd bound a name inside a command line, where a path sits
-// in the middle of other text rather than alone in a string.
-//
-// pathEnd is a class rather than \b, and the difference is the point: "id_rsa\b"
-// matches "id_rsa.pub", because a dot is a word boundary, and would refuse the
-// public half of a key the other three spellings leave alone. RE2 has no
-// lookahead, so what ends a name is stated positively.
-const (
-	// denyrules', so the guard bounds a name it derives at run time the same way
-	// the rendered rules bound one, and so the binding rule can drop the
-	// whitespace from it.
-	pathStart = denyrules.PathStart
-	pathEnd   = `(` + pathEndClass + `)`
-	// pathEndClass without the group, for a rule that offers it beside another
-	// way for a name to end. internal/denyrules', so the guard bounds a path it
-	// derives at run time the same way the rendered rules bound one.
-	pathEndClass = denyrules.PathEnd
-)
-
 // RenderDenyPatterns is the shipped pattern file as an install would write it,
 // for a caller that has to read what a host would get. The rendering is the
 // real one rather than a second copy of it: a test that built the file another
