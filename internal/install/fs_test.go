@@ -346,6 +346,41 @@ func TestADirectoryCreatedForAnEnrolledFileIsSticky(t *testing.T) {
 	}
 }
 
+// Pinned to the root: a caller that names a directory outside it is refused
+// before anything is created. The parent itself is the case a prefix test alone
+// does not cover, "." relative to it being ".." with nothing after it.
+func TestADirectoryOutsideTheRootIsRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rel  string
+	}{
+		{"the root's own parent", ".."},
+		{"a sibling of the root", filepath.Join("..", "elsewhere")},
+		{"a directory under a sibling", filepath.Join("..", "elsewhere", "deeper")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "root")
+			if err := os.Mkdir(root, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			outside := filepath.Join(root, tc.rel)
+			_, before := os.Stat(outside)
+			err := realFS.ensureDirsIn(root, outside, 0o755, 0o755, keep, keep)
+			if err == nil {
+				t.Fatalf("%s was accepted", outside)
+			}
+			if !strings.Contains(err.Error(), "outside") {
+				t.Errorf("error = %q, want it to say the path is outside the root", err)
+			}
+			// The root's own parent is there already; the others are not, and a
+			// refusal that created one would have written outside the root.
+			if _, after := os.Stat(outside); before != nil && after == nil {
+				t.Errorf("%s was created anyway", outside)
+			}
+		})
+	}
+}
+
 // chmodBitsOf is the bits a chmod applies, ModeDir and the rest of the type
 // being no part of what was asked for.
 func chmodBitsOf(mode os.FileMode) os.FileMode {

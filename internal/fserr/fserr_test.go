@@ -32,27 +32,37 @@ func TestAtNamesThePathOnceAndNoSyscall(t *testing.T) {
 	}
 }
 
-// The three wrappers that carry a path, and anything else left as it is.
+// Every wrapper that carries a path, and anything else left as it is.
+//
+// The errno itself rather than something that unwraps to it: every wrapper here
+// has an Unwrap, so errors.Is reaches the errno through one that was never
+// taken off, and an assertion written that way holds whether Cause unwrapped or
+// returned its argument.
 func TestCauseUnwrapsOnlyWhatCarriesThePath(t *testing.T) {
 	inner := errors.New("the reason")
-	for _, err := range []error{
-		&os.PathError{Op: "stat", Path: "/x", Err: inner},
-		&os.LinkError{Op: "rename", Old: "/x", New: "/y", Err: inner},
-		&exec.Error{Name: "prog", Err: inner},
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"a path error", &os.PathError{Op: "stat", Path: "/x", Err: inner}},
+		{"a link error", &os.LinkError{Op: "rename", Old: "/x", New: "/y", Err: inner}},
+		{"a program that would not start", &exec.Error{Name: "prog", Err: inner}},
+		{"a syscall error", os.NewSyscallError("connect", inner)},
+		{"a dial, which carries the address as well", &net.OpError{
+			Op: "dial", Net: "unix", Err: os.NewSyscallError("connect", inner)}},
 	} {
-		if got := Cause(err); !errors.Is(got, inner) {
-			t.Errorf("Cause(%T) = %v, want the errno under it", err, got)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			//nolint:errorlint // identity is the assertion: errors.Is reaches the
+			// errno through a wrapper Cause left on, so it cannot fail here.
+			if got := Cause(tc.err); got != inner {
+				t.Errorf("Cause(%T) = %v (%T), want the errno under it", tc.err, got, got)
+			}
+		})
 	}
 	plain := errors.New("nothing wrapped")
-	if got := Cause(plain); !errors.Is(got, plain) {
+	//nolint:errorlint // identity again, for the error that carries no path
+	if got := Cause(plain); got != plain {
 		t.Errorf("Cause left an unwrapped error as %v", got)
-	}
-	// And a wrapped one is still found through the wrapping.
-	wrapped := os.NewSyscallError("x", inner)
-	_ = wrapped
-	if got := Cause(&os.PathError{Op: "open", Path: "/x", Err: os.ErrPermission}); !errors.Is(got, os.ErrPermission) {
-		t.Errorf("Cause did not reach the errno: %v", got)
 	}
 }
 

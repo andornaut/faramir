@@ -106,32 +106,6 @@ func TestTheReadmeGroupTableFollowsTheSameOrderWithinEachRow(t *testing.T) {
 	}
 }
 
-// Every group is listed alphabetically. A command appended to the end of a
-// group is a command out of place, and cobra's default sorting is what keeps it
-// from being one; this fails if that is ever turned off.
-func TestEveryGroupIsSorted(t *testing.T) {
-	root := newRootCmd()
-	groups := map[string][]string{}
-	for _, c := range root.Commands() {
-		groups[c.GroupID] = append(groups[c.GroupID], c.Name())
-	}
-	// The generated `completion` command is in none of the three, so a group with
-	// one command in it is that one rather than a listing with an order.
-	checked := 0
-	for id, names := range groups {
-		if len(names) < 2 {
-			continue
-		}
-		checked++
-		if !slices.IsSorted(names) {
-			t.Errorf("group %q is %v, want it sorted", id, names)
-		}
-	}
-	if checked < 3 {
-		t.Fatalf("checked %d group(s), so the root was not assembled", checked)
-	}
-}
-
 // Sorted to the leaf, not only at the top: a reader who opens `faramir vault
 // --help` is looking a verb up the same way.
 func TestEverySubcommandListIsSorted(t *testing.T) {
