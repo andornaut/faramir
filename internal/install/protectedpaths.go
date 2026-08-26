@@ -468,17 +468,17 @@ func commandRules(layout Layout) []string {
 	// refused, which is a rule with no verb in it. Added rather than replacing
 	// the five: those are what explain a refusal, and a bare subject can say
 	// only that the path was named.
-	return append(rules, denyrules.Mentioning(anyMentionSubjects(layout))...)
+	return append(rules, denyrules.Mentioning(strictSubjects(layout))...)
 }
 
-// anyMentionSubjects is every declared file whose entry asks for any mention of
+// strictSubjects is every declared file whose entry asks for any mention of
 // it to be refused, blocked and linked together. Sorted, so the rendered file
 // does not churn.
-func anyMentionSubjects(layout Layout) []string {
+func strictSubjects(layout Layout) []string {
 	home := agentHome(layout)
 	var out []string
 	for _, entry := range layout.Blocked {
-		if !entry.AnyMention {
+		if !entry.Strict {
 			continue
 		}
 		switch {
@@ -489,7 +489,7 @@ func anyMentionSubjects(layout Layout) []string {
 		}
 	}
 	for _, link := range layout.Links {
-		if link.AnyMention && link.Path != "" {
+		if link.Strict && link.Path != "" {
 			out = append(out, denyrules.DirUnder(home, link.Path))
 		}
 	}

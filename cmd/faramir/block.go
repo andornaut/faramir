@@ -44,9 +44,9 @@ type blockFlags struct {
 	builtIn  bool
 	json     bool
 	when     string
-	// anyMention tightens every path and name this invocation names. On add
+	// strict tightens every path and name this invocation names. On add
 	// alone: rm takes the entry out whichever strictness it carried.
-	anyMention bool
+	strict bool
 }
 
 // entries is the refusals a command was asked for: every --path, --name and
@@ -71,14 +71,14 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 			"default", verb, args[0])
 	}
 	out := make([]config.BlockedPath, 0, len(f.paths)+len(f.names)+len(f.commands))
-	// --any-mention rides on every path and name the command names, and on no
+	// --strict rides on every path and name the command names, and on no
 	// command entry: one invocation is one strictness, which is the only reading
 	// that does not need an operator to remember which flag bound to which.
 	for _, path := range f.paths {
-		out = append(out, config.BlockedPath{Path: path, AnyMention: f.anyMention})
+		out = append(out, config.BlockedPath{Path: path, Strict: f.strict})
 	}
 	for _, name := range f.names {
-		out = append(out, config.BlockedPath{Name: name, AnyMention: f.anyMention})
+		out = append(out, config.BlockedPath{Name: name, Strict: f.strict})
 	}
 	for _, command := range f.commands {
 		out = append(out, config.BlockedPath{Command: command})
@@ -119,7 +119,7 @@ func newBlockAddCmd() *cobra.Command {
 			"The file is never opened, so nothing of it enters the redactor. What is\n" +
 			"refused is the agent's file tools, its shell, and a brokered command that\n" +
 			"would read, copy or move it. A command outside that vocabulary is left\n" +
-			"alone, writing over the file included. --any-mention refuses naming it at\n" +
+			"alone, writing over the file included. --strict refuses naming it at\n" +
 			"all.\n\n" +
 			"--name matches what the agent names rather than a path on this host, for a\n" +
 			"file a container mounts somewhere of its own.\n\n" +
@@ -131,9 +131,9 @@ func newBlockAddCmd() *cobra.Command {
 		},
 	}
 	f.registerForms(c)
-	c.Flags().BoolVar(&f.anyMention, "any-mention", false,
+	c.Flags().BoolVar(&f.strict, "strict", false,
 		"refuse every command NAMING these paths and names, not only the ones that "+
-			"would read, copy or move them: `ls`, `stat` and `chmod` included. For a "+
+			"would read, copy or move them: ls, stat and chmod included. For a "+
 			"directory the agent has no business in at all. Off by default, since a "+
 			"file nothing may touch is a file nothing may rotate; not for --command, "+
 			"which already matches wherever a command starts")
@@ -333,15 +333,15 @@ type blockRow struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// anyMentionDetail says which of the two readings an entry gets, and says it
+// strictDetail says which of the two readings an entry gets, and says it
 // only for the stricter one: the looser is what every entry means unless the
 // operator asked otherwise, and printing it on every row would bury the
 // handful that are different.
-func anyMentionDetail(detail string, anyMention bool) string {
-	if !anyMention {
+func strictDetail(detail string, strict bool) string {
+	if !strict {
 		return detail
 	}
-	const said = "any mention refused, not only a read"
+	const said = "strict: every mention refused, not only a read"
 	if detail == "" {
 		return said
 	}
@@ -376,14 +376,14 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 			rows = append(rows, blockRow{
 				Source: sourceDeclared, Kind: kindName,
 				Entry:  entry.Name,
-				Detail: anyMentionDetail(install.BlockedNameMatches(entry.Name), entry.AnyMention),
+				Detail: strictDetail(install.BlockedNameMatches(entry.Name), entry.Strict),
 			})
 			continue
 		}
 		rows = append(rows, blockRow{
 			Source: sourceDeclared, Kind: kindPath, Entry: entry.Path,
 			State:  blockedPathState(entry.Path),
-			Detail: anyMentionDetail("", entry.AnyMention),
+			Detail: strictDetail("", entry.Strict),
 		})
 	}
 	// Sorted, so a listing is the same twice running and two hosts diff against

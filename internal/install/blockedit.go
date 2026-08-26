@@ -225,11 +225,11 @@ func blockedWith(existing []config.BlockedPath,
 		// The same rule, and the entry says how strictly it is matched. An add
 		// naming a stricter or looser one is a change to the entry rather than a
 		// second entry for the same file, in both directions: what a converge
-		// names every run is the state it wants, and an --any-mention dropped from
+		// names every run is the state it wants, and a --strict dropped from
 		// the list means the operator stopped asking for it. Reported as changed,
 		// or an operator who tightened a rule is told nothing happened.
-		if other.AnyMention != refused.AnyMention {
-			entries[i].AnyMention = refused.AnyMention
+		if other.Strict != refused.Strict {
+			entries[i].Strict = refused.Strict
 			return entries, true
 		}
 		return entries, false
@@ -256,7 +256,7 @@ func foldBlocked(existing,
 // different rules, so one does not stand in for the other, and two commands
 // that share an empty path and an empty name are not the same command.
 //
-// Not any_mention, which is how strictly the rule is matched rather than what
+// Not strict, which is how strictly the rule is matched rather than what
 // it names. Two entries for one path is what the loader refuses; blockedWith is
 // where the strictness of the one entry is settled.
 func sameBlock(a, b config.BlockedPath) bool {

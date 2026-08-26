@@ -34,7 +34,7 @@ import (
 //
 // denyrules.Disclosing is the set: reading, moving and re-encoding a declared
 // file, and nothing outside that vocabulary, writing over one included. See its comment for where that
-// line falls and why it is not the read/write one. An entry carrying any_mention is
+// line falls and why it is not the read/write one. An entry carrying strict is
 // held to denyrules.Mentioning instead, which is the subject with no verb in
 // front of it: the operator asked for every command naming that file to be
 // refused, `ls` and `chmod` with the rest.
@@ -50,11 +50,11 @@ type declaredRule struct {
 	what string
 	// remedy is the command that takes the entry back out.
 	remedy string
-	// anyMention is the entry the operator asked to have refused wherever it is
+	// strict is the entry the operator asked to have refused wherever it is
 	// named. The refusal has to say so: the sentence a looser entry ends on tells
 	// the reader that changing the file is left alone, which for this one is the
 	// opposite of what just happened.
-	anyMention bool
+	strict bool
 }
 
 // newDeclaredCheck compiles what this host declares. Built once, from the
@@ -70,7 +70,7 @@ type declaredRule struct {
 // does, and that is the spelling a model writes.
 func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredCheck {
 	var out []declaredRule
-	add := func(what, remedy string, anyMention bool, sources []string) {
+	add := func(what, remedy string, strict bool, sources []string) {
 		for _, source := range sources {
 			re, err := regexp.Compile(source)
 			// A pattern that will not compile is left out rather than failing the
@@ -81,14 +81,14 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 				continue
 			}
 			out = append(out, declaredRule{
-				re: re, what: what, remedy: remedy, anyMention: anyMention,
+				re: re, what: what, remedy: remedy, strict: strict,
 			})
 		}
 	}
 	// how an entry's subject is matched: every command naming it where the
 	// operator asked for that, and the disclosing ones otherwise.
-	rulesFor := func(subject string, anyMention bool) []string {
-		if anyMention {
+	rulesFor := func(subject string, strict bool) []string {
+		if strict {
 			return denyrules.Mentioning([]string{subject})
 		}
 		return denyrules.Disclosing([]string{subject})
@@ -99,16 +99,16 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 		case entry.Command != "":
 			// A command entry is already about what a command does, so it is matched
 			// as itself rather than as a subject for the rules above. The loader
-			// refuses any_mention on one, there being no looser reading to tighten.
+			// refuses strict on one, there being no looser reading to tighten.
 			if rule := denyrules.CommandRule(entry.Command); rule != "" {
 				add("the command "+entry.Command, remedy, false, []string{rule})
 			}
 		case entry.Name != "":
-			add(named("the name "+entry.Name, entry.AnyMention), remedy, entry.AnyMention,
-				rulesFor(denyrules.NameSubject(entry.Name), entry.AnyMention))
+			add(named("the name "+entry.Name, entry.Strict), remedy, entry.Strict,
+				rulesFor(denyrules.NameSubject(entry.Name), entry.Strict))
 		case entry.Path != "":
-			add(named("the path "+entry.Path, entry.AnyMention), remedy, entry.AnyMention,
-				rulesFor(denyrules.DirUnder(agentHome, entry.Path), entry.AnyMention))
+			add(named("the path "+entry.Path, entry.Strict), remedy, entry.Strict,
+				rulesFor(denyrules.DirUnder(agentHome, entry.Path), entry.Strict))
 		}
 	}
 	for _, link := range secret.Links {
@@ -117,9 +117,9 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 		}
 		// The ref as well as the file: what a caller is meant to do with a linked
 		// credential is ask for it by name, and the refusal is where to say so.
-		add(named("the linked file "+link.Path+", which answers "+link.Ref, link.AnyMention),
-			"`faramir link rm`", link.AnyMention,
-			rulesFor(denyrules.DirUnder(agentHome, link.Path), link.AnyMention))
+		add(named("the linked file "+link.Path+", which answers "+link.Ref, link.Strict),
+			"`faramir link rm`", link.Strict,
+			rulesFor(denyrules.DirUnder(agentHome, link.Path), link.Strict))
 	}
 	return declaredCheck{rules: out}
 }
@@ -127,8 +127,8 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 // named is how the refusal says what matched, with the stricter entry saying so
 // itself. A command refused for naming a path it never read is one whose author
 // would otherwise reach for a way round it: the sentence has to carry why.
-func named(what string, anyMention bool) string {
-	if anyMention {
+func named(what string, strict bool) string {
+	if strict {
 		return what + ", which no command may name at all,"
 	}
 	return what
@@ -263,14 +263,14 @@ func resolveArgs(cmd []string, cwd string) string {
 // available, and leaves the remedy where it belongs.
 func declaredRefusal(rule declaredRule) string {
 	// What the entry leaves alone, which is the sentence that tells a reader
-	// whether another spelling is worth trying. An any_mention entry leaves
+	// whether another spelling is worth trying. An strict entry leaves
 	// nothing alone, and saying otherwise sends a model back for the same `ls`.
 	tail := "What is refused is a vocabulary rather than a direction: the " +
 		"readers, and the commands that move or re-encode a file, wherever the " +
 		"path appears in the line, so `cp`, `tee` and `sed` are refused even " +
 		"where it is what they write to. A command outside it is not refused, " +
 		"whatever it does to the file."
-	if rule.anyMention {
+	if rule.strict {
 		tail = "Changing it where it stands is refused with the rest, which is " +
 			"what this entry asks for: no command may name it."
 	}

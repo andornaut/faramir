@@ -167,7 +167,7 @@ func TestACommandRuleDoesNotReachASiblingPath(t *testing.T) {
 	}
 }
 
-// An --any-mention entry renders a rule with no verb in it, which is the whole
+// An --strict entry renders a rule with no verb in it, which is the whole
 // of the difference: the five ordinary rules each need a reader, a writer or a
 // redirect in front of the path, and this one refuses the path being named.
 // Rendered into the guard's file as well as held by the broker, so one entry
@@ -175,17 +175,17 @@ func TestACommandRuleDoesNotReachASiblingPath(t *testing.T) {
 //
 // Asserted by what the rendered file decides rather than by the shape of a
 // pattern: what the operator asked for is that `ls` be refused.
-func TestAnAnyMentionEntryRefusesACommandWithNoVerbInIt(t *testing.T) {
+func TestAnStrictEntryRefusesACommandWithNoVerbInIt(t *testing.T) {
 	layout := testLayout()
 	layout.Blocked = []config.BlockedPath{
-		{Path: "/home/operator/.private", AnyMention: true},
+		{Path: "/home/operator/.private", Strict: true},
 		{Path: "/srv/keys/luks.key"},
 	}
 
 	rules := denyRules(renderDenyPatterns(t, layout))
 
 	if !refusedByAny(t, rules, "ls -l /home/operator/.private") {
-		t.Error("`ls` of an --any-mention path is allowed, which is what the flag is for")
+		t.Error("`ls` of a --strict path is allowed, which is what the flag is for")
 	}
 	if !refusedByAny(t, rules, "cat /home/operator/.private/key") {
 		t.Error("a read of it is allowed, which every entry refuses")
@@ -207,7 +207,7 @@ func TestAnAnyMentionEntryRefusesACommandWithNoVerbInIt(t *testing.T) {
 // A host that declares no strict entry gets no verb-less rule. A bare
 // alternation over nothing matches the empty string, which with no verb in
 // front of it would refuse every command an agent ran.
-func TestNoAnyMentionEntryLeavesOrdinaryCommandsAlone(t *testing.T) {
+func TestNoStrictEntryLeavesOrdinaryCommandsAlone(t *testing.T) {
 	layout := testLayout()
 	layout.Blocked = []config.BlockedPath{{Path: "/srv/keys/luks.key"}}
 

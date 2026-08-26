@@ -182,10 +182,10 @@ sudo faramir block add \
 
 Three forms, each named by its own flag, and they mix in one command. None of them is the default, so a bare argument is refused rather than read as a path.
 
-For the directory your agent has no business in at all, `--any-mention` refuses every command *naming* it, not only the ones that would read it:
+For the directory your agent has no business in at all, `--strict` refuses every command *naming* it, not only the ones that would read it:
 
 ```bash
-sudo faramir block add --path ~/.private --any-mention
+sudo faramir block add --path ~/.private --strict
 ```
 
 That covers `ls` and `chmod` as well as `cat`, so nothing converges the path any more. It is the wrong flag for a key something has to rotate, which is why it is off unless you ask.

@@ -62,18 +62,18 @@ func TestCheckTouchesNoFilesystem(t *testing.T) {
 	}
 }
 
-// any_mention is how strictly one entry is matched, so it belongs on the two
+// strict is how strictly one entry is matched, so it belongs on the two
 // forms that name a file. A command entry is already matched wherever a command
 // starts: there is no looser reading of it to tighten, and accepting the key
 // while changing nothing would leave an operator sure they had closed
 // something.
-func TestAnyMentionIsRefusedOnACommandEntry(t *testing.T) {
-	body := minimal + "\n[[secret.block]]\ncommand = \"op read\"\nany_mention = true\n"
+func TestStrictIsRefusedOnACommandEntry(t *testing.T) {
+	body := minimal + "\n[[secret.block]]\ncommand = \"op read\"\nstrict = true\n"
 	_, err := load(t, body)
 	if err == nil {
-		t.Fatal("a command entry carrying any_mention was accepted")
+		t.Fatal("a command entry carrying strict was accepted")
 	}
-	for _, want := range []string{"any_mention", "command"} {
+	for _, want := range []string{"strict", "command"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not name %q: %v", want, err)
 		}
@@ -82,31 +82,31 @@ func TestAnyMentionIsRefusedOnACommandEntry(t *testing.T) {
 
 // The two forms that do take it, and the default: absent is the looser reading,
 // which is what every entry written before this key existed means.
-func TestAnyMentionLoadsOnAPathAndAName(t *testing.T) {
+func TestStrictLoadsOnAPathAndAName(t *testing.T) {
 	cfg, err := load(t, minimal+"\n[[secret.block]]\npath = \"/home/op/.private\"\n"+
-		"any_mention = true\n\n[[secret.block]]\nname = \"*.pem\"\n")
+		"strict = true\n\n[[secret.block]]\nname = \"*.pem\"\n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cfg.Secret.Blocked) != 2 {
 		t.Fatalf("blocked = %+v, want two entries", cfg.Secret.Blocked)
 	}
-	if !cfg.Secret.Blocked[0].AnyMention {
-		t.Error("the entry that asked for any_mention did not get it")
+	if !cfg.Secret.Blocked[0].Strict {
+		t.Error("the entry that asked for strict did not get it")
 	}
-	if cfg.Secret.Blocked[1].AnyMention {
+	if cfg.Secret.Blocked[1].Strict {
 		t.Error("an entry that did not ask for it got it anyway")
 	}
 }
 
 // A value of another type is refused rather than read as false: an entry saying
-// any_mention = "yes" means to close something, and taking it as absent leaves
+// strict = "yes" means to close something, and taking it as absent leaves
 // a host the operator believes is closed and is not.
-func TestAnyMentionRefusesAValueThatIsNotABoolean(t *testing.T) {
+func TestStrictRefusesAValueThatIsNotABoolean(t *testing.T) {
 	_, err := load(t, minimal+"\n[[secret.block]]\npath = \"/home/op/.private\"\n"+
-		"any_mention = \"yes\"\n")
+		"strict = \"yes\"\n")
 	if err == nil {
-		t.Fatal("any_mention = \"yes\" was accepted")
+		t.Fatal("strict = \"yes\" was accepted")
 	}
 	if !strings.Contains(err.Error(), "true or false") {
 		t.Errorf("the refusal does not say what it wanted: %v", err)

@@ -278,8 +278,8 @@ func TestARunNamingABlockedPathIsRefusedWithItsOwnCode(t *testing.T) {
 // leaves a host working -- a keyfile nothing may chmod is a keyfile nothing may
 // rotate -- but that trade does not apply to the directory the agent has no
 // business in at all, where `ls` is as unwelcome as `cat`.
-func TestAnyMentionRefusesEveryCommandNamingTheEntry(t *testing.T) {
-	check := blocking(config.BlockedPath{Path: "/home/op/.private", AnyMention: true})
+func TestStrictRefusesEveryCommandNamingTheEntry(t *testing.T) {
+	check := blocking(config.BlockedPath{Path: "/home/op/.private", Strict: true})
 
 	for _, cmd := range [][]string{
 		{"ls", "-l", "/home/op/.private"},
@@ -290,7 +290,7 @@ func TestAnyMentionRefusesEveryCommandNamingTheEntry(t *testing.T) {
 		{"sh", "-c", "cd /home/op/.private && make"},
 	} {
 		if _, refused := check.refuses(cmd, "/tmp"); !refused {
-			t.Errorf("%v was allowed by an --any-mention entry", cmd)
+			t.Errorf("%v was allowed by a --strict entry", cmd)
 		}
 	}
 	// A sibling that merely starts the same way is not the same path: the
@@ -302,9 +302,9 @@ func TestAnyMentionRefusesEveryCommandNamingTheEntry(t *testing.T) {
 
 // And it stays per entry. Two declared files, one strict and one not, are two
 // readings on the same host: the flag is not a mode the install is in.
-func TestAnyMentionIsPerEntry(t *testing.T) {
+func TestStrictIsPerEntry(t *testing.T) {
 	check := blocking(
-		config.BlockedPath{Path: "/home/op/.private", AnyMention: true},
+		config.BlockedPath{Path: "/home/op/.private", Strict: true},
 		config.BlockedPath{Path: "/srv/keys/luks.key"},
 	)
 
@@ -318,10 +318,10 @@ func TestAnyMentionIsPerEntry(t *testing.T) {
 
 // A link takes the same flag, for the file whose own tool is the only thing
 // that should ever touch it.
-func TestALinkTakesAnyMentionToo(t *testing.T) {
+func TestALinkTakesStrictToo(t *testing.T) {
 	check := linking(config.Link{
 		Ref: "gh/token", Path: "/home/op/.config/gh/hosts.yml", Type: "yaml",
-		Key: "github.com/oauth_token", AnyMention: true})
+		Key: "github.com/oauth_token", Strict: true})
 
 	if _, refused := check.refuses([]string{"ls", "-l", "/home/op/.config/gh/hosts.yml"}, "/tmp"); !refused {
 		t.Error("a strict link allowed a listing of its file")
@@ -331,7 +331,7 @@ func TestALinkTakesAnyMentionToo(t *testing.T) {
 // The refusal has to carry why, or its reader reaches for a way round it: a
 // command refused for naming a path it never read reads as a fault otherwise.
 func TestTheStricterRefusalSaysItIsStricter(t *testing.T) {
-	rule, _ := blocking(config.BlockedPath{Path: "/home/op/.private", AnyMention: true}).
+	rule, _ := blocking(config.BlockedPath{Path: "/home/op/.private", Strict: true}).
 		refuses([]string{"ls", "/home/op/.private"}, "/tmp")
 
 	if !strings.Contains(declaredRefusal(rule), "no command may name at all") {
@@ -385,18 +385,18 @@ func TestAShellStringIsStillReadOneCommandAtATime(t *testing.T) {
 }
 
 // The refusal reaches a model, so the sentence saying what the entry leaves
-// alone has to be true of the entry that matched. An any_mention entry leaves
+// alone has to be true of the entry that matched. An strict entry leaves
 // nothing alone: telling its reader that changing the file in place is fine
 // sends it back for the same `ls` or `chmod` and a second refusal.
-func TestAnAnyMentionRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
-	strict := config.BlockedPath{Path: "/home/op/.private", AnyMention: true}
+func TestAnStrictRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
+	strict := config.BlockedPath{Path: "/home/op/.private", Strict: true}
 	rule, refused := blocking(strict).refuses([]string{"ls", "-l", "/home/op/.private"}, "/home/op")
 	if !refused {
-		t.Fatal("a listing of an any_mention path was allowed")
+		t.Fatal("a listing of a strict path was allowed")
 	}
 	said := declaredRefusal(rule)
 	if strings.Contains(said, "A command outside it is not refused") {
-		t.Errorf("the refusal for an any_mention entry says the file can still be "+
+		t.Errorf("the refusal for a strict entry says the file can still be "+
 			"changed, having just refused a command that would:\n%s", said)
 	}
 	if !strings.Contains(said, "no command may name it") {

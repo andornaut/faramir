@@ -59,8 +59,8 @@ restore_baseline() {
   [ -f "$BACKUP/settings.json" ] && cp -a "$BACKUP/settings.json" $RULES
   rm -rf "$BACKUP" "$KEYDIR" "$SSHDIR"
   rm -f /etc/refused-world.key "$MANAGED"
-  rm -rf /etc/refused-any-mention
-  "$faramir" block rm --path /etc/refused-any-mention >/dev/null 2>&1 || true
+  rm -rf /etc/refused-strict
+  "$faramir" block rm --path /etc/refused-strict >/dev/null 2>&1 || true
   "$faramir" link rm gh/refuse-suite >/dev/null 2>&1 || true
   "$faramir" block rm --path /etc/beside-a-link.key >/dev/null 2>&1 || true
   rm -rf /home/op/.config/gh
@@ -246,23 +246,23 @@ rm -f $WORLD
 # The stricter reading, asked for per entry. The default leaves a declared file
 # manageable, which is what a key being rotated needs; this is the directory the
 # agent has no business in at all, where a listing is as unwelcome as a read.
-STRICT=/etc/refused-any-mention
+STRICT=/etc/refused-strict
 mkdir -p $STRICT
 printf 'x\n' > $STRICT/notes
 chmod -R 755 $STRICT
-block add --path "$STRICT" --any-mention >/dev/null 2>&1
-grep -q 'any_mention = true' $CFG \
-  && ok "--any-mention is recorded on the entry" \
-  || bad "the config carries no any_mention key: $(grep -A2 "$STRICT" $CFG | tr '\n' ' ')"
+block add --path "$STRICT" --strict >/dev/null 2>&1
+grep -q 'strict = true' $CFG \
+  && ok "--strict is recorded on the entry" \
+  || bad "the config carries no strict key: $(grep -A2 "$STRICT" $CFG | tr '\n' ' ')"
 
 out=$(brokered -- /bin/ls -l $STRICT)
 grep -q 'notes' <<<"$out" \
-  && bad "a brokered listing of an --any-mention path came back: ${out:0:120}" \
+  && bad "a brokered listing of a --strict path came back: ${out:0:120}" \
   || ok "and a brokered command may not even list it"
 out=$(brokered -- /bin/chmod 0700 $STRICT)
 [ "$(stat -c %a $STRICT)" = 755 ] \
   && ok "and may not chmod it either, which is the cost the flag names" \
-  || bad "a chmod of an --any-mention path took effect"
+  || bad "a chmod of a --strict path took effect"
 
 # The entry beside it keeps the looser reading: one flag on one entry, not a
 # mode the install is in. The manageable fixture again, the strict entry still

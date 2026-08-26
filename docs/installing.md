@@ -67,7 +67,7 @@ No pattern is compiled in, because one would have to name a file faramir does no
 Every secret an install writes is refused by its mode as well: `age.key` is `0400 faramir-keeper`, the broker's SSH key `0600 faramir-broker`, the secrets directory `2750 root:<secrets-group>`, the audit log `0600 faramir-broker`. So the rules above are the second of two mechanisms rather than the only one.
 
 > [!IMPORTANT]
-> **A credential faramir neither writes nor reads is yours to declare.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials`: none is refused by an install that declares nothing, so an agent's file tools can open them. `faramir block add --path` names one, `--name` names a class of them ([blocked paths](configuration.md#blocked-paths)), `--any-mention` refuses naming one at all, and `faramir block ls` shows both halves. A fleet declares them once in whatever converges its hosts.
+> **A credential faramir neither writes nor reads is yours to declare.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials`: none is refused by an install that declares nothing, so an agent's file tools can open them. `faramir block add --path` names one, `--name` names a class of them ([blocked paths](configuration.md#blocked-paths)), `--strict` refuses naming one at all, and `faramir block ls` shows both halves. A fleet declares them once in whatever converges its hosts.
 
 The line is drawn around what faramir installs rather than around credentials in general: what it writes, it refuses; what it never touches is the operator's to name. That also keeps the rules from growing into a list every host has to disagree with.
 

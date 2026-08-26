@@ -34,8 +34,8 @@ const (
 	// keyCommand is the TOML key a [[secret.block]] entry names a command with,
 	// and the section name [command] happens to be the same word.
 	keyCommand = "command"
-	// keyAnyMention is the TOML key both entry kinds tighten a rule with.
-	keyAnyMention = "any_mention"
+	// keyStrict is the TOML key both entry kinds tighten a rule with.
+	keyStrict = "strict"
 )
 
 // The limits no config key reaches. Variables rather than constants so a test
@@ -225,7 +225,7 @@ func stringMap(value any, where string, fallback map[string]string) (map[string]
 }
 
 // boolean is str for a flag key. A value of another type is refused rather than
-// read as false: an entry saying `any_mention = "yes"` means to tighten a rule,
+// read as false: an entry saying `strict = "yes"` means to tighten a rule,
 // and taking it as absent would leave the operator a host they think is closed.
 func boolean(value any, where, key string, fallback bool) (bool, error) {
 	if value == nil {
@@ -458,10 +458,10 @@ type Link struct {
 	// Key selects one value out of a structured file, and is required for exactly
 	// the types that select.
 	Key string `json:"key,omitempty"`
-	// AnyMention refuses every command naming this file rather than the ones
-	// that would read, copy or move it. See BlockedPath.AnyMention: one flag,
+	// Strict refuses every command naming this file rather than the ones
+	// that would read, copy or move it. See BlockedPath.Strict: one flag,
 	// one meaning, on whichever entry names the file.
-	AnyMention bool `json:"any_mention,omitempty"`
+	Strict bool `json:"strict,omitempty"`
 }
 
 // BlockedPath is a file the agent's own tools are refused and faramir does not
@@ -504,7 +504,7 @@ type BlockedPath struct {
 	// write one that matches more than it looks like.
 	Command string `json:"command,omitempty"`
 
-	// AnyMention refuses every command naming this path or matching this name,
+	// Strict refuses every command naming this path or matching this name,
 	// rather than the ones that would read, copy or move it. Off by default,
 	// because the default has to be the one that leaves a host working: a
 	// declared file usually still has to be managed, and a LUKS keyfile that
@@ -518,7 +518,7 @@ type BlockedPath struct {
 	//
 	// Not for a command entry, which is already about what a command does: an
 	// entry may not carry both.
-	AnyMention bool `json:"any_mention,omitempty"`
+	Strict bool `json:"strict,omitempty"`
 }
 
 // Blocks is what an entry names, whichever form it took, for a message or a
@@ -655,8 +655,8 @@ var (
 	sudoKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
 		"notify_command", "timeout_sec"}
 	secretKeys = []string{"min_length", "link", "block"}
-	linkKeys   = []string{"ref", keyPath, "type", "key", keyAnyMention}
-	blockKeys  = []string{keyPath, "name", keyCommand, keyAnyMention}
+	linkKeys   = []string{"ref", keyPath, "type", "key", keyStrict}
+	blockKeys  = []string{keyPath, "name", keyCommand, keyStrict}
 	auditKeys  = []string{"log_path"}
 )
 
@@ -929,7 +929,7 @@ func loadLinks(value any, where string) ([]Link, error) {
 		if link.Key, err = str(entry["key"], at, ""); err != nil {
 			return nil, err
 		}
-		if link.AnyMention, err = boolean(entry[keyAnyMention], at, keyAnyMention, false); err != nil {
+		if link.Strict, err = boolean(entry[keyStrict], at, keyStrict, false); err != nil {
 			return nil, err
 		}
 		if err := validateLink(link, at); err != nil {
@@ -981,7 +981,7 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		if refused.Command, err = str(entry[keyCommand], at, ""); err != nil {
 			return nil, err
 		}
-		if refused.AnyMention, err = boolean(entry[keyAnyMention], at, keyAnyMention, false); err != nil {
+		if refused.Strict, err = boolean(entry[keyStrict], at, keyStrict, false); err != nil {
 			return nil, err
 		}
 		if err := validateBlocked(refused, at); err != nil {
@@ -1042,10 +1042,10 @@ func validateBlocked(blocked BlockedPath, at string) error {
 		// looser reading of it for this to tighten. Refused rather than ignored:
 		// an entry carrying it means to close something, and accepting it while
 		// changing nothing leaves an operator sure they did.
-		if blocked.AnyMention {
+		if blocked.Strict {
 			return fmt.Errorf("%s: %s is for a path or a name, and this entry names "+
 				"a command, which is already matched wherever a command starts. Drop "+
-				"the key", at, keyAnyMention)
+				"the key", at, keyStrict)
 		}
 		return validateBlockedCommand(blocked.Command, at)
 	}

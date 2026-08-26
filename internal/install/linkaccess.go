@@ -234,17 +234,17 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		// The strictness is how the entry is matched rather than what it names, so
 		// a re-add that changes it edits the entry instead of colliding with it.
 		// In both directions: what a converge names every run is the state it
-		// wants, and an --any-mention left off the list means it was withdrawn.
+		// wants, and a --strict left off the list means it was withdrawn.
 		tightened := other
-		tightened.AnyMention = link.AnyMention
+		tightened.Strict = link.Strict
 		if tightened != link {
 			return Report{}, false, redefinedRef(configFile, other, link)
 		}
-		if other.AnyMention != link.AnyMention {
+		if other.Strict != link.Strict {
 			updated := slices.Clone(existing)
 			for i := range updated {
 				if updated[i].Ref == link.Ref {
-					updated[i].AnyMention = link.AnyMention
+					updated[i].Strict = link.Strict
 				}
 			}
 			report, err := reassertLink(opts, updated, link)
