@@ -24,7 +24,7 @@ Three binaries must be beside `e2e.sh` before the first `up`. The image has no n
 
 `fetch` skips what is already there, so it is safe before every `up`; delete a file to replace it. It pins x86_64 digests only, and says so on another architecture: copy the three in by hand there.
 
-`e2e.sh up` builds two more into the same directory: `faramir` from the tree two levels up, and `faramir-skew` at a version the installed one does not report. The skew binary is what the `doctor` suite swaps in to make the CLI and the running broker disagree about the build; the version is a compiled-in constant, so `e2e.sh` builds it with `go build -overlay`, which replaces that one file at compile time and leaves the tree alone.
+`e2e.sh up` builds two more into the same directory: `faramir` from the tree two levels up, and `faramir-skew` at a version the installed one does not report. The skew binary is what the `doctor` suite swaps in to make the CLI and the running broker disagree about the build; the version is a linker variable, so `e2e.sh` stamps it with `go build -ldflags -X` and never edits the tree. It checks the stamp took: a `-X` naming a symbol that has moved does nothing and exits 0, which would leave the suite comparing a binary against itself.
 
 All five are gitignored. `up` refuses to build without the three you supply, rather than producing an image whose failures all look like missing tools.
 

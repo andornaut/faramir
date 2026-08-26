@@ -63,7 +63,7 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 
 ## Linking a credential another tool owns
 
-`link add` reads the file as root to check that the type and the selector yield a value, asks the running broker whether it already serves that ref, checks that the file is arranged the way a link needs, then reads it again as the broker's own account to check the broker can reach it, and only then writes the entry and reloads. Nothing about the file is altered: a file that is not arranged that way is reported with the `chgrp` and `chmod` that fix it, and no entry is written. The value joins the redactor, and the path is refused to the agent's file tools.
+`link add` checks everything before it writes anything, and alters nothing about the file to make an answer come out right: [the order it asks in](configuration.md#link-add-asks-everything-before-it-writes). What it leaves behind is the entry, the value in the redactor, and the path refused to the agent's file tools.
 
 Adding an entry this install already carries runs the same thing again rather than refusing it, so a converge may name every link on every run: [what that re-applies](configuration.md#linked-secrets).
 

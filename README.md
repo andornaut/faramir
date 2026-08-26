@@ -254,7 +254,7 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 
 ### Operator commands
 
-**Every operator command is refused to the coding agent's shell**, with sudo and without. An agent may run `run`, `redact`, `status` and `refs`, plus `version`, `help` and `completion`, which reach no broker; the rest act on the install rather than through it.
+**Every operator command is refused to the coding agent's shell**, with sudo and without: [which commands, and what each does](docs/operating.md#operator-commands).
 
 Group | Commands
 --- | ---
@@ -265,7 +265,7 @@ A secret another tool owns | `link add`, `link ls`, `link rm`
 A path, name or command blocked from the agent | `block add`, `block ls`, `block rm`
 The record, and sudo | `logs`, `sudo approve`, `sudo ls`, `sudo reject`, `sudo watch`
 
-All need root except `doctor`, which degrades, and the three that only read: `reader ls`, `link ls` and `block ls`. `init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
+`init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run.
 
 ### MCP tools
 
