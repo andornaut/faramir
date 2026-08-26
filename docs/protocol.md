@@ -19,9 +19,9 @@ Every request on all three sockets carries `version`, the version string the sen
 There is one binary: the three daemons are it under three units, and the CLI and the MCP server are it as the agent's own processes. Two versions on one host is therefore a process that outlived the install which replaced the binary under it, and the refusal names that.
 
 ```json
-{"version": "0.6.0",
+{"version": "<this daemon's>",
  "error": {"code": "bad_request",
-           "message": "the caller names faramir 0.1.4 and this is faramir 0.6.0:
+           "message": "the caller names faramir <the caller's> and this is faramir <this daemon's>:
                        restart it. An MCP server is a child of the coding agent, so
                        it is reconnected there rather than restarted on its own"}}
 ```
@@ -56,7 +56,7 @@ The four root-only ops are checked with `SO_PEERCRED`: the account the coding ag
 ```json
 {
   "op": "run",
-  "version": "0.6.0",
+  "version": "…",
   "cmd": ["printenv", "ROUTER_PW"],
   "cwd": "/home/you/src/project",
   "env_refs": { "ROUTER_PW": "faramir://home/router/admin" },
@@ -175,7 +175,7 @@ There is no command allowlist, so there is no `denied`. Messages name what faile
 Peer uid is checked against `[keeper] allowed_user` on top of the mode. There is no group form, the only group in play holding the agent's own uid. Two ops, and **none that returns the age key**; adding one would defeat the reason the keeper is a separate service.
 
 ```json
-{"op": "get_values", "version": "0.6.0"}
+{"op": "get_values", "version": "…"}
 {"values": {"home/router/admin": "…"},
  "state": [{"path": "/etc/faramir/secrets/x.sops.yml",
             "mtime_unix_nano": 1743160000000000000, "size": 812}],
@@ -185,7 +185,7 @@ Peer uid is checked against `[keeper] allowed_user` on top of the mode. There is
 Every managed value, never a subset: the redactor is built from the whole value set, because a managed host can print a credential no command injected. The `state` is the fingerprint of each file this decrypt read, returned with the values so the two describe the same moment. Fetched separately it could fingerprint a file edited after the decrypt, and that edit would never be noticed.
 
 ```json
-{"op": "get_state", "version": "0.6.0"}
+{"op": "get_state", "version": "…"}
 {"state": [{"path": "…", "mtime_unix_nano": 1743160000000000000, "size": 812}],
  "errors": [], "unresolved_patterns": []}
 ```
@@ -208,7 +208,7 @@ The staleness poll, and where the managed store globs are expanded, so a file ad
 One request, carrying a single file descriptor as ancillary data:
 
 ```json
-{"version": "0.6.0",
+{"version": "…",
  "argv": ["/usr/bin/printenv", "ROUTER_PW"],
  "cwd": "/home/you/src/project",
  "env": {"ROUTER_PW": "…"},
@@ -228,7 +228,7 @@ The descriptor is the **slave** end of a PTY the broker created. The broker keep
 Two more ops share the socket. `"op": "exec"` and an absent `op` both mean the request above:
 
 ```json
-{"op": "quiescent", "version": "0.6.0"}
+{"op": "quiescent", "version": "…"}
 
 {"quiescent": false, "detail": "1 process(es) are running as the executor outside any brokered command (4821 (sleep))"}
 ```
@@ -236,7 +236,7 @@ Two more ops share the socket. `"op": "exec"` and an absent `op` both mean the r
 The broker asks this before an escalation takes: is any process of the executor's uid alive outside that daemon and outside the runs it is confining? It is asked here because the broker cannot see the answer, its own unit setting `ProtectProc=invisible`. Every failure is a no.
 
 ```json
-{"op": "owner", "version": "0.6.0", "procs": [4821, 4820, 4815]}
+{"op": "owner", "version": "…", "procs": [4821, 4820, 4815]}
 
 {"run_id": "3f8c…", "detail": "pid 4815 is the command this run was forked as, and is still running"}
 ```
