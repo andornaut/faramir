@@ -108,7 +108,7 @@ Command | Does
 `sudo faramir sudo watch` | Waits for questions, answers them from that terminal, and reports how each approved run ended. A command of its own rather than a flag on the listing: it holds the terminal and keeps reporting after the question is settled. [How to run a watcher](escalation.md#what-happens-when-a-command-runs-sudo)
 `sudo faramir sudo approve ID` | Say yes. The id is required: an escalation that names no command is one nobody judged
 `sudo faramir sudo reject [ID]` | Say no. The id is optional, one question being outstanding at a time. Without one it prints the question it is refusing
-`sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed config. All three are socket activated
+`sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed config. All three are socket activated, so stopping them is the whole of it. [When you need it](#when-a-reload-is-needed)
 `sudo faramir uninstall` | Removes the broker from the install it finds. Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively. Running it again is not an error: a first run that stopped partway leaves nothing to find, and the removal is at fixed paths whether or not an install answers
 
 At the broker these four commands are three ops, `approve` and `reject` both being `answer` with a different verdict: `escalations`, `answer` and `escalate` are root-only there too, checked with `SO_PEERCRED`, so the account the coding agent runs as cannot answer what the agent asked for. `escalate` is the one sudo's PAM helper asks, and so the one that decides whether a brokered command becomes root.
@@ -117,10 +117,21 @@ At the broker these four commands are three ops, `approve` and `reject` both bei
 
 **Colour** is on where stdout is a terminal, off under `$NO_COLOR` whatever its value, and forced either way by `--color=always|never`. Every listing and report takes the flag: `block ls`, `link ls`, `vault ls`, `reader ls`, `logs`, `doctor`, `escalations` and `deny`. Not `approve`, which names an id and prints no report. What is painted is faramir's own vocabulary, the column headings and the kinds and states; a path, a ref or a filename is left alone, so a value cannot dress itself as one of faramir's words. It is escaped as well as unpainted, and so is every path a report prints: a terminal obeys what it is sent, and a carriage return in a filename would make a row read as an entry other than the one stored. `--json` is never painted.
 
+## When a reload is needed
+
+The daemons read `config.toml` once, at start, and go on serving what they hold. The commands that change it reload for themselves, so `reload` is for the changes nothing else covers:
+
+- **You edited `config.toml` by hand.** Nothing watches the file.
+- **A `block` or `link` command wrote its entry and then failed to reload**, and said so. Until it reloads, an added block is not refused, a removed one still is, and an added link is a ref the broker does not serve.
+- **You repaired a linked file's group or mode yourself.** [Why that needs a restart](configuration.md#keeping-a-link-working).
+- **The config moved out of reach of the broker's account.** An install in that state answers normally from what it already holds, so the reload is the first thing to say otherwise; `doctor` checks it ahead of time.
+
+It is not needed for a new or edited managed sops file, which the next refresh picks up ([why](redaction.md#the-value-set-is-everything-the-keeper-manages)), nor after a converge that found the host as it should be: reloading there would restart the daemons under whatever brokered command is running.
+
 ## Rules a command does not state
 
 - **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.
-- **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running.
+- **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running, and [`faramir reload`](#when-a-reload-is-needed) is what does it.
 - **The keeper must be up before the broker is.** On a cold start there is no previous value set, so a keeper it cannot reach means nothing to redact with, and the broker refuses `run` and `redact`. Its unit `Requires=` the keeper socket. A keeper lost *later* does not stop a running broker: it keeps the set it has and retries.
 - **Run `init` before enrolling a project with opencode, Kilo Code or pi.** Their plugins fail closed, so a binary too old to know the agent refuses every command in that project rather than running it unredacted. [What those plugins ask the guard](coding-agents.md#opencode-kilo-code-and-pi).
 - **Children do not inherit the broker's environment.** They get `[command.env]` plus injected secrets. Add what a tool needs there.
