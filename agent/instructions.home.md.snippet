@@ -2,8 +2,7 @@
 
 {{if .AccountRules -}}
 Your file tools are refused faramir's own directories on this machine, wherever
-you are working, and whatever else this host declares. Being able to reach a
-file is not permission to open it.
+you are working. Being able to reach a file is not permission to open it.
 {{- else -}}
 Nothing on this host is guaranteed to refuse your file tools key material.
 Being able to reach a file is not permission to open it.
@@ -26,11 +25,13 @@ A brokered command may run `sudo`, one approval per command:
 Run one only where the operator asked for that command, never on your own
 reading that a task needs root.
 
-- **Never background it.** The approval lands on a command that is still
-  running; one that ends first is refused as `not approved (run_ended)`.
+- **Never background it, and allow a long timeout.** It waits for the operator
+  to answer. The approval lands on a command that is still running; one that
+  ends first is refused as `not approved (run_ended)`.
 - **Name the directory with `-C`.** Without it the command runs in the caller's
   working directory.
-- **Do not re-run a refusal.** A refusal, a lapse, and a question never put all
-  come back as `a password is required`. `journalctl -u faramir-broker.service`
-  says which.
+- **Do not re-run a refusal.** Three things come back alike as `a password is
+  required`: a refusal, a lapse, and a question that never reached the operator.
+  `journalctl -u faramir-broker.service` says which, and carries no command
+  output.
 {{- end}}
