@@ -35,6 +35,8 @@ sudo-rs has neither `pam_service` nor `env_file`, and it compiles in the service
 
 **Version floor.** The grant sets `noninteractive_auth`, which arrived in sudo 1.9.11 and sudo-rs 0.2.9. `init` validates with `visudo` before writing anything and names the floor if the host is older.
 
+**No mail on a refusal.** Every answer but `y` fails the stack's auth step, as does a question that lapses, and the stock `mail_badpass` in `/etc/sudoers` mails the `mailto` address on each one. The grant sets `!mail_badpass` for the executor, so a refusal is silent while every other account's failed authentication still mails.
+
 ## What happens when a command runs `sudo`
 
 Leave a watcher running, as root, somewhere the coding agent cannot type:

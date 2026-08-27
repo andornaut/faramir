@@ -122,6 +122,8 @@ func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
 	for _, rule := range []string{
 		"ex ALL=(ALL:ALL) PASSWD: ALL",
 		"Defaults:ex timestamp_timeout=0",
+		// A refusal fails the auth step, which the stock mail_badpass would mail.
+		"Defaults:ex !mail_badpass",
 		// The private service is what confines a mistake to this one account, and
 		// both launch types reach it: sudo authenticates `sudo -i` against a service
 		// of its own.

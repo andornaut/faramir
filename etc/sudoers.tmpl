@@ -58,9 +58,16 @@
 # required` while a human sits watching for a question nothing ever asked. There
 # is no prompt to protect: this stack reads no terminal, so the setting admits
 # the one authentication method the host has rather than widening it.
+#
+# !mail_badpass because a refusal is an ordinary outcome here rather than an
+# authentication incident. Every answer but `y` fails the stack's auth step, as
+# does a question that lapses, and the stock mail_badpass in /etc/sudoers mails
+# the mailto address on each one. Bound to {{.ExecUser}}, so every other
+# account's failed authentication still mails.
 {{if not .SudoRs}}Defaults:{{.ExecUser}} pam_service={{.PamService}}
 Defaults:{{.ExecUser}} pam_login_service={{.PamService}}
 {{end}}Defaults:{{.ExecUser}} timestamp_timeout=0
 Defaults:{{.ExecUser}} passwd_tries=1
 Defaults:{{.ExecUser}} noninteractive_auth
+Defaults:{{.ExecUser}} !mail_badpass
 {{.ExecUser}} ALL=(ALL:ALL) PASSWD: ALL

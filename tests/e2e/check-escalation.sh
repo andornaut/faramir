@@ -804,6 +804,13 @@ head_ "15b. sudo -n reaches the question"
 grep -q 'noninteractive_auth' /etc/sudoers.d/faramir \
   && ok "the grant sets noninteractive_auth" \
   || bad "the grant does not set noninteractive_auth"
+
+# Every refusal and every lapsed question fails the stack's auth step, which the
+# stock mail_badpass would mail. Bound to the executor, so the operator's own
+# failed authentication still mails.
+grep -q '!mail_badpass' /etc/sudoers.d/faramir \
+  && ok "the grant turns off mail on a failed authentication" \
+  || bad "the grant does not set !mail_badpass, so every refusal mails"
 sudoRun /tmp/nonint.out /usr/bin/sudo -n /usr/bin/id
 ID=$(waitq)
 if [ -z "$ID" ]; then
