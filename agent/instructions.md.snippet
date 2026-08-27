@@ -2,23 +2,20 @@
 
 Commands needing credentials run through the `faramir_run` MCP tool (CLI:
 `faramir run`), which injects the values and returns output with each one
-replaced by `«SECRET:ref»`. `faramir_refs` names what exists. Both tools
-carry their own usage, so this section is the policy rather than the manual.
+replaced by `«SECRET:ref»`. `faramir_refs` names what exists.
 
-Those two, plus `faramir status` and `faramir redact`, are the whole of what
-you may put to the broker; `version`, `help` and `completion` reach none of it
-and are yours as well. Every other faramir subcommand is the operator's and is
-refused here, with sudo and without: they change the install rather than use
-it.
+You may also run `faramir status`, `faramir redact`, `version`, `help` and
+`completion`. Every other faramir subcommand changes the install and is
+refused.
 
 ## Rules
 
-- **Never write a value down**, in code, config, a test fixture, a `.env`, a
-  scratch file, your own notes or a commit message: it outlives the command that
-  produced it. Write the `faramir://` ref instead.
+- **Never write a value down**: not in code, config, a test fixture, a `.env`,
+  a scratch file, your notes or a commit message. Write the `faramir://` ref
+  instead.
 - **Never send one anywhere**: no web request, API call, upload, or paste into
-  an issue or a pull request. This covers what is derived from a value too: a
-  hash, a prefix, or a redaction that leaves enough to guess.
+  an issue or a pull request. A hash, a prefix, or a partial redaction of a
+  value counts as the value.
 - **Never modify the broker's own files**: the secret store, the age keys, the
   systemd units, or faramir's own binary and deny patterns.
 {{ credentialRules }}
@@ -26,13 +23,10 @@ it.
 
 ## Waiting for an escalation
 
-A brokered command that needs root asks the operator, who answers at a terminal
-of their own. While a question is open, every other brokered command is refused
-with `escalation_in_progress`, and a command refused that way was neither run nor
-queued: run it again once the answer is in. `not_quiescent` is the same
-instruction, the host having been busy when the answer arrived. Wait in both
-cases. That pause is what the escalation is worth, so working around it works
-around the escalation.
+While a question is open, other brokered commands are refused with
+`escalation_in_progress`. A command refused that way was not run: run it again
+once the answer is in. `not_quiescent` means the same. Do not work around the
+pause.
 {{- end}}
 
 The pre-execution check that refuses these commands is not the security

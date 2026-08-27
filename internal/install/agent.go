@@ -94,7 +94,7 @@ func (r *runner) writeSections(targets []*agentTarget) (bool, []string, []string
 	changed := false
 	var written, stale []string
 	for _, file := range homeInstructionFiles(targets) {
-		section, err := homeSection(file.accountRules)
+		section, err := homeSection(file.accountRules, r.layout.AllowSudo)
 		if err != nil {
 			return changed, written, stale, err
 		}
@@ -177,9 +177,12 @@ func homeInstructionFiles(targets []*agentTarget) []homeInstructionFile {
 //
 // It names no path this install decides, the rules it explains being rendered
 // into each agent's own config from protectedpaths.go.
-func homeSection(accountRules bool) (string, error) {
+func homeSection(accountRules, allowSudo bool) (string, error) {
 	body, err := renderData("agent/instructions.home.md.snippet",
-		struct{ AccountRules bool }{AccountRules: accountRules})
+		struct {
+			AccountRules bool
+			AllowSudo    bool
+		}{AccountRules: accountRules, AllowSudo: allowSudo})
 	if err != nil {
 		return "", err
 	}

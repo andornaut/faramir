@@ -70,11 +70,11 @@ func TestTheTreeSectionNamesOnlySubcommandsTheAgentMayRun(t *testing.T) {
 
 // And it says the rest are refused, so an agent meeting that refusal reads it
 // as the policy rather than as something to get around. The clause, not the
-// words: "refused" and "operator" each turn up elsewhere in the section.
+// word: "refused" turns up elsewhere in the section.
 func TestTheTreeSectionSaysTheOtherSubcommandsAreRefused(t *testing.T) {
 	body := section(t)
 
-	const clause = "Every other faramir subcommand is the operator's and is refused"
+	const clause = "Every other faramir subcommand changes the install and is refused"
 	if !strings.Contains(collapse(body), clause) {
 		t.Errorf("the section does not say the commands it does not sanction are "+
 			"refused:\n%s", body)
@@ -92,7 +92,7 @@ func collapse(body string) string {
 // changed in both. What each may not do is claim the other's half.
 func TestTheSharedRulesAreOneSnippetInBothSections(t *testing.T) {
 	tree := section(t)
-	home, err := homeSection(true)
+	home, err := homeSection(true, true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -368,6 +368,25 @@ func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
 	if strings.Contains(withheld, marker) {
 		t.Errorf("a host with no sudo grant is told about %s:\n%s", marker, withheld)
 	}
+	// The home says how to raise one, which holds for the same hosts and no
+	// others: the grant is the host's rather than any tree's.
+	const homeMarker = "Never background it"
+	grantedHome, err := homeSection(true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(grantedHome, homeMarker) {
+		t.Errorf("a home on a host with a sudo grant is not told %q:\n%s",
+			homeMarker, grantedHome)
+	}
+	withheldHome, err := homeSection(true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(withheldHome, homeMarker) {
+		t.Errorf("a home on a host with no sudo grant is told %q:\n%s",
+			homeMarker, withheldHome)
+	}
 }
 
 // initHome runs `init`'s account-level agent step for real against a home the
@@ -571,7 +590,7 @@ func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
 	seen := map[bool]int{}
 	for _, name := range knownAgents() {
 		target := agentTargets[name]
-		body, err := homeSection(len(target.accountFiles) > 0)
+		body, err := homeSection(len(target.accountFiles) > 0, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -622,7 +641,7 @@ func TestBothSectionsStateTheSharedRulesIdentically(t *testing.T) {
 		t.Errorf("the tree's section does not carry the shared rules verbatim:\n%s", project)
 	}
 	for _, name := range knownAgents() {
-		home, err := homeSection(len(agentTargets[name].accountFiles) > 0)
+		home, err := homeSection(len(agentTargets[name].accountFiles) > 0, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -647,13 +666,16 @@ func TestEachSectionSaysWhatOnlyItCan(t *testing.T) {
 			t.Errorf("the tree's section does not say %q", want)
 		}
 	}
-	home, err := homeSection(true)
+	home, err := homeSection(true, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// What a home is for: there is a route in an enrolled tree and none outside
 	// one, which is the question an agent has where no broker is registered.
-	for _, want := range []string{"init-project", "ask the operator"} {
+	// Escalation is the home's too, the grant being the host's rather than any
+	// tree's, and an agent that backgrounds the command loses the approval.
+	for _, want := range []string{"init-project", "ask the operator",
+		"faramir run -C", "Never background it"} {
 		if !strings.Contains(home, want) {
 			t.Errorf("the home section does not say %q", want)
 		}

@@ -2,20 +2,35 @@
 
 {{if .AccountRules -}}
 Your file tools are refused faramir's own directories on this machine, wherever
-you are working, and whatever else this host declares.
-Being able to reach a file is not permission to open it, and a credential no
-rule names is still not yours to read.
+you are working, and whatever else this host declares. Being able to reach a
+file is not permission to open it.
 {{- else -}}
-Nothing here is guaranteed to refuse your file tools key material: what refuses
-one differs by agent and by project, and where nothing does, these rules are the
-whole of what stands in the way. Being able to reach a file is not permission to
-open it.
+Nothing on this host is guaranteed to refuse your file tools key material.
+Being able to reach a file is not permission to open it.
 {{- end}}
 
-In a project enrolled with `faramir init-project` there is a route that does not
-need the value: commands run through the broker, which injects what they asked
-for and redacts it from the output. That project's own instructions say how. In
-a project that is not enrolled there is no such route, so ask the operator
-rather than looking for one.
+In a project enrolled with `faramir init-project`, commands run through the
+broker, which injects what they asked for and redacts it from the output. That
+project's own instructions say how. Outside one there is no such route:
+ask the operator rather than looking for one.
 
 {{ credentialRules }}
+{{- if .AllowSudo}}
+
+## Escalation
+
+A brokered command may run `sudo`, one approval per command:
+
+    faramir run -C <directory> -- sudo <command>
+
+Run one only where the operator asked for that command, never on your own
+reading that a task needs root.
+
+- **Never background it.** The approval lands on a command that is still
+  running; one that ends first is refused as `not approved (run_ended)`.
+- **Name the directory with `-C`.** Without it the command runs in the caller's
+  working directory.
+- **Do not re-run a refusal.** A refusal, a lapse, and a question never put all
+  come back as `a password is required`. `journalctl -u faramir-broker.service`
+  says which.
+{{- end}}
