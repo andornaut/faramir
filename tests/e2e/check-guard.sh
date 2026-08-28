@@ -171,7 +171,7 @@ check_shape kilocode '.decision'                              rewrite "rewrite" 
 # The deny reason has to reach the model with the alternative in it, or the
 # agent retries the same command a different way.
 reason=$(decide 'cat /etc/faramir/age.key' | jq -r '.hookSpecificOutput.permissionDecisionReason')
-echo "$reason" | grep -q 'faramir_run' && ok "the refusal names faramir_run as the way to proceed" \
+echo "$reason" | grep -q 'faramir run' && ok "the refusal names \`faramir run\` as the way to proceed" \
   || bad "the refusal does not tell the agent what to do instead"
 echo "$reason" | grep -q 'matched deny pattern' && ok "and names the pattern that matched" \
   || bad "the refusal does not say which rule fired"

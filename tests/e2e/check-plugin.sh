@@ -1,10 +1,10 @@
 #!/bin/bash
 # The opencode and Kilo Code plugins, executed.
 #
-# Two of the four supported agents do not use a hook that runs a program. They
-# load JavaScript into their own process, and that file is the whole enforcement
-# path: it calls `faramir guard`, applies what comes back, and refuses when it
-# cannot. Nothing has ever run it. The project suite proved the file is
+# Three of the six supported agents do not use a hook that runs a program. They
+# load JavaScript or TypeScript into their own process, and that file is the
+# whole enforcement path: it calls `faramir guard`, applies what comes back, and
+# refuses when it cannot. Nothing has ever run it. The project suite proved the file is
 # written; this one proves it works.
 #
 # The failure it exists for is silent. A plugin that throws where it should
@@ -155,11 +155,13 @@ head_ "pi"
 # guard; what is checked here is the enrolled file against the real binary.
 
 PI_EXT=$HOME_OP/.pi/agent/extensions/faramir.ts
-[ -f "$PI_EXT" ] || /usr/local/bin/faramir init-project --agent pi "$PROJECT" >/dev/null 2>&1
+# `init` rather than `init-project`: the extension goes into the account's home,
+# which pi loads for every project, so a tree enrolment writes nothing for it.
+[ -f "$PI_EXT" ] || /usr/local/bin/faramir init --agent-user op --agent pi >/dev/null 2>&1
 if [ ! -f "$PI_EXT" ]; then
-  bad "pi: enrolment wrote no extension at $PI_EXT"
+  bad "pi: \`faramir init --agent pi\` wrote no extension at $PI_EXT"
 else
-  ok "pi: the enrolled extension is at ${PI_EXT#"$PROJECT"/}"
+  ok "pi: the installed extension is at $PI_EXT"
   # The shipped bytes: the extension is a .ts carrying no type annotations, so
   # node runs it as it is. 0644 because these probes run as the operator.
   cp "$PI_EXT" /tmp/pi-under-test.mjs; chmod 0644 /tmp/pi-under-test.mjs

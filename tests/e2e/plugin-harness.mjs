@@ -58,7 +58,7 @@ switch (name) {
     // run approves it. So the plugin refuses the path itself.
     const r = await call({ tool: "read" }, { args: { filePath: "/etc/faramir/age.key" } })
     if (!r.threw) fail("a file tool opened the age key")
-    if (!/faramir_run/.test(r.message)) fail(`the refusal names no way through: ${r.message.slice(0, 80)}`)
+    if (!/faramir run/.test(r.message)) fail(`the refusal names no way through: ${r.message.slice(0, 80)}`)
     pass("a file tool naming key material is refused")
     break
   }

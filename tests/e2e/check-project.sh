@@ -91,9 +91,17 @@ owned "$HOME_OP/.gemini/antigravity-cli/settings.json" "agy: account-wide deny r
 # The hook both halves read for every workspace, enrolled or not. It is what
 # refuses the IDE's file tools, which have no rule file anywhere.
 owned "$HOME_OP/.gemini/config/hooks.json" "antigravity: account-wide hook (from init)"
-grep -q -- '--paths-only' "$HOME_OP/.gemini/config/hooks.json" \
-  && ok "antigravity: the account-wide hook refuses files and leaves commands to the tree's" \
-  || bad "the account-wide hook would route commands in trees that were never enrolled"
+# The dialect is the family's name rather than either half's: one file, written
+# once, whichever half the install named.
+grep -q -- '--host antigravity' "$HOME_OP/.gemini/config/hooks.json" \
+  && ok "antigravity: the account-wide hook runs the guard in the family's dialect" \
+  || bad "the account-wide hook names no guard, so nothing refuses this agent's file tools"
+# It carries the whole of it: a command routed and a path refused, in every
+# workspace. Only Claude Code's account-wide hook is deny-only, routing costing
+# a permission there and nowhere else.
+grep -q -- '--deny-only' "$HOME_OP/.gemini/config/hooks.json" \
+  && bad "the account-wide hook is deny-only, so nothing this agent runs is redacted" \
+  || ok "antigravity: and it routes what the agent runs rather than only refusing"
 grep -q 'read_file(/etc/faramir)' "$HOME_OP/.gemini/antigravity-cli/settings.json" \
   && ok "agy: the rules name this install's directories bare, which is what covers the tree under them" \
   || bad "agy: the deny rules do not refuse the config directory"
@@ -411,7 +419,7 @@ enrol "$D" --agent claude --agent antigravity >/dev/null 2>&1
 # Keyed by directory, so a tree has one entry however often it is enrolled. Its
 # agents are the ones this run named plus the ones an earlier run did that the
 # tree still carries: enrolling one by name does not say the others have gone,
-# their hook and MCP registration still being there for doctor to check.
+# what they read in the tree still being there for doctor to check.
 enrol "$D" --agent opencode >/dev/null 2>&1
 [ "$(agentsOf "$D")" = "antigravity,claude,opencode" ] \
   && ok "re-enrolling keeps the agents the tree still carries, and adds the new one" \
@@ -579,8 +587,8 @@ enrol "$D" >/dev/null 2>&1
 owned "$D/AGENTS.md" "the instructions file"
 grep -q '^# Credentials' "$D/AGENTS.md" && ok "  carrying the credentials section" \
   || bad "  without the credentials section"
-grep -q 'faramir_run' "$D/AGENTS.md" && ok "  which names the tool to use instead" \
-  || bad "  it does not name faramir_run"
+grep -q 'faramir run' "$D/AGENTS.md" && ok "  which names the command to use instead" \
+  || bad "  it does not name \`faramir run\`"
 
 sum=$(md5sum "$D/AGENTS.md" | cut -d' ' -f1)
 enrol "$D" >/dev/null 2>&1
