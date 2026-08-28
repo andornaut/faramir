@@ -2,9 +2,6 @@ package guard
 
 import (
 	"encoding/json"
-	"fmt"
-	"maps"
-	"os"
 	"strings"
 	"testing"
 )
@@ -129,49 +126,18 @@ func TestTheFamilySpeaksOneDialect(t *testing.T) {
 	}
 }
 
-// fmtPathAdvice is the refusal a denied path gets, as Run renders it.
-func fmtPathAdvice(path string) string { return fmt.Sprintf(pathAdvice, path) }
-
-// runGuard drives one payload through the host's own decoding and returns the
-// decoded reply. Empty where the guard answered nothing, which is a call left
-// alone.
+// runGuard drives one payload through the guard the way a hook does, and
+// returns the decoded reply. Empty where the guard answered nothing, which is a
+// call left alone.
+//
+// Through Run rather than through the steps it takes. A helper that re-derives
+// the decision tests its own copy of it: the ordering here is load-bearing, a
+// file tool being asked about before the tool gate and a rewrite only after the
+// deny list, and a copy agrees with the original right up until somebody
+// changes one of them.
 func runGuard(t *testing.T, host, payload string) map[string]any {
 	t.Helper()
-	h, err := lookupHost(host)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decode := h.decode
-	if decode == nil {
-		decode = decodeToolInput
-	}
-	p, err := decode([]byte(payload))
-	if err != nil {
-		t.Fatal(err)
-	}
-	command := commandOf(p)
-	if command == "" && h.refusesPaths {
-		if path, denied := refusedPath(p.RawInput); denied {
-			_ = path
-			return h.deny(fmtPathAdvice(path))
-		}
-	}
-	if !h.handles(p.ToolName) {
-		return nil
-	}
-	if pattern, denied := decide(command); denied {
-		return h.deny(pattern)
-	}
-	wrapped, ok := wrap(h, command, p)
-	if !ok {
-		return nil
-	}
-	updated := map[string]any{}
-	if !h.mergesInput {
-		maps.Copy(updated, p.RawInput)
-	}
-	updated[h.commandField()] = wrapped
-	return h.rewrite(updated)
+	return guardOutput(t, []string{"--host", host}, payload)
 }
 
 // The IDE half of this family keeps its permission lists as its own state, so
@@ -306,24 +272,36 @@ func TestProseNamingAProtectedPathIsNotACallToOpenIt(t *testing.T) {
 // refuses is what its operator declared, and a test naming one would pass or
 // fail on the config rather than on this.
 func TestTheTildeFormIsAnsweredLikeTheAbsoluteOne(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "/" {
+	home := guardHome()
+	if home == "" {
 		t.Skip("no home to expand against")
 	}
-	for _, rest := range []string{
-		"/.ssh/id_ed25519",
-		"/.config/sops/age/keys.txt",
-		"/.luks/luks.key",
-		"/src/app/main.go",
+	// Against a rule that names a file under this home, or every case below is
+	// two refusals that did not happen agreeing with each other.
+	declared := blockOneFileUnderTheHome(t)
+	read := func(path string) map[string]any {
+		return runGuard(t, "antigravity",
+			`{"toolCall":{"name":"read_file","args":{"Path":`+quoteJSON(path)+`}}}`)
+	}
+	if read(declared) == nil {
+		t.Fatalf("the declared path is not refused as written: %s", declared)
+	}
+	for _, tc := range []struct {
+		rest  string
+		block bool
+	}{
+		{"/.ssh/id_ed25519", true},
+		{"/.ssh/id_ed25519/../id_ed25519", true},
+		{"/src/app/main.go", false},
 	} {
-		t.Run(rest, func(t *testing.T) {
-			tilde := runGuard(t, "antigravity",
-				`{"toolCall":{"name":"read_file","args":{"Path":`+quoteJSON("~"+rest)+`}}}`)
-			absolute := runGuard(t, "antigravity",
-				`{"toolCall":{"name":"read_file","args":{"Path":`+quoteJSON(home+rest)+`}}}`)
+		t.Run(tc.rest, func(t *testing.T) {
+			tilde, absolute := read("~"+tc.rest), read(home+tc.rest)
 			if (tilde == nil) != (absolute == nil) {
 				t.Errorf("~%s and %s are answered differently: %v vs %v",
-					rest, home+rest, tilde, absolute)
+					tc.rest, home+tc.rest, tilde, absolute)
+			}
+			if refused := tilde != nil; refused != tc.block {
+				t.Errorf("~%s refused = %v, want %v", tc.rest, refused, tc.block)
 			}
 		})
 	}
@@ -336,4 +314,27 @@ func quoteJSON(s string) string {
 		panic(err)
 	}
 	return string(out)
+}
+
+// A payload carrying no tool name is not this host's shape, and every
+// well-formed JSON document decodes into the struct that reads one. So the
+// decode has to refuse an empty name itself: without that, a single rename
+// upstream would leave every call answered with silence, which the host reads
+// as a call to let through.
+func TestAPayloadInAnotherShapeIsRefusedRatherThanLetThrough(t *testing.T) {
+	for _, tc := range []struct{ name, payload string }{
+		{"no toolCall at all", `{"tool_name":"run_command"}`},
+		{"a toolCall with no name", `{"toolCall":{"args":{"CommandLine":"cat /etc/shadow"}}}`},
+		{"an empty document", `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := runGuard(t, "antigravity", tc.payload)
+			if got == nil {
+				t.Fatal("the call was let through, so a changed payload shape guards nothing")
+			}
+			if got["decision"] != denyDecision {
+				t.Errorf("decision = %v, want %s: %v", got["decision"], denyDecision, got)
+			}
+		})
+	}
 }

@@ -2,9 +2,13 @@ package guard
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/install"
 )
 
 // The agents with no rule file of their own are refused a path here rather than
@@ -49,23 +53,69 @@ func TestTheGuardRefusesAPathHoweverItIsSpelled(t *testing.T) {
 	}
 }
 
+// blockOneFileUnderTheHome renders this install's rules with one [[secret.block]]
+// entry naming a file in the account's own home, points the guard at them, and
+// returns the path it declared.
+//
+// A home path rather than one of this install's directories, because expanding
+// "~" is the only thing the spellings do that normalising a command line does
+// not, so a rule under /etc would leave it unasserted.
+func blockOneFileUnderTheHome(t *testing.T) string {
+	t.Helper()
+	me, err := user.Current()
+	if err != nil || me.Username == "" {
+		t.Skip("no account to render the rules against")
+	}
+	secret := filepath.Join(guardHome(), ".ssh", "id_ed25519")
+	rules, err := install.RenderDenyPatterns(install.Layout{
+		ConfigDir:  install.DefaultConfigDir,
+		BinDir:     install.DefaultBinDir,
+		LibexecDir: install.DefaultLibexecDir,
+		LogDir:     install.DefaultLogDir,
+		BrokerUser: install.DefaultBrokerUser,
+		KeeperUser: install.DefaultKeeperUser,
+		ExecUser:   install.DefaultExecUser,
+		AgentUser:  me.Username,
+		Blocked:    []config.BlockedPath{{Path: secret}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), "deny-patterns.txt")
+	if err := os.WriteFile(file, rules, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_DENY_PATTERNS", file)
+	return secret
+}
+
 // A "~" is the operator's home written the way a person writes it, and the
-// rules carry the real path. Asserted as an equivalence: which paths a host
-// refuses is what its operator declared, so naming one would test the config.
-func TestTheTildeAndAbsoluteFormsAgree(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "/" {
+// rules carry the real path, so the guard expands one before it asks.
+//
+// Asserted against a rule that actually names a file under this home. An
+// equivalence alone passes when neither form is refused, which is every host
+// whose rules name nothing under a home: it agrees, and it agrees about
+// nothing.
+func TestTheTildeFormIsRefusedAsTheAbsoluteOneIs(t *testing.T) {
+	home := guardHome()
+	if home == "" {
 		t.Skip("no home to expand against")
 	}
-	for _, rest := range []string{"/.ssh/id_ed25519", "/.luks/luks.key", "/src/app/main.go"} {
-		t.Run(rest, func(t *testing.T) {
-			_, tilde := refusedPath(map[string]any{"p": "~" + rest})
-			_, absolute := refusedPath(map[string]any{"p": filepath.Join(home, rest)})
-			if tilde != absolute {
-				t.Errorf("~%s refused=%v but %s refused=%v", rest, tilde,
-					filepath.Join(home, rest), absolute)
-			}
-		})
+	secret := blockOneFileUnderTheHome(t)
+
+	// The absolute form first: if the rule does not reach it, the tilde case
+	// below would agree with it and prove nothing, which is the failure this
+	// replaced.
+	if _, refused := refusedPath(map[string]any{"p": secret}); !refused {
+		t.Fatalf("the declared path is not refused as written, so this asserts nothing: %s", secret)
+	}
+	if _, refused := refusedPath(map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
+		t.Error("the tilde form is not refused, so a path written the way a person writes it is a way past the rule")
+	}
+	// And an unrelated file under the same home is left alone, or the rule would
+	// be refusing the home rather than the file in it.
+	if _, refused := refusedPath(map[string]any{"p": "~/src/app/main.go"}); refused {
+		t.Error("an ordinary file under the home is refused, so the rule is wider than the entry")
 	}
 }
 

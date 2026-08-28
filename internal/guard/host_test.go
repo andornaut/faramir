@@ -154,3 +154,40 @@ func TestUnknownHostIsRefused(t *testing.T) {
 		t.Errorf("exit = %d, want 2", code)
 	}
 }
+
+// The account-wide registration refuses what the list names and approves
+// nothing. Both halves matter and they fail in opposite directions: without the
+// refusal it guards nothing, and without the silence it approves every command
+// on the account rather than in the trees an operator chose, which is the whole
+// of what the flag exists not to do.
+func TestTheAccountWideRegistrationRefusesAndApprovesNothing(t *testing.T) {
+	deny := []string{"--deny-only"}
+
+	got := guardOutput(t, deny, bashCall(t, "cat /etc/faramir/age.key"))
+	out, ok := got["hookSpecificOutput"].(map[string]any)
+	if !ok {
+		t.Fatalf("a command the deny list names was not refused: %v", got)
+	}
+	if out["permissionDecision"] != denyDecision {
+		t.Errorf("permissionDecision = %v, want %s", out["permissionDecision"], denyDecision)
+	}
+
+	// And nothing else is answered at all. Not "allow": an empty reply is what
+	// leaves the host's own permission flow as it was.
+	if got := guardOutput(t, deny, bashCall(t, "ls")); got != nil {
+		t.Errorf("an ordinary command was answered, so the account was approved: %v", got)
+	}
+}
+
+// bashCall is one Claude Code Bash payload.
+func bashCall(t *testing.T, command string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"tool_name":  "Bash",
+		"tool_input": map[string]any{"command": command},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
