@@ -444,6 +444,12 @@ func TestPiExtensionFailsClosed(t *testing.T) {
 		{"the guard exits non-zero", "", "3"},
 		{"the guard answers with something that is not JSON", "not json at all", "0"},
 		{"the guard returns a decision it does not understand", `{"decision":"levitate"}`, "0"},
+		// The one answer that would run unredacted rather than failing closed:
+		// Object.assign ignores null and undefined, so a rewrite naming no
+		// command would leave the call as the model wrote it and return it as
+		// approved.
+		{"the guard asks for a rewrite and names no command", `{"decision":"rewrite"}`, "0"},
+		{"the rewrite's tool_input is not an object", `{"decision":"rewrite","tool_input":"oops"}`, "0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rig, call := newPiRig(t)
