@@ -310,6 +310,7 @@ Target | Does
 `make test` | Everything that tests this: the Go suite and the end-to-end suites
 `make e2e` | The end-to-end suites alone, against a real install in a container
 `make coverage` | Race-enabled Go suite plus per-function report
+`make fuzz` | Every fuzz target, `FUZZTIME` each (default 30s). Time-boxed rather than finished, so it is run by hand rather than by CI
 `make fmt` | Apply the import and format rules CI checks
 `make lint` | golangci-lint and ShellCheck. CI's Lint job also runs markdownlint and `goreleaser check`, which this tree asks for no tooling for
 `make shellcheck` | The shell scripts alone, as CI checks them

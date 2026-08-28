@@ -108,9 +108,9 @@ These three have no hook that runs a program. A plugin inside the agent's own pr
 
 A rewrite carries back every field of the original tool input with only `command` replaced. Writing nothing means the call is left alone.
 
-Every other answer fails closed: a guard that cannot be run, a non-zero exit, an answer that is not JSON, a decision the plugin does not recognise. That last one covers version skew, which is why `faramir init` [comes before enrolling one of these](operating.md#rules-a-command-does-not-state).
+Every other answer fails closed: a guard that cannot be run, a non-zero exit, an answer that is not JSON, a rewrite naming no command, a decision the plugin does not recognise. That last one covers version skew, which is why `faramir init` [comes before enrolling one of these](operating.md#rules-a-command-does-not-state).
 
-opencode and Kilo Code load a JavaScript plugin. Pi loads a TypeScript extension from the project. Each translates a decision the guard made; none of them decides anything.
+opencode and Kilo Code load a JavaScript plugin. Pi loads a TypeScript extension. All three are installed in a home and loaded for every project; each translates a decision the guard made, and none of them decides anything.
 
 ## Claude Code
 
