@@ -31,7 +31,7 @@ func records(t *testing.T, s *Server) []map[string]any {
 	return out
 }
 
-// A refusal hands the caller a log_id, and `faramir mcp` passes it to the model
+// A refusal hands the caller a log_id, which `faramir run` prints for the model
 // as something the operator can look up. An id naming no record sends somebody
 // to look up nothing, and it is the same question the log answers for every
 // other outcome: why did this not run.

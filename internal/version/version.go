@@ -1,6 +1,6 @@
 // Package version holds the one version string every binary reports. Its own
 // package, so reaching it does not link the redactor, the executor and the
-// keeper client into the CLI and the MCP server.
+// keeper client into the CLI.
 package version
 
 import (
@@ -26,7 +26,7 @@ var Version = "dev"
 //
 // Not folded into Version, which would be a different and worse change:
 // Mismatch refuses a caller whose version is not this binary's, so a Version
-// that changed per build would refuse every running MCP server and agent on
+// that changed per build would refuse every running daemon and agent on
 // every rebuild rather than at a release.
 var Build = ""
 
@@ -136,6 +136,7 @@ func Mismatch(caller string) string {
 		named = "no version"
 	}
 	return fmt.Sprintf("the caller names %s and this is faramir %s: restart it. "+
-		"An MCP server is a child of the coding agent, so it is reconnected there "+
-		"rather than restarted on its own", named, Version)
+		"A daemon that outlived the install which replaced the binary under it is "+
+		"the usual cause, and `sudo faramir reload` is what restarts all three",
+		named, Version)
 }

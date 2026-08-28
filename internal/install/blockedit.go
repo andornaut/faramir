@@ -134,9 +134,9 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 }
 
 // refuseEnrolledTrees stops a path entry that would refuse the agent the tree
-// it works in, or a directory holding one. The rule is written into that tree's
-// own settings file, so the agent meets it as every file tool failing in the
-// directory it was pointed at, with a rule it can read and cannot lift.
+// it works in, or a directory holding one. The rules hold wherever the agent
+// works, so it meets one as every file tool failing in the directory it was
+// pointed at, with a rule it can read and cannot lift.
 //
 // Refused rather than warned, as "/" is: an entry naming a checkout refuses
 // nothing that is a secret, and the file inside it worth refusing can be named
@@ -156,10 +156,10 @@ func refuseEnrolledTrees(configDir string, refused []config.BlockedPath) error {
 				continue
 			}
 			if entry.Path == tree.Dir {
-				return fmt.Errorf("path %s is an enrolled tree, and the rule would be "+
-					"written into that tree's own settings: the agent would be refused "+
-					"every file in the directory it works in. Name the file inside it, "+
-					"or `sudo faramir init-project` elsewhere first", entry.Path)
+				return fmt.Errorf("path %s is an enrolled tree, and the rules hold "+
+					"wherever the agent works: it would be refused every file in the "+
+					"directory it works in. Name the file inside it, or "+
+					"`sudo faramir init-project` elsewhere first", entry.Path)
 			}
 			return fmt.Errorf("path %s holds the enrolled tree %s, so the rule would "+
 				"refuse the agent every file in the directory it works in. Name the "+

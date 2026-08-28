@@ -27,7 +27,6 @@ var renderFuncs = template.FuncMap{
 	// protectedpaths.go: no template holds a path of its own.
 	"claudeRules":    claudeRules,
 	"pluginPatterns": pluginPatterns,
-	"jsFragments":    jsFragments,
 	"agyRules":       agyRules,
 	// The same protected set in the command guard's spelling, so a rule refuses
 	// a file tool and `cat` alike. See commandRules.

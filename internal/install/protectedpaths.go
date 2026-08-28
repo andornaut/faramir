@@ -647,8 +647,14 @@ func RenderDenyPatterns(layout Layout) ([]byte, error) {
 	return render("agent/hooks/deny-patterns.txt", layout)
 }
 
-// jsFragments renders the list for an agent whose rules are applied by a plugin
-// this installs, as JavaScript regex source.
+// jsFragments renders the declared names as regex source, one per rule.
+//
+// Nothing installs this: no agent carries a copy of the list any more, every
+// one of them asking `faramir guard`. It stays because it is the only rendering
+// a test can compile and run, so the tests that ask what a pattern *matches*
+// rather than what string was written execute this. The kinds and their
+// breadth are blockedNameRule's, so it cannot drift from what the guard
+// applies without the shared inference changing under both.
 func jsFragments(layout Layout) []string {
 	rules := blockedNameRules(layout)
 	out := make([]string, 0, len(rules))

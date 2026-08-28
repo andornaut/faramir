@@ -21,9 +21,9 @@ import (
 // the program they invoke.
 const binaryName = "faramir"
 
-// installedBinaries goes to BinDir. There is one; the daemons, the MCP server
-// and the hook are subcommands of it. LibexecDir holds the hook's deny list
-// and wrap script.
+// installedBinaries goes to BinDir. There is one; the daemons and the guard are
+// subcommands of it, and it is also how the agent reaches the broker.
+// LibexecDir holds the guard's deny list and wrap script.
 var installedBinaries = []string{binaryName}
 
 // stepDirectories creates what everything below writes into.

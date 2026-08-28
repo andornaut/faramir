@@ -7,7 +7,7 @@
 # regexQuote. The guard's built-in fallback carries the compiled defaults.
 #
 # Not the security boundary, the agent uid being unable to read the key material
-# regardless, but a corrective message naming faramir_run instead of an EACCES,
+# regardless, but a corrective message naming `faramir run` instead of an EACCES,
 # and no encrypted blobs in the context window. See docs/design.md.
 #
 # It names credential disclosure plus writes to the paths that are the broker
@@ -83,10 +83,10 @@
 # an edit here is discarded rather than kept, and what a removal buys in the
 # meantime is an agent whose commands stop being routed through the guard.
 #
-# The merged files are deliberately absent: .claude/settings.json, .mcp.json,
-# opencode.json, kilo.json and .agents/mcp_config.json carry the operator's own
-# settings and other tools' servers beside faramir's entries, which is why
-# init-project merges into them instead of replacing them. Editing those is
+# The merged files are deliberately absent: .claude/settings.json,
+# opencode.json, kilo.json and the Antigravity CLI's settings carry the
+# operator's own settings beside faramir's entries, which is why an install
+# merges into them instead of replacing them. Editing those is
 # ordinary work. What covers them instead is `faramir doctor`, which reports a
 # registration that went missing, and the rule in the credentials section
 # against removing faramir's own entries from a file you are otherwise free to

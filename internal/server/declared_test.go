@@ -27,7 +27,8 @@ func nameEntry(name string) config.BlockedPath { return config.BlockedPath{Name:
 
 // The hole this closes. A blocked path is refused to the agent's file tools and
 // to its shell, and neither rule reaches the broker: the guard is a hook over
-// shell tools, and an MCP faramir run call is not one. So the one route the
+// the agent's own tools, and a command on the far side of it is not one. So
+// the one route the
 // agent has left ran the read unchecked, bounded by nothing but the mode -- and
 // the executor holds the client group, so a file declared inside the enrolled
 // tree was readable through it.

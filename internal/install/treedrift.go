@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// What an enrolled tree still carries of what `init-project` wrote into it: the
-// hook, the plugin that calls it and the MCP registration, which between them
-// are what makes an agent in that tree run its commands through the broker.
+// What an enrolled tree still carries of what `init-project` wrote into it,
+// which is Claude Code's routing hook and nothing else: every other agent is
+// guarded from a home, and routing costs a permission on this one alone.
 //
 // A tree is shared with the client group, and unlink and rename are permissions
 // on the directory, so a brokered command can replace one of these whatever

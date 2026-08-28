@@ -1,8 +1,10 @@
 // faramir: run every shell command under the redactor, and refuse the ones the
 // deny list names.
 //
-// `faramir init-project --agent pi` writes this into {{.Path}}, which pi loads
-// once the project is trusted.
+// `faramir init --agent pi` writes this into {{.Path}}, which pi loads for
+// every project without the project being trusted. In a home rather than a
+// tree: the wrapper, the redactor and the binary this execs are installed for
+// the account, so nothing about guarding a command needs a tree.
 //
 // A file of its own rather than the template the opencode and Kilo Code plugins
 // share, because pi answers differently in both directions: a refusal is a
@@ -11,14 +13,9 @@
 // is shared is the guard call and the fail-closed branches, and folding three
 // dialects into one template would branch it exactly where a bug would live.
 //
-// pi ships no MCP, so the tools the other hosts reach through it are registered
-// here instead. Without them the guard's own refusal dead-ends: it tells the
-// model to use faramir_run, and on this host there would be no such tool.
-//
-// They shell out to the CLI rather than speaking to the broker socket, so there
-// is one client of the wire protocol rather than two, and this file cannot
-// drift from docs/protocol.md. What it formats is the JSON the CLI already
-// prints, in the shape internal/mcp returns.
+// It registers no tools. The route to the broker is `faramir run`, which is
+// installed for the account and needs registering nowhere, and it is what the
+// guard's own refusal names.
 
 // No type annotations, though the extension pi loads is a .ts: TypeScript takes
 // plain JavaScript, and without them this file runs under a bare node, which is

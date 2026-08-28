@@ -792,7 +792,7 @@ func (s *Server) refuseUnreadable(op, phrase, logID string, peer *sockutil.Peer)
 }
 
 // refuse answers a request that will not run, and records it under the log_id
-// the caller is given: `faramir mcp` hands that id to the model, so one naming
+// the caller is given: `faramir run` prints that id, so one naming
 // no record sends somebody to look up nothing. Not for the refusals decided
 // before a request is parsed -- too_large, a forbidden peer, malformed JSON --
 // which carry no id.

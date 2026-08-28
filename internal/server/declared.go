@@ -17,8 +17,9 @@ import (
 // The other half is the agent's own. `faramir init` renders every declared path
 // and name into each agent's deny rules and into the guard's pattern file, so
 // the agent's file tools and its shell are refused them. Neither reaches a
-// brokered command: the guard is a hook over shell tools, and an MCP
-// faramir_run call is not one, while the executor holds no policy of its own.
+// brokered command: the guard is a hook over the agent's own tools, and a
+// command on the far side of the broker is not one, while the executor holds
+// no policy of its own.
 // So a declared file was readable through the broker by anything the executor's
 // uid could open. That is not a corner: the executor carries the client group so
 // a brokered command can work in the enrolled tree, which makes a .env declared

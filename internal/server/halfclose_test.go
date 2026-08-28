@@ -14,8 +14,8 @@ import (
 // after sending has every brokered command killed the moment it starts.
 //
 // Read off the source rather than asserted through a socket, because the
-// failure is one call in one client: the CLI, the MCP server and the plugins
-// each dial this socket, and a test that exercised one would pass while
+// failure is one call in one client, and everything an agent runs reaches this
+// socket through the CLI, so a test that exercised one call would pass while
 // another was broken. The keeper's client is exempt and named: it speaks to a
 // different socket, which watches nothing.
 func TestNothingHalfClosesTheBrokerSocket(t *testing.T) {

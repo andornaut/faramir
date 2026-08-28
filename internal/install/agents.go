@@ -198,8 +198,7 @@ var agentTargets = map[string]*agentTarget{
 	// calls `faramir guard` and applies what it answers. The deny list and the
 	// rewrite stay in the binary.
 	//
-	// A plugin directory needs no registration; the config file carries the MCP
-	// server.
+	// A plugin directory needs no registration: the host loads every file in it.
 	"opencode": {
 		name: "opencode",
 		// Deny rules only, and no catch-all. The last matching wildcard wins
@@ -223,11 +222,9 @@ var agentTargets = map[string]*agentTarget{
 		note:             pluginNote("opencode"),
 	},
 
-	// pi extends through a TypeScript module loaded from the project, once the
-	// project is trusted. No MCP ships with it, so that module registers the
-	// tools the other hosts reach through a server, shelling out to the CLI: see
-	// agent/pi/extension.ts.tmpl, whose tool definitions are rendered from
-	// internal/mcp's list rather than written a second time.
+	// pi extends through a TypeScript module, which it loads from a home for
+	// every project. The module registers no tools and decides nothing: it asks
+	// `faramir guard` and applies the answer, the same as the two plugin hosts.
 	"pi": {
 		name: "pi",
 		// The extension goes in a home, which pi discovers for every project and
@@ -331,8 +328,8 @@ var agentTargets = map[string]*agentTarget{
 		autoApprovesBash: false,
 		noteStands:       true,
 		note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +
-			"project it has opened. Until then the hook, the rules and the MCP registration " +
-			"are there and inert",
+			"project it has opened, so until then the rules file is there and inert. What " +
+			"holds meanwhile is the account-wide hook `faramir init` writes",
 	},
 
 	// The IDE half. Same hook, same prose, and no account-wide rules: its
@@ -363,23 +360,22 @@ var agentTargets = map[string]*agentTarget{
 		autoApprovesBash: false,
 		noteStands:       true,
 		note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +
-			"project it has opened. Until then the hook, the rules and the MCP registration " +
-			"are there and inert, and what holds is the account-wide hook `faramir init` writes",
+			"project it has opened, so until then the rules file is there and inert. What " +
+			"holds meanwhile is the account-wide hook `faramir init` writes",
 	},
 }
 
 // writeAgentFiles writes one list of an agent's files under root, and reports
 // whether it changed anything and what it wrote. One function for both
 // commands: `init` writes the account-wide rules into a home and `init-project`
-// the hook and the MCP registration into a tree.
+// Claude Code's routing hook into a tree.
 //
 // render is the caller's, the two rendering against different things: the
 // install layout for an account file, the target's own data for a tree's.
 //
 // inTree says which root this is. A tree's files are group-owned so the client
-// group can read what the hook and the MCP registration are written into, and a
-// link out of the tree would carry that group to a file the enrolment was never
-// pointed at. A home's decide neither, so an existing file keeps its group and
+// group can read what the hook is written into, and a link out of the tree
+// would carry that group to a file the enrolment was never pointed at. A home's decide neither, so an existing file keeps its group and
 // a link may land wherever the operator keeps their dotfiles.
 // configDir is where the record of what faramir last wrote lives, so a merge
 // can take out a rule the config no longer declares. Empty leaves the record

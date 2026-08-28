@@ -113,8 +113,8 @@ func Uninstall(configDir string) ([]string, error) {
 			DefaultBrokerUser, DefaultKeeperUser, DefaultExecUser,
 			DefaultExecUser, DefaultExecUser),
 		"a shared tree's group and setgid bits, and the traversal granted to reach it",
-		"each enrolled agent's configuration in a project: the settings naming the "+
-			"hook, the plugin that calls it, and the MCP registration",
+		"an enrolled tree's own agent configuration: for Claude Code, the settings "+
+			"naming the hook that routes what it runs",
 		"each agent's account-wide configuration in the agent account's home: the deny "+
 			"rules, and the credentials section between "+sectionBegin+" and "+
 			sectionEnd+" in the file that agent reads for every project. Both are "+

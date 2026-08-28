@@ -83,8 +83,8 @@ logs -n 1 >/dev/null 2>&1 && ok "root reads it" || bad "root could not read the 
 # --------------------------------------------------------------------------
 head_ "2. the log_id a refusal hands out resolves"
 #
-# `faramir run` prints "log_id=..." on a refusal and the MCP server hands the
-# same id to the model. An id naming no record sends somebody to look up
+# `faramir run` prints "log_id=..." on a refusal, so the model is handed an id
+# the operator can look up. An id naming no record sends somebody to look up
 # nothing.
 
 cited() { # description, then the argv of a run that must be refused

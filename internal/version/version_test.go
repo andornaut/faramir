@@ -142,7 +142,7 @@ func TestBuildIsTheRevisionOfAnUnstampedBinary(t *testing.T) {
 	}
 }
 
-// Folding the build into Version would refuse every running MCP server and
+// Folding the build into Version would refuse every running daemon and
 // agent on every rebuild: Mismatch turns a difference into a refusal on all
 // three sockets, and it is meant to fire at a release rather than at a build.
 func TestTheBuildIsNotPartOfTheVersion(t *testing.T) {

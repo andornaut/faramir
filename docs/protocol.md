@@ -22,8 +22,9 @@ There is one binary: the three daemons are it under three units, and the CLI is 
 {"version": "<this daemon's>",
  "error": {"code": "bad_request",
            "message": "the caller names faramir <the caller's> and this is faramir <this daemon's>:
-                       restart it. An MCP server is a child of the coding agent, so
-                       it is reconnected there rather than restarted on its own"}}
+                       restart it. A daemon that outlived the install which replaced
+                       the binary under it is the usual cause, and `sudo faramir reload`
+                       is what restarts all three"}}
 ```
 
 Every error response from the broker carries `version`, the build that answered. A request refused for naming another version is the one case where the caller cannot read that out of an op, the refusal coming before the op is read, and it is what [`doctor`](operating.md#checking-an-install) reports skew from.

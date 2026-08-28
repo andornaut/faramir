@@ -56,7 +56,7 @@ func TestRecordingAnEnrolmentKeepsATreeWithNoAgent(t *testing.T) {
 
 // An enrolment is the one thing that knows a tree was enrolled and for what.
 // One entry per directory, and enrolling one agent by name does not drop the
-// others: their hook and MCP registration are still in the tree, and an entry
+// others: what they read is still in the tree, and an entry
 // dropped here is a tree doctor stops checking those agents' account-wide rules
 // for, which nothing would report.
 func TestRecordingAnEnrolmentKeepsTheAgentsATreeStillCarries(t *testing.T) {

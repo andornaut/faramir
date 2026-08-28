@@ -79,8 +79,8 @@ func OperatorOnly() []string {
 }
 
 // Internal is the roles run by systemd (broker, keeper, exec), by the agent's
-// harness (mcp, guard) and by PAM inside a brokered command (pam-escalate),
-// each spelled as its unit, account or PAM service is.
+// harness (guard) and by PAM inside a brokered command (pam-escalate), each
+// spelled as its unit, account or PAM service is.
 var Internal = []string{
 	"broker",
 	"keeper",

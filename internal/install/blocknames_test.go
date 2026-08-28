@@ -67,7 +67,7 @@ func TestADeclaredNameReachesEveryAgentSpelling(t *testing.T) {
 		}
 	}
 	if !carried {
-		t.Error("pi's fragments do not carry the suffix")
+		t.Error("the executable spelling does not carry the suffix")
 	}
 }
 
@@ -86,7 +86,7 @@ func TestANameMayNameAFileInsideADirectory(t *testing.T) {
 	if !slices.Contains(pluginPatterns(layout), "*"+pattern) {
 		t.Error("the plugin hosts' patterns do not carry it")
 	}
-	// pi applies its own regex, so this is the one spelling a test can execute.
+	// The one spelling a test can execute, so this is where breadth is asserted.
 	var matched, swept bool
 	for _, fragment := range jsFragments(layout) {
 		if !strings.Contains(fragment, "storage") {

@@ -363,8 +363,8 @@ if [ -x /opt/faramir/faramir-skew ]; then
   dt version | grep -q '9\.9\.9' && ok "and names both builds" || bad "does not name the builds: $(dt version)"
   # The same skew over the socket. doctor is the operator asking; this is what a
   # client of that build is told when it tries to work, which is the half an
-  # agent sees. The MCP server is the process that reaches it, being a
-  # long-lived child of the agent that outlives an install.
+  # agent sees: a daemon that outlived the install which replaced the binary
+  # under it refuses the CLI the agent runs.
   out=$(runuser -u "$OP" -- /usr/local/bin/faramir refs 2>&1)
   grep -q '9\.9\.9' <<<"$out" && ok "and the broker refuses a client of that build, naming its version" \
     || bad "the broker did not name the caller's version: ${out:0:160}"
