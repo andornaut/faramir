@@ -27,7 +27,7 @@ func nameEntry(name string) config.BlockedPath { return config.BlockedPath{Name:
 
 // The hole this closes. A blocked path is refused to the agent's file tools and
 // to its shell, and neither rule reaches the broker: the guard is a hook over
-// shell tools, and an MCP faramir_run call is not one. So the one route the
+// shell tools, and an MCP faramir run call is not one. So the one route the
 // agent has left ran the read unchecked, bounded by nothing but the mode -- and
 // the executor holds the client group, so a file declared inside the enrolled
 // tree was readable through it.
@@ -133,7 +133,7 @@ func TestABlockedNameIsRefusedWhereverItTurnsUp(t *testing.T) {
 }
 
 // A declared command is about what a tool does rather than what it points at,
-// and through this route it discloses exactly as much: faramir_run(["op","read",
+// and through this route it discloses exactly as much: faramir run(["op","read",
 // …]) prints the credential into the conversation.
 func TestADeclaredCommandIsRefusedThroughTheBroker(t *testing.T) {
 	check := blocking(config.BlockedPath{Command: "op read"})

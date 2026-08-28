@@ -1,0 +1,32 @@
+{{- /*
+The account-wide half of Antigravity's enrolment, merged into
+~/.gemini/config/hooks.json, which both the CLI and the IDE read for every
+workspace whether or not it was enrolled.
+
+A hook rather than a rule file, because neither half of this family has one an
+install can write: the CLI's settings file takes deny rules and the IDE's
+permission lists are its own state, so a hook is the only thing that holds for
+both. It carries the whole of it: a command is routed through the broker and its
+output redacted, and a file tool naming a path this install refuses is refused.
+
+In a home rather than a tree, and only there. The wrapper, the redactor and the
+binary this execs are installed for the account, so nothing about guarding a
+command needs a tree.
+*/ -}}
+{
+  "faramir": {
+    "enabled": true,
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": {{ quote (printf "%s/faramir guard --host %s" .BinDir .Family) }},
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

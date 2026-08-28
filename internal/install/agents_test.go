@@ -141,7 +141,9 @@ func TestAgentAssetsExist(t *testing.T) {
 			"either checks that many agents", len(knownAgents()), len(agentTargets))
 	}
 	for name, target := range agentTargets {
-		if len(target.files) == 0 {
+		// Tree or home. Five agents write nothing into a tree: what guards them is
+		// installed for the account, so an enrolment leaves them the prose alone.
+		if len(target.files)+len(target.accountFiles) == 0 {
 			t.Errorf("%s writes nothing", name)
 		}
 		if len(target.detect) == 0 {
@@ -183,7 +185,7 @@ func TestMergedAgentAssetsAreJSON(t *testing.T) {
 			if !file.merge {
 				continue
 			}
-			body, err := render(file.asset, layout)
+			body, err := renderAccount(file.asset, layout)
 			if err != nil {
 				t.Fatalf("%s: %v", name, err)
 			}
@@ -201,7 +203,9 @@ func TestMergedAgentAssetsAreJSON(t *testing.T) {
 func TestPluginAssetsNameTheirOwnHost(t *testing.T) {
 	hosts := 0
 	for name, target := range agentTargets {
-		for _, file := range target.files {
+		// In a home now, not a tree: the plugin and the extension are installed
+		// for the account, so this looks where they are.
+		for _, file := range append(append([]agentFile{}, target.files...), target.accountFiles...) {
 			if !strings.HasSuffix(file.path, ".js") && !strings.HasSuffix(file.path, ".ts") {
 				continue
 			}
@@ -227,9 +231,16 @@ func TestPluginAssetsNameTheirOwnHost(t *testing.T) {
 // config would protect a directory that does not exist.
 func TestAccountRulesNameTheInstalledDirectories(t *testing.T) {
 	layout := testLayout()
+	// The two plugin hosts, which spell a directory the same way. Antigravity's
+	// spelling is its own and is asserted where its rules are.
 	for _, name := range []string{"opencode", "kilocode"} {
 		for _, file := range agentTargets[name].accountFiles {
-			body, err := render(file.asset, layout)
+			// The rule file, not the plugin beside it: the plugin carries no paths
+			// of its own any more, asking the guard instead.
+			if file.noRules {
+				continue
+			}
+			body, err := renderAccount(file.asset, layout)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -251,7 +262,7 @@ func TestAccountRulesNameTheInstalledDirectories(t *testing.T) {
 // Keys inside a config the operator owns, as an object of patterns: a merge
 // that dropped a sibling would take away a rule, a server or a model.
 func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
-	ours, err := render("agent/permissions.json.tmpl", testLayout())
+	ours, err := renderAccount("agent/permissions.json.tmpl", testLayout())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,6 +348,13 @@ func TestEveryAccountRuleFileIsMerged(t *testing.T) {
 	seen := 0
 	for _, name := range knownAgents() {
 		for _, file := range agentTargets[name].accountFiles {
+			// A file carrying no rules is not read by the drift check at all, so
+			// whether it is merged is not that check's business. faramir's own
+			// plugin is one: it is replaced wholesale, replacing it being the
+			// update.
+			if file.noRules {
+				continue
+			}
 			seen++
 			if !file.merge {
 				t.Errorf("%s writes %s whole, and reportRuleDrift reads every account "+

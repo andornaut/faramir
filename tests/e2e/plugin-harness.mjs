@@ -43,11 +43,32 @@ const shell = (command, extra = {}) => ({
 
 switch (name) {
   case "other-tool-untouched": {
-    const output = { args: { filePath: "/etc/faramir/age.key" } }
+    // An ordinary file: nothing here runs a command and nothing here is
+    // protected, so the call goes through unchanged.
+    const output = { args: { filePath: "/etc/hosts" } }
     const r = await call({ tool: "read" }, output)
     if (r.threw) fail(`a non-shell tool threw: ${r.message}`)
-    if (output.args.filePath !== "/etc/faramir/age.key") fail("a non-shell tool's args were changed")
+    if (output.args.filePath !== "/etc/hosts") fail("a non-shell tool's args were changed")
     pass("a tool that is not the shell is left alone")
+    break
+  }
+  case "other-tool-refused-key-material": {
+    // The host's own permission map is not a refusal on either of these agents:
+    // an entry of "deny" is put to the operator as a prompt, and an autonomous
+    // run approves it. So the plugin refuses the path itself.
+    const r = await call({ tool: "read" }, { args: { filePath: "/etc/faramir/age.key" } })
+    if (!r.threw) fail("a file tool opened the age key")
+    if (!/faramir_run/.test(r.message)) fail(`the refusal names no way through: ${r.message.slice(0, 80)}`)
+    pass("a file tool naming key material is refused")
+    break
+  }
+  case "other-tool-refused-by-shape": {
+    // By shape rather than by tool name, and at any depth: a tool nobody listed,
+    // taking a list rather than a path.
+    const r = await call({ tool: "read_many" },
+      { args: { paths: ["/srv/README.md", "/etc/faramir/age.key"] } })
+    if (!r.threw) fail("a key named among several paths was opened")
+    pass("a tool nobody listed is refused when a path it carries is protected")
     break
   }
   case "known-shell-without-command-throws": {

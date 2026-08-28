@@ -33,7 +33,7 @@ Flag | Default | Sets
 `--broker-user`, `--exec-user`, `--keeper-user` | the install's, then `faramir-broker`, `faramir-exec`, `faramir-keeper` | The three service accounts, created if missing. No two may share a name
 `--ssh-key PATH` | the install's, then `<config-dir>/id_ed25519` | Where the keypair the broker lends lives. One is minted either way, so this relocates rather than enables. An existing key is adopted, and must be `faramir-broker`-owned `0600` with its `.pub` beside it at `0644`
 `--known-hosts PATH` | none | A `known_hosts` file copied to `<exec-home>/.ssh/known_hosts` and replaced whole each run. One that is not a `known_hosts` file is refused
-`--agent NAME` | `auto` | Which agents get deny rules and a credentials section in this home ([which file, per agent](layout.md)). Finding no agent writes nothing and says so
+`--agent NAME` | `auto` | Which agents get their refusals and a credentials section in this home: a rule file, or the plugin, extension or hook that stands in for one where the agent enforces none ([which file, per agent](layout.md)). Finding no agent writes nothing and says so
 `--allow-sudo` | off | Lets a brokered command *ask* to become root, through a password-required sudoers entry and a PAM service of faramir's own. Not passing the flag takes it back. [What it writes](escalation.md#the-decision-is-made-at-init-per-host)
 `--notify-command ARG` | the install's, then none | Announces a waiting escalation. Needs `--allow-sudo`, and is a `config.toml` setting: [what it accepts](configuration.md#what-a-flag-sets)
 `--dry-run` | off | Report what would change and write nothing. The one form that does not need root

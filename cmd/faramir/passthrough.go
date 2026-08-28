@@ -4,24 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/guard"
-	"github.com/andornaut/faramir/internal/mcp"
 )
-
-// The MCP server and the PreToolUse hook parse their own arguments, in their
-// own packages, because each speaks a protocol whose shape is not faramir's:
-// flags reach them untouched rather than through a flag set defined here.
-func newMCPCmd() *cobra.Command {
-	c := &cobra.Command{
-		Use:                "mcp",
-		Short:              "Run the MCP stdio server",
-		GroupID:            groupInternal,
-		DisableFlagParsing: true,
-		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(mcp.Run(args))
-		},
-	}
-	return c
-}
 
 // newPamEscalateRootCmd forwards to runPamEscalateCommand rather than parsing
 // here, so the rule that only an escalation exits 0 is applied in exactly one
@@ -38,6 +21,9 @@ func newPamEscalateRootCmd() *cobra.Command {
 	}
 }
 
+// The PreToolUse hook parses its own arguments, in its own package, because it
+// speaks a protocol whose shape is not faramir's: flags reach it untouched
+// rather than through a flag set defined here.
 func newGuardCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:                "guard",

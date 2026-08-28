@@ -44,13 +44,17 @@ func layoutWithPath(path string) Layout {
 // agent would read a file it cannot parse, and every rule in it -- including the
 // ones protecting everything else -- would be gone.
 func TestHostilePathsKeepTheAgentFilesParseable(t *testing.T) {
-	// Two shapes of data: the per-project plugin files take pluginData, and the
-	// account-wide permissions file takes the layout itself.
-	perProject := []string{
-		"agent/claude/settings.local.json.tmpl",
-		"agent/plugin-host.project.json.tmpl",
+	// One shape of data now: an account file renders against the same pluginData
+	// a tree's does, the layout inside it, so that one which is a program can
+	// name the binary it execs.
+	perProject := []string{"agent/claude/settings.local.json.tmpl"}
+	// Where the rules live now: a home. Every agent's, so a path that breaks one
+	// spelling is caught whichever agent reads it.
+	accountWide := []string{
+		"agent/permissions.json.tmpl",
+		"agent/claude/settings.json",
+		"agent/agy/settings.json",
 	}
-	accountWide := []string{"agent/permissions.json.tmpl"}
 	for name, path := range hostilePaths {
 		layout := layoutWithPath(path)
 		type job struct {
@@ -64,7 +68,7 @@ func TestHostilePathsKeepTheAgentFilesParseable(t *testing.T) {
 			}})
 		}
 		for _, a := range accountWide {
-			jobs = append(jobs, job{a, layout})
+			jobs = append(jobs, job{a, pluginData{BinDir: DefaultBinDir, Layout: layout}})
 		}
 		for _, j := range jobs {
 			asset := j.asset

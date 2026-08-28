@@ -51,17 +51,20 @@ Every path the install creates, what owns it, and what each account can reach th
 
 `init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>` and a missing parent `0700`; one already there keeps its own owner, group and mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
 
-Agent | Deny rules | Credentials section | Notes
---- | --- | --- | ---
-Claude Code | `~/.claude/settings.json` | `~/.claude/CLAUDE.md` | The ordinary case: a rule file and a section
-opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/AGENTS.md` | The ordinary case
-Kilo Code | `~/.config/kilo/kilo.json` | `~/.kilocode/rules/faramir.md` | It has no single home instructions file, so the section goes in a file of faramir's own in the global rules directory, where every `.md` is loaded for every project
-Pi | none | `~/.pi/agent/AGENTS.md` | It has nowhere to put account-wide rules, so the same paths are compiled into the extension `init-project` installs
-Antigravity | none | `~/.gemini/GEMINI.md` | Its permission lists are the IDE's own state rather than a file an install may write. `~/.gemini` is where the whole Antigravity family keeps its own things
+Agent | Rule file | What faramir installs beside it | Credentials section | Notes
+--- | --- | --- | --- | ---
+Claude Code | `~/.claude/settings.json` | a deny-only hook, in that same file | `~/.claude/CLAUDE.md` | The ordinary case: a rule file and a section
+opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/plugin/faramir.js` | `~/.config/opencode/AGENTS.md` | Its rule file is a prompt rather than a refusal, so the plugin is what refuses
+Kilo Code | `~/.config/kilo/kilo.json` | `~/.config/kilo/plugin/faramir.js` | `~/.kilocode/rules/faramir.md` | The same, and it has no single home instructions file, so the section goes in a file of faramir's own in the global rules directory, where every `.md` is loaded for every project
+Pi | none | `~/.pi/agent/extensions/faramir.ts` | `~/.pi/agent/AGENTS.md` | No rule file an install can write, so the extension is the whole of it. Pi loads a home's extensions for every project without the project being trusted
+Antigravity CLI (`agy`) | `~/.gemini/antigravity-cli/settings.json` | the hook in `~/.gemini/config/hooks.json` | `~/.gemini/GEMINI.md` | `~/.gemini` is where the whole Antigravity family keeps its own things, so the section and the hook are shared with the IDE and the deny rules are not
+Antigravity IDE | none | the same hook | `~/.gemini/GEMINI.md` | It keeps its permission lists as its own state rather than in a file an install may write, so that hook is what refuses its file tools
+
+Every one of these but Claude Code's routes a command through the broker and refuses a path by asking `faramir guard`. Claude Code's account-wide hook is `--deny-only`: it refuses a command the list names and nothing else, its file tools being the rule file's to refuse and routing being what an enrolment buys.
 
 Why each agent gets what it gets is in [coding-agents.md](coding-agents.md).
 
-In an enrolled tree, every agent but one reads the tree's own `AGENTS.md`, or its `CLAUDE.md` where that is what the tree has. Antigravity reads no documented file at a tree's root, so it gets `.agents/rules/faramir.md` instead.
+In an enrolled tree, every agent reads the tree's own `AGENTS.md`, or its `CLAUDE.md` where that is what the tree has. Antigravity reads those and `.agents/rules/*.md` as well, so it gets `.agents/rules/faramir.md` too: a tree whose own file is a `CLAUDE.md` would otherwise leave it nothing, that being a name it does not read.
 
 The section says what the deny rules cannot: why they refuse, and what to do instead.
 

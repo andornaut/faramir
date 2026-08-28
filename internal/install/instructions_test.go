@@ -56,7 +56,7 @@ func TestWhereTheSectionGoes(t *testing.T) {
 			// one it cannot delimit. Appending would leave two sets of
 			// credentials instructions contradicting each other.
 			"an unmarked section in words that are not these",
-			"# Project\n\n" + heading + "\n\nRun things with faramir_run, or so we used to.\n",
+			"# Project\n\n" + heading + "\n\nRun things with faramir run, or so we used to.\n",
 			placeStale,
 		},
 		// Both signs are needed to call a file stale: a heading of somebody's own
@@ -169,7 +169,7 @@ func TestARewordedSectionIsNeverAppendedBesideTheOldOne(t *testing.T) {
 	}
 	// What an earlier snippet left behind: this heading, this tool, other words.
 	older := "# My project\n\n" + heading + "\n\nWhatever the last version said about " +
-		"faramir_run.\n"
+		"faramir run.\n"
 
 	place, _, _ := placeSection([]byte(older), body)
 	if place != placeStale {
@@ -371,7 +371,7 @@ func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
 	// The home says how to raise one, which holds for the same hosts and no
 	// others: the grant is the host's rather than any tree's.
 	const homeMarker = "Never background it"
-	grantedHome, err := homeSection(true, true)
+	grantedHome, err := homeSection(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +379,7 @@ func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
 		t.Errorf("a home on a host with a sudo grant is not told %q:\n%s",
 			homeMarker, grantedHome)
 	}
-	withheldHome, err := homeSection(true, false)
+	withheldHome, err := homeSection(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +590,7 @@ func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
 	seen := map[bool]int{}
 	for _, name := range knownAgents() {
 		target := agentTargets[name]
-		body, err := homeSection(len(target.accountFiles) > 0, true)
+		body, err := homeSection(true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -613,9 +613,13 @@ func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
 			t.Errorf("%s is not told the rule that survives having no enforcement", name)
 		}
 	}
-	// Both branches have to be exercised, or this asserts one shape twice.
-	if seen[true] == 0 || seen[false] == 0 {
-		t.Errorf("agents with rules: %d, without: %d; want both", seen[true], seen[false])
+	// One shape now: every agent has something account-wide, so the section makes
+	// the same claim for all of them. A second shape reappearing means an agent
+	// was added without account-wide cover, which is what the section would then
+	// have to hedge about.
+	if seen[false] != 0 {
+		t.Errorf("%d agent(s) have nothing account-wide, so the section cannot "+
+			"claim what it claims", seen[false])
 	}
 }
 
@@ -641,7 +645,7 @@ func TestBothSectionsStateTheSharedRulesIdentically(t *testing.T) {
 		t.Errorf("the tree's section does not carry the shared rules verbatim:\n%s", project)
 	}
 	for _, name := range knownAgents() {
-		home, err := homeSection(len(agentTargets[name].accountFiles) > 0, true)
+		home, err := homeSection(true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -659,32 +663,34 @@ func TestEachSectionSaysWhatOnlyItCan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"faramir_run", "faramir_refs",
+	for _, want := range []string{"faramir run", "faramir refs",
 		"Never write a value down", "Never send one anywhere",
 		"not the security\nboundary"} {
 		if !strings.Contains(project, want) {
 			t.Errorf("the tree's section does not say %q", want)
 		}
 	}
-	home, err := homeSection(true, true)
+	home, err := homeSection(true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// What a home is for: there is a route in an enrolled tree and none outside
-	// one, which is the question an agent has where no broker is registered.
-	// Escalation is the home's too, the grant being the host's rather than any
-	// tree's, and an agent that backgrounds the command loses the approval.
-	for _, want := range []string{"init-project", "ask the operator",
+	// What a home is for. The route is named here as well as in a tree, the
+	// binary reaching the broker from anywhere on the host, and saying so is the
+	// point: an agent working where no enrolment ran would otherwise be refused
+	// with nothing to do instead. Escalation is the home's too, the grant being
+	// the host's rather than any tree's, and an agent that backgrounds the
+	// command loses the approval.
+	for _, want := range []string{"faramir run", "faramir refs",
 		"faramir run -C", "Never background it"} {
 		if !strings.Contains(home, want) {
 			t.Errorf("the home section does not say %q", want)
 		}
 	}
-	// And not the tree's half: naming a tool an agent has no registration for
-	// would be telling it to call something that is not there.
-	if strings.Contains(home, "faramir_run") {
-		t.Error("the home section names faramir_run, which an agent outside an " +
-			"enrolled tree has no registration for")
+	// And it does not send the agent to the operator for a value it can fetch
+	// itself, which is what it had to do when the route was registered per tree.
+	if strings.Contains(home, "Outside one there is no such route") {
+		t.Error("the home section still says there is no route outside an enrolled " +
+			"tree, which the binary makes untrue")
 	}
 }
 

@@ -13,6 +13,27 @@ import (
 // is what the coding agent runs as. Only the deny rules go here: they refuse
 // to open or overwrite key material wherever the agent is working. The
 // PreToolUse hook is per-project, registering it auto-approving Bash there.
+// unseenFiles is the account files this run has not written yet, marking each
+// one it returns. Two agents may read one file: the Antigravity family shares
+// the hook both halves load for every workspace, and the CLI has deny rules of
+// its own beside it. Written once, and named once in the report, a file listed
+// twice reading as two files to check.
+//
+// By path rather than by asset: what matters is the file on disk, and two
+// targets rendering the same path from different assets would still be one
+// write, the second overwriting the first.
+func unseenFiles(seen map[string]bool, files []agentFile) []agentFile {
+	out := make([]agentFile, 0, len(files))
+	for _, file := range files {
+		if seen[file.path] {
+			continue
+		}
+		seen[file.path] = true
+		out = append(out, file)
+	}
+	return out
+}
+
 func (r *runner) stepAgentConfig() error {
 	// Whichever agents this home carries, unless one is named, resolved in
 	// stepPreconditions. Detecting rather than writing them all costs an agent
@@ -30,16 +51,32 @@ func (r *runner) stepAgentConfig() error {
 			"section was written")
 		return nil
 	}
-	// Against the install layout: what an account file interpolates is the paths
-	// this install decided on.
-	asLayout := func(file agentFile) ([]byte, error) { return render(file.asset, r.layout) }
+	// Against the same data a tree's files render against, which carries the
+	// layout inside it. An account file that is only a rule list reads the layout
+	// and nothing else; one that is a program has to name the binary it execs and
+	// the dialect it speaks, and rendering those two kinds differently is a
+	// second render path to keep in step.
+	asTarget := func(target *agentTarget) func(agentFile) ([]byte, error) {
+		return func(file agentFile) ([]byte, error) {
+			return renderData(file.asset, pluginData{
+				BinDir:        DefaultBinDir,
+				Agent:         target.name,
+				Family:        target.familyName(),
+				Path:          file.path,
+				DefaultExport: file.defaultExport,
+				Layout:        r.layout,
+			})
+		}
+	}
 
 	changed := false
 	var written, refused []string
+	seen := map[string]bool{}
 	for _, target := range targets {
+		files := unseenFiles(seen, target.accountFiles)
 		// 0700: these sit in the agent account's home.
 		made, paths, err := writeAgentFiles(r.fs, r.warnf, r.operatorHome, r.layout.ConfigDir,
-			r.operatorUID, r.operatorGID, 0o700, false, asLayout, target.accountFiles)
+			r.operatorUID, r.operatorGID, 0o700, false, asTarget(target), files)
 		written = append(written, paths...)
 		switch {
 		case errors.Is(err, errNotOperators):
@@ -94,7 +131,7 @@ func (r *runner) writeSections(targets []*agentTarget) (bool, []string, []string
 	changed := false
 	var written, stale []string
 	for _, file := range homeInstructionFiles(targets) {
-		section, err := homeSection(file.accountRules, r.layout.AllowSudo)
+		section, err := homeSection(r.layout.AllowSudo)
 		if err != nil {
 			return changed, written, stale, err
 		}
@@ -129,9 +166,6 @@ func (r *runner) writeSections(targets []*agentTarget) (bool, []string, []string
 type homeInstructionFile struct {
 	// path is relative to the agent account's home.
 	path string
-	// accountRules is whether every agent reading this file has deny rules in
-	// this home.
-	accountRules bool
 }
 
 // homeInstructionFiles are the files these agents read, one entry per file.
@@ -145,11 +179,9 @@ type homeInstructionFile struct {
 // different paths that a link makes one file are refused before anything is
 // written: see oneFileTwice.
 //
-// The claim is the weaker of the two, asserted only where every agent reading
-// the file has rules in this home: an agent told it is refused everywhere, and
-// finding it is not, has no reason to believe the next claim.
-//
-// In the order the targets came in, so a report reads the same twice.
+// One file, once, in the order the targets came in, so a report reads the same
+// twice. Every agent has something account-wide, so the section makes the same
+// claim whichever of them reads it.
 func homeInstructionFiles(targets []*agentTarget) []homeInstructionFile {
 	var out []homeInstructionFile
 	at := map[string]int{}
@@ -158,31 +190,26 @@ func homeInstructionFiles(targets []*agentTarget) []homeInstructionFile {
 		if path == "" {
 			continue
 		}
-		rules := len(target.accountFiles) > 0
-		if i, seen := at[path]; seen {
-			out[i].accountRules = out[i].accountRules && rules
+		if _, seen := at[path]; seen {
 			continue
 		}
 		at[path] = len(out)
-		out = append(out, homeInstructionFile{path: path, accountRules: rules})
+		out = append(out, homeInstructionFile{path: path})
 	}
 	return out
 }
 
 // homeSection is the section `init` writes into a home. Rendered rather than
-// shipped as it is, for one sentence: pi carries its rules in the extension
-// `init-project` installs and Antigravity has no file that would refuse a file
-// tool anything, so telling either that its file tools are refused everywhere
-// would name a rule that is not there.
+// shipped as it is, for the escalation half: a host that granted no sudo would
+// otherwise be telling an agent how to ask for something it cannot have.
 //
 // It names no path this install decides, the rules it explains being rendered
 // into each agent's own config from protectedpaths.go.
-func homeSection(accountRules, allowSudo bool) (string, error) {
+func homeSection(allowSudo bool) (string, error) {
 	body, err := renderData("agent/instructions.home.md.snippet",
 		struct {
-			AccountRules bool
-			AllowSudo    bool
-		}{AccountRules: accountRules, AllowSudo: allowSudo})
+			AllowSudo bool
+		}{AllowSudo: allowSudo})
 	if err != nil {
 		return "", err
 	}

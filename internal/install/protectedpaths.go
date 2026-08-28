@@ -398,6 +398,96 @@ func claudeRules(layout Layout) []string {
 	return out
 }
 
+// agyGlobs renders the name patterns Antigravity's CLI can be given, which is
+// one of the five kinds.
+//
+// Its matcher is not a glob language. One leading "*" matches any run of
+// characters, including separators, and the rest of the pattern is taken
+// literally; a separator anywhere after the wildcard stops it matching at all.
+// So "*.key" refuses every path ending that way, and "*/name" and "<dir>/*"
+// each refuse nothing, not even the files directly inside that directory.
+//
+// A suffix is exactly that matcher and renders. The other four kinds all need
+// an anchor it has no spelling for, and the nearest available pattern refuses a
+// different set of files rather than a wider one:
+//
+// An exact name would become the suffix it is not. "name" rendered as "*name"
+// refuses "myname" too, and the case that matters is a dotenv: ".env" is an
+// exact name here, and "*.env" would refuse "faramir.env", which holds refs
+// rather than values and is meant to be read.
+//
+// A prefix, a glob and a directory tail are the same problem in their own
+// shapes. All four are dropped rather than approximated and reported instead;
+// see agyUnexpressible. What still covers them is the command guard, which
+// reads the same list, and any [[secret.block]] entry naming a path.
+//
+// Only an operator's own [[secret.block]] name patterns reach here. Nothing is
+// compiled in, so a host that declares none renders none of this.
+func agyGlobs(layout Layout) []string {
+	rules := blockedNameRules(layout)
+	out := make([]string, 0, len(rules))
+	for _, p := range rules {
+		switch p.kind {
+		case kindSuffix:
+			out = append(out, "*"+p.value)
+		case kindName, kindPrefix, kindGlobName, kindDir:
+			// See above: no spelling that refuses the set that was asked for.
+		}
+	}
+	return out
+}
+
+// agyUnexpressible is the declared patterns Antigravity's CLI cannot be given a
+// rule for, in the operator's own spelling, so an enrolment can name them
+// rather than leaving a file that is quietly short of what the config declares.
+// Empty where every pattern rendered, which is every host declaring none.
+func agyUnexpressible(layout Layout) []string {
+	var out []string
+	for _, refused := range layout.Blocked {
+		if refused.Name == "" {
+			continue
+		}
+		switch blockedNameRule(refused.Name).kind {
+		case kindName, kindPrefix, kindGlobName, kindDir:
+			out = append(out, refused.Name)
+		case kindSuffix:
+		}
+	}
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
+// agyRules is the deny list Antigravity's CLI reads, one read_file and one
+// write_file rule per target.
+//
+// Both verbs, though the documented precedence makes one enough: a denied read
+// blocks the write to the same path. Written anyway, so the file says what it
+// refuses rather than relying on an implication, and so a release that drops
+// the implication does not quietly open every path to a writer.
+//
+// A directory is named bare, and only bare. A path here covers the hierarchy
+// under it, so the directory is the whole rule; the trailing wildcard the other
+// agents' spellings need matches nothing at all here, not even the files
+// directly inside, so writing one would put a rule in the file that refuses
+// nothing and reads as though it refuses everything.
+func agyRules(layout Layout) []string {
+	var out []string
+	add := func(target string) {
+		out = append(out, "read_file("+target+")", "write_file("+target+")")
+	}
+	for _, pattern := range agyGlobs(layout) {
+		add(pattern)
+	}
+	// The literal paths, each covering itself and anything below it.
+	for _, dir := range installDirs(layout) {
+		add(dir)
+	}
+	for _, path := range perInstallPaths(layout) {
+		add(path)
+	}
+	return out
+}
+
 // pluginPatterns is the deny list the two plugin hosts read, which key a map by
 // the pattern rather than listing rules. Same paths, their spelling.
 func pluginPatterns(layout Layout) []string {

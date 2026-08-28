@@ -158,7 +158,7 @@ Why it is shaped this way, with one ref per entry rather than a whole-file flatt
 
 ### Keeping a link working
 
-- **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi refuses them from its extension instead, having no account-wide rule file to render into.
+- **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. The agents with no rule file of their own reach the same list by asking `faramir guard`.
 - **A tool that replaces its own file rather than rewriting it takes the group with it.** A temp file renamed over the original is created fresh, and mode `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file, and `init` and `link add` check again on every converge.
 - **A repair needs a restart, and nothing does it for you.** The broker fingerprints a linked file by mtime and size, and `chgrp` changes neither, so its view of a file it gave up on stands until you run `sudo systemctl restart faramir-broker`. `init` and `link add` restart the daemons only when they changed something, and neither of them changes a file it does not own.
 
@@ -203,7 +203,7 @@ Form | Covers | Blocks
 
 `--path` and `--name` also take [`--strict`](#refusing-every-mention-of-an-entry), which refuses every command naming the entry rather than the ones that would read it.
 
-The deny rules, the command guard's patterns and the broker's own check are built from one set, so a declared path or name refuses a file tool, `cat` and `faramir_run` alike, and `faramir init` re-asserts all of them.
+The deny rules, the command guard's patterns and the broker's own check are built from one set, so a declared path or name refuses a file tool, `cat` and `faramir run` alike, and `faramir init` re-asserts all of them.
 
 ### A path and a name are different rules
 
@@ -242,11 +242,10 @@ Form | Rule
 - **An entry covers the path and everything under it**, whether or not it is a directory today. The filesystem is not consulted: these rules are a function of the config alone, or a key on an unmounted volume would render no subtree rule and gain one when it mounted. The subject is bounded, so `~/.sshrc` is not part of `~/.ssh`.
 - **A path this install occupies cannot be unblocked, and asking fails.** `block rm /etc/faramir/age.key` names a rule the layout renders on every run, not an entry this install carries, so there is nothing to remove and the host goes on blocking it. Reporting that as "nothing removed" would read as the file becoming readable. If an install declared the same path as well, its entry is removed and the directory is named as what still blocks it. Nothing else is unremovable: no rule is compiled in.
 - **A change reloads the daemons.** The broker holds these entries itself and compiles them once, at start, so an entry added into a running install is not refused until it reloads, and one removed goes on being refused. `block add` and `block rm` reload where they changed something, and not where a converge found the host as it should be.
-- **A path that is, or holds, an enrolled tree is refused.** The rule would be written into that tree's own settings, and would refuse the agent every file in the directory it works in.
+- **A path that is, or holds, an enrolled tree is refused.** The rules hold wherever the agent works, so such an entry would refuse it every file in the directory it was pointed at.
 - **Removing an entry stops `init` rendering the rule; it does not take the rule out of an agent's file.** A merged rule file is only addable to, so `block rm` and `link rm` print the rule, and the grant where there is one, with what would narrow them.
 - **The form is part of what identifies an entry.** `block rm --name` removes a name entry, so a name is not removed by giving the same string to `--path`.
 - **Both commands are idempotent.** A path already refused is not an error: the entry stands, the rules are rendered again, and `--json` reports `changed: false`. Removing a path this install does not refuse writes nothing.
-- **Pi is the exception**, as it is for linked paths: its rules are compiled into the extension, so there is no account-wide file to render one into.
 - **`faramir block ls` answers "what is blocked here".** It prints the declared entries in a table of kind and entry, and under it the rules faramir carries itself: this install's own directories, and the command rules covering its binary, the files an enrolment installs, and the commands that act on the install rather than through it. The kind is `name`, `path` or `command`, and where a rule is enforced follows from the kind. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges; `--built-in` narrows it to the half faramir renders from its own layout, which no entry names. Neither half can be asked any other way: a refusal names the rule that matched, not the set. Naming both is the default and is refused. The table and each section are sorted by kind and then by entry, and not sorted into each other. `--json` adds two fields that are not columns: `state`, whether a declared path is there today, and `source`, which half a row came from.
 
 `init` reads these entries back before rewriting `config.toml`, so every rule is re-asserted on each run. That is what restores one an agent's settings dropped.
@@ -257,11 +256,11 @@ Form | Rule
 
 The broker is handed the working directory along with the command, so the same relative spelling is refused there. That is the one reading the guard cannot make.
 
-A managed or linked value is covered whichever route reads it, because an enrolled tree rewrites the command so its output is redacted on the way back. A blocked path holds no value faramir has read, so the refusal is all it adds.
+A managed or linked value is covered whichever route reads it, the command being rewritten so its output is redacted on the way back. A blocked path holds no value faramir has read, so the refusal is all it adds.
 
 ### The brokered route
 
-**A brokered command may not read a declared file either.** The agent's deny rules and the guard cover its own file tools and its own shell, and neither reaches `faramir_run`: the guard is a hook over shell tools, and an MCP call is not one. So the broker holds the same entries itself and refuses the command before it runs, with the [`blocked`](protocol.md) code. The refusal names the entry that matched.
+**A brokered command may not read a declared file either.** The agent's deny rules and the guard cover its own file tools and its own shell, and a brokered command is neither: what it runs, it runs as another uid on the far side of the broker. So the broker holds the same entries itself and refuses the command before it runs, with the [`blocked`](protocol.md) code. The refusal names the entry that matched.
 
 `[[secret.link]]` entries are held to the same rule, for a reason of their own. A linked ref comes back tokenised wherever it appears, but a file holds more than the one key a link selects, and the rest of it is in no redactor. The mode that keeps the executor's uid out of a linked file is checked at install time and by `doctor`; this is the same bound at the moment the command runs.
 

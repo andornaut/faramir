@@ -195,34 +195,6 @@ func TestEditableFilesReportsATreesOwnInstructionsFile(t *testing.T) {
 	}
 }
 
-// Two of a tree's files that are one file are found here as well, which takes
-// asking about every path an enrolment writes there together: agent by agent,
-// each call sees one half of the pair and reports nothing.
-func TestEditableFilesReportsTwoTreeFilesThatAreOneFile(t *testing.T) {
-	configDir := t.TempDir()
-	tree := enrolTree(t, configDir, "antigravity", "claude")
-	// Antigravity's MCP registration pointed at Claude Code's, the two reading
-	// the same shape out of a file each.
-	linked := filepath.Join(tree, ".agents", "mcp_config.json")
-	if err := os.Remove(linked); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(tree, ".mcp.json"), linked); err != nil {
-		t.Fatal(err)
-	}
-
-	var report DoctorReport
-	reportEditableFiles(&report, t.TempDir(), os.Getuid(), DoctorOptions{ConfigDir: configDir})
-
-	got := findings(report, "agent file ownership")
-	if len(got) != 1 || got[0].Status != StatusWarn {
-		t.Fatalf("findings = %+v, want one warning", got)
-	}
-	if !strings.Contains(got[0].Detail, "are one file") {
-		t.Errorf("the finding does not report the pair: %s", got[0].Detail)
-	}
-}
-
 // A home whose files are all the operator's, or not there yet, is the ordinary
 // answer and must not read as a warning.
 func TestEditableFilesIsOKWhereEveryFileIsTheOperatorsOwn(t *testing.T) {

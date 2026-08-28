@@ -1,8 +1,11 @@
 # Credentials
 
-Commands needing credentials run through the `faramir_run` MCP tool (CLI:
-`faramir run`), which injects the values and returns output with each one
-replaced by `«SECRET:ref»`. `faramir_refs` names what exists.
+Commands needing credentials run through `faramir run`, which injects the
+values and returns output with each one replaced by `«SECRET:ref»`:
+
+    faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
+
+`faramir refs` names what exists. You do not need a value to use one.
 
 You may also run `faramir status`, `faramir redact`, `version`, `help` and
 `completion`. Every other faramir subcommand changes the install and is

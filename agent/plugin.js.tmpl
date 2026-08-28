@@ -1,8 +1,11 @@
 // faramir: run every shell command under the redactor, and refuse the ones the
 // deny list names.
 //
-// `faramir init-project --agent {{.Agent}}` writes this into {{.Path}}, which
-// {{.Agent}} loads at startup.
+// `faramir init --agent {{.Agent}}` writes this into {{.Path}}, which
+// {{.Agent}} loads for every project. In a home rather than a tree: the wrapper,
+// the redactor and the binary this execs are installed for the account, so
+// nothing about guarding a command needs a tree, and an operator's declared
+// paths are the host's rather than any project's.
 //
 // It decides nothing: the deny list, the rewrite and what is left alone are
 // `faramir guard`. This is the translation: a payload out, a decision back,
@@ -25,6 +28,8 @@ import { spawnSync } from "node:child_process"
 // deciding what guards it.
 const CLI = "{{.BinDir}}/faramir"
 const HOST = "{{.Agent}}"
+
+const GUARD_ARGS = ["guard", "--host", HOST]
 
 // The tools known to run a shell command. This list is not what decides:
 // anything whose arguments carry a command string is guarded whatever the tool
@@ -62,12 +67,13 @@ function whyNot(result) {
             "plugin could not guard it and the call was not made",
         )
       }
-      // Every other tool: nothing here runs a command, so there is no output
-      // worth redacting and nothing to decide.
-      return
+      // Every other tool runs nothing, so there is no output to redact. It is
+      // still asked about: a tool call carries paths as well as commands, and
+      // this host's own permission rules put a "deny" to the operator as a
+      // prompt rather than refusing it. The guard decides that too.
     }
 
-    const result = spawnSync(CLI, ["guard", "--host", HOST], {
+    const result = spawnSync(CLI, GUARD_ARGS, {
       input: JSON.stringify({ tool_name: input.tool, tool_input: args }),
       encoding: "utf8",
       timeout: 10000,

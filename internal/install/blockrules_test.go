@@ -45,7 +45,7 @@ func TestARefusedPathReachesTheRenderedAccountFiles(t *testing.T) {
 	layout.Blocked = refusedAt("/etc/luks/volume.key")
 
 	for _, asset := range []string{"agent/claude/settings.json", "agent/permissions.json.tmpl"} {
-		body, err := render(asset, layout)
+		body, err := renderAccount(asset, layout)
 		if err != nil {
 			t.Fatalf("%s: %v", asset, err)
 		}

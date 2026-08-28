@@ -1,0 +1,27 @@
+{{- /*
+The account-wide deny rules Antigravity's CLI reads, merged into
+~/.gemini/antigravity-cli/settings.json.
+
+The CLI only. The IDE ships the same rule syntax and reads none of this file:
+the keys beside these are the CLI's own, and the IDE's permission scopes are
+its own state. See the antigravity target in internal/install/agents.go.
+
+GENERATED. The paths come from internal/install/protectedpaths.go, written
+once and rendered into each agent's own spelling; nothing here is a path of its
+own. Add one there.
+
+Deny rules only. The documented precedence is deny over ask over allow, so
+these hold against an operator's own allow rather than losing to it, and there
+is no default this is entitled to replace.
+
+read_file and write_file take the same list. A value the agent cannot read is
+one it can still destroy, and an age key replaced is every managed file
+unreadable retroactively.
+*/ -}}
+{
+  "permissions": {
+    "deny": [
+{{ jsonLines "      " (agyRules .Layout) }}
+    ]
+  }
+}

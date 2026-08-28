@@ -50,7 +50,7 @@ func TestRuleEntriesReadsBothShapes(t *testing.T) {
 // and not in what is written now.
 func TestAStaleRuleIsFound(t *testing.T) {
 	layout := testLayout()
-	current, err := render("agent/claude/settings.json", layout)
+	current, err := renderAccount("agent/claude/settings.json", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestAStaleRuleIsFound(t *testing.T) {
 // the state every host is in the run after an install.
 func TestAFreshlyWrittenFileHasNoStaleRules(t *testing.T) {
 	layout := testLayout()
-	current, err := render("agent/claude/settings.json", layout)
+	current, err := renderAccount("agent/claude/settings.json", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestTheDriftFindingSaysItCannotTellWhoseRuleItIs(t *testing.T) {
 // indistinguishable from one nobody wrote.
 func TestTheDriftFindingReportsACleanHome(t *testing.T) {
 	layout := testLayout()
-	current, err := render("agent/claude/settings.json", layout)
+	current, err := renderAccount("agent/claude/settings.json", layout)
 	if err != nil {
 		t.Fatal(err)
 	}

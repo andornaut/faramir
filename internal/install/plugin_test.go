@@ -5,12 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/mcp"
 )
 
 // The plugins opencode and Kilo Code load, run, and pi's extension below them.
@@ -86,6 +84,13 @@ func newPluginRig(t *testing.T, agent, exportKind string) *pluginRig {
 		Agent:         agent,
 		Path:          ".test/plugin.js",
 		DefaultExport: exportKind == "default",
+		// The path rules are compiled in, the way an enrolment renders them, and
+		// one rendered without them is not the file anybody installs. The same
+		// layout pi's rig uses, so the two agents' refusals are checked against
+		// one list rather than two that drift.
+		Layout: Layout{ConfigDir: "/opt/conf", Blocked: []config.BlockedPath{
+			{Name: "id_ed25519"}, {Name: "id_rsa"}, {Name: "sops/age/"},
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -187,12 +192,12 @@ func TestPluginThrowsADenial(t *testing.T) {
 	for _, plugin := range plugins {
 		t.Run(plugin.agent, func(t *testing.T) {
 			rig := newPluginRig(t, plugin.agent, plugin.exportKind)
-			rig.answers(t, `{"decision":"deny","reason":"Blocked: use faramir_run instead"}`)
+			rig.answers(t, `{"decision":"deny","reason":"Blocked: use faramir run instead"}`)
 			got := rig.call(t, "bash", map[string]any{"command": "printenv ROUTER_PW"})
 			if got.Ran {
 				t.Fatal("a denied command was allowed to run")
 			}
-			if !strings.Contains(got.Error, "faramir_run") {
+			if !strings.Contains(got.Error, "faramir run") {
 				t.Errorf("error = %q, want the guard's reason", got.Error)
 			}
 		})
@@ -258,18 +263,46 @@ func TestPluginFailsClosed(t *testing.T) {
 	}
 }
 
-// A plugin sees every tool, and only a command has output worth redacting.
-func TestPluginIgnoresEveryOtherTool(t *testing.T) {
+// A plugin sees every tool, and puts every one of them to the guard. Only a
+// command has output worth redacting, but every call carries arguments, and on
+// these hosts a path in one is refused by the guard rather than by a rule file
+// of the agent's own: theirs puts a "deny" to the operator as a prompt, which an
+// autonomous run approves.
+//
+// The plugin decides none of that. What is asserted here is that it asks.
+func TestPluginPutsEveryToolToTheGuard(t *testing.T) {
 	for _, plugin := range plugins {
 		t.Run(plugin.agent, func(t *testing.T) {
 			rig := newPluginRig(t, plugin.agent, plugin.exportKind)
-			rig.answers(t, `{"decision":"deny","reason":"this should never be asked for"}`)
+			// Nothing to say about this call, which is what the guard answers for a
+			// tool it leaves alone.
+			rig.answers(t, "")
 			got := rig.call(t, "read", map[string]any{"filePath": "/etc/hosts"})
 			if !got.Ran {
-				t.Fatalf("a read was refused: %s", got.Error)
+				t.Fatalf("a read the guard left alone was refused: %s", got.Error)
 			}
-			if _, err := os.Stat(rig.payloadFile); err == nil {
-				t.Error("the guard was asked about a tool that runs nothing")
+			if _, err := os.Stat(rig.payloadFile); err != nil {
+				t.Error("the guard was not asked about a tool carrying a path, so " +
+					"nothing refuses one on this host")
+			}
+		})
+	}
+}
+
+// And it applies what the guard answers, for a call carrying a path as much as
+// for one carrying a command. This is the whole of what these hosts have: the
+// rule file they read is a prompt rather than a refusal.
+func TestPluginAppliesTheGuardsRefusalOfAPath(t *testing.T) {
+	for _, plugin := range plugins {
+		t.Run(plugin.agent, func(t *testing.T) {
+			rig := newPluginRig(t, plugin.agent, plugin.exportKind)
+			rig.answers(t, `{"decision":"deny","reason":"faramir: /opt/conf/age.key is key material"}`)
+			got := rig.call(t, "read", map[string]any{"filePath": "/opt/conf/age.key"})
+			if got.Ran {
+				t.Fatal("a file tool opened a path the guard refused")
+			}
+			if !strings.Contains(got.Error, "key material") {
+				t.Errorf("the guard's reason did not reach the model: %s", got.Error)
 			}
 		})
 	}
@@ -435,105 +468,37 @@ func TestPiExtensionGuardsByShape(t *testing.T) {
 	if got.Verdict == nil || !got.Verdict.Block {
 		t.Errorf("a tool this list never named ran a command unguarded: %+v", got)
 	}
-	// A tool carrying no command is not put to the guard, which decides about
-	// commands. It is still checked against the path rules -- see
-	// TestPiExtensionRefusesKeyMaterial -- so the file named here is an ordinary
-	// one: this case is about the guard not being consulted, not about the call
-	// being waved through.
-	got = call(t, "read", map[string]any{"filePath": "/srv/app/main.go"})
-	if got.Verdict != nil {
-		t.Errorf("a tool carrying no command was blocked: %+v", got.Verdict)
-	}
 	got = call(t, "bash", map[string]any{})
 	if got.Verdict == nil || !got.Verdict.Block {
 		t.Errorf("a known shell tool with no command string was not refused: %+v", got)
 	}
-}
 
-// pi ships no MCP, so the tools the other hosts reach through it are the
-// extension's to register. Without faramir_run the guard's own refusal
-// dead-ends: it tells the model to use a tool that would not exist.
-func TestPiExtensionRegistersTheTools(t *testing.T) {
-	rig, _ := newPiRig(t)
-	cmd := exec.CommandContext(t.Context(), "node", filepath.Join(rig.dir, "driver.mjs"), rig.modulePath)
-	cmd.Env = append(os.Environ(), "LIST_TOOLS=1")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("driver failed: %v\n%s", err, out)
-	}
-	var got struct {
-		Tools []string `json:"tools"`
-	}
-	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("driver printed %q: %v", out, err)
-	}
-	// Against internal/mcp's own list rather than a literal here, the extension
-	// being rendered from it: a tool added there and not registered here is a
-	// host where the guard's refusal names a tool the model cannot call.
-	tools := mcp.Tools()
-	want := make([]string, 0, len(tools))
-	for _, tool := range tools {
-		want = append(want, tool.Name)
-	}
-	if len(want) == 0 {
-		t.Fatal("internal/mcp advertises nothing, so this asserts nothing")
-	}
-	slices.Sort(want)
-	registered := slices.Clone(got.Tools)
-	slices.Sort(registered)
-	if !slices.Equal(registered, want) {
-		t.Errorf("the extension registers %v and internal/mcp advertises %v",
-			registered, want)
+	// A tool carrying no command is put to the guard too, pi having no rule file
+	// of its own: a path in one is refused there or nowhere. Answering nothing is
+	// what the guard says about a call it leaves alone, and the extension has to
+	// leave it alone in turn rather than reading silence as a refusal.
+	rig.answers(t, "")
+	got = call(t, "read", map[string]any{"filePath": "/srv/app/main.go"})
+	if got.Verdict != nil {
+		t.Errorf("a call the guard left alone was blocked: %+v", got.Verdict)
 	}
 }
 
-// pi has no account-wide rule file, so the deny list the other agents get
-// written into their configs is compiled into this extension instead. It is
-// applied by shape rather than by tool name, for the same reason the commands
-// are: a file tool whose name this does not know still carries a path.
-func TestPiExtensionRefusesKeyMaterial(t *testing.T) {
-	_, call := newPiRig(t)
+// pi has no rule file of its own, so a path its file tools name is refused by
+// the guard. What the extension does with that answer is this: a refusal is a
+// value returned rather than an exception, which is pi's own dialect.
+//
+// Which paths are refused is the guard's, and tested there: see
+// TestTheGuardRefusesAPathHoweverItIsSpelled.
+func TestPiExtensionAppliesTheGuardsRefusalOfAPath(t *testing.T) {
+	rig, call := newPiRig(t)
+	rig.answers(t, `{"decision":"deny","reason":"faramir: /opt/conf/age.key is key material"}`)
 
-	for _, tc := range []struct {
-		name  string
-		tool  string
-		input map[string]any
-		block bool
-	}{
-		{"an SSH private key, declared rather than built in", "read",
-			map[string]any{"path": "/home/op/.ssh/id_ed25519"}, true},
-		{"a declared age identity", "read",
-			map[string]any{"path": "/home/op/.config/sops/age/keys.txt"}, true},
-		// Under this install's own store, which the layout renders as a literal:
-		// the rig's config dir is /opt/conf.
-		{"a managed sops file", "edit",
-			map[string]any{"file_path": "/opt/conf/secrets/db.sops.yml"}, true},
-		{"this install's own directory", "read",
-			map[string]any{"path": "/opt/conf/config.toml"}, true},
-		// A tool this extension has never heard of, taking a list rather than a
-		// path: the walk is over the whole input for exactly this.
-		{"a declared key named among several paths", "read_many",
-			map[string]any{"paths": []any{"/srv/README.md", "/home/op/.ssh/id_rsa"}}, true},
-		// The distinction the list makes on purpose.
-		{"a file of refs, which is meant to be read", "read",
-			map[string]any{"path": "/srv/app/faramir.env"}, false},
-		{"an ordinary source file", "read",
-			map[string]any{"path": "/srv/app/main.go"}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := call(t, tc.tool, tc.input)
-			blocked := got.Verdict != nil && got.Verdict.Block
-			if blocked != tc.block {
-				t.Fatalf("block = %v, want %v (verdict %+v)", blocked, tc.block, got.Verdict)
-			}
-			if !tc.block {
-				return
-			}
-			// The refusal names the file and the way round it, so the model has
-			// somewhere to go rather than only a wall.
-			if !strings.Contains(got.Verdict.Reason, "faramir run") {
-				t.Errorf("refusal does not name the way through: %s", got.Verdict.Reason)
-			}
-		})
+	got := call(t, "read", map[string]any{"path": "/opt/conf/age.key"})
+	if got.Verdict == nil || !got.Verdict.Block {
+		t.Fatalf("a file tool opened a path the guard refused: %+v", got)
+	}
+	if !strings.Contains(got.Verdict.Reason, "key material") {
+		t.Errorf("the guard's reason did not reach the model: %s", got.Verdict.Reason)
 	}
 }

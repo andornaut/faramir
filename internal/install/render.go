@@ -12,7 +12,6 @@ import (
 
 	faramir "github.com/andornaut/faramir"
 	"github.com/andornaut/faramir/internal/denyrules"
-	"github.com/andornaut/faramir/internal/mcp"
 )
 
 // renderFuncs are for templates whose output is matched against rather than
@@ -29,6 +28,7 @@ var renderFuncs = template.FuncMap{
 	"claudeRules":    claudeRules,
 	"pluginPatterns": pluginPatterns,
 	"jsFragments":    jsFragments,
+	"agyRules":       agyRules,
 	// The same protected set in the command guard's spelling, so a rule refuses
 	// a file tool and `cat` alike. See commandRules.
 	"commandRules": commandRules,
@@ -39,12 +39,13 @@ var renderFuncs = template.FuncMap{
 	"writeCommands": func() string { return denyrules.WriteCommands },
 	"argSpan":       func() string { return denyrules.ArgSpan },
 	"installDirs":   installDirs,
+	// The installed binary, for an account file that has to name it. A tree's
+	// files get it from pluginData; an account file renders against the layout
+	// alone, and the path is the same compiled one either way.
+	"binDir": func() string { return DefaultBinDir },
 	// The literal paths this install names as linked or refused, for the agent
 	// that carries its rules rather than writing them into a config.
 	"perInstallPaths": perInstallPaths,
-	// The tools an agent is offered, for the host that has to register them
-	// itself. See mcpToolsJS.
-	"mcpToolsJS": mcpToolsJS,
 	// The rules both credentials sections state. See credentialRules.
 	"credentialRules": credentialRules,
 	// The list emitters, so no template counts commas.
@@ -141,40 +142,6 @@ func credentialRules() (string, error) {
 	return strings.TrimRight(string(body), "\n"), nil
 }
 
-// mcpToolsJS renders internal/mcp's tool list as a JSON object keyed by tool
-// name, which is also a JavaScript object literal. pi ships no MCP and
-// registers the same tools from the extension faramir installs, so without this
-// each tool's name, description and input schema are written twice and kept in
-// step by hand.
-//
-// "parameters" rather than MCP's "inputSchema": the same document under the
-// name pi's registration takes.
-func mcpToolsJS(indent string) (string, error) {
-	type entry struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Parameters  any    `json:"parameters"`
-	}
-	// Keyed by name so the template names the tool it is registering rather than
-	// indexing a list. Marshalling sorts the keys, so the rendered extension is
-	// the same bytes twice.
-	byName := map[string]entry{}
-	for _, t := range mcp.Tools() {
-		byName[t.Name] = entry{Name: t.Name, Description: t.Description, Parameters: t.InputSchema}
-	}
-	// An encoder rather than MarshalIndent, for SetEscapeHTML(false): the default
-	// escapes ">" to "\u003e", which an operator reading the installed file has
-	// to decode.
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent(indent, "  ")
-	if err := enc.Encode(byName); err != nil {
-		return "", fmt.Errorf("rendering the MCP tool list: %w", err)
-	}
-	return strings.TrimRight(out.String(), "\n"), nil
-}
-
 // units maps each installed file name to its embedded template. One map,
 // sockets and services being written, reloaded and removed together.
 var units = map[string]string{
@@ -194,6 +161,14 @@ func unitNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// renderAccount renders one account file. These read the layout the way every
+// other asset does, and one that is a program also names the binary it execs
+// and the dialect it speaks, so they render against the same data a tree's
+// files do rather than against the bare layout.
+func renderAccount(assetPath string, layout Layout) ([]byte, error) {
+	return renderData(assetPath, pluginData{BinDir: DefaultBinDir, Layout: layout})
 }
 
 // render executes one embedded template against a layout. The templates are

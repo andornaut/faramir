@@ -52,13 +52,19 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 
 	var stale, unread []string
 	read, ruleCount := 0, 0
+	// One file two agents read is read once: see uncoveredIn.
+	seen := map[string]bool{}
 	for _, name := range knownAgents() {
 		for _, file := range agentTargets[name].accountFiles {
+			if file.noRules || seen[file.path] {
+				continue
+			}
+			seen[file.path] = true
 			path := filepath.Join(home, file.path)
 			if !exists(path) {
 				continue
 			}
-			current, err := render(file.asset, layout)
+			current, err := renderAccount(file.asset, layout)
 			if err != nil {
 				continue
 			}
@@ -132,8 +138,18 @@ func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.C
 // two checks that ask this: a linked file and a blocked path are rendered into
 // the same rule files by the same step.
 func uncoveredIn(home string, paths []string) (files int, uncovered []string) {
+	// One file two agents read is one file to check: the Antigravity family
+	// shares its account-wide hook, and reporting it twice reads as two files
+	// short of what they should carry.
+	seen := map[string]bool{}
 	for _, agent := range knownAgents() {
 		for _, file := range agentTargets[agent].accountFiles {
+			// A registration rather than a rule file. Read as one it names no
+			// protected path, and every path would be reported unrefused.
+			if file.noRules || seen[file.path] {
+				continue
+			}
+			seen[file.path] = true
 			path := filepath.Join(home, file.path)
 			if !exists(path) {
 				continue

@@ -18,7 +18,7 @@ How a program gets values | `env_refs`, read from the environment. | The alterna
 Secrets at rest | sops plus age. | Encrypted YAML, per-key diffs, no network round trip.
 Credentials another tool owns | Linked by path, not copied in. | A copy is a second thing to rotate. The tool keeps its own file; the broker reads one value out of it. See [below](#linked-secrets-are-read-by-the-broker).
 Redaction | Custom, over the whole value set. | Off-the-shelf injectors mask only what they injected; a managed host can print a credential the broker never injected.
-Agent interface | Unix socket exposed as MCP tools plus a CLI. | A distinct tool is more discoverable to a model than a documented convention.
+Agent interface | A Unix socket, reached through the CLI. | The binary is installed for the account, so the route is the same in every directory and needs registering nowhere. A registered tool is more discoverable to a model, and it costs a config surface per agent, a second path to the broker and a tool slot in every session; the prose that names the route is installed account-wide either way.
 Enforcement | Hook plus filesystem permissions. | Instructions to the agent are ergonomics, not a boundary.
 
 ## One mode
@@ -73,7 +73,7 @@ What catches a lost arrangement is `faramir doctor`. It asks the broker's own ac
 
 **A link is install state**, re-asserted by every `init` run rather than applied once, which is why `faramir link add` applies those same steps rather than a private copy of them.
 
-Rendering linked paths into the per-project assets instead would change every enrolled tree's files whenever a link was added, and report drift in all of them until each tree was enrolled again. Pi is where that would bite: its extension is the only file it gets, so covering its links would mean exactly that re-enrolment, and only in the trees it has already been trusted in. So the extension carries no linked paths, which is the gap pi has.
+A linked path is rendered into the rule files agents enforce themselves, which `link add` and `init` rewrite in the operator's home. Nowhere else carries a copy: the plugin, the extension and the hook ask `faramir guard`, which reads the rendered rules when it is asked, so adding a link covers those agents without rewriting anything they load.
 
 ## Three layers
 
@@ -83,7 +83,7 @@ Rendering linked paths into the per-project assets instead would change every en
    The first half is generated from the same set the agents' deny rules are: one list, two entry points, so a declared path is refused to a file tool and to `cat` together rather than to whichever was thought of. A path under a home is named in the spellings a shell expands to it, `~/` and `$HOME/` among them, that being how the file is usually written rather than a way around the rule.
 
    The refusal states the alternative, because a denial the agent cannot act on gets worked around. Nothing is refused for being a decryption or an environment dump: what a command *does* is the operator's to declare, with `block add --command`. In an enrolled tree the command is rewritten before it runs, so `printenv` comes back with every managed value replaced by its token.
-   What an operator declares, under `[[secret.block]]` or `[[secret.link]]`, is enforced twice, because the deny rules reach the agent's own tools alone: the broker holds the same entries and refuses a brokered command that would read, copy or move one, `faramir_run` being the route no hook over shell tools can see. What it does not reach is every command outside that vocabulary, writing over the file included, see [the brokered route](configuration.md#the-brokered-route).
+   What an operator declares, under `[[secret.block]]` or `[[secret.link]]`, is enforced twice, because the deny rules reach the agent's own tools alone: the broker holds the same entries and refuses a brokered command that would read, copy or move one, a brokered command being one that runs as another uid on the far side of the broker, where no hook over shell tools reaches. What it does not reach is every command outside that vocabulary, writing over the file included, see [the brokered route](configuration.md#the-brokered-route).
 3. **Redact what still gets through.** The `redact` op returns text with every known value replaced by its token. The caller never receives the value set.
 
 ## How the rewrite works

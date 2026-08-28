@@ -16,7 +16,7 @@ All three drop a connection that sends no request within 30s. Only the broker an
 
 Every request on all three sockets carries `version`, the version string the sending binary reports, and one naming anything but the receiving daemon's own is refused before its op is read.
 
-There is one binary: the three daemons are it under three units, and the CLI and the MCP server are it as the agent's own processes. Two versions on one host is therefore a process that outlived the install which replaced the binary under it, and the refusal names that.
+There is one binary: the three daemons are it under three units, and the CLI is it as the agent's own process. Two versions on one host is therefore a process that outlived the install which replaced the binary under it, and the refusal names that.
 
 ```json
 {"version": "<this daemon's>",
@@ -31,8 +31,6 @@ Every error response from the broker carries `version`, the build that answered.
 `status` also carries `build`, which is what separates two binaries reporting the same version: every unstamped build reports `dev`, so the version alone cannot tell one from another. It is the commit, plus `-modified` for a tree that carried edits, and empty for a release whose version already names the build. `doctor` compares it when the versions match. Not part of `version` itself, which would make the refusal above fire on every rebuild rather than on every release.
 
 A caller that sends no `version` is refused the same way and told it named none. The alternative is failing later on whichever op or field changed in between: an op the daemon no longer has is refused as unknown, which reads as a caller asking for something that never existed, and a field it no longer reads is ignored, so a setting the caller sent goes silently unapplied.
-
-The MCP server is the process this is for: a long-lived child of the coding agent, and so the one client that survives an install.
 
 ## The broker socket
 
@@ -68,7 +66,7 @@ Field | Required | Notes
 --- | --- | ---
 `version` | yes | The sending binary's own version. Every op on every socket takes it, and a mismatch is refused before the op is read. See [version](#version).
 `cmd` | yes | Non-empty array of strings. A string is rejected with guidance; the broker never runs `sh -c` for you.
-`cwd` | yes | Absolute, and must be an existing directory. A relative `cmd[0]` resolves against it. The CLI and the MCP server fill in their own working directory, so this is a refusal only on the socket.
+`cwd` | yes | Absolute, and must be an existing directory. A relative `cmd[0]` resolves against it. The CLI fills in its own working directory, so this is a refusal only on the socket.
 `env_refs` | no | `NAME` to `faramir://ref`. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$` and must not be reserved. Values cannot be passed.
 `timeout_sec` | no | Positive integer, clamped down to `[command] max_timeout_sec`. Omitted means `[command] timeout_sec`.
 

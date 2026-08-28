@@ -71,9 +71,9 @@ func TestTheFallbackMatchesTheShippedFile(t *testing.T) {
 // Every refusal explains itself with the reason it was actually refused for.
 //
 // The deny list holds two kinds of rule and they need different messages. A
-// read rule is about what the command would disclose, and faramir_run is the
+// read rule is about what the command would disclose, and faramir run is the
 // way to proceed. A rule about faramir's own files, accounts or units discloses
-// nothing, and faramir_run is not a remedy there: it runs as an account with
+// nothing, and faramir run is not a remedy there: it runs as an account with
 // less reach, so following that advice either hits a permission error or, where
 // the executor does have reach, does the thing that was refused.
 func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
@@ -89,8 +89,8 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		{"rm /etc/faramir/age.key", adviceOwn},
 		{"echo x > /etc/faramir/config.toml", adviceOwn},
 		{"systemctl stop faramir-broker.socket", adviceOwn},
-		{"rm .opencode/plugins/faramir.js", adviceOwn},
-		{"sed -i s/x/y/ .pi/extensions/faramir.ts", adviceOwn},
+		{"rm ~/.config/opencode/plugin/faramir.js", adviceOwn},
+		{"sed -i s/x/y/ ~/.pi/agent/extensions/faramir.ts", adviceOwn},
 		// The operator's. Every faramir subcommand under sudo, the daemons and the
 		// escalation channel among them: an agent has no root to run one with, and
 		// a refusal saying so is more use than one about disclosure.
@@ -173,7 +173,7 @@ func TestAWriteToADeclaredPathIsNotFaramirsOwn(t *testing.T) {
 			}
 			if got := adviceFor(pattern, command); got != advice {
 				t.Errorf("%q was explained as faramir's own; it is the operator's, "+
-					"and the remedy for it is faramir_run rather than the operator",
+					"and the remedy for it is faramir run rather than the operator",
 					command)
 			}
 		}

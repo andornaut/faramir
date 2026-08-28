@@ -16,27 +16,32 @@ faramir run: redacted «SECRET:home/router/admin»×1; log_id=w5vq7dbf00002c
 
 ## Supported agents
 
-Four get full redaction: what the agent runs in an enrolled project is rewritten into a brokered command, and its output comes back with every value replaced.
+All six get full redaction: what the agent runs is rewritten into a brokered command, and its output comes back with every value replaced. `faramir init` installs that everywhere the agent works, except on Claude Code, where routing costs a permission and so is taken one tree at a time.
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
-[Claude Code](https://claude.com/product/claude-code) | `PreToolUse` hook, deny rules and MCP server in the tree; deny rules in `~/.claude/settings.json` | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
-[opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) and `opencode.json` in the tree; deny patterns in `~/.config/opencode/opencode.json` | None: there is no allow to return, so a plugin that has not denied has not approved
-[Kilo Code](https://kilo.ai/) | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) under `.kilo/plugin/`, loaded by the CLI and the VS Code extension; `kilo.json` and `~/.config/kilo/kilo.json` | Same as opencode
-[Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) under `.pi/extensions/`. Pi ships no MCP, so the extension registers the two tools itself | None. Project-local extensions load only once the project is trusted, so a tree Pi has not been trusted in is unguarded
-[Antigravity](https://antigravity.google/) | MCP server in `.agents/mcp_config.json`; credentials section in `.agents/rules/faramir.md` and `~/.gemini/GEMINI.md` | None, and no redaction either. **Partial support**, see below
+[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook in the tree | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
+[opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) in `~/.config/opencode/plugin/`; deny patterns in `~/.config/opencode/opencode.json` | None: there is no allow to return, so a plugin that has not denied has not approved
+[Kilo Code](https://kilo.ai/) | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) in `~/.config/kilo/plugin/`, loaded by the CLI and the VS Code extension; deny patterns in `~/.config/kilo/kilo.json` | Same as opencode
+[Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) in `~/.pi/agent/extensions/` | None. Installed in a home rather than a tree, which Pi loads for every project without the project being trusted
+[Antigravity CLI](https://antigravity.google/docs/cli/) (`agy`) | `PreToolUse` hook in `~/.gemini/config/hooks.json`; deny rules in `~/.gemini/antigravity-cli/settings.json`; credentials section in `.agents/rules/faramir.md`, the tree's own `AGENTS.md` and `~/.gemini/GEMINI.md` | None: the permission check runs before the hook, so the guard's allow approves nothing that was going to prompt
+[Antigravity IDE](https://antigravity.google/) | The same hook and the same prose. No account-wide rule file: the hook refuses its file tools instead | None
 
 Choosing agents with `--agent`, repeatable on `init` and `init-project`:
 
-- Names are `antigravity`, `claude`, `kilocode`, `opencode` and `pi`.
+- Names are `agy`, `antigravity`, `claude`, `kilocode`, `opencode` and `pi`. `agy` is the Antigravity CLI and `antigravity` the IDE; they share one tree enrolment, so naming either writes the same files.
 - The default is `auto`: whichever agents are already there, which `init` asks of your home and `init-project` of the tree.
 - A name configures that agent regardless and composes, so `--agent auto --agent pi` is "whatever is installed, plus pi".
-- Pi and Antigravity get no account-wide rule file. Pi has nowhere to put one, so the same rules are compiled into its extension; Antigravity's permission lists are the IDE's own state.
+- Claude Code and the Antigravity CLI are the only two that refuse a path from a rule file of their own. Pi and the Antigravity IDE have none an install can write, and opencode's and Kilo Code's are not refusals: an entry of `deny` is put to the operator as a prompt, and an autonomous run approves it. So faramir refuses those four itself, from the plugin, the extension or the hook, and the Antigravity CLI is refused twice.
 
-Each agent is also told what those rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)). What varies between them, and what each contract makes of the rewrite: [docs/coding-agents.md](docs/coding-agents.md).
+Each agent is also told what those rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)). What each agent gets, feature by feature, is [the table in docs/coding-agents.md](docs/coding-agents.md#what-each-agent-gets); what each contract makes of the rewrite is the rest of that page.
 
-> [!WARNING]
-> **Antigravity is partial support.** [Its hooks](https://antigravity.google/docs/hooks) allow, deny or ask and cannot change a tool call's arguments, so there is nothing to rewrite a command with and nothing redacts what comes back. An enrolment leaves it the broker's tools and the instructions to use them; a command it runs itself reaches the model with the value in it. Enrolling one warns that this is what was installed.
+> [!NOTE]
+> **Antigravity is covered by its hooks.** [Its `PreToolUse` hook](https://antigravity.google/docs/hooks) returns `overwrite`, a shallow merge into the tool call's own arguments whose merged form is what runs, so a command is routed through the broker and comes back redacted. The same hook refuses a file tool that names key material, which is what covers the IDE: its permission lists are its own state rather than a file an install can write, so there are no deny rules to fall back on there. The CLI has both.
+>
+> `faramir init` writes that hook into `~/.gemini/config/hooks.json`, which both halves read for every workspace, so a tree nobody enrolled is covered too. No hook goes into a tree.
+>
+> What an enrolment writes into a *tree* is the credentials section, which for Antigravity means `.agents/rules/faramir.md` as well as the tree's own file. Both load a tree's customizations only once that tree is a project they have opened, so until then that file is there and inert, which enrolling says. The hook is not conditional on it.
 
 ## What it protects against
 
@@ -69,7 +74,7 @@ Failure | Why
 
 ## How it works
 
-One binary. The daemons, the MCP server and the guard are subcommands of it, separated by the uid each unit runs its subcommand as.
+One binary. The daemons and the guard are subcommands of it, separated by the uid each unit runs its subcommand as. The agent reaches the broker through that same binary: there is no server to register and nothing to install per project for it.
 
 uid | Runs | Holds
 --- | --- | ---
@@ -211,7 +216,7 @@ A fleet declares these where it declares everything else: every `block` command 
 3. **Write the refs beside the project**, one per line, in a file that holds refs and never values: [the two line forms](docs/integrations.md#onboarding-in-three-steps).
 4. **`cd <project> && sudo faramir init-project`.** Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
-Enrol the projects where managed credentials are in play, not every tree. Enrolling one registers the hook the table above names for each agent it finds: it rewrites what the agent runs in the tree into a brokered command and hands the output back redacted. There is no enrolment without it, redaction being what an enrolment is for.
+`faramir init` installs the guard into the agent's home, where it holds in every directory: a command the deny list names is refused wherever the agent is working, which is what a `[[secret.block]]` entry is for. An enrolment adds the credentials section to the tree's own instructions file and shares the tree so the broker's account can reach it. For Claude Code it also registers the routing hook, that being the one agent where routing costs a permission and so the one thing still taken tree by tree.
 
 What to run in one: [below](#running-commands).
 
@@ -267,14 +272,14 @@ The record, and sudo | `logs`, `sudo approve`, `sudo ls`, `sudo reject`, `sudo w
 
 `init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run.
 
-### MCP tools
+### What the agent runs
 
-Tool | Parameters
+Command | What it is for
 --- | ---
-`faramir_run` | `cmd` (array, required), `env_refs`, `cwd`, `timeout_sec`
-`faramir_refs` | none. Ref names only, and where `faramir_run`'s `env_refs` come from
+`faramir run --env NAME=faramir://ref -- program args` | Runs the command with the value injected, and returns its output with each one replaced by `«SECRET:ref»`
+`faramir refs` | The names that exist, values never. Where `run`'s `--env` refs come from
 
-Two, and meant to stay two: a tool is for what an agent has to be told, everything else is a subcommand. Pi registers the same two from its extension. Wire protocol: [docs/protocol.md](docs/protocol.md).
+These two are how a value reaches a command; `redact`, `status`, `version`, `help` and `completion` are open to the agent as well, and every other subcommand acts on the install and is the operator's. There is nothing to register: the binary is installed for the account, so the route is the same in every directory on the host, enrolled or not. Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 ## Configuration
 

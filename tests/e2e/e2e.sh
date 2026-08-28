@@ -66,7 +66,7 @@ NETWORK=${NETWORK:-faramirnet$SUFFIX}
 HERE=$(cd "$(dirname "$0")" && pwd)
 # The tree under test, two levels up from tests/e2e.
 REPO=${REPO:-$(cd "$HERE/../.." && pwd)}
-SUITES=(init project config disclose plugin guard wrap leak stream mcp exec logs ssh doctor escalation secrets link block uninstall)
+SUITES=(init project config disclose plugin guard wrap leak stream exec logs ssh doctor escalation secrets link block uninstall)
 
 # The third-party binaries the image installs, pinned by version and by digest.
 # Upstream's own builds, which are static, so the image needs no libc to match.

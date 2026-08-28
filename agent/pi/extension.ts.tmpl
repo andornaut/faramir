@@ -25,8 +25,6 @@
 // what lets the tests drive the shipped bytes rather than a stripped copy of
 // them. Everything here was `any` in any case.
 import { spawnSync } from "node:child_process"
-import { homedir } from "node:os"
-import { normalize } from "node:path"
 
 // The installed path, not an environment variable: see the note in the
 // opencode plugin. The file is the operator's to edit, so this closes one
@@ -38,82 +36,6 @@ const HOST = "pi"
 // put to the guard whatever the tool is called. The names are what makes a
 // known shell tool arriving without one a refusal rather than a shrug.
 const SHELL_TOOLS = new Set(["bash", "shell", "exec"])
-
-// The paths this refuses to open, GENERATED from
-// internal/install/protectedpaths.go: the same list the other four agents get,
-// in the spelling this one can apply. Nothing here is a path of its own.
-//
-// pi has no account-wide rule file to write them into, so they are applied here
-// instead, and by shape rather than by tool name for the same reason the
-// commands are: a file tool this does not know the name of still carries a path.
-const PROTECTED_PATHS = [
-{{- range $fragment := jsFragments .Layout }}
-  {{ printf "%s" (quote $fragment) }},
-{{- end }}
-].map((source) => new RegExp(source))
-
-// This install's own directories, which are literal rather than patterns: a
-// config and store moved by `faramir init --config-dir` are the ones refused
-// rather than the defaults.
-// filter(Boolean) is not decoration: an empty string here would make every
-// absolute path start with it, and refuse the whole filesystem.
-const PROTECTED_DIRS = [
-{{- range $dir := installDirs .Layout }}
-  {{ printf "%s" (quote $dir) }},
-{{- end }}
-{{- range $path := perInstallPaths .Layout }}
-  {{ printf "%s" (quote $path) }},
-{{- end }}
-].filter(Boolean)
-
-// pathsIn is every string in a tool's input that could name a file, at any
-// depth: a tool taking one path and a tool taking a list of them are the same
-// question, and enumerating tool schemas is how one gets missed.
-function pathsIn(value, depth = 0) {
-  if (depth > 8) return []
-  if (typeof value === "string") return [value]
-  if (Array.isArray(value)) return value.flatMap((v) => pathsIn(v, depth + 1))
-  if (value && typeof value === "object") {
-    return Object.values(value).flatMap((v) => pathsIn(v, depth + 1))
-  }
-  return []
-}
-
-// spellings is the ways one path can be written that all name the same file:
-// as given, with "~" expanded, and with dot segments and doubled separators
-// taken out. The built-in patterns are regexes matching a name or a suffix
-// anywhere in the string, so they catch every spelling already; the paths this
-// install declares are literals, and a literal only ever matches itself.
-//
-// A relative path is deliberately not resolved. Doing that needs a working
-// directory, and the one this process has is the extension host's rather than
-// the one the tool call meant, so a guess there refuses the wrong file as
-// readily as the right one. What a relative path names is left to the agent to
-// have made absolute.
-function spellings(candidate) {
-  const out = [candidate]
-  if (candidate.startsWith("~/")) out.push(homedir() + candidate.slice(1))
-  for (const form of [...out]) {
-    if (form.startsWith("/")) out.push(normalize(form))
-  }
-  return out
-}
-
-// refusedPath is the first path in this call that names key material, or "".
-function refusedPath(input) {
-  for (const given of pathsIn(input)) {
-    for (const candidate of spellings(given)) {
-      if (PROTECTED_PATHS.some((re) => re.test(candidate))) return candidate
-      // The path itself as well as anything under it. Every per-install path is
-      // in this list, and a linked one names a FILE: nothing is ever under a
-      // file, so a prefix test alone refused the one path the entry exists for.
-      if (PROTECTED_DIRS.some((dir) => candidate === dir || candidate.startsWith(dir + "/"))) {
-        return candidate
-      }
-    }
-  }
-  return ""
-}
 
 // whyNot is what to add to the message when the guard did not answer: what
 // stopped it running, what it said on stderr, or the status it exited with.
@@ -128,95 +50,7 @@ function whyNot(result) {
   return `: it exited ${result.status}`
 }
 
-// runCLI is one faramir invocation and its raw output.
-function runCLI(args) {
-  const result = spawnSync(CLI, args, { encoding: "utf8", timeout: 600000 })
-  if (result.error || typeof result.stdout !== "string") {
-    return { failed: `faramir: ${CLI} could not be run: ${result.error || "no output"}` }
-  }
-  return { stdout: result.stdout, stderr: String(result.stderr || ""), status: result.status }
-}
-
-// text is one tool result in pi's shape.
-function text(body, isError = false) {
-  return { content: [{ type: "text", text: body }], isError }
-}
-
-// describe renders a broker response the way the MCP server does, so what a
-// model sees here is what it would see on any other host.
-function describe(raw, stderr) {
-  let r
-  try {
-    r = JSON.parse(raw)
-  } catch {
-    return text(stderr.trim() || "faramir: the broker's answer was not JSON", true)
-  }
-  if (r.error) {
-    let detail = `${r.error.code}: ${r.error.message}`
-    if (r.log_id) detail += `\n(operator can inspect log_id ${r.log_id})`
-    return text(detail, true)
-  }
-  const meta = []
-  if (typeof r.exit_code === "number") meta.push(`exit_code=${r.exit_code}`)
-  if (r.redactions && r.redactions.length) {
-    meta.push("redacted: " + r.redactions.map((x) => `${x.token} ×${x.count}`).join(", "))
-  }
-  if (r.truncated) meta.push("output truncated")
-  if (r.timed_out) meta.push("timed out")
-  if (r.log_id) meta.push(`log_id=${r.log_id}`)
-  const body = (r.output || "") + (meta.length ? `\n[${meta.join("; ")}]` : "")
-  return text(body, typeof r.exit_code === "number" && r.exit_code !== 0)
-}
-
-// What each tool is called, what it is for and what it takes, GENERATED from
-// internal/mcp: pi ships no MCP, so the tools the other hosts reach through the
-// server are registered below from that same list rather than from a copy of
-// it. Nothing here is a description of its own.
-//
-// What is this host's and stays below is the label and the body that runs the
-// tool. A model is told the same thing about a tool wherever it meets one.
-const MCP_TOOLS = {{ mcpToolsJS "" }}
-
 export default function faramir(pi) {
-  pi.registerTool({
-    ...MCP_TOOLS.faramir_run,
-    label: "faramir run",
-    async execute(_id, params) {
-      const cmd = params && params.cmd
-      if (!Array.isArray(cmd) || cmd.some((a) => typeof a !== "string")) {
-        return text(
-          'cmd must be an array of strings, not a shell string. Use ' +
-            'cmd=["ansible-playbook","site.yml"], or cmd=["bash","-lc","a | b"] ' +
-            "when you need a pipeline.",
-          true,
-        )
-      }
-      if (cmd.length === 0) return text("cmd must name a program: it is an empty array.", true)
-
-      const args = ["run", "--json"]
-      if (params.cwd) args.push("-C", String(params.cwd))
-      if (params.timeout_sec) args.push("-t", String(params.timeout_sec))
-      for (const [name, ref] of Object.entries(params.env_refs || {})) {
-        args.push("--env", `${name}=${ref}`)
-      }
-      args.push("--", ...cmd)
-
-      const out = runCLI(args)
-      if (out.failed) return text(out.failed, true)
-      return describe(out.stdout, out.stderr)
-    },
-  })
-
-  pi.registerTool({
-    ...MCP_TOOLS.faramir_refs,
-    label: "faramir refs",
-    async execute() {
-      const out = runCLI(["refs"])
-      if (out.failed) return text(out.failed, true)
-      return text(out.stdout || out.stderr, out.status !== 0)
-    },
-  })
-
   pi.on("tool_call", async (event) => {
     const input = event && event.input
     const command = input && input.command
@@ -230,21 +64,10 @@ export default function faramir(pi) {
             "extension could not guard it and the call was not made",
         }
       }
-      // Not a command, so it is a file tool or something like one. The other
-      // agents refuse these through a rule file of their own; pi has none, so
-      // the same list is applied here.
-      const refused = refusedPath(input)
-      if (refused) {
-        return {
-          block: true,
-          reason:
-            `faramir: ${refused} is key material or an encrypted store, and reading ` +
-            "or writing it directly is refused. You do not need the value of a " +
-            "secret to use it: name it as faramir://<ref> and run the command " +
-            "through `faramir run`, which injects it and redacts the output",
-        }
-      }
-      return
+      // Not a command, so it is a file tool or something like one. pi has no
+      // rule file of its own to refuse those, so they are asked about rather
+      // than waved through, and asked of the guard: this extension decides
+      // nothing, and one implementation of a rule cannot drift from another.
     }
 
     const result = spawnSync(CLI, ["guard", "--host", HOST], {

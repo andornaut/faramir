@@ -73,8 +73,8 @@ change who can read the store|faramir reader add age1abc
 open a managed file|faramir vault edit app
 stop the broker|systemctl stop faramir-broker.socket
 read the audit log|cat /var/log/faramir/audit.log
-delete the opencode plugin|rm .opencode/plugins/faramir.js
-edit the pi extension|sed -i s/x/y/ .pi/extensions/faramir.ts
+delete the opencode plugin|rm ~/.config/opencode/plugin/faramir.js
+edit the pi extension|sed -i s/x/y/ ~/.pi/agent/extensions/faramir.ts
 read the age key by the GNU build's own name|gnucat /etc/faramir/age.key
 page a managed file that way|gnuhead -c1 /etc/faramir/secrets/app.sops.yml
 copy the key that way|gnucp /etc/faramir/age.key /tmp/k
@@ -118,7 +118,7 @@ an ssh private key, theirs to declare|cat /home/op/.ssh/id_ed25519
 restart a faramir unit|systemctl restart faramir-keeper.socket
 a brokered command|faramir run --env P=faramir://db/password -- ./deploy.sh
 edit claude's settings|sed -i s/a/b/ .claude/settings.json
-replace the MCP list|rm .mcp.json
+replace the deny list|rm .agents/hooks.json
 edit the opencode config|sed -i s/a/b/ opencode.json
 a process substitution, which is not an input redirect|diff <(ls) <(ls -a)
 a heredoc marker before a protected path, which redirects nothing|echo <<EOF /etc/faramir/age.key

@@ -85,7 +85,6 @@ var Internal = []string{
 	"broker",
 	"keeper",
 	"exec",
-	"mcp",
 	"guard",
 	"pam-escalate",
 	// What doctor runs under runuser to answer access(2) as another account.

@@ -8,11 +8,12 @@ import (
 	"testing"
 )
 
-// An agent that gets no enforcement gets prose, and prose only works where the
-// agent reads it. Antigravity is the case these cover: its hooks decide and
-// cannot rewrite a command, so what an enrolment leaves is the broker's tools
-// and the instructions to use them, and every claim below is about those
-// instructions arriving.
+// An agent that gets no rule file gets its refusals somewhere else, and where
+// that is has to be a file the agent actually reads. The Antigravity IDE is the
+// case these cover: its permission lists are its own state, so there is no rule
+// file to write, and what holds instead is a hook, account-wide for what it
+// reads and per tree for what it runs. Every claim below is about those
+// arriving, and about the enrolment saying what is still conditional.
 
 // Antigravity reads no documented file at the root of a tree, so an enrolment
 // writes it one under the directory it does read. A rules file's activation is
@@ -46,7 +47,7 @@ func TestATreeRulesFileIsHeadedSoTheAgentLoadsIt(t *testing.T) {
 		t.Errorf("%s does not start with %q, so the rule is not always on:\n%s",
 			rules.path, rules.head, body)
 	}
-	for _, want := range []string{sectionBegin, sectionEnd, "faramir_run"} {
+	for _, want := range []string{sectionBegin, sectionEnd, "faramir run"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("%s does not carry %q", rules.path, want)
 		}
@@ -145,22 +146,23 @@ func TestTheClaimInASharedHomeFileIsTheWeakerOne(t *testing.T) {
 			t.Fatalf("%s then %s: %d files, want the one they share",
 				order[0].name, order[1].name, len(files))
 		}
-		if files[0].accountRules {
-			t.Errorf("%s then %s: the shared file claims rules an agent reading it "+
-				"does not have", order[0].name, order[1].name)
+		if files[0].path != path {
+			t.Errorf("%s then %s: the shared file is %q, want %q",
+				order[0].name, order[1].name, files[0].path, path)
 		}
 	}
-	// And an agent that does have them is still told so.
+	// And one agent alone still names it once.
 	files := homeInstructionFiles([]*agentTarget{guarded})
-	if len(files) != 1 || !files[0].accountRules {
-		t.Errorf("homeInstructionFiles = %+v, want one file claiming its rules", files)
+	if len(files) != 1 || files[0].path != path {
+		t.Errorf("homeInstructionFiles = %+v, want the one file", files)
 	}
 }
 
-// Enrolling an agent nothing redacts says so. The tree is shared and the tools
-// are registered either way, and an operator reading a clean report would
-// otherwise take this tree to be covered the way the others are.
-func TestEnrollingAntigravitySaysNothingItRunsIsRedacted(t *testing.T) {
+// Enrolling says what is conditional about it. Everything written into the tree
+// is inert until Antigravity has opened that tree as a project, and an operator
+// reading a clean report would take the tree to be covered from the moment the
+// command returned.
+func TestEnrollingAntigravitySaysTheTreeIsInertUntilItIsOpened(t *testing.T) {
 	tree := t.TempDir()
 	run := &project{
 		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
@@ -169,68 +171,80 @@ func TestEnrollingAntigravitySaysNothingItRunsIsRedacted(t *testing.T) {
 		targets: []*agentTarget{agentTargets["antigravity"]},
 	}
 
+	// The prose is the whole of what a tree gets: the hook that routes what it
+	// runs is installed for the account, and the deny rules with it.
+	if err := run.instructions(); err != nil {
+		t.Fatal(err)
+	}
 	if err := run.agentConfig(); err != nil {
 		t.Fatal(err)
 	}
 
-	// The route it is told to take, which is all it has.
-	body, err := os.ReadFile(filepath.Join(tree, ".agents/mcp_config.json"))
+	// The rules file, which is what this agent reads in a tree.
+	body, err := os.ReadFile(filepath.Join(tree, ".agents/rules/faramir.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"mcpServers", "faramir", `"mcp"`} {
+	for _, want := range []string{"trigger: always_on", "faramir run"} {
 		if !strings.Contains(string(body), want) {
-			t.Errorf("the MCP registration does not carry %q:\n%s", want, body)
+			t.Errorf("the tree's rules file does not carry %q:\n%s", want, body)
 		}
 	}
 	warnings := strings.Join(run.report.Warnings, "\n")
-	if !strings.Contains(warnings, "redact") {
-		t.Errorf("enrolling an agent nothing redacts warned about nothing:\n%s", warnings)
+	if !strings.Contains(warnings, "project it has opened") {
+		t.Errorf("enrolling said nothing about the tree being inert until the "+
+			"agent opens it:\n%s", warnings)
 	}
 }
 
-// An agent with no account-wide rules says why it has none. Two get none and
-// not for the same reason, and the difference between them is the difference
-// between a project that is covered and one that is not.
-func TestEveryAgentWithoutAccountRulesSaysWhy(t *testing.T) {
-	seen := 0
+// Every agent has something account-wide, which is what makes a tree nobody
+// enrolled covered: the deny rules an agent enforces itself, or faramir's own
+// guard reached through a hook, a plugin or an extension installed in a home.
+//
+// This is the invariant the whole arrangement rests on. An agent added without
+// one is an agent whose refusals reach only the trees somebody enrolled, and
+// nothing else here would say so.
+func TestEveryAgentIsCoveredAccountWide(t *testing.T) {
 	for _, name := range knownAgents() {
-		target := agentTargets[name]
-		switch {
-		case len(target.accountFiles) == 0:
-			seen++
-			if strings.TrimSpace(target.withoutAccountRules) == "" {
-				t.Errorf("%s has no account-wide rules and does not say why, so the "+
-					"report has to guess", name)
-			}
-		case target.withoutAccountRules != "":
-			t.Errorf("%s has account-wide rules and also says why it has none", name)
+		if len(agentTargets[name].accountFiles) == 0 {
+			t.Errorf("%s writes nothing into a home, so a tree nobody enrolled has "+
+				"none of its refusals", name)
 		}
 	}
-	if seen == 0 {
-		t.Error("every agent has account-wide rules, so this asserts nothing")
-	}
 }
 
-// And `doctor` says that reason rather than pi's. It is the report an operator
-// reads to check coverage, and telling them an extension carries Antigravity's
-// rules names a thing that does not exist.
-func TestDoctorSaysWhyAntigravityHasNoRules(t *testing.T) {
+// `doctor` reports Antigravity as an agent with account-wide files rather than
+// one with none. It has no rule file and never will, its permission lists being
+// its own state, but the hook it reads for every workspace is written into a
+// home like any other account file, and the report an operator reads to check
+// coverage has to name it.
+func TestDoctorReportsAntigravitysAccountWideHook(t *testing.T) {
+	if len(agentTargets["antigravity"].accountFiles) == 0 {
+		t.Fatal("the IDE has no account-wide files, so nothing refuses its file " +
+			"tools outside an enrolled tree")
+	}
+	// A home the agent is in: an empty one is reported as an agent nobody runs
+	// here, which is a different finding and true of every target.
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config/Antigravity"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	var report DoctorReport
-	reportAgentRules(&report, t.TempDir(), nil)
+	reportAgentRules(&report, home, nil)
 
 	got := finding(t, report, "antigravity")
-	if got.Status != StatusNA {
-		t.Errorf("status = %q, want %q: %s", got.Status, StatusNA, got.Detail)
+	// Absent from a home nothing was installed into, which is a missing file
+	// rather than an agent that can have none.
+	if got.Status == StatusNA {
+		t.Errorf("doctor still reports it as an agent that can have no rules: %s",
+			got.Detail)
+	}
+	if !strings.Contains(got.Detail, "hooks.json") {
+		t.Errorf("doctor does not name the file its refusals are written into: %s",
+			got.Detail)
 	}
 	if strings.Contains(got.Detail, "extension") {
 		t.Errorf("doctor says an extension carries Antigravity's rules: %s", got.Detail)
-	}
-	if !strings.Contains(got.Detail, "refuses its file tools") {
-		t.Errorf("doctor does not say that nothing refuses it: %s", got.Detail)
-	}
-	if report.Failed {
-		t.Error("an agent that can have no rules failed the report")
 	}
 }
 
@@ -291,8 +305,8 @@ func TestTheAntigravityWarningIsRepeatedOnEveryEnrolment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(strings.Join(second.report.Warnings, "\n"), "redacts") {
-		t.Errorf("a re-enrolment says nothing about the tree not being redacted: %v",
+	if !strings.Contains(strings.Join(second.report.Warnings, "\n"), "project it has opened") {
+		t.Errorf("a re-enrolment says nothing about the tree being inert: %v",
 			second.report.Warnings)
 	}
 }
@@ -336,7 +350,9 @@ func TestTheInstructionsStepReportsWhatItWroteBeforeFailing(t *testing.T) {
 // the tree. Running as root, that is a directory handed to the client group
 // somewhere the enrolment was never pointed at.
 //
-// Both halves of an enrolment create directories, so both are asked.
+// The instructions half is what creates a directory in a tree now: the only
+// tree config left is Claude Code's settings, which goes in a directory the
+// agent already has rather than one an enrolment makes.
 func TestNoDirectoryIsCreatedThroughALinkOutOfTheTree(t *testing.T) {
 	for _, tc := range []struct {
 		name, link, made string
@@ -345,10 +361,6 @@ func TestNoDirectoryIsCreatedThroughALinkOutOfTheTree(t *testing.T) {
 		{
 			name: "the instructions", link: ".agents", made: "rules",
 			write: func(p *project) error { return p.instructions() },
-		},
-		{
-			name: "the agent files", link: ".opencode", made: "plugins",
-			write: func(p *project) error { return p.agentConfig() },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -422,8 +434,13 @@ func TestAnAgentWithNoHookTakesNothingAway(t *testing.T) {
 	if target.autoApprovesBash {
 		t.Error("antigravity claims to auto-approve Bash, having no hook that could")
 	}
-	if len(target.accountFiles) != 0 {
-		t.Error("antigravity writes account-wide rules, and its permission lists " +
-			"are the IDE's own state rather than a file an install may write")
+	// What it writes account-wide is a hook, not a permission rule: its lists are
+	// the IDE's own state, and an install that wrote one would be writing a file
+	// the agent does not read.
+	for _, file := range target.accountFiles {
+		if !strings.HasSuffix(file.path, "hooks.json") {
+			t.Errorf("antigravity writes %s account-wide, which is not a file it "+
+				"reads: its permission lists are the IDE's own state", file.path)
+		}
 	}
 }

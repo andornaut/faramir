@@ -1,4 +1,22 @@
 {{- /*
+The account-wide half of a Claude Code enrolment, and now the whole of it: the
+PreToolUse hook that routes a Bash command through the broker, and the deny
+rules that refuse a path to its file tools.
+
+Both in a home rather than a tree. The wrapper, the redactor and the binary the
+hook execs are installed for the account, so nothing about routing needs a tree,
+and an operator's declared paths are the host's rather than any project's. A
+tree carries the prose and nothing else.
+
+Deny-only, and that is the whole of the difference from the tree's. A rewrite
+has to be approved to run, and the allow that approves it approves every command
+the list does not name; Claude Code refuses the permission rule that would
+approve the rewrite instead, saying "'source' evaluates arguments as shell code".
+So routing costs a permission here and nowhere else, and an operator takes that
+trade per tree. What this one does is refuse what the list names, wherever the
+agent is working, and say nothing about anything else: a silent answer leaves
+the host's own permission flow as it was.
+
 GENERATED. The paths come from internal/install/protectedpaths.go, written
 once and rendered into each agent's own spelling; nothing here is a path of its
 own. Add one there.
@@ -13,9 +31,23 @@ retroactively.
 */ -}}
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{.BinDir}}/faramir guard --deny-only",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "deny": [
-{{ jsonLines "      " (claudeRules .) }}
+{{ jsonLines "      " (claudeRules .Layout) }}
     ]
   }
 }

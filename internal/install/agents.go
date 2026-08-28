@@ -15,6 +15,18 @@ import (
 type agentTarget struct {
 	name string
 
+	// family is the agents that share one tree enrolment, for the two that ship
+	// a single hook contract between them and are told apart only by what they
+	// keep in a home. Empty for an agent that is its own family, which is every
+	// other one.
+	//
+	// It decides two things. A tree's files are rendered against it rather than
+	// against the name, so enrolling either member writes the same bytes and a
+	// second enrolment naming the other is a no-op rather than a rewrite. And a
+	// sibling detected in a tree an enrolment already covered is not reported as
+	// an agent nothing redacts, which it is not.
+	family string
+
 	// files are written relative to the tree. A list rather than named fields:
 	// an agent may split its hook settings from its MCP registration or keep both
 	// in one file, and some have no hook to register at all.
@@ -25,12 +37,6 @@ type agentTarget struct {
 	// away, so no project has to opt in. Rendered, the paths refused being this
 	// install's.
 	accountFiles []agentFile
-
-	// withoutAccountRules is why this agent has no accountFiles: pi's rules are
-	// compiled into the extension an enrolment installs, and Antigravity has none
-	// anywhere, which is the difference between covered and not. Required of
-	// every target with no accountFiles, and empty for the rest.
-	withoutAccountRules string
 
 	// detect names the paths that mean this tree is already configured for this
 	// agent. Named rather than derived from files, which are only what faramir
@@ -112,6 +118,17 @@ type agentFile struct {
 	// and requires the asset to be JSON. True for every shared config; false
 	// only where the path is faramir's own.
 	merge bool
+	// noRules says this account file carries no path rules, so the checks that
+	// ask whether every protected path is refused skip it. Antigravity's
+	// account-wide hook is the case: it registers a program and names no path,
+	// and reading it as a rule file reports every path as unrefused.
+	//
+	// Negative on purpose. The default is that an account file carries rules, so
+	// one added without a thought about this is checked rather than skipped, and
+	// the failure of forgetting is a report that is too strict rather than one
+	// that quietly passes.
+	noRules bool
+
 	// local says the agent reads this file as the operator's rather than the
 	// repository's, so it belongs in git's ignores: everything faramir writes
 	// into one names a path this machine decided. An enrolment says so when it
@@ -119,12 +136,51 @@ type agentFile struct {
 	local bool
 }
 
+// antigravityFamily is the CLI and the IDE, which ship one hook contract and
+// one rule syntax between them. It is the dialect name the guard is registered
+// under in a tree, so the registration does not change with which half of the
+// family the enrolment named.
+const antigravityFamily = "antigravity"
+
+// The files an Antigravity enrolment writes into a tree. Named once: a path
+// spelled two ways is a second file the agent does not read.
+const (
+	antigravityHooks = ".agents/hooks.json"
+	// pi's extension, which goes into a home rather than a tree.
+	piExtensionAsset = "agent/pi/extension.ts.tmpl"
+	// The plugin the two plugin hosts load, written into a tree by an enrolment
+	// and into a home by `init`. One asset: the two copies differ only in what
+	// the guard is asked, which is rendered.
+	pluginAsset = "agent/plugin.js.tmpl"
+	// Antigravity's own MCP registration. faramir writes none: the broker is
+	// reached through the binary, which is installed for the account and needs no
+	// registration anywhere. It stays here as evidence that a tree is one this
+	// agent works in, which is what detection asks.
+	antigravityMCP = ".agents/mcp_config.json"
+	// The customization directory the whole family reads for every workspace,
+	// enrolled or not.
+	antigravityAccountHooks = ".gemini/config/hooks.json"
+)
+
+// familyName is the tree enrolment this target belongs to, which is the target
+// itself where it shares one with nobody.
+func (t *agentTarget) familyName() string {
+	if t.family == "" {
+		return t.name
+	}
+	return t.family
+}
+
 var agentTargets = map[string]*agentTarget{
 	"claude": {
 		name: "claude",
+		// The only tree file any agent still gets, and for the only thing that
+		// costs a permission: the hook that rewrites a command has to approve it,
+		// and that approval covers every command the deny list does not name. An
+		// operator takes that trade one tree at a time. Everything else Claude Code
+		// gets is account-wide, including a deny-only copy of this hook.
 		files: []agentFile{
 			{path: ".claude/settings.local.json", asset: "agent/claude/settings.local.json.tmpl", mode: 0o640, merge: true, local: true},
-			{path: ".mcp.json", asset: "agent/mcp.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Read and Edit rules only: Claude Code matches file permission checks
 		// against Edit(path), which covers every file-editing tool, and a
@@ -146,18 +202,17 @@ var agentTargets = map[string]*agentTarget{
 	// server.
 	"opencode": {
 		name: "opencode",
-		files: []agentFile{
-			// faramir's own file: what is there is a previous version of this
-			// plugin, so replacing it is the update.
-			{path: ".opencode/plugins/faramir.js", asset: "agent/plugin.js.tmpl", mode: 0o640},
-			{path: "opencode.json", asset: "agent/plugin-host.project.json.tmpl", mode: 0o640, merge: true},
-		},
 		// Deny rules only, and no catch-all. The last matching wildcard wins
 		// and the merge re-serialises with keys sorted, so an operator's rule
 		// sorting after one of these takes effect. Sorting puts a catch-all
 		// first, and there is no default this is entitled to replace.
 		accountFiles: []agentFile{
 			{path: ".config/opencode/opencode.json", asset: "agent/permissions.json.tmpl", mode: 0o640, merge: true},
+			// And the plugin, which this host loads for every project. Its rule
+			// file above is not a refusal -- a "deny" is put to the operator as a
+			// prompt, and an autonomous run approves it -- so without this a tree
+			// nobody enrolled has nothing refusing its file tools.
+			{path: ".config/opencode/plugin/faramir.js", asset: pluginAsset, mode: 0o640, noRules: true},
 		},
 		detect:           []string{".opencode", "opencode.json", "opencode.jsonc"},
 		detectHome:       []string{".config/opencode", ".local/share/opencode"},
@@ -175,15 +230,14 @@ var agentTargets = map[string]*agentTarget{
 	// internal/mcp's list rather than written a second time.
 	"pi": {
 		name: "pi",
-		files: []agentFile{
-			{path: ".pi/extensions/faramir.ts", asset: "agent/pi/extension.ts.tmpl", mode: 0o640},
+		// The extension goes in a home, which pi discovers for every project and
+		// loads without the project being trusted. A project-local one needs trust,
+		// so a tree pi had not been trusted in was unguarded; there is no such tree
+		// now. It cannot be in both places: with the same extension global and
+		// project-local, pi hangs at startup.
+		accountFiles: []agentFile{
+			{path: ".pi/agent/extensions/faramir.ts", asset: piExtensionAsset, mode: 0o640, noRules: true},
 		},
-		// Nothing account-wide: pi has no such file to write, so the deny rules
-		// the other targets put in one are compiled into the extension instead,
-		// from the same list. It refuses a tool call carrying a command through
-		// the guard, and one carrying a path against those rules.
-		withoutAccountRules: "carries its rules in the extension enrolling a tree " +
-			"installs, so there is none of it here",
 		detect:     []string{".pi"},
 		detectHome: []string{".pi"},
 		// pi reads this one from under its own directory rather than beside a
@@ -197,15 +251,15 @@ var agentTargets = map[string]*agentTarget{
 
 	"kilocode": {
 		name: "kilocode",
-		files: []agentFile{
-			{path: ".kilo/plugin/faramir.js", asset: "agent/plugin.js.tmpl", mode: 0o640, defaultExport: true},
-			// kilo.json rather than the docs' kilo.jsonc: a merge cannot
-			// preserve the comments a .jsonc is kept for. Both are read.
-			{path: "kilo.json", asset: "agent/plugin-host.project.json.tmpl", mode: 0o640, merge: true},
-		},
 		// Deny rules only, and no catch-all, for the reason given on opencode's.
 		accountFiles: []agentFile{
 			{path: ".config/kilo/kilo.json", asset: "agent/permissions.json.tmpl", mode: 0o640, merge: true},
+			// And the plugin, beside the rule file, for the reason opencode's is
+			// there: the rules are a prompt rather than a refusal, so without this a
+			// tree nobody enrolled has nothing refusing its file tools. This host
+			// reads a plugin from here and from ~/.kilocode/plugin; the one beside
+			// its own rule file is the one an operator finds when they look.
+			{path: ".config/kilo/plugin/faramir.js", asset: pluginAsset, mode: 0o640, defaultExport: true, noRules: true},
 		},
 		// .kilocode is the legacy directory, still read.
 		detect:     []string{".kilo", ".kilocode", "kilo.json", "kilo.jsonc"},
@@ -218,56 +272,99 @@ var agentTargets = map[string]*agentTarget{
 		note:             pluginNote("Kilo Code"),
 	},
 
-	// Antigravity is the weak one, and enrolling it says so. Its PreToolUse
-	// hooks decide -- deny, allow, ask, force_ask -- and cannot change a tool
-	// call's arguments, so no command it runs can be routed through the broker
-	// and nothing redacts what comes back. Its permission lists are the IDE's
-	// own state rather than a file an install may write, so there are no deny
-	// rules to put in a home either.
+	// The Antigravity family is two agents, not one. They ship a single hook
+	// contract and a single rule syntax, and they differ in the one place this
+	// package is organised around: whether there is a file an install can write
+	// account-wide deny rules into. So they are two targets rather than one with
+	// a knob, and each says what it actually gets.
 	//
-	// What an enrolment leaves is a route and the prose telling it to take one:
-	// the MCP tools, and the credentials section in the two files it reads. An
-	// agent that skips the prose runs the command itself and the value reaches
-	// the model. Configured anyway rather than declined, the route being worth
-	// having where it is taken, and the reports and the docs say which half is
-	// missing.
-	"antigravity": {
-		name: "antigravity",
-		files: []agentFile{
-			{path: ".agents/mcp_config.json", asset: "agent/mcp.json.tmpl", mode: 0o640, merge: true},
+	// Both take the same PreToolUse hook. Antigravity's hooks return a decision
+	// and may also return "overwrite", a shallow merge into the tool call's own
+	// arguments whose merged form is what runs, so a command it runs is routed
+	// through the broker and comes back redacted the way every other agent's
+	// does. The rewrite lands on run_command; nothing else carries a command.
+	//
+	// The hook is per tree, so it reaches an agent only in a tree that was
+	// enrolled. Antigravity loads a tree's customizations once that tree is a
+	// project it has opened, and until then the files are there and inert. Said
+	// on enrolment, because nothing else reports it.
+	"agy": {
+		name:   "agy",
+		family: antigravityFamily,
+		// Deny rules only, in the CLI's own settings file. The documented
+		// precedence is deny over ask over allow, so these hold against an
+		// operator's own allow rather than being shadowed by one.
+		accountFiles: []agentFile{
+			{path: ".gemini/antigravity-cli/settings.json", asset: "agent/agy/settings.json", mode: 0o640, merge: true},
+			// And the hook both halves read for every workspace. The CLI has deny
+			// rules of its own and gets this too, the file being one the family
+			// shares: written once, it holds for whichever half is running.
+			{path: antigravityAccountHooks, asset: "agent/antigravity/hooks.json.tmpl", mode: 0o640, merge: true, noRules: true},
 		},
-		// Nothing account-wide: its permission lists are the IDE's own state and
-		// its hooks can only decide, so no file an install writes would refuse a
-		// file tool anything.
-		withoutAccountRules: "has no file an install can write rules into, its permission lists being the " +
-			"IDE's own state, so nothing here refuses its file tools: it is told the " +
-			"policy and nothing enforces it",
-		// The workspace and legacy customization directories, named by the files in
-		// them rather than by the directory: .agents is a name other tools may keep
-		// their own things under.
-		detect: []string{".agents/rules", ".agents/mcp_config.json", ".agent/rules"},
+		detect: []string{".agents/rules", antigravityHooks, antigravityMCP, ".agent/rules"},
 		// Its own directories, and the customization directory the whole
 		// Antigravity family reads.
-		detectHome: []string{".antigravity", ".config/Antigravity", ".gemini/config"},
-		// Antigravity's global rules, applied in every workspace. Under ~/.gemini,
-		// which is the family directory rather than a second agent's.
+		// Its own directory, and not the family's shared one. faramir writes
+		// ~/.gemini/config/hooks.json for either half, so that directory marks
+		// neither: installing for the IDE would otherwise report the CLI as present
+		// and its settings file as missing, for a CLI nobody installed. An agent's
+		// own file marking itself is deliberate and makes a second `init` a
+		// refresh; one agent's file marking another is not.
+		detectHome: []string{".gemini/antigravity-cli"},
+		// The family's global rules, applied in every workspace, under ~/.gemini
+		// rather than a second agent's directory. The IDE reads the same file.
 		homeInstructions: ".gemini/GEMINI.md",
-		// It loads .agents/rules and no documented file at the root of a tree, so
-		// the section in the tree's AGENTS.md would not reach it.
+		// It reads a tree's own AGENTS.md as well, walking up from the file it is
+		// working on, so the section there is what every other agent gets. The
+		// rules file is written too: it is loaded whatever the tree's root file is
+		// called, and a tree whose own file is a CLAUDE.md would otherwise leave
+		// this agent nothing.
 		treeInstructions: treeRules{
 			path: ".agents/rules/faramir.md",
 			// A rule's activation is frontmatter and always-on is not the default,
 			// so a file without this is one the model may never be shown.
 			head: "---\ntrigger: always_on\n---\n",
 		},
-		// Nothing is approved on its behalf, there being no escalation to give.
+		// The permission check runs before the hook, so the guard's allow is not
+		// an approval anything was waiting for: a command with no rule to permit
+		// it is refused before this is asked. Nothing is traded away.
 		autoApprovesBash: false,
-		// Said on every enrolment: what is missing here is missing for as long as
-		// the tree is enrolled.
-		noteStands: true,
-		note: "nothing written here redacts what Antigravity runs: its hooks cannot rewrite a " +
-			"command, so the broker is a route it has to take rather than one it is put on. " +
-			"What was installed is the MCP tools and the instructions to use them",
+		noteStands:       true,
+		note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +
+			"project it has opened. Until then the hook, the rules and the MCP registration " +
+			"are there and inert",
+	},
+
+	// The IDE half. Same hook, same prose, and no account-wide rules: its
+	// permission scopes are its own state, and no file an install may write was
+	// found for them. So commands it runs are routed and redacted, and its file
+	// tools are refused nothing here. That is the half that is missing, and it is
+	// a different half from the one this target used to be missing.
+	"antigravity": {
+		name:   "antigravity",
+		family: antigravityFamily,
+		accountFiles: []agentFile{
+			// The IDE keeps its permission lists as its own state, so there is no
+			// rule file to write. What it does read for every workspace is this
+			// hook, which is where its account-wide refusals go instead.
+			{path: antigravityAccountHooks, asset: "agent/antigravity/hooks.json.tmpl", mode: 0o640, merge: true, noRules: true},
+		},
+		detect: []string{".agents/rules", antigravityHooks, antigravityMCP, ".agent/rules"},
+		// Its own directories, at both the names it has used: 2.5 reports a data
+		// directory of .antigravity-ide, and the earlier one is .antigravity.
+		// Its own directories at both the names it has used, and not the family's
+		// shared one: see the CLI's above.
+		detectHome:       []string{".antigravity-ide", ".config/Antigravity IDE", ".antigravity", ".config/Antigravity"},
+		homeInstructions: ".gemini/GEMINI.md",
+		treeInstructions: treeRules{
+			path: ".agents/rules/faramir.md",
+			head: "---\ntrigger: always_on\n---\n",
+		},
+		autoApprovesBash: false,
+		noteStands:       true,
+		note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +
+			"project it has opened. Until then the hook, the rules and the MCP registration " +
+			"are there and inert, and what holds is the account-wide hook `faramir init` writes",
 	},
 }
 

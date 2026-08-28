@@ -39,47 +39,67 @@ owned() { # path, label
 }
 absent() { [ -e "$1" ] && bad "$2 was written and should not be: $1" || ok "$2 is absent"; }
 
-echo "enrolling as $OP; agents: claude antigravity opencode kilocode"
+echo "enrolling as $OP; agents: claude agy antigravity opencode kilocode"
 
 # --------------------------------------------------------------------------
-head_ "1. each agent's own file set"
+head_ "1. what an enrolment writes into a tree"
+
+# Almost nothing, and that is the claim. The guard is installed for the account,
+# so a tree gets the credentials section and, for Claude Code alone, the hook
+# that routes what it runs: routing costs a permission there and nowhere else.
 
 D=$(tree /home/op/p-claude); enrol "$D" --agent claude >/tmp/p-claude.log 2>&1 \
   || bad "claude enrolment failed: $(tail -2 /tmp/p-claude.log)"
-owned "$D/.claude/settings.local.json" "claude: project settings"
-owned "$D/.mcp.json" "claude: MCP registration"
+owned "$D/.claude/settings.local.json" "claude: the routing hook"
+grep -q 'faramir guard' "$D/.claude/settings.local.json" \
+  && ok "claude: it runs the guard" \
+  || bad "the tree hook names no guard, so nothing routes what the agent runs"
+grep -q -- '--deny-only' "$D/.claude/settings.local.json" \
+  && bad "the tree hook is deny-only, so nothing in this tree is redacted" \
+  || ok "claude: and it routes rather than only refusing"
 
+# Every other agent gets the prose and nothing else.
+for a in antigravity agy opencode kilocode pi; do
+  D=$(tree "/home/op/p-$a"); enrol "$D" --agent "$a" >"/tmp/p-$a.log" 2>&1 \
+    || bad "$a enrolment failed: $(tail -2 "/tmp/p-$a.log")"
+  for stray in .agents/hooks.json .agents/mcp_config.json .mcp.json \
+               .opencode/plugins/faramir.js opencode.json \
+               .kilo/plugin/faramir.js kilo.json .pi/extensions/faramir.ts; do
+    [ -e "$D/$stray" ] && bad "$a: $stray was written into a tree, where the guard is not"
+  done
+  ok "$a: the enrolment writes the tree no agent files"
+done
 
-# Antigravity gets no hook, there being none it could register: the MCP
-# registration and a rules file of prose are the whole of its enrolment.
-D=$(tree /home/op/p-antigravity); enrol "$D" --agent antigravity >/tmp/p-anti.log 2>&1 \
-  || bad "antigravity enrolment failed: $(tail -2 /tmp/p-anti.log)"
-owned "$D/.agents/mcp_config.json" "antigravity: MCP registration"
+# Antigravity reads its own rules file rather than the tree's AGENTS.md, so it
+# still gets one, and it has to be headed or the agent may never load it.
+D=/home/op/p-antigravity
 owned "$D/.agents/rules/faramir.md" "antigravity: rules file"
 grep -q 'trigger: always_on' "$D/.agents/rules/faramir.md" \
   && ok "antigravity: the rules file is headed so the agent loads it" \
   || bad "the rules file carries no always-on frontmatter, so it may never be read"
 
-
-D=$(tree /home/op/p-opencode); enrol "$D" --agent opencode >/tmp/p-opencode.log 2>&1 \
-  || bad "opencode enrolment failed: $(tail -2 /tmp/p-opencode.log)"
-owned "$D/.opencode/plugins/faramir.js" "opencode: plugin"
-owned "$D/opencode.json" "opencode: MCP registration"
-
-
-D=$(tree /home/op/p-kilo); enrol "$D" --agent kilocode >/tmp/p-kilo.log 2>&1 \
-  || bad "kilocode enrolment failed: $(tail -2 /tmp/p-kilo.log)"
-owned "$D/.kilo/plugin/faramir.js" "kilocode: plugin"
-owned "$D/kilo.json" "kilocode: MCP registration"
-
-
 # The account-wide files are `faramir init --agent`'s half of enrolment, not
 # this command's: init-project writes the per-project hook, init writes the deny
 # rules that hold wherever the agent works.
 /usr/local/bin/faramir init --agent-user $OP --agent claude --agent antigravity \
-  --agent opencode --agent kilocode >/tmp/p-init.log 2>&1
+  --agent agy --agent opencode --agent kilocode >/tmp/p-init.log 2>&1
 owned "$HOME_OP/.claude/settings.json" "claude: account-wide settings (from init)"
 owned "$HOME_OP/.gemini/GEMINI.md" "antigravity: credentials section (from init)"
+# The CLI has a settings file and the IDE has none, which is the whole
+# difference between the two targets.
+owned "$HOME_OP/.gemini/antigravity-cli/settings.json" "agy: account-wide deny rules (from init)"
+# The hook both halves read for every workspace, enrolled or not. It is what
+# refuses the IDE's file tools, which have no rule file anywhere.
+owned "$HOME_OP/.gemini/config/hooks.json" "antigravity: account-wide hook (from init)"
+grep -q -- '--paths-only' "$HOME_OP/.gemini/config/hooks.json" \
+  && ok "antigravity: the account-wide hook refuses files and leaves commands to the tree's" \
+  || bad "the account-wide hook would route commands in trees that were never enrolled"
+grep -q 'read_file(/etc/faramir)' "$HOME_OP/.gemini/antigravity-cli/settings.json" \
+  && ok "agy: the rules name this install's directories bare, which is what covers the tree under them" \
+  || bad "agy: the deny rules do not refuse the config directory"
+grep -q '/\*)' "$HOME_OP/.gemini/antigravity-cli/settings.json" \
+  && bad "agy: a rule ends in a trailing wildcard, which matches nothing here" \
+  || ok "agy: no rule is written in a shape the agent matches nothing with"
 owned "$HOME_OP/.config/opencode/opencode.json" "opencode: account-wide deny rules (from init)"
 owned "$HOME_OP/.config/kilo/kilo.json" "kilocode: account-wide deny rules (from init)"
 
@@ -93,17 +113,18 @@ done
 # --------------------------------------------------------------------------
 head_ "2. every file it writes is valid to the tool that reads it"
 
-for f in /home/op/p-claude/.claude/settings.local.json /home/op/p-claude/.mcp.json \
-         /home/op/p-antigravity/.agents/mcp_config.json \
-         /home/op/p-opencode/opencode.json /home/op/p-kilo/kilo.json \
-         $HOME_OP/.claude/settings.json $HOME_OP/.config/opencode/opencode.json \
+for f in /home/op/p-claude/.claude/settings.local.json \
+         $HOME_OP/.claude/settings.json \
+         $HOME_OP/.gemini/antigravity-cli/settings.json \
+         $HOME_OP/.gemini/config/hooks.json \
+         $HOME_OP/.config/opencode/opencode.json \
          $HOME_OP/.config/kilo/kilo.json; do
   if jq -e . "$f" >/dev/null 2>&1; then ok "valid JSON: ${f#/home/op/}"
   else bad "not JSON: $f"; fi
 done
 # The plugins are JavaScript the agent loads in-process; a syntax error there is
 # an agent that starts with no guard at all.
-for js in /home/op/p-opencode/.opencode/plugins/faramir.js /home/op/p-kilo/.kilo/plugin/faramir.js; do
+for js in $HOME_OP/.config/opencode/plugin/faramir.js $HOME_OP/.config/kilo/plugin/faramir.js; do
   if ! command -v node >/dev/null 2>&1; then
     note "no node in the image, so $(basename "$js") went unparsed"; continue
   fi
@@ -118,7 +139,8 @@ for js in /home/op/p-opencode/.opencode/plugins/faramir.js /home/op/p-kilo/.kilo
 done
 # And each names the binary that is actually installed.
 for f in /home/op/p-claude/.claude/settings.local.json \
-         /home/op/p-antigravity/.agents/mcp_config.json; do
+         $HOME_OP/.claude/settings.json \
+         $HOME_OP/.gemini/config/hooks.json; do
   grep -q '/usr/local/bin/faramir' "$f" && ok "names the installed binary: ${f#/home/op/}" \
     || bad "does not name the binary: $f"
 done
@@ -156,18 +178,14 @@ else
   bad "no PreToolUse command in the claude settings"
 fi
 
-# The MCP server it registers answers.
-cmd=$(jq -r '.mcpServers.faramir.command' /home/op/p-claude/.mcp.json 2>/dev/null)
-args=$(jq -r '.mcpServers.faramir.args // [] | join(" ")' /home/op/p-claude/.mcp.json 2>/dev/null)
-if [ -n "$cmd" ] && [ "$cmd" != null ]; then
-  ok "the MCP registration names $cmd $args"
-  out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"p","version":"1"}}}' \
-    | runuser -u $OP -- sh -c "cd /home/op/p-claude && timeout 10 $cmd $args" 2>/dev/null | head -1)
-  grep -q '"serverInfo"' <<<"$out" && ok "and that server answers initialize" \
-    || bad "the registered MCP server did not answer: ${out:0:120}"
-else
-  bad "no MCP server registered in .mcp.json"
-fi
+# The route the refusal names is a subcommand, not a server: nothing is
+# registered for it, and it answers from any directory.
+out=$(runuser -u $OP -- sh -c "cd /home/op/p-claude && timeout 10 /usr/local/bin/faramir refs" 2>&1 | head -2)
+grep -q 'faramir://' <<<"$out" && ok "\`faramir refs\` answers in an enrolled tree" \
+  || bad "the route named by every refusal does not answer: ${out:0:120}"
+out=$(runuser -u $OP -- sh -c "cd /home/op && timeout 10 /usr/local/bin/faramir refs" 2>&1 | head -2)
+grep -q 'faramir://' <<<"$out" && ok "and in a directory nobody enrolled" \
+  || bad "the route does not answer outside an enrolled tree: ${out:0:120}"
 
 # --------------------------------------------------------------------------
 head_ "4. it merges into what the operator already had"
@@ -181,9 +199,6 @@ runuser -u $OP -- mkdir -p "$D/.claude"
 runuser -u $OP -- tee "$D/.claude/settings.local.json" >/dev/null <<'JSON'
 {"model": "opus", "env": {"MY_OWN": "keep me"}, "hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/bin/true"}]}]}}
 JSON
-runuser -u $OP -- tee "$D/.mcp.json" >/dev/null <<'JSON'
-{"mcpServers": {"mine": {"command": "/usr/bin/true"}}}
-JSON
 enrol "$D" --agent claude >/tmp/p-merge.log 2>&1 || bad "merge enrolment failed"
 
 jq -e '.model == "opus"' "$D/.claude/settings.local.json" >/dev/null \
@@ -194,10 +209,6 @@ jq -e '.hooks.PostToolUse[0].hooks[0].command == "/usr/bin/true"' "$D/.claude/se
   && ok "and their own unrelated hook" || bad "settings.local.json lost the operator's PostToolUse hook"
 jq -e '.hooks.PreToolUse != null' "$D/.claude/settings.local.json" >/dev/null \
   && ok "while faramir's PreToolUse hook was added beside it" || bad "the faramir hook was not added"
-jq -e '.mcpServers.mine.command == "/usr/bin/true"' "$D/.mcp.json" >/dev/null \
-  && ok "the operator's own MCP server survived" || bad ".mcp.json lost the operator's server"
-jq -e '.mcpServers.faramir != null' "$D/.mcp.json" >/dev/null \
-  && ok "and faramir's was added beside it" || bad "faramir's MCP server was not added"
 
 # A file the operator owns stays theirs after root has written to it.
 owned "$D/.claude/settings.local.json" "the merged file is still the operator's"
@@ -254,10 +265,14 @@ head_ "6. several agents in one tree"
 D=$(tree /home/op/p-multi)
 enrol "$D" --agent claude --agent antigravity --agent opencode --agent kilocode >/tmp/p-multi.log 2>&1 \
   || bad "multi-agent enrolment failed: $(tail -2 /tmp/p-multi.log)"
-for f in .claude/settings.local.json .mcp.json .agents/mcp_config.json \
-         .opencode/plugins/faramir.js opencode.json .kilo/plugin/faramir.js kilo.json; do
-  [ -e "$D/$f" ] && ok "  $f" || bad "  $f was not written by the multi-agent enrolment"
-done
+# One tree file between them, Claude Code's, and the prose the rest read.
+[ -e "$D/.claude/settings.local.json" ] \
+  && ok "  .claude/settings.local.json" \
+  || bad "  .claude/settings.local.json was not written by the multi-agent enrolment"
+[ -e "$D/.agents/rules/faramir.md" ] \
+  && ok "  .agents/rules/faramir.md" \
+  || bad "  .agents/rules/faramir.md was not written by the multi-agent enrolment"
+[ -e "$D/AGENTS.md" ] && ok "  AGENTS.md" || bad "  AGENTS.md was not written"
 
 # --------------------------------------------------------------------------
 head_ "7. the tree itself is shared with the executor"

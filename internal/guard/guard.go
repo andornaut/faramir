@@ -6,6 +6,7 @@ package guard
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -108,14 +109,18 @@ var fallbackOwn = []string{
 	// any unrelated tool into /usr/local/bin would be refused.
 	denyrules.WriteCommands + denyrules.ArgSpan + `/usr/local/bin/faramir\b`,
 	`>\s*\S*/usr/local/bin/faramir\b`,
-	// The plugin and extension an enrolment installs, which are faramir's own
-	// files. The merged files (.claude/settings.json, .mcp.json, opencode.json,
-	// kilo.json, .agents/mcp_config.json) are deliberately absent: they carry the
-	// operator's own settings beside faramir's, so editing them is ordinary work,
-	// and `faramir doctor` reports a registration that went missing.
+	// The plugin and extension `faramir init` installs, which are faramir's own
+	// files and now the only thing refusing those agents' file tools: deleting one
+	// is deleting their cover. Matched without a leading dot, the directories
+	// being ~/.config/opencode, ~/.config/kilo and ~/.pi/agent.
+	//
+	// The merged files (.claude/settings.json, opencode.json, kilo.json) are
+	// deliberately absent: they carry the operator's own settings beside
+	// faramir's, so editing them is ordinary work, and `faramir doctor` reports a
+	// registration that went missing.
 	denyrules.WriteCommands + denyrules.ArgSpan +
-		`(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
-	`>\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
+		`(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts)`,
+	`>\s*\S*(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts)`,
 	// faramir under sudo, whichever subcommand. Nothing an agent may run needs
 	// root -- `run`, `redact`, `status` and `refs` all answer as the agent's own
 	// account -- so a sudo here is a daemon, a decision that is the operator's, or
@@ -136,11 +141,10 @@ var fallbackOwn = []string{
 }
 
 const advice = "Blocked: this command would put a credential into the conversation.\n\nUse " +
-	"faramir_run instead: it runs the command as a uid holding no keys and returns " +
+	"`faramir run` instead: it runs the command as a uid holding no keys and returns " +
 	"output with secrets replaced by «SECRET:ref» tokens.\n\n    " +
-	"faramir_run(cmd=[\"printenv\", \"ROUTER_PW\"],\n                " +
-	"env_refs={\"ROUTER_PW\": \"faramir://home/router/admin\"})\n\nfaramir_refs lists " +
-	"the names. You do not need a value to use it."
+	"faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW" +
+	"\n\n`faramir refs` lists the names. You do not need a value to use it."
 
 // adviceOperator is for a command that is the operator's to run. The account
 // this agent runs as could not have carried it out, so the refusal saves the
@@ -148,15 +152,15 @@ const advice = "Blocked: this command would put a credential into the conversati
 const adviceOperator = "Blocked: this is an operator command. It acts on the faramir install rather than " +
 	"through it, so it is refused whether or not sudo is in front, and your account " +
 	"could not carry it out either.\n\nAsk the operator to run it. What you can run: " +
-	"faramir_run, faramir_refs, `faramir status` and `faramir redact`."
+	"`faramir run`, `faramir refs`, `faramir status` and `faramir redact`."
 
 // adviceOwn is for the rules that are not about disclosure. Acting on
 // faramir's own files, accounts or units discloses nothing, and the disclosure
-// advice would offer faramir_run as the way to proceed: a brokered command runs
-// as an account with less reach rather than more.
+// advice would offer `faramir run` as the way to proceed: a brokered command
+// runs as an account with less reach rather than more.
 const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not because it would disclose " +
 	"anything, but because it would change or stop what keeps credentials out of this " +
-	"conversation. faramir_run is no way round it: a brokered command has less reach " +
+	"conversation. `faramir run` is no way round it: a brokered command has less reach " +
 	"than you.\n\nIf this is deliberate, it is the operator's to do."
 
 // adviceMarkers map a substring of a pattern to the explanation that pattern
@@ -164,7 +168,7 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not bec
 // the compiled fallback and in the shipped file.
 //
 // Ordered, first match winning: a faramir subcommand is the operator's before
-// it is anything else. A refusal offering faramir_run to somebody who ran
+// it is anything else. A refusal offering `faramir run` to somebody who ran
 // `faramir doctor` names a remedy for a problem they do not have.
 var adviceMarkers = []struct {
 	marker string
@@ -179,10 +183,10 @@ var adviceMarkers = []struct {
 	// Stopping at the open bracket rather than reaching into the alternation:
 	// the subcommands inside it are listed alphabetically, so which one comes
 	// first moves whenever a command is added.
-	{`\bfaramir[-\s]+(`, adviceOperator, false},      // the same set unprivileged
-	{`\bsystemctl\b`, adviceOwn, false},              // stopping or masking a unit
-	{`/usr/local/bin/faramir\b`, adviceOwn, false},   // the binary
-	{`\.opencode/plugins/faramir`, adviceOwn, false}, // the plugin an enrolment writes
+	{`\bfaramir[-\s]+(`, adviceOperator, false},    // the same set unprivileged
+	{`\bsystemctl\b`, adviceOwn, false},            // stopping or masking a unit
+	{`/usr/local/bin/faramir\b`, adviceOwn, false}, // the binary
+	{`opencode/plugin/faramir`, adviceOwn, false},  // the plugin `init` writes
 	// The head of denyrules.WriteCommands's word list rather than the constant,
 	// the shipped file carrying the expansion rather than the name. The words
 	// alone, not what wraps them: the group around them has changed shape once
@@ -227,7 +231,7 @@ func shortPattern(pattern string) string {
 // The compiled defaults and this host's config directory. A log or libexec
 // directory moved elsewhere reads as the operator's and gets the disclosure
 // message, which is the safer of the two to be wrong about: it offers
-// faramir_run, and a brokered command runs as an account with less reach.
+// `faramir run`, and a brokered command runs as an account with less reach.
 func namesOwn(command string) bool {
 	for _, dir := range append(append([]string{}, defaultInstallPaths...), configDir()) {
 		if strings.Contains(command, dir) {
@@ -357,6 +361,174 @@ func commandOf(p *payload) string {
 	return strings.Join(parts, " ")
 }
 
+// decodeToolInput reads the shape Claude Code and faramir's own plugin send:
+// the tool named at the top level and its input flattened beside it.
+func decodeToolInput(data []byte) (*payload, error) {
+	var p payload
+	if err := json.Unmarshal(data, &p); err != nil {
+		return nil, err
+	}
+	// The same object undecoded, so a rewrite that replaces the whole input can
+	// hand back the fields it did not change.
+	var raw struct {
+		ToolInput map[string]any `json:"tool_input"`
+	}
+	if err := json.Unmarshal(data, &raw); err == nil {
+		p.RawInput = raw.ToolInput
+	}
+	return &p, nil
+}
+
+// decodeToolCall reads Antigravity's shape, where the call is named rather than
+// flattened and its command sits under a key of its own.
+//
+// A missing CommandLine leaves the command empty, which the caller answers the
+// way it answers any wrapped tool arriving without one: it refuses. A tool this
+// host runs no commands through never reaches that test, its name having
+// survived the decode.
+func decodeToolCall(data []byte) (*payload, error) {
+	var doc struct {
+		ToolCall struct {
+			Name string         `json:"name"`
+			Args map[string]any `json:"args"`
+		} `json:"toolCall"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	// A payload carrying no tool name is not this host's shape. Any well-formed
+	// JSON decodes into the struct above, so without this a single rename of
+	// "toolCall" upstream would leave every call answered with silence, which the
+	// host reads as a call to let through. Refused instead, the way an
+	// unparseable payload is.
+	if doc.ToolCall.Name == "" {
+		return nil, errors.New("no toolCall.name: not this host's payload shape")
+	}
+	p := &payload{ToolName: doc.ToolCall.Name, RawInput: doc.ToolCall.Args}
+	if command, ok := doc.ToolCall.Args["CommandLine"].(string); ok {
+		p.ToolInput.Command = command
+	}
+	return p, nil
+}
+
+// pathAdvice is what a refused file tool is told. Its own wording rather than
+// the command one's: nothing ran, so "this command" would name something that
+// never happened, and the way through is the same either way.
+const pathAdvice = "Blocked: %s is key material or one of faramir's own files, so this tool call " +
+	"was not made.\n\nValues reach a command through the broker: use `faramir run`, and " +
+	"`faramir refs` to see what exists."
+
+// pathsIn is every string in a tool's input that could name a file, at any
+// depth: a tool taking one path and a tool taking a list of them are the same
+// question, and enumerating tool schemas is how one gets missed. The same walk
+// the plugins do, in Go.
+func pathsIn(value any, depth int) []string {
+	if depth > 8 {
+		return nil
+	}
+	switch v := value.(type) {
+	case string:
+		return []string{v}
+	case []any:
+		var out []string
+		for _, item := range v {
+			out = append(out, pathsIn(item, depth+1)...)
+		}
+		return out
+	case map[string]any:
+		// Sorted, so which of two refused paths is named does not depend on a map
+		// iteration: a refusal that names a different file each time reads as two
+		// different problems.
+		var out []string
+		for _, key := range slices.Sorted(maps.Keys(v)) {
+			out = append(out, pathsIn(v[key], depth+1)...)
+		}
+		return out
+	}
+	return nil
+}
+
+// refusedPath is the first path in this tool call the deny list names.
+//
+// The list is the command one, asked about a read of that path rather than
+// about the path alone. That is deliberate: the protected set is written once
+// and rendered into the verbs a shell would use, so asking it this way covers
+// the operator's own [[secret.block]] entries and this install's directories
+// without a second list to keep in step. A list of its own is a list that
+// drifts, and one that has drifted into matching nothing looks exactly like one
+// that matches everything.
+//
+// What that borrows with it is a matcher built to find a path inside other
+// text, which is right for a command line and wrong here: a tool's arguments
+// carry prose as well as paths, and a sentence naming the age key is not a call
+// to open it. So only an argument shaped like an absolute path is asked about,
+// which is what a file tool is given and what a sentence is not.
+//
+// A relative path is deliberately not resolved, for the reason the plugins do
+// not resolve one: it needs the working directory the call meant rather than
+// this process's, and a guess refuses the wrong file as readily as the right
+// one.
+func refusedPath(input map[string]any) (string, bool) {
+	for _, candidate := range pathsIn(input, 0) {
+		if !looksLikePath(candidate) {
+			continue
+		}
+		for _, spelling := range spellings(candidate) {
+			if _, denied := decide("cat " + shellQuote(spelling)); denied {
+				return candidate, true
+			}
+		}
+	}
+	return "", false
+}
+
+// spellings is the ways one argument names the same file: as given, with "~"
+// expanded, and with dot segments and doubled separators taken out.
+//
+// Each is a way past a literal rule. The paths this install names are rendered
+// as literals, and a literal only ever matches itself, so "/home/op/./creds.txt"
+// and "//home/op/creds.txt" name the refused file and match no rule about it.
+// A "~" is the same problem in another spelling: the rules carry the operator's
+// real home.
+func spellings(candidate string) []string {
+	out := []string{candidate}
+	if home := guardHome(); home != "" && strings.HasPrefix(candidate, "~/") {
+		out = append(out, home+candidate[1:])
+	}
+	for _, form := range slices.Clone(out) {
+		if cleaned := filepath.Clean(form); cleaned != form {
+			out = append(out, cleaned)
+		}
+	}
+	return out
+}
+
+// looksLikePath reports whether this argument is one a file tool was given
+// rather than text that happens to mention a file.
+//
+// Two ways to qualify, because neither covers the other. A path may carry
+// spaces, so anything absolute or under the home is asked about however it
+// reads. And a name or a relative path carries no separator to anchor on but
+// never carries a space either, so a run of non-space text is asked about too:
+// that is what keeps a declared "credentials" and a "secrets/age.key" covered.
+//
+// What falls outside both is prose, which is the whole point: a sentence naming
+// the age key is not a call to open it, and refusing one blocks ordinary work
+// on a file that merely mentions a path.
+//
+// A newline rules a candidate out twice over: nothing names a file that way
+// here, and one would end the synthesised command and leave the rest scanned as
+// a second.
+func looksLikePath(candidate string) bool {
+	if candidate == "" || strings.ContainsAny(candidate, "\n\r") {
+		return false
+	}
+	if strings.HasPrefix(candidate, "/") || strings.HasPrefix(candidate, "~/") {
+		return true
+	}
+	return !strings.ContainsAny(candidate, " \t")
+}
+
 // faramirCall matches a sanctioned faramir invocation so its own arguments are
 // not scanned. RE2 has no lookbehind, so the leading separator is captured and
 // put back by "$1"; the match stops at the first separator, so the rest of a
@@ -421,6 +593,21 @@ func Run(args []string) int {
 	// payload.
 	fs := flag.NewFlagSet("guard", flag.ContinueOnError)
 	hostName := fs.String("host", "", "the agent whose hook dialect to speak")
+	// The account-wide half. It refuses a file tool naming key material and
+	// leaves a command alone: routing one would work in any tree, so what holds
+	// it to enrolled ones is the operator having said which those are.
+	// Claude Code is the one host where a rewrite has to be approved: a rewritten
+	// command matches no permission rule, and the rule that would match one is
+	// refused outright ("'source' evaluates arguments as shell code"). So the
+	// allow that makes routing work is also an allow for every command the list
+	// does not name, which is a trade an operator makes per tree rather than for
+	// a whole account.
+	//
+	// Registered account-wide it answers only about what the list refuses, and
+	// says nothing about anything else. A silent answer leaves the host's own
+	// permission flow exactly as it was.
+	denyOnly := fs.Bool("deny-only", false,
+		"refuse what the deny list names and approve nothing, for an account-wide registration")
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -445,8 +632,12 @@ func Run(args []string) int {
 		// guard than one that arrived and would not parse.
 		return emit(activeHost.deny(unreadablePayload))
 	}
-	var p payload
-	if err := json.Unmarshal(data, &p); err != nil {
+	decode := activeHost.decode
+	if decode == nil {
+		decode = decodeToolInput
+	}
+	p, err := decode(data)
+	if err != nil {
 		// Fails closed, the way faramir's own plugin does on the same input. A
 		// payload this cannot read is the host's shape having changed, and on the
 		// hook that guards every Bash call the alternative is returning quietly
@@ -454,16 +645,21 @@ func Run(args []string) int {
 		// says so in the transcript, where somebody reads it.
 		return emit(activeHost.deny(unreadablePayload))
 	}
-	var raw struct {
-		ToolInput map[string]any `json:"tool_input"`
-	}
-	if err := json.Unmarshal(data, &raw); err == nil {
-		p.RawInput = raw.ToolInput
+	// Before the tool gate: a file tool is one this host runs no commands
+	// through, so gating on the name first would leave every read unexamined on
+	// the host that has nothing else to refuse one.
+	command := commandOf(p)
+	if command == "" && activeHost.refusesPaths {
+		if path, denied := refusedPath(p.RawInput); denied {
+			// No pattern named. The list is asked about a read of this path, so the
+			// pattern that answers is a reader-verb alternation, which describes how
+			// the question was put rather than why the file is refused.
+			return emit(activeHost.deny(fmt.Sprintf(pathAdvice, path)))
+		}
 	}
 	if !activeHost.handles(p.ToolName) {
 		return 0
 	}
-	command := commandOf(&p)
 	if command == "" {
 		// A plugin host is asked about every tool call, so a call with no command
 		// is the ordinary case: a read, an edit, anything that runs nothing. Its
@@ -490,17 +686,28 @@ func Run(args []string) int {
 			"\n\n(matched deny pattern: " + shortPattern(pattern) + ")"))
 	}
 
+	// Everything the list names has been refused by here, which is the whole of
+	// what an account-wide registration does: approving the rest is what it
+	// exists not to do, and a silent answer leaves the host's own permission
+	// flow as it was.
+	if *denyOnly {
+		return 0
+	}
+
 	// A deny list only covers what someone thought to name, so everything else is
 	// rewritten to run under the redactor rather than refused. Exit status and
 	// both streams are preserved; known values come back as tokens.
-	wrapped, ok := wrap(activeHost, command, &p)
+	wrapped, ok := wrap(activeHost, command, p)
 	if !ok {
 		return 0
 	}
-	// Every field back, with only "command" changed.
+	// Every field back with only the command changed, or the command alone where
+	// the host merges what it is handed into the call's own arguments.
 	updated := map[string]any{}
-	maps.Copy(updated, p.RawInput)
-	updated["command"] = wrapped
+	if !activeHost.mergesInput {
+		maps.Copy(updated, p.RawInput)
+	}
+	updated[activeHost.commandField()] = wrapped
 
 	// The rewrite approves as well as rewrites: a wrapper that redacts output
 	// cannot be allow-listed, the permission matcher refusing rules naming source,
@@ -572,6 +779,16 @@ func wrap(h *host, command string, p *payload) (string, bool) {
 	case backgrounded.MatchString(command):
 		return "source " + wrapScript() + " --stream " +
 			shellQuote(stripTrailingAmp(command)) + " &", true
+	// Antigravity's own asynchrony is deliberately not read here. Its
+	// run_command carries WaitMsBeforeAsync, after which the host takes the
+	// command async and polls, so a long one is captured rather than streamed and
+	// shows nothing until it exits. Streaming it instead would cost more than it
+	// bought: --stream runs in a subshell, and that host's shell persists between
+	// calls, so an "export" would stop surviving. Its working directory does not
+	// persist, being passed per call, so only the environment and shell functions
+	// are at stake. Withheld output is the safe failure; lost shell state is a
+	// wrong answer the agent cannot see.
+	//
 	// run_in_background hands the whole command to the host to background; it
 	// carries no "&" of its own, and the host reads its output later through
 	// BashOutput, which sees what the redactor already passed.

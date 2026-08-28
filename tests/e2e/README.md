@@ -79,12 +79,11 @@ In run order, which is what the prefix rule above is about: a set named to `run`
 | `check-project.sh` | `faramir init-project`: the enrolment that protects a tree, the record of what was enrolled, and the credentials section |
 | `check-config.sh` | changing a configuration: drop-ins plus reload |
 | `check-disclose.sh` | what the broker tells the account it keeps values from |
-| `check-plugin.sh` | the opencode and Kilo Code plugins, executed |
+| `check-plugin.sh` | the opencode and Kilo Code plugins and pi's extension, executed |
 | `check-guard.sh` | the guard's decision surface |
 | `check-wrap.sh` | the rewrite the guard hands back, executed |
 | `check-leak.sh` | the leak hunt: every place a value could come back out |
 | `check-stream.sh` | the redact stream |
-| `check-mcp.sh` | the MCP server |
 | `check-exec.sh` | the executor boundary |
 | `check-logs.sh` | `faramir logs`, the operator's record |
 | `check-ssh.sh` | the SSH agent relay, against `managed-host` |
@@ -112,8 +111,6 @@ Helper | Use
 `waitfor SECONDS COMMAND...` | Poll until the command succeeds. Prefer it to a `sleep` long enough for the slowest case, which is slower than the usual case and still too short for the unusual one
 `head_` | A section heading
 `summary` | End the suite. Takes its name from the filename, so the name in the output is the one `e2e.sh` and the table above use
-
-`check-mcp.sh` is a Python suite and holds its own copy of the primitives, matched by hand.
 
 Assert on what an operator or an agent can observe, not on how it is implemented, and prefer a check that would have caught a real bug over one that restates the code.
 

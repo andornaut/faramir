@@ -1,17 +1,15 @@
 # Credentials
 
-{{if .AccountRules -}}
 Your file tools are refused faramir's own directories on this machine, wherever
 you are working. Being able to reach a file is not permission to open it.
-{{- else -}}
-Nothing on this host is guaranteed to refuse your file tools key material.
-Being able to reach a file is not permission to open it.
-{{- end}}
 
-In a project enrolled with `faramir init-project`, commands run through the
-broker, which injects what they asked for and redacts it from the output. That
-project's own instructions say how. Outside one there is no such route:
-ask the operator rather than looking for one.
+A command needing a credential runs through `faramir run`, which injects what
+it asked for and redacts it from the output:
+
+    faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
+
+`faramir refs` names what exists, values never. Neither needs a project to be
+enrolled: the binary reaches the broker from anywhere on this host.
 
 {{ credentialRules }}
 {{- if .AllowSudo}}

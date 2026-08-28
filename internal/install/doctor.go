@@ -292,12 +292,6 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 	for _, name := range knownAgents() {
 		target := agentTargets[name]
-		// An agent with no account-wide file to write, so there is nothing here to
-		// find and nothing missing. The target says why.
-		if len(target.accountFiles) == 0 {
-			report.addf("agent rules", StatusNA, "%s: %s", name, target.withoutAccountRules)
-			continue
-		}
 		var missing []string
 		for _, file := range target.accountFiles {
 			if !exists(filepath.Join(home, file.path)) {

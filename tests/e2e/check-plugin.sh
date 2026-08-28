@@ -24,6 +24,8 @@ set -u
 HARNESS=/root/plugin-harness.mjs
 SECRET='hunter2-correct-horse-battery'
 PROJECT=/home/op/project
+# The plugin and the extension are installed for the account, not the tree.
+HOME_OP=/home/op
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 command -v node >/dev/null || { echo "node is not in this image; suite J cannot run"; exit 1; }
@@ -96,8 +98,8 @@ rawStub() { # shell-body, plugin-path, case
 
 for agent in opencode kilocode; do
   case $agent in
-    opencode) plugin=$PROJECT/.opencode/plugins/faramir.js ;;
-    kilocode) plugin=$PROJECT/.kilo/plugin/faramir.js ;;
+    opencode) plugin=$HOME_OP/.config/opencode/plugin/faramir.js ;;
+    kilocode) plugin=$HOME_OP/.config/kilo/plugin/faramir.js ;;
   esac
 
   head_ "$agent"
@@ -112,6 +114,10 @@ for agent in opencode kilocode; do
 
   # What it must leave alone.
   run "$plugin" other-tool-untouched
+  # And what it must refuse without asking the guard, the host's own permission
+  # map being a prompt rather than a refusal on both of these agents.
+  run "$plugin" other-tool-refused-key-material
+  run "$plugin" other-tool-refused-by-shape
   run "$plugin" known-shell-without-command-throws
   run "$plugin" unlisted-tool-with-command-guarded
 
@@ -148,7 +154,7 @@ head_ "pi"
 # its own. The matrix lives in the Go tests, which run in CI with a stand-in
 # guard; what is checked here is the enrolled file against the real binary.
 
-PI_EXT=$PROJECT/.pi/extensions/faramir.ts
+PI_EXT=$HOME_OP/.pi/agent/extensions/faramir.ts
 [ -f "$PI_EXT" ] || /usr/local/bin/faramir init-project --agent pi "$PROJECT" >/dev/null 2>&1
 if [ ! -f "$PI_EXT" ]; then
   bad "pi: enrolment wrote no extension at $PI_EXT"
@@ -168,36 +174,21 @@ PIEOF
   chmod 0644 /tmp/pi-drive.mjs
   pidrive() { TOOL="$1" INPUT="$2" node /tmp/pi-drive.mjs 2>/dev/null; }
 
-  # pi ships no MCP, so the extension registers what the other hosts reach
-  # through it. Without faramir_run the guard's own refusal names a tool that
-  # would not exist on this host.
+  # pi registers no tools: the route is the binary, which needs registering
+  # nowhere. What the extension must still do is refuse a command and rewrite the
+  # rest, which the cases above cover. That it registers nothing is asserted
+  # here, a tool left behind being one the guard's refusals do not name.
   cat > /tmp/pi-tools.mjs <<'TOOLEOF'
 const m = await import("/tmp/pi-under-test.mjs")
 const tools = []
 m.default({ on: () => {}, registerTool: (t) => tools.push(t) })
-const run = tools.find((t) => t.name === "faramir_run")
-const r = await run.execute("id", {
-  cmd: ["sh", "-c", "echo $PW"],
-  cwd: process.env.PROJECT,
-  env_refs: { PW: "faramir://db/password" },
-})
-console.log(JSON.stringify({ names: tools.map((t) => t.name), text: r.content[0].text, isError: r.isError }))
+console.log(JSON.stringify({ names: tools.map((t) => t.name) }))
 TOOLEOF
   chmod 0644 /tmp/pi-tools.mjs
   tools=$(runuser -u op -- env PROJECT="$PROJECT" node /tmp/pi-tools.mjs 2>/dev/null)
-  # The two MCP exposes; there is no status tool on any host.
-  for want in faramir_run faramir_refs; do
-    grep -q "$want" <<<"$tools" && ok "pi: $want is registered" || bad "pi: $want was not registered"
-  done
-  grep -q 'faramir_status' <<<"$tools" && bad "pi registers a status tool no other host has" \
-    || ok "pi: and no status tool, matching the other hosts"
-  body=$(jq -r .text <<<"$tools" 2>/dev/null)
-  grep -qF "$SECRET" <<<"$body" && bad "pi: faramir_run returned the value in plaintext" \
-    || ok "pi: faramir_run returns no plaintext"
-  grep -q '«SECRET:db/password»' <<<"$body" && ok "pi: it returns the token" \
-    || bad "pi: no token: $(head -c 80 <<<"$body")"
-  grep -q 'exit_code=0' <<<"$body" && ok "pi: in the shape the MCP server returns" \
-    || bad "pi: unexpected result shape: $(head -c 80 <<<"$body")"
+  [ "$(jq -r '.names | length' <<<"$tools" 2>/dev/null)" = "0" ] \
+    && ok "pi: the extension registers no tools, the route being the binary" \
+    || bad "pi registers $(jq -rc .names <<<"$tools" 2>/dev/null), which no refusal names"
 
   out=$(pidrive bash '{"command":"cat /etc/faramir/age.key"}')
   [ "$(jq -r .blocked <<<"$out")" = true ] && ok "pi: reading the age key is blocked" \
@@ -216,7 +207,7 @@ TOOLEOF
   # And what it hands back runs, and redacts.
   cmd=$(pidrive bash '{"command":"echo hunter2-correct-horse-battery"}' | jq -r .input.command)
   out=$(runuser -u op -- env XDG_RUNTIME_DIR="/run/user/$(id -u op)" bash -c "cd $PROJECT && $cmd" 2>&1)
-  grep -qF 'hunter2-correct-horse-battery' <<<"$out" && bad "pi: running the rewrite printed the value" \
+  grep -qF "$SECRET" <<<"$out" && bad "pi: running the rewrite printed the value" \
     || ok "pi: running the rewrite does not print the value"
   grep -q '«SECRET:db/password»' <<<"$out" && ok "pi: it comes back as its token" \
     || bad "pi: no token: $(head -c 90 <<<"$out")"
@@ -232,7 +223,7 @@ head_ "what the rewrite actually runs"
 # `printenv PW` would be denied rather than rewritten, the deny list naming it,
 # so the command here is one the guard passes through.
 
-PLUGIN_UNDER_TEST=$(asModule $PROJECT/.opencode/plugins/faramir.js)
+PLUGIN_UNDER_TEST=$(asModule "$HOME_OP/.config/opencode/plugin/faramir.js")
 export PLUGIN_UNDER_TEST
 rewritten=$(cd $PROJECT && FARAMIR_CLI=/usr/local/bin/faramir node --input-type=module -e '
 const m = await import(process.env.PLUGIN_UNDER_TEST)

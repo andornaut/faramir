@@ -123,25 +123,25 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 		"agent/claude/settings.json",
 		"agent/permissions.json.tmpl",
 	} {
-		body, err := render(asset, layout)
+		body, err := renderAccount(asset, layout)
 		if err != nil {
 			t.Fatalf("%s: %v", asset, err)
 		}
 		rendered = append(rendered, rendering{asset, string(body)})
 	}
-	// pi's rules are in the extension it installs rather than in a config file.
-	body, err := renderData("agent/pi/extension.ts.tmpl", pluginData{
-		BinDir: "/usr/local/bin", Agent: "pi", Path: ".pi/extensions/faramir.ts",
-		Layout: layout,
-	})
+	// The agents with no rule file of their own are refused these by the guard
+	// instead, which reads the same list rendered into the pattern file it
+	// matches against. Their coverage is that file's, so it is checked here with
+	// the rest rather than being taken on trust.
+	patterns, err := RenderDenyPatterns(layout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered = append(rendered, rendering{"agent/pi/extension.ts.tmpl", string(body)})
+	rendered = append(rendered, rendering{"agent/hooks/deny-patterns.txt", string(patterns)})
 
 	if len(rendered) < 3 {
-		t.Fatalf("rendered %d file(s), want the two config assets and the extension: "+
-			"an agent missing here is one nothing checks", len(rendered))
+		t.Fatalf("rendered %d file(s), want the two config assets and the pattern "+
+			"file: an agent missing here is one nothing checks", len(rendered))
 	}
 	for _, r := range rendered {
 		// Two of these spellings are regexes, where "." arrives escaped, so the
@@ -160,7 +160,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 // can still destroy, and an age key replaced is every managed file unreadable
 // retroactively, so a list that covers one and not the other is half a rule.
 func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
-	body, err := render("agent/claude/settings.json", testLayout())
+	body, err := renderAccount("agent/claude/settings.json", testLayout())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,24 +230,26 @@ func TestInstallDirsAreNeverEmpty(t *testing.T) {
 	}
 }
 
-// Enrolling a tree writes the deny rules into it, not only the hook. A tree can
-// be enrolled on a host where `faramir init --agent` never ran, and the
-// enrolment is what the operator did: without this the agent's file tools are
-// refused nothing in the one project faramir was pointed at.
-func TestEnrollingATreeWritesTheDenyRules(t *testing.T) {
+// `faramir init` writes the deny rules into a home, for the agents that enforce
+// rules of their own. They hold wherever the agent is working rather than in a
+// tree somebody enrolled: an operator's declared paths are the host's, and an
+// agent wanders into directories nobody pointed faramir at.
+func TestInitWritesTheDenyRulesIntoTheHome(t *testing.T) {
 	for _, tc := range []struct {
 		agent string
 		file  string
 		want  string
 	}{
-		{"claude", ".claude/settings.local.json", `"Read(/etc/faramir/**)"`},
-		{"opencode", "opencode.json", `"/etc/faramir/*": "deny"`},
-		{"kilocode", "kilo.json", `"/etc/faramir/*": "deny"`},
+		{"claude", ".claude/settings.json", `"Read(/etc/faramir/**)"`},
+		{"opencode", ".config/opencode/opencode.json", `"/etc/faramir/*": "deny"`},
+		{"kilocode", ".config/kilo/kilo.json", `"/etc/faramir/*": "deny"`},
 	} {
 		t.Run(tc.agent, func(t *testing.T) {
 			target := agentTargets[tc.agent]
 			var file agentFile
-			for _, candidate := range target.files {
+			// In a home: the rules an agent enforces itself are account-wide, so
+			// they hold in every directory rather than an enrolled one.
+			for _, candidate := range target.accountFiles {
 				if candidate.path == tc.file {
 					file = candidate
 				}

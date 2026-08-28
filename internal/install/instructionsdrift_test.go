@@ -7,33 +7,28 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/cli"
-	"github.com/andornaut/faramir/internal/mcp"
 )
 
-// The section is prose and the tools are a Go slice, so nothing but this holds
-// the two together: a tool renamed leaves the section telling an agent to call
-// something the server does not advertise, and a tool added leaves "Those two"
-// counting wrong. Neither shows up at runtime as anything but an agent that
-// gives up and runs the command itself.
-func TestTheTreeSectionAndTheServerNameTheSameTools(t *testing.T) {
+// The section is prose and the route is a subcommand, so nothing but this holds
+// the two together: a section that stops naming the route leaves an agent told
+// it is refused and not told what to do instead, which is the shape that
+// invites a workaround.
+//
+// The route is named rather than counted. What each command is for is the
+// section's to say; that both are named at all is this.
+func TestTheTreeSectionNamesTheRoute(t *testing.T) {
 	body := section(t)
-
-	if len(mcp.Tools()) == 0 {
-		t.Fatal("the server advertises nothing, so this asserts nothing")
-	}
-	advertised := make([]string, 0, len(mcp.Tools()))
-	for _, tool := range mcp.Tools() {
-		advertised = append(advertised, tool.Name)
-		if !strings.Contains(body, tool.Name) {
-			t.Errorf("the server advertises %s and the section does not name it: "+
-				"agent/instructions.md.snippet", tool.Name)
+	for _, want := range []string{"faramir run", "faramir refs"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the section does not name `%s`, so a refused agent is told "+
+				"nothing to do instead: agent/instructions.md.snippet", want)
 		}
 	}
-	for _, named := range regexp.MustCompile(`faramir_[a-z_]+`).FindAllString(body, -1) {
-		if !slices.Contains(advertised, named) {
-			t.Errorf("the section names %s, which the server does not advertise: "+
-				"agent/instructions.md.snippet", named)
-		}
+	// And it shows one being used. A name alone leaves the model to invent the
+	// flags, which is the thing a tool schema used to do for it.
+	if !strings.Contains(body, "--env") {
+		t.Error("the section names the route and shows no invocation of it: " +
+			"agent/instructions.md.snippet")
 	}
 }
 
@@ -92,7 +87,7 @@ func collapse(body string) string {
 // changed in both. What each may not do is claim the other's half.
 func TestTheSharedRulesAreOneSnippetInBothSections(t *testing.T) {
 	tree := section(t)
-	home, err := homeSection(true, true)
+	home, err := homeSection(true)
 	if err != nil {
 		t.Fatal(err)
 	}

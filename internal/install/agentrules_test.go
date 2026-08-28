@@ -142,40 +142,6 @@ func TestAgentRulesAreOKWhereOnlyTheRulesAreThere(t *testing.T) {
 	}
 }
 
-// An agent that carries its rules in the extension an enrolment installs has
-// nothing in this home to find, and nothing missing from it either. Reported
-// rather than left out, a check that vanishes being indistinguishable from one
-// nobody wrote -- and not a fault, whether or not the agent is here.
-func TestAgentRulesSayWhereAnExtensionCarriesThem(t *testing.T) {
-	// Fatal rather than skipped: pi gaining account-wide rules makes this case
-	// wrong rather than inapplicable, and a skip would drop it in silence.
-	if len(agentTargets["pi"].accountFiles) != 0 {
-		t.Fatal("pi now writes account-wide rules, so it is no longer the agent " +
-			"whose rules live in an extension; rewrite this against whichever is")
-	}
-	for _, name := range []string{"installed here", "not installed here"} {
-		t.Run(name, func(t *testing.T) {
-			home := t.TempDir()
-			if name == "installed here" {
-				touch(t, home, ".pi/state.json")
-			}
-			var report DoctorReport
-			reportAgentRules(&report, home, nil)
-
-			got := finding(t, report, "pi")
-			if got.Status != StatusNA {
-				t.Errorf("status = %q, want %q: %s", got.Status, StatusNA, got.Detail)
-			}
-			if !strings.Contains(got.Detail, "extension") {
-				t.Errorf("detail does not say where its rules are: %s", got.Detail)
-			}
-			if report.Failed {
-				t.Error("an agent whose rules live elsewhere failed the report")
-			}
-		})
-	}
-}
-
 // The lookup half: without an operator to ask about, this is a question that
 // was not put rather than a host that passed it.
 func TestAgentRulesAreUnaskedWithoutAnOperator(t *testing.T) {

@@ -19,13 +19,6 @@ PROJECT=/home/op/project
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 asop() { runuser -u op -- /usr/local/bin/faramir "$@" 2>&1; }
-# mcp sends one tools/call and prints the result line.
-mcp() { # tool, arguments-json
-  printf '%s\n%s\n' \
-    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"1"}}}' \
-    "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" \
-  | (cd $PROJECT && timeout 25 runuser -u op -- /usr/local/bin/faramir mcp 2>/dev/null) | tail -1
-}
 # carries fails when a haystack holds any value or key material.
 carries() { # label, text
   local label=$1 text=$2
@@ -140,38 +133,25 @@ grep -q '«SECRET:' <<<"$out" && ok "  and the value in it came back as a token"
 rm -rf "$d"
 
 # --------------------------------------------------------------------------
-head_ "5. the same answers through MCP"
+head_ "5. the same answers through the route the agent takes"
 
-out=$(mcp faramir_refs '{}')
-grep -q 'faramir://' <<<"$out" && ok "faramir_refs answers with refs" || bad "no refs: ${out:0:110}"
-carries "faramir_refs" "$out"
+# The route is the binary: there is no MCP server, and no registration anywhere.
+# What matters is that the answers an agent gets through it carry no value.
+out=$(asop refs)
+grep -q 'faramir://' <<<"$out" && ok "\`faramir refs\` answers with refs" || bad "no refs: ${out:0:110}"
+carries "faramir refs" "$out"
 for ref in $refused; do
-  grep -q "$ref" <<<"$out" && bad "faramir_refs names the refused ref $ref" \
+  grep -q "$ref" <<<"$out" && bad "\`faramir refs\` names the refused ref $ref" \
     || ok "and does not name $ref"
 done
 
-# There is no status tool: what it answered was which config files loaded, in
-# what order, and what failed to load, and no agent acts on any of it. Dropping
-# it narrowed what an agent is told, so being refused it is the assertion.
-out=$(mcp faramir_status '{}')
-grep -qi 'unknown tool' <<<"$out" && ok "no status tool is offered to the agent" \
-  || bad "faramir_status answered: ${out:0:110}"
-carries "the refusal of faramir_status" "$out"
-tools=$(printf '%s\n%s\n' \
-  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"1"}}}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  | (cd $PROJECT && timeout 25 runuser -u op -- /usr/local/bin/faramir mcp 2>/dev/null) | tail -1)
-grep -q 'faramir_run' <<<"$tools" || bad "tools/list answered nothing, so the check below has no subject"
-grep -q 'faramir_status' <<<"$tools" && bad "faramir_status is still listed" \
-  || ok "and it is not in the tool list either"
-
-# An MCP error is agent-visible text like any other.
-out=$(mcp faramir_run '{"cmd":["/bin/nosuchprogram"],"cwd":"'$PROJECT'"}')
-carries "an MCP run error" "$out"
-out=$(mcp faramir_run '{"cmd":["/bin/sh","-c","echo $P"],"cwd":"'$PROJECT'","env_refs":{"P":"faramir://db/password"}}')
-carries "an MCP run that printed a value" "$out"
+# An error from a brokered run is agent-visible text like any other.
+out=$(cd $PROJECT && asop run -- /bin/nosuchprogram)
+carries "a brokered run error" "$out"
+out=$(cd $PROJECT && asop run --env P=faramir://db/password -- /bin/sh -c 'echo $P')
+carries "a brokered run that printed a value" "$out"
 grep -q '«SECRET:db/password»' <<<"$out" && ok "which came back as its token" \
-  || bad "no token in the MCP result: ${out:0:130}"
+  || bad "no token in the run result: ${out:0:130}"
 
 # --------------------------------------------------------------------------
 head_ "6. the id the agent is given is one it cannot read"

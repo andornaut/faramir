@@ -122,7 +122,7 @@ func TestEachHostDialectIsEmittedInItsOwnShape(t *testing.T) {
 				t.Errorf("%s: decision = %v, want deny", host, plugin["decision"])
 			}
 			// The plugin throws this text, and it is all the model is told.
-			if reason, _ := plugin["reason"].(string); !strings.Contains(reason, "faramir_run") {
+			if reason, _ := plugin["reason"].(string); !strings.Contains(reason, "faramir run") {
 				t.Errorf("%s: deny does not name the tool to use instead: %v", host, plugin["reason"])
 			}
 		}

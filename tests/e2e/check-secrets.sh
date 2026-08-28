@@ -35,7 +35,7 @@ reload_daemons() {
 }
 
 # This suite rotates db/password, adds a ref, and rewrites .sops.yaml. Those
-# values are shared: leak, stream, wrap, mcp and disclose all redact the
+# values are shared: leak, stream, wrap and disclose all redact the
 # original db/password, so a suite that leaves it rotated makes those fail when
 # they run next against the same box. Snapshot the store and rule now, restore
 # them on the way out, and reload the daemons onto the restored file, so running

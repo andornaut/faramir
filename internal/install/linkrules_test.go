@@ -37,7 +37,7 @@ func TestALinkedPathReachesTheRenderedAccountFiles(t *testing.T) {
 	layout.Links = linksAt("/home/operator/.config/gh/hosts.yml")
 
 	for _, asset := range []string{"agent/claude/settings.json", "agent/permissions.json.tmpl"} {
-		body, err := render(asset, layout)
+		body, err := renderAccount(asset, layout)
 		if err != nil {
 			t.Fatalf("%s: %v", asset, err)
 		}
@@ -220,7 +220,7 @@ func TestALinkedPathIsQuotedIntoJSON(t *testing.T) {
 	layout := testLayout()
 	layout.Links = linksAt(filepath.Join("/home/operator", `odd"name`, "token"))
 
-	body, err := render("agent/claude/settings.json", layout)
+	body, err := renderAccount("agent/claude/settings.json", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
