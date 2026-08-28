@@ -8,9 +8,9 @@ SHELL := /bin/bash
 PREFIX    ?= /usr/local
 BINPREFIX ?= $(PREFIX)/bin
 BIN := bin
-# One binary. The three daemons, the MCP stdio server and the PreToolUse hook
-# are subcommands of it; what separates them is User= in the units, not main().
-# Only the hook's deny list and wrap script go to /usr/local/libexec.
+# One binary. The three daemons and the guard are subcommands of it; what
+# separates them is User= in the units, not main(). Only the guard's deny list
+# and wrap script go to /usr/local/libexec.
 CMDS := faramir
 LDFLAGS := -s -w
 # CGO_ENABLED=0 is the point of the port: a static binary with no libc and no
@@ -77,7 +77,7 @@ REPORT := awk ' \
 # GoReleaser will actually build. Linux only: the broker is systemd units, PAM
 # and cgroups.
 
-.PHONY: all build clean coverage e2e fmt install lint shellcheck test uninstall
+.PHONY: all build clean coverage e2e fmt fuzz install lint shellcheck test uninstall
 
 all: build
 
@@ -120,6 +120,31 @@ test: e2e
 coverage:
 	CGO_ENABLED=1 go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 	go tool cover -func=coverage.txt
+
+## fuzz: run every fuzz target for FUZZTIME each, one package at a time.
+##
+## `go test` alone runs a fuzz target against its seeds and no further, so the
+## properties these state -- that no rendering of a value survives the redactor,
+## that a rule refuses every spelling and nothing wider -- are only ever checked
+## against the handful of inputs somebody wrote down. This is what exercises
+## them.
+##
+## Not in CI and not in `make test`: fuzzing is time-boxed rather than finished,
+## so a pass says how long it ran rather than that it holds, and a failure on a
+## seed nobody chose would stop a push over something the run before it also
+## would not have found.
+##
+## -run='^$' so only the fuzzing happens, and one target at a time because
+## `-fuzz` takes a single pattern. A crasher is written under the package's
+## testdata/fuzz, which is a regression seed worth committing.
+FUZZTIME ?= 30s
+fuzz:
+	@set -e; \
+	  for target in $$(grep -rho '^func Fuzz[A-Za-z0-9_]*' --include='*_test.go' . | cut -c6-); do \
+	    pkg=$$(grep -rl "func $$target(" --include='*_test.go' . | head -1 | xargs dirname); \
+	    printf '%s %s (%s)\n' "$$pkg" "$$target" "$(FUZZTIME)"; \
+	    go test "$$pkg" -run='^$$' -fuzz="^$$target$$" -fuzztime=$(FUZZTIME) | tail -2; \
+	  done
 
 ## fmt: apply the import grouping and gofmt rules CI checks
 fmt:
