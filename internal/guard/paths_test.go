@@ -66,6 +66,15 @@ func blockOneFileUnderTheHome(t *testing.T) string {
 	if err != nil || me.Username == "" {
 		t.Skip("no account to render the rules against")
 	}
+	return blockAFileAs(t, me.Username)
+}
+
+// blockAFileAs is the same against a named agent account, which decides whether
+// the rendered rule carries the home spellings at all: HomeSpellings emits the
+// "~", "$HOME" and "${HOME}" forms only where the path sits under the home it
+// was given, and the layout's is looked up from this name.
+func blockAFileAs(t *testing.T, agentUser string) string {
+	t.Helper()
 	secret := filepath.Join(guardHome(), ".ssh", "id_ed25519")
 	rules, err := install.RenderDenyPatterns(install.Layout{
 		ConfigDir:  install.DefaultConfigDir,
@@ -75,7 +84,7 @@ func blockOneFileUnderTheHome(t *testing.T) string {
 		BrokerUser: install.DefaultBrokerUser,
 		KeeperUser: install.DefaultKeeperUser,
 		ExecUser:   install.DefaultExecUser,
-		AgentUser:  me.Username,
+		AgentUser:  agentUser,
 		Blocked:    []config.BlockedPath{{Path: secret}},
 	})
 	if err != nil {
@@ -87,6 +96,34 @@ func blockOneFileUnderTheHome(t *testing.T) string {
 	}
 	t.Setenv("FARAMIR_DENY_PATTERNS", file)
 	return secret
+}
+
+// The guard expands "~" itself, and that is the half of the cover that holds
+// when the rendered rule has lost the home spellings.
+//
+// A rule carries the "~", "$HOME" and "${HOME}" forms only where the layout
+// knew which home the path was under, which is `[server] agent_user` resolving
+// to an account. Unset, removed, or naming a different account than the guard
+// runs as, the rule is the absolute path alone, and a file tool handed the
+// tilde form matches nothing in it. So the expansion here is not a second copy
+// of what the rules already say: it is what covers a host whose rules were
+// rendered without a home to name.
+func TestTheTildeFormIsRefusedWhereTheRulesLostTheHomeSpellings(t *testing.T) {
+	if guardHome() == "" {
+		t.Skip("no home to expand against")
+	}
+	for _, agentUser := range []string{"", "root"} {
+		t.Run("agent_user "+agentUser, func(t *testing.T) {
+			declared := blockAFileAs(t, agentUser)
+			if _, refused := refusedPath(map[string]any{"p": declared}); !refused {
+				t.Fatalf("the declared path is not refused as written: %s", declared)
+			}
+			if _, refused := refusedPath(map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
+				t.Error("the tilde form is not refused, so a rule rendered without a home " +
+					"leaves it uncovered and the guard's own expansion is doing nothing")
+			}
+		})
+	}
 }
 
 // A "~" is the operator's home written the way a person writes it, and the
