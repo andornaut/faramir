@@ -75,6 +75,8 @@ There are two such sections:
 - **The account-wide one**, in the file each agent reads for every project. In a tree `init-project` has never been run in, this is the only thing faramir says: the deny rules still hold there, and there is no broker to point at.
 - **The tree's own**, written by `init-project`. It is the longer of the two, because in an enrolled tree there is a route to name.
 
+A tree's own file is whichever of `AGENTS.md` and `CLAUDE.md` it already has. Two agents read a name of their own beside it and get one there as well: Claude Code a `CLAUDE.md`, which is the name it reads and `AGENTS.md` is not, and Antigravity a `.agents/rules/faramir.md`. Every one of these carries the same section, so an operator who keeps a single file for every agent links `CLAUDE.md` at `AGENTS.md` and the section is written once into the file both names. Two agents' settings files linked that way are refused instead: those are different bytes, and only the last write would survive.
+
 ### One list, rendered per agent
 
 What the rules name is written once, in [internal/install/protectedpaths.go](../internal/install/protectedpaths.go), and rendered into each agent's own spelling from there. A copy per agent would drift, and the drift is silent: a rule that covers nothing looks exactly like a rule that covers everything, one character apart.

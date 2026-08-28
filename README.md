@@ -20,7 +20,7 @@ All six get full redaction: what the agent runs is rewritten into a brokered com
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
-[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook in the tree | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
+[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook and a credentials section in `CLAUDE.md` in the tree | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
 [opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) in `~/.config/opencode/plugin/`; deny patterns in `~/.config/opencode/opencode.json` | None: there is no allow to return, so a plugin that has not denied has not approved
 [Kilo Code](https://kilo.ai/) | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) in `~/.config/kilo/plugin/`, loaded by the CLI and the VS Code extension; deny patterns in `~/.config/kilo/kilo.json` | Same as opencode
 [Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) in `~/.pi/agent/extensions/` | None. Installed in a home rather than a tree, which Pi loads for every project without the project being trusted
@@ -216,7 +216,7 @@ A fleet declares these where it declares everything else: every `block` command 
 3. **Write the refs beside the project**, one per line, in a file that holds refs and never values: [the two line forms](docs/integrations.md#onboarding-in-three-steps).
 4. **`cd <project> && sudo faramir init-project`.** Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
-`faramir init` installs the guard into the agent's home, where it holds in every directory: a command the deny list names is refused wherever the agent is working, which is what a `[[secret.block]]` entry is for. An enrolment adds the credentials section to the tree's own instructions file and shares the tree so the broker's account can reach it. For Claude Code it also registers the routing hook, that being the one agent where routing costs a permission and so the one thing still taken tree by tree.
+`faramir init` installs the guard into the agent's home, where it holds in every directory: a command the deny list names is refused wherever the agent is working, which is what a `[[secret.block]]` entry is for. An enrolment adds the credentials section to the tree's own instructions file, and to a file of its own for the two agents that read a name that is not it ([which name](docs/layout.md)), and shares the tree so the broker's account can reach it. For Claude Code it also registers the routing hook, that being the one agent where routing costs a permission and so the one thing still taken tree by tree.
 
 What to run in one: [below](#running-commands).
 

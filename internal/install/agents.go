@@ -63,10 +63,14 @@ type agentTarget struct {
 	// hold for both. See runner.agentInstructions.
 	homeInstructions string
 
-	// treeInstructions is where this agent reads prose in one tree, for an agent
-	// that reads none of the names at the tree's root: Antigravity loads
-	// .agents/rules and no documented file beside them. Empty for every other
-	// agent, which reads the tree's own file.
+	// treeInstructions is a file of this agent's own inside a tree, for an agent
+	// that may read none of the names at the tree's root: Antigravity loads
+	// .agents/rules, and Claude Code reads CLAUDE.md and not AGENTS.md. Empty for
+	// every other agent, which reads whichever name the tree's own file has.
+	//
+	// It carries the same section as the tree's own file, so two of these
+	// resolving to one file is one write rather than a refusal: see
+	// oneSectionPerFile.
 	treeInstructions treeRules
 
 	// autoApprovesBash records what enrolling costs on this agent. Claude Code
@@ -191,6 +195,14 @@ var agentTargets = map[string]*agentTarget{
 		detect:           []string{".claude"},
 		detectHome:       []string{".claude", ".claude.json"},
 		homeInstructions: ".claude/CLAUDE.md",
+		// Claude Code reads CLAUDE.md and not AGENTS.md, so a tree whose own file
+		// is an AGENTS.md leaves this agent nothing. Named here rather than left to
+		// the tree's own file, which is whichever name the tree already has.
+		//
+		// An operator who keeps one file for every agent links CLAUDE.md at
+		// AGENTS.md, and then this and the tree's own file are one file: written
+		// once, the two carrying the same section. See oneSectionPerFile.
+		treeInstructions: treeRules{path: "CLAUDE.md"},
 		autoApprovesBash: true,
 	},
 	// opencode and Kilo Code extend through in-process plugins rather than a
@@ -548,7 +560,7 @@ func refuseUnwritable(fs fsys, root string, uid int, within string, paths []stri
 // agent holding another agent's configuration. It names the path that claimed
 // the file first, neither half of the pair being wrong on its own.
 func oneFileTwice(first string) string {
-	return "this and " + first + "are one file, and each is written for the agent that reads it, so nothing was " +
+	return "this and " + first + " are one file, and each is written for the agent that reads it, so nothing was " +
 		"written: only the last write would survive. A link between them is what makes " +
 		"this, so point one at a file of its own"
 }

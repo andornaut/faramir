@@ -1074,14 +1074,26 @@ func TestInitRefusesTheAccountsItIsNaming(t *testing.T) {
 // relative path would resolve against the broker's directory. Refused with exit
 // 2 before the broker is contacted.
 func TestARelativeCwdIsRefused(t *testing.T) {
-	var out bytes.Buffer
+	// The message is printed to os.Stderr, not cobra's writer, because an error
+	// returned past PersistentPreRunE is silenced; capture the real fd so a
+	// re-silenced message is caught here rather than only in the e2e.
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
 	root := newRootCmd()
-	root.SetOut(&out)
-	root.SetErr(&out)
 	root.SetArgs([]string{"run", "-C", "relative/dir", "--", "echo", "hi"})
-	// Exit 2 (wrong invocation), as the sibling negative-timeout check gives:
-	// the message is silenced after PersistentPreRunE, as it is for that one.
-	if code := exitCode(root.Execute()); code != 2 {
+	code := exitCode(root.Execute())
+	_ = w.Close()
+	os.Stderr = old
+	msg, _ := io.ReadAll(r)
+
+	if code != 2 {
 		t.Errorf("exit = %d, want 2 for a relative --cwd", code)
+	}
+	if !strings.Contains(string(msg), "absolute") {
+		t.Errorf("stderr = %q, want it to name the path as needing to be absolute", msg)
 	}
 }

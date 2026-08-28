@@ -370,12 +370,17 @@ func loadPatterns() []compiled {
 	}
 
 	out, complete := compilePatterns(raw)
-	if !complete && usingFile {
-		// A bad line in the file must not silently thin the list. Report it and
-		// use the built-in rules, which still cover faramir's own paths, so a
-		// broken file leaves the guard no weaker than a missing one does.
+	if usingFile && !complete {
+		// A bad line must not be dropped in silence: report it so the operator
+		// knows a rule they wrote is not in force. The lines around it still stand.
 		fmt.Fprintln(os.Stderr,
-			"faramir guard: the deny-patterns file has an uncompilable line; using the built-in rules")
+			"faramir guard: the deny-patterns file has an uncompilable line; skipping it")
+	}
+	if usingFile && len(out) == 0 {
+		// Nothing in the file compiled, so running with an empty list would refuse
+		// nothing. Fall back to the built-in rules, which still cover faramir's own
+		// paths, so a wholly broken file leaves the guard no weaker than a missing
+		// one does.
 		out, _ = compilePatterns(withConfigDir(fallback))
 	}
 	patternCacheKey, patternCacheVal = key, out

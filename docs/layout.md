@@ -64,7 +64,14 @@ Every one of these but Claude Code's routes a command through the broker and ref
 
 Why each agent gets what it gets is in [coding-agents.md](coding-agents.md).
 
-In an enrolled tree, every agent reads the tree's own `AGENTS.md`, or its `CLAUDE.md` where that is what the tree has. Antigravity reads those and `.agents/rules/*.md` as well, so it gets `.agents/rules/faramir.md` too: a tree whose own file is a `CLAUDE.md` would otherwise leave it nothing, that being a name it does not read.
+In an enrolled tree, every agent reads the tree's own `AGENTS.md`, or its `CLAUDE.md` where that is what the tree has. Two agents read a name of their own as well, and get a file there:
+
+Agent | File in the tree | Why
+--- | --- | ---
+Claude Code | `CLAUDE.md` | It reads `CLAUDE.md` and not `AGENTS.md`, so a tree whose own file is an `AGENTS.md` would leave it nothing
+Antigravity | `.agents/rules/faramir.md` | It reads `.agents/rules/*.md` as well as the tree's own file, so a tree whose own file is a `CLAUDE.md` would leave it nothing, that being a name it does not read
+
+Every instructions file in a tree carries the same section, so linking one at another is supported and writes it once: an operator who keeps a single file for every agent points `CLAUDE.md` at `AGENTS.md`, and the section goes into the file both names.
 
 The section says what the deny rules cannot: why they refuse, and what to do instead.
 

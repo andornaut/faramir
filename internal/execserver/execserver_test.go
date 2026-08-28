@@ -3,6 +3,7 @@ package execserver
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -356,5 +357,22 @@ func TestStartFailureBlamesTheProgramWhenTheDirectoryIsOnlyTraversable(t *testin
 	if code != codeExecFailed {
 		t.Errorf("code = %q, want %q for a directory that cannot be entered",
 			code, codeExecFailed)
+	}
+}
+
+// A StartError renders "code: detail" so the broker's splitExecCode reads its
+// code, and errors.As classifies it apart from a transport fault: a reported
+// start failure must not be mistaken for a lost status.
+func TestStartErrorCarriesItsCode(t *testing.T) {
+	err := error(&StartError{Code: "not_executable", Detail: "x may not execute y"})
+	if got, want := err.Error(), "not_executable: x may not execute y"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+	var se *StartError
+	if !errors.As(err, &se) {
+		t.Fatal("errors.As did not recognise a StartError")
+	}
+	if se.Code != "not_executable" {
+		t.Errorf("Code = %q, want not_executable", se.Code)
 	}
 }

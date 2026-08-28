@@ -515,6 +515,16 @@ type ChildResult struct {
 	TimedOut bool
 }
 
+// StartError is a failure the executor reported, not a transport fault: the
+// command could not be started or run (a missing or non-executable program, a
+// working directory it may not enter). It carries the code the caller answers
+// with. Distinct from a lost or late status, where the command may have run and
+// its output must be kept, so a reader can tell "did not run" from "ran, status
+// unknown". Error renders "code: detail" so splitExecCode reads it as before.
+type StartError struct{ Code, Detail string }
+
+func (e *StartError) Error() string { return e.Code + ": " + e.Detail }
+
 // Client is one brokered command: start it, then collect its exit status. Two
 // calls, the broker reading the PTY master in between.
 type Client struct {
@@ -640,7 +650,7 @@ func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 		return nil, fmt.Errorf("malformed response from executor: %w", err)
 	}
 	if response.Error != nil {
-		return nil, fmt.Errorf("%s: %s", response.Error.Code, response.Error.Message)
+		return nil, &StartError{Code: response.Error.Code, Detail: response.Error.Message}
 	}
 	if response.ExitCode == nil {
 		return nil, errors.New("executor response has no exit_code")

@@ -181,9 +181,11 @@ func newRunCmd() *cobra.Command {
 			}
 			// An absolute path only: the broker runs it, so a relative one would
 			// resolve against the broker's directory rather than the caller's.
-			// Refused as a wrong invocation rather than sent to fail there.
+			// Refused as a wrong invocation rather than sent to fail there. Printed
+			// here because an error returned past this point is silenced.
 			if cwd != "" && !filepath.IsAbs(cwd) {
-				return usagef("--cwd must be an absolute path")
+				fmt.Fprintln(os.Stderr, "faramir run: --cwd must be an absolute path")
+				return codeErr(2)
 			}
 			// The caller's own directory unless -C says otherwise: a brokered
 			// command runs where it was typed.

@@ -186,16 +186,26 @@ func reportEditableFiles(report *DoctorReport, home string, uid int, opts Doctor
 		// paths it is given together.
 		var paths []string
 		// The tree's own instructions file, which every enrolment writes and no
-		// target names.
-		if rel, err := filepath.Rel(tree.Dir, treeInstructionsFile(tree.Dir)); err == nil {
-			paths = append(paths, rel)
-		}
+		// target names, and then each agent's own.
+		instructions := []sectionTarget{{path: treeInstructionsFile(tree.Dir)}}
 		for _, name := range tree.Agents {
 			target, known := agentTargets[name]
 			if !known {
 				continue
 			}
-			paths = append(paths, editedPaths(target, true, target.treeInstructions.path)...)
+			paths = append(paths, editedPaths(target, true, "")...)
+			if rules := target.treeInstructions; rules.path != "" {
+				instructions = append(instructions,
+					sectionTarget{path: filepath.Join(tree.Dir, rules.path)})
+			}
+		}
+		// Deduplicated as the enrolment writes them, so a tree whose CLAUDE.md is
+		// a link to its AGENTS.md is not reported as a file written twice that the
+		// enrolment writes once.
+		for _, file := range oneSectionPerFile(instructions) {
+			if rel, err := filepath.Rel(tree.Dir, file.path); err == nil {
+				paths = append(paths, rel)
+			}
 		}
 		refused = append(refused, refuseUnwritable(fs, tree.Dir, treeUID, tree.Dir, paths)...)
 	}

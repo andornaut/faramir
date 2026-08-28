@@ -57,6 +57,12 @@ grep -q 'faramir guard' "$D/.claude/settings.local.json" \
 grep -q -- '--deny-only' "$D/.claude/settings.local.json" \
   && bad "the tree hook is deny-only, so nothing in this tree is redacted" \
   || ok "claude: and it routes rather than only refusing"
+# CLAUDE.md as well as the tree's own file: this agent reads that name and not
+# AGENTS.md, so a tree carrying only the latter would tell it nothing.
+owned "$D/CLAUDE.md" "claude: its own instructions file"
+grep -q '^# Credentials' "$D/CLAUDE.md" \
+  && ok "claude: carrying the credentials section" \
+  || bad "CLAUDE.md carries no credentials section, so the agent that reads it is told nothing"
 
 # Every other agent gets the prose and nothing else.
 for a in antigravity agy opencode kilocode pi; do
@@ -654,6 +660,22 @@ enrol "$D" >/dev/null 2>&1
 grep -q '^# Credentials' "$D/CLAUDE.md" && ok "CLAUDE.md is written into when that is the file the tree has" \
   || bad "the section did not go into CLAUDE.md"
 absent "$D/AGENTS.md" "a second instructions file"
+
+# One file for every agent, which is a CLAUDE.md linked at the tree's AGENTS.md.
+# The two are then one file carrying one section rather than a pair refused as
+# two writes with one survivor.
+D=$(tree /home/op/p-instr-linked)
+printf '# Notes\n' > "$D/AGENTS.md"
+runuser -u $OP -- ln -s AGENTS.md "$D/CLAUDE.md"
+chown $OP:$OP "$D/AGENTS.md"
+out=$(enrol "$D" --agent claude); rc=$?
+[ $rc -eq 0 ] && ok "a CLAUDE.md linked at AGENTS.md is enrolled" \
+  || bad "the linked pair was refused (exit $rc): ${out:0:200}"
+n=$(grep -c '<!-- BEGIN faramir: credentials -->' "$D/AGENTS.md")
+[ "$n" = 1 ] && ok "  with the section written once into the file both names" \
+  || bad "  the file carries $n credentials sections, want 1"
+[ -L "$D/CLAUDE.md" ] && ok "  and the operator's link is still a link" \
+  || bad "  the link was replaced with a regular file"
 
 # --------------------------------------------------------------------------
 head_ "13. a tree nothing in the client group can enter"

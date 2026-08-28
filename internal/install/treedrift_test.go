@@ -227,3 +227,27 @@ func TestEditableFilesIsOKWhereThereIsNothingToRefuse(t *testing.T) {
 		t.Errorf("the finding does not say how to ask it: %s", got[0].Detail)
 	}
 }
+
+// A tree whose CLAUDE.md is a link to its AGENTS.md is what an operator keeping
+// one file for every agent has, and the enrolment writes it once. Reported as a
+// pair of writes with one survivor, doctor would name a file the next
+// `init-project` writes without complaint.
+func TestEditableFilesAcceptsATreesLinkedClaudeFile(t *testing.T) {
+	configDir := t.TempDir()
+	tree := enrolTree(t, configDir, "claude")
+	agents := filepath.Join(tree, "AGENTS.md")
+	if err := os.WriteFile(agents, []byte("# Project\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(agents, filepath.Join(tree, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	var report DoctorReport
+	reportEditableFiles(&report, t.TempDir(), os.Getuid(), DoctorOptions{ConfigDir: configDir})
+
+	got := findings(report, "agent file ownership")
+	if len(got) != 1 || got[0].Status != StatusOK {
+		t.Errorf("findings = %+v, want one OK", got)
+	}
+}

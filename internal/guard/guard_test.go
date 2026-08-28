@@ -354,3 +354,18 @@ func TestABadPatternLineFallsBackToTheBuiltinRules(t *testing.T) {
 		t.Error("a bad patterns file left the guard open; want the built-in rules")
 	}
 }
+
+// A file with one uncompilable line and one good line keeps the good line in
+// force: a typo must not disable the rules around it.
+func TestABadLineDoesNotDisableTheGoodLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "deny-patterns.txt")
+	if err := os.WriteFile(path,
+		[]byte("this is a (broken regex\n\\bprintenv\\b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_DENY_PATTERNS", path)
+	if _, denied := decide("printenv"); !denied {
+		t.Error("a bad line disabled the good line beside it; want printenv denied")
+	}
+}

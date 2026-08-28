@@ -187,9 +187,15 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		// vanished executor is waited for.
 		result, err := client.Result(max(time.Until(deadline), time.Second))
 		if err != nil {
-			// The command ran; its output is already collected. Tear the run down
-			// and decide a status rather than discarding that output as if nothing
-			// had run.
+			if _, ok := errors.AsType[*execserver.StartError](err); ok {
+				// The executor reported the command could not be started or run.
+				// Nothing ran and there is no output to keep, so it is returned as
+				// the failure it is rather than a status-unknown run.
+				return nil, err
+			}
+			// A transport or timeout fault: the command may have run to completion,
+			// so tear the run down and decide a status rather than discarding the
+			// output already collected as if nothing had run.
 			client.Abort()
 		}
 		exitCode, timedOut, statusUnknown = exitStatus(result, err, !time.Now().Before(deadline))

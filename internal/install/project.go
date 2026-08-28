@@ -876,6 +876,37 @@ func (p *project) instructionsFiles() []sectionTarget {
 			})
 		}
 	}
+	return oneSectionPerFile(out)
+}
+
+// oneSectionPerFile drops a file an earlier one in the list already resolves
+// to, so a tree whose CLAUDE.md is a link to its AGENTS.md is written once.
+//
+// Only these files. Every instructions file in a tree carries the same
+// credentials section, so one standing in for two writes the same bytes to the
+// same place and loses nothing. Two agents' settings files are each written for
+// the agent that reads them, and a link between those is refused rather than
+// deduplicated: see oneFileTwice.
+//
+// A path that cannot be resolved keeps its own name, so a dangling link stays
+// in the list and is refused by refuseUnwritable, which says why.
+//
+// The first name wins, which puts the section in the tree's own file and leaves
+// the link pointing at it.
+func oneSectionPerFile(files []sectionTarget) []sectionTarget {
+	out := make([]sectionTarget, 0, len(files))
+	claimed := map[string]bool{}
+	for _, file := range files {
+		name := file.path
+		if resolved, err := filepath.EvalSymlinks(name); err == nil {
+			name = resolved
+		}
+		if claimed[name] {
+			continue
+		}
+		claimed[name] = true
+		out = append(out, file)
+	}
 	return out
 }
 
