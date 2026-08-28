@@ -137,6 +137,11 @@ func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.C
 // paths no rule in it names, and how many files were read at all. Shared by the
 // two checks that ask this: a linked file and a blocked path are rendered into
 // the same rule files by the same step.
+//
+// A count of zero is "nothing to read here", not "nothing refuses these". An
+// agent with no rule file of its own is refused by the guard instead, which
+// reads the same paths out of the rendered deny list, so the callers report
+// that case as unasked and name the check that does cover it.
 func uncoveredIn(home string, paths []string) (files int, uncovered []string) {
 	// One file two agents read is one file to check: the Antigravity family
 	// shares its account-wide hook, and reporting it twice reads as two files
@@ -189,8 +194,10 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 
 	switch {
 	case files == 0:
-		report.unaskedf(name, len(links), "no agent rule file is installed under %s, "+
-			"so there is nothing the %d linked file(s) could be refused by", home, len(links))
+		report.unaskedf(name, len(links), "no agent under %s keeps rules of its own, so "+
+			"the %d linked file(s) were not looked for in one. What refuses them there is "+
+			"the guard, from the rendered deny list, which `deny patterns` checks",
+			home, len(links))
 	case len(uncovered) == 0:
 		report.addf(name, StatusOK, "%d linked file(s) are refused to the agent's "+
 			"file tools in %d rule file(s)", len(links), files)
@@ -211,7 +218,7 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 //
 // Worth asking even though a mode refuses each of these to the agent's uid as
 // well. The rules are the half that produces a corrective message naming
-// faramir_run instead of an EACCES the agent will try to work around, and until
+// `faramir run` instead of an EACCES the agent will try to work around, and until
 // this check existed an agent's settings could drop them and every other check
 // still passed.
 func diagnoseInstallRules(report *DoctorReport, opts DoctorOptions) {
@@ -240,9 +247,10 @@ func diagnoseInstallRules(report *DoctorReport, opts DoctorOptions) {
 	files, uncovered := uncoveredIn(home, paths)
 	switch {
 	case files == 0:
-		report.unaskedf(name, len(paths), "no agent rule file is installed under "+
-			"%s, so there is nothing the %d path(s) this install writes could be "+
-			"refused by", home, len(paths))
+		report.unaskedf(name, len(paths), "no agent under %s keeps rules of its own, so "+
+			"the %d path(s) this install writes were not looked for in one. What refuses "+
+			"them there is the guard, from the rendered deny list, which `deny patterns` "+
+			"checks", home, len(paths))
 	case len(uncovered) == 0:
 		report.addf(name, StatusOK, "the %d path(s) this install writes are refused "+
 			"to the agent's file tools in %d rule file(s)", len(paths), files)
@@ -306,8 +314,10 @@ func reportBlockedPaths(report *DoctorReport, home string, paths []string) {
 
 	switch {
 	case files == 0:
-		report.unaskedf(name, len(paths), "no agent rule file is installed under %s, "+
-			"so there is nothing the %d blocked path(s) could be refused by", home, len(paths))
+		report.unaskedf(name, len(paths), "no agent under %s keeps rules of its own, so "+
+			"the %d blocked path(s) were not looked for in one. What refuses them there is "+
+			"the guard, from the rendered deny list, which `deny patterns` checks",
+			home, len(paths))
 	case len(uncovered) == 0:
 		report.addf(name, StatusOK, "%d blocked path(s) are refused to the agent's "+
 			"file tools in %d rule file(s)", len(paths), files)
