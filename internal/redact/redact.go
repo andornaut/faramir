@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -88,44 +87,67 @@ func needsStrip(text string) bool {
 // stripANSIView removes escape sequences and normalises CRLF, and builds the
 // view above in the same walk so the two cannot drift.
 func stripANSIView(text string) (string, *escapeView) {
+	clean, ev, _ := stripANSIViewSrc(text)
+	return clean, ev
+}
+
+// stripANSIViewSrc is stripANSIView plus src, which maps each byte of the
+// stripped text back to the byte offset in text of the source byte that
+// produced it, with one final entry mapping the end. A nil src means no
+// stripping was needed and the stripped text is text itself, so the mapping is
+// the identity.
+//
+// src is what lets the streaming redactor hold a chunk boundary back in the raw
+// input rather than in the stripped text: a stripped offset it decides to emit
+// up to is turned back into the raw offset to resume from, so the escape and
+// CRLF context of the held tail is rebuilt from the raw on the next chunk
+// instead of being lost when the escape is stripped away.
+func stripANSIViewSrc(text string) (string, *escapeView, []int) {
 	// Nothing to strip and nothing to normalise, which is most output: the walk
 	// below would copy every byte twice to say so.
 	if !needsStrip(text) {
-		return text, nil
+		return text, nil, nil
 	}
 	var clean, view strings.Builder
 	clean.Grow(len(text))
 	view.Grow(len(text))
 	index := make([]int, 0, len(text)+1)
+	// One entry per byte of clean, plus one for the end. Reinserted view bytes
+	// are not clean bytes and so are not recorded here.
+	src := make([]int, 0, len(text)+1)
 	ev := &escapeView{}
 	// A CR is held until the next byte says whether it opened a CRLF. Held
 	// across a sequence too, the sequence contributing nothing to the stripped
 	// text: that is what makes this the same answer as stripping first and
-	// normalising after.
+	// normalising after. crAt is the raw offset of the held CR, for src.
 	pendingCR := false
-	put := func(chunk string) {
+	crAt := 0
+	put := func(chunk string, base int) {
 		for i := range len(chunk) {
 			b := chunk[i]
 			if pendingCR {
 				pendingCR = false
 				if b != '\n' {
 					index = append(index, clean.Len())
+					src = append(src, crAt)
 					clean.WriteByte('\r')
 					view.WriteByte('\r')
 				}
 			}
 			if b == '\r' {
 				pendingCR = true
+				crAt = base + i
 				continue
 			}
 			index = append(index, clean.Len())
+			src = append(src, base+i)
 			clean.WriteByte(b)
 			view.WriteByte(b)
 		}
 	}
 	prev := 0
 	for _, loc := range ansiRE.FindAllStringIndex(text, -1) {
-		put(text[prev:loc[0]])
+		put(text[prev:loc[0]], prev)
 		if seq := text[loc[0]:loc[1]]; strings.HasPrefix(seq, "\x1b[") {
 			// At the offset the value's surviving bytes start from, so a match
 			// covering this byte and the ones after it maps onto them alone.
@@ -135,58 +157,17 @@ func stripANSIView(text string) (string, *escapeView) {
 		}
 		prev = loc[1]
 	}
-	put(text[prev:])
+	put(text[prev:], prev)
 	if pendingCR {
 		index = append(index, clean.Len())
+		src = append(src, crAt)
 		clean.WriteByte('\r')
 		view.WriteByte('\r')
 	}
 	index = append(index, clean.Len())
+	src = append(src, len(text))
 	ev.view, ev.clean = view.String(), index
-	return clean.String(), ev
-}
-
-// withPrefix is the view of prefix+text, for a chunk that is redacted with the
-// tail of the one before it in front of it. The prefix is output this redactor
-// already wrote, so it is its own view.
-func (v *escapeView) withPrefix(prefix string) *escapeView {
-	if v == nil || !v.lenient {
-		return nil
-	}
-	index := make([]int, 0, len(prefix)+len(v.clean))
-	for i := range len(prefix) {
-		index = append(index, i)
-	}
-	for _, at := range v.clean {
-		index = append(index, len(prefix)+at)
-	}
-	return &escapeView{view: prefix + v.view, clean: index, lenient: true}
-}
-
-// stripANSIStream strips escapes from buf, holding back a possibly-incomplete
-// tail. The carry must be prepended to the next chunk: it may open an escape
-// sequence, or be the first half of a CRLF.
-func stripANSIStream(buf []rune) (clean string, ev *escapeView, carry []rune) {
-	carryStart := len(buf)
-	esc := -1
-	for i, r := range slices.Backward(buf) {
-		if r == '\x1b' {
-			esc = i
-			break
-		}
-	}
-	if esc != -1 && len(buf)-esc <= maxEscapeLen {
-		// Only hold back a sequence that is not obviously terminated.
-		tail := string(buf[esc:])
-		if loc := ansiRE.FindStringIndex(tail); loc == nil || loc[0] != 0 {
-			carryStart = esc
-		}
-	}
-	if carryStart == len(buf) && len(buf) > 0 && buf[len(buf)-1] == '\r' {
-		carryStart = len(buf) - 1
-	}
-	clean, ev = stripANSIView(string(buf[:carryStart]))
-	return clean, ev, buf[carryStart:]
+	return clean.String(), ev, src
 }
 
 // --------------------------------------------------------------------------
@@ -459,8 +440,8 @@ type Count struct {
 // 35 ms on a host with 256 refs.
 type Values struct {
 	Policy EligibilityPolicy
-	// Overlap is the tail a stream holds back, which is a property of the longest
-	// rendering rather than of one request.
+	// Overlap is the tail a stream holds back, in non-newline runes, a property of
+	// the longest rendering rather than of one request.
 	Overlap int
 	// One automaton over every rendering of every value, rather than one search
 	// per value: the scan is the cost paid on every byte of every command's
@@ -481,9 +462,18 @@ type Values struct {
 type Redactor struct {
 	*Values
 
-	counts    map[string]int
-	ansiCarry []rune
-	buf       []rune
+	counts map[string]int
+	// raw is the input held back for the next chunk: an incomplete escape or CRLF
+	// half at the very end, and the overlap window that a value split across the
+	// boundary is caught in. Held raw rather than stripped, so an escape that ate
+	// a value's first byte is re-stripped with the rest of the value on the next
+	// chunk instead of leaving its stripped remainder to go out in the clear.
+	raw []rune
+	// rawBytes holds a chunk's trailing bytes when they begin a multibyte rune
+	// the chunk cut short, so the rune is decoded whole once its rest arrives
+	// rather than corrupted to U+FFFD on each side of the split. Prepended to the
+	// next chunk; flushed as-is at end of stream.
+	rawBytes []byte
 	// Bytes that were not valid UTF-8, counted rather than acted on; see Feed.
 	invalidBytes int
 }
@@ -547,8 +537,12 @@ func NewValues(secrets []Secret, policy EligibilityPolicy) *Values {
 	if len(all) > 0 {
 		r.matcher = newMatcher(all)
 	}
-	// x2 for base64 line wrapping, +16 for quoting expansion at a boundary.
-	r.Overlap = longest*2 + 16
+	// The overlap window is measured in non-newline runes, so a rendering wrapped
+	// across any number of lines is held until all of its own characters have
+	// arrived regardless of the blank lines between them. longest bounds a
+	// rendering's own length; the rest is slack for a reinserted escape byte and
+	// for quoting expansion at a chunk boundary.
+	r.Overlap = longest + 16
 	return r
 }
 
@@ -577,35 +571,265 @@ func renderings(value string, policy EligibilityPolicy) []string {
 	return out
 }
 
+// holdCapRunes bounds how much raw input the stream holds back waiting for the
+// non-newline overlap window to fill, so blank-line padding between a
+// rendering's characters cannot grow the buffer without limit. A rendering
+// spread across more than this many runes of padding is emitted rather than
+// held, and so is not caught once wrapped: 1 MiB is far above any real
+// formatter's line spacing and below anything that pressures memory.
+const holdCapRunes = 1 << 20
+
 // Feed absorbs a chunk of raw output and returns the part that is safe to emit.
 func (r *Redactor) Feed(text string) string {
 	if text == "" {
 		return ""
 	}
+	// Reattach any bytes held from the previous chunk, then split off a new
+	// incomplete tail if this chunk ends mid-rune, so a multibyte rune spanning
+	// the boundary is decoded whole.
+	buf := make([]byte, 0, len(r.rawBytes)+len(text))
+	buf = append(buf, r.rawBytes...)
+	buf = append(buf, text...)
+	r.rawBytes = nil
+	complete, tail := splitIncompleteTail(buf)
+	r.rawBytes = tail
+	if len(complete) == 0 {
+		return ""
+	}
+	settled := string(complete)
 	// Counted before the conversion below, which replaces an invalid byte and so
 	// is the last moment one can be told from a U+FFFD the command wrote.
-	// Callers report the count rather than act on it.
-	r.invalidBytes += invalidUTF8Bytes(text)
-	r.ansiCarry = append(r.ansiCarry, []rune(text)...)
-	clean, ev, carry := stripANSIStream(r.ansiCarry)
-	r.ansiCarry = carry
-	held := string(r.buf)
-	r.buf = []rune(r.redact(held+clean, ev.withPrefix(held)))
-	if len(r.buf) > r.Overlap {
-		out := string(r.buf[:len(r.buf)-r.Overlap])
-		r.buf = r.buf[len(r.buf)-r.Overlap:]
-		return out
-	}
-	return ""
+	// Callers report the count rather than act on it. The new bytes only: the
+	// held raw was counted when it first arrived, and the incomplete tail is
+	// counted when it is completed or flushed, not now.
+	r.invalidBytes += invalidUTF8Bytes(settled)
+	r.raw = append(r.raw, []rune(settled)...)
+	return r.process(false)
 }
 
 // Flush releases everything held back. Call once, at end of stream.
 func (r *Redactor) Flush() string {
-	tail, ev := stripANSIView(string(r.ansiCarry))
-	r.ansiCarry = nil
-	held := string(r.buf)
-	out := r.redact(held+tail, ev.withPrefix(held))
-	r.buf = nil
+	// A trailing byte still held at end of stream was a genuinely incomplete
+	// rune, not a split one: emit it so the output is not truncated, counting it
+	// as the invalid byte it turned out to be.
+	if len(r.rawBytes) > 0 {
+		settled := string(r.rawBytes)
+		r.invalidBytes += invalidUTF8Bytes(settled)
+		r.raw = append(r.raw, []rune(settled)...)
+		r.rawBytes = nil
+	}
+	out := r.process(true)
+	r.raw = nil
+	return out
+}
+
+// splitIncompleteTail splits buf into the leading bytes that decode to whole
+// runes and a trailing remainder that begins a multibyte rune buf cut short. A
+// lead byte whose sequence does not fit in buf is held; an outright invalid byte
+// is left in complete so it is replaced now rather than held forever.
+func splitIncompleteTail(buf []byte) (complete, tail []byte) {
+	for i := len(buf) - 1; i >= 0 && i >= len(buf)-utf8.UTFMax; i-- {
+		b := buf[i]
+		if b < utf8.RuneSelf {
+			break // ASCII: everything from here on is whole.
+		}
+		if utf8.RuneStart(b) {
+			if need := leadRuneLen(b); need > len(buf)-i {
+				return buf[:i], buf[i:]
+			}
+			break
+		}
+		// A continuation byte: keep scanning left for its lead byte.
+	}
+	return buf, nil
+}
+
+// leadRuneLen is the byte length of the rune a UTF-8 lead byte begins, or 1 for
+// a byte that is not a valid lead so it is treated as one invalid byte.
+func leadRuneLen(b byte) int {
+	switch {
+	case b&0xE0 == 0xC0:
+		return 2
+	case b&0xF0 == 0xE0:
+		return 3
+	case b&0xF8 == 0xF0:
+		return 4
+	default:
+		return 1
+	}
+}
+
+// process strips and redacts the settled prefix of r.raw and returns it, holding
+// the rest back in r.raw for the next chunk. When final is true it emits
+// everything. A match found in the emitted prefix is counted once here; the held
+// tail is reprocessed on the next chunk, and its matches are counted when they
+// in turn become part of an emitted prefix, so nothing is counted twice.
+func (r *Redactor) process(final bool) string {
+	if len(r.raw) == 0 {
+		return ""
+	}
+	settled := r.raw
+	if final {
+		r.raw = nil
+	} else {
+		cut := r.settleBoundary()
+		if cut == 0 {
+			return ""
+		}
+		settled = r.raw[:cut]
+		r.raw = append([]rune(nil), r.raw[cut:]...)
+	}
+	clean, ev, _ := stripANSIViewSrc(string(settled))
+	return r.redact(clean, ev)
+}
+
+// settleBoundary returns the rune index in r.raw up to which it is safe to strip
+// and emit now, holding the rest back so a value, an escape, or a CRLF split
+// across the next chunk is still caught. It holds back at least Overlap
+// non-newline runes of stripped output, never cuts a rendering the matcher can
+// already see, and never ends the emitted part inside an escape sequence or on
+// the first half of a CRLF.
+func (r *Redactor) settleBoundary() int {
+	clean, ev, src := stripANSIViewSrc(string(r.raw))
+	cleanRunes := []rune(clean)
+	n := len(cleanRunes)
+	// runeByte[k] is the byte offset in clean of clean rune k, plus the end.
+	runeByte := make([]int, n+1)
+	off := 0
+	for k, ch := range cleanRunes {
+		runeByte[k] = off
+		off += utf8.RuneLen(ch)
+	}
+	runeByte[n] = len(clean)
+
+	// Hold back Overlap non-newline runes, so a rendering wrapped across any
+	// number of blank lines is held until all of its own characters have come in.
+	held := 0
+	holdRune := 0
+	for k := n - 1; k >= 0; k-- {
+		if cleanRunes[k] != '\n' && cleanRunes[k] != '\r' {
+			held++
+			if held >= r.Overlap {
+				holdRune = k
+				break
+			}
+		}
+	}
+	// The cap bounds memory when the non-newline budget is never met, e.g. a flood
+	// of blank lines whose non-newline count never reaches Overlap. A rendering
+	// padded past the cap is emitted rather than held, and so is not caught once
+	// wrapped.
+	if n-holdRune > holdCapRunes {
+		holdRune = n - holdCapRunes
+	}
+	if holdRune <= 0 {
+		return 0
+	}
+	bb := runeByte[holdRune]
+
+	// Never cut a rendering the matcher can already see: pull the boundary back to
+	// the start of any match that would straddle it. Bounded: a match is at most
+	// the longest rendering, and each pull moves the boundary strictly earlier.
+	spans := r.potentialSpans(clean, ev, runeByte)
+	for moved := true; moved; {
+		moved = false
+		for _, s := range spans {
+			if s.start < bb && bb < s.end {
+				bb = s.start
+				moved = true
+			}
+		}
+	}
+	if bb <= 0 {
+		return 0
+	}
+
+	// bb is a byte offset in clean at a rune boundary; src turns it into the raw
+	// byte offset to resume from. A nil src means no stripping, so clean is the
+	// raw and the offsets are the same.
+	rawByte := bb
+	if src != nil {
+		rawByte = src[bb]
+	}
+	cut := utf8.RuneCountInString(string(r.raw)[:rawByte])
+
+	// Do not end the emitted part inside an escape sequence or on a lone CR: a
+	// stripped escape contributes no clean byte, so the boundary can land just
+	// after one whose reinserted byte belongs to a value that continues in the
+	// held part, and a CR may be the first half of a CRLF the next chunk closes.
+	// Pull the boundary back over either so the raw is rebuilt with the rest.
+	for cut > 0 {
+		if r.raw[cut-1] == '\r' {
+			cut--
+			continue
+		}
+		lo := max(cut-maxEscapeLen, 0)
+		window := string(r.raw[lo:cut])
+		pulled := false
+		for _, loc := range ansiRE.FindAllStringIndex(window, -1) {
+			if loc[1] == len(window) {
+				cut = lo + utf8.RuneCountInString(window[:loc[0]])
+				pulled = true
+				break
+			}
+		}
+		if !pulled {
+			break
+		}
+	}
+
+	// Also hold back an escape the settled part opens but does not close: an ESC
+	// within maxEscapeLen of the boundary whose sequence has no terminator yet is
+	// completed by the next chunk, and stripping it now would emit its parameter
+	// bytes as text where the whole sequence is meant to vanish. Beyond
+	// maxEscapeLen a lone ESC is treated as text, so a buffer never grows without
+	// bound waiting for a terminator that is not coming.
+	for cut > 0 {
+		lo := max(cut-maxEscapeLen, 0)
+		esc := -1
+		for i := cut - 1; i >= lo; i-- {
+			if r.raw[i] == '\x1b' {
+				esc = i
+				break
+			}
+		}
+		if esc == -1 {
+			break
+		}
+		tail := string(r.raw[esc:cut])
+		if loc := ansiRE.FindStringIndex(tail); loc != nil && loc[0] == 0 {
+			break // a complete sequence begins at esc; the settled part may keep it
+		}
+		cut = esc
+	}
+	return cut
+}
+
+// potentialSpans returns, as byte ranges in clean, every rendering the three
+// redact passes could match: plain, escape-view, and newline-collapsed. It is
+// the boundary chooser's view of what must not be cut, so a superset is safe.
+func (r *Redactor) potentialSpans(clean string, ev *escapeView, runeByte []int) []span {
+	if r.matcher == nil {
+		return nil
+	}
+	out := append([]span(nil), r.matcher.find(clean)...)
+	if ev != nil && ev.lenient {
+		for _, loc := range r.matcher.find(ev.view) {
+			start, end := ev.clean[loc.start], ev.clean[loc.end]
+			if end > start {
+				out = append(out, span{start: start, end: end})
+			}
+		}
+	}
+	if cv := newCollapsedView(clean); cv.collapsed {
+		for _, loc := range r.matcher.find(cv.view) {
+			startRune := cv.byteStart[loc.start]
+			endRune := cv.byteStart[loc.end-1] + 1
+			if startRune < len(runeByte) && endRune < len(runeByte) {
+				out = append(out, span{start: runeByte[startRune], end: runeByte[endRune]})
+			}
+		}
+	}
 	return out
 }
 
@@ -644,6 +868,40 @@ func (r *Redactor) Summary() []Count {
 	return out
 }
 
+// tokenSpan is a match to replace: the offsets it covers and the token it
+// stands for. The offsets are into whatever source the splice reads, byte or
+// rune, so long as size and between below share that index space.
+type tokenSpan struct {
+	start, end int
+	token      string
+}
+
+// spliceSpans writes source with each span replaced by its token. size is the
+// source length in the spans' index space, and between returns source[a:b] in
+// it. A span that starts inside the previous one covers only its uncovered tail,
+// and one wholly covered is skipped, so partially overlapping secrets are both
+// redacted without a negative slice.
+func (r *Redactor) spliceSpans(spans []tokenSpan, size int, between func(a, b int) string) string {
+	var b strings.Builder
+	b.Grow(size)
+	cursor := 0
+	for _, s := range spans {
+		if s.end <= cursor {
+			continue
+		}
+		if s.start < cursor {
+			b.WriteString(s.token)
+		} else {
+			b.WriteString(between(cursor, s.start))
+			b.WriteString(s.token)
+		}
+		r.counts[s.token]++
+		cursor = s.end
+	}
+	b.WriteString(between(cursor, size))
+	return b.String()
+}
+
 func (r *Redactor) redact(text string, ev *escapeView) string {
 	if text == "" || r.matcher == nil {
 		return text
@@ -676,21 +934,15 @@ func (r *Redactor) redact(text string, ev *escapeView) string {
 		// carries no secret at all.
 		return text
 	}
-	var b strings.Builder
-	b.Grow(len(text))
-	cursor := 0
+	toks := make([]tokenSpan, 0, len(spans))
 	for _, s := range spans {
 		token, ok := r.tokenOf[text[s.start:s.end]]
 		if !ok {
 			continue // unreachable: the automaton is built from these keys
 		}
-		b.WriteString(text[cursor:s.start])
-		b.WriteString(token)
-		r.counts[token]++
-		cursor = s.end
+		toks = append(toks, tokenSpan{start: s.start, end: s.end, token: token})
 	}
-	b.WriteString(text[cursor:])
-	return b.String()
+	return r.spliceSpans(toks, len(text), func(a, b int) string { return text[a:b] })
 }
 
 // collapsedView is one haystack with its line breaks taken out, plus what maps
@@ -740,11 +992,7 @@ func (r *Redactor) subEscaped(text string, v *escapeView) (string, bool) {
 	if v == nil || !v.lenient {
 		return "", false
 	}
-	type span struct {
-		start, end int
-		token      string
-	}
-	var spans []span
+	var spans []tokenSpan
 	for _, loc := range r.matcher.find(v.view) {
 		token, ok := r.tokenOf[v.view[loc.start:loc.end]]
 		if !ok {
@@ -758,43 +1006,22 @@ func (r *Redactor) subEscaped(text string, v *escapeView) (string, bool) {
 		if end-start == loc.end-loc.start || end <= start {
 			continue
 		}
-		spans = append(spans, span{start: start, end: end, token: token})
+		spans = append(spans, tokenSpan{start: start, end: end, token: token})
 	}
 	if len(spans) == 0 {
 		return "", false
 	}
-
-	var b strings.Builder
-	b.Grow(len(text))
-	cursor := 0
-	for _, s := range spans {
-		if s.start < cursor { // overlapping match, already covered
-			continue
-		}
-		b.WriteString(text[cursor:s.start])
-		b.WriteString(s.token)
-		r.counts[s.token]++
-		cursor = s.end
-	}
-	b.WriteString(text[cursor:])
-	return b.String(), true
+	return r.spliceSpans(spans, len(text), func(a, b int) string { return text[a:b] }), true
 }
 
 // subWrapped replaces every line-wrapped rendering, and reports whether it
-// changed anything.
-// wrappedSpan is one line-spanning match, as offsets into the original runes plus
-// the token it stands for. Separate from matcher's span, which is byte offsets
-// into the collapsed view.
-type wrappedSpan struct {
-	start, end int
-	token      string
-}
-
+// changed anything. Its spans are offsets into the original runes, so the splice
+// reads v.runes rather than a byte string.
 func (r *Redactor) subWrapped(v *collapsedView) (string, bool) {
 	if !v.collapsed {
 		return "", false
 	}
-	var spans []wrappedSpan
+	var spans []tokenSpan
 	for _, loc := range r.matcher.find(v.view) {
 		token, ok := r.tokenOf[v.view[loc.start:loc.end]]
 		if !ok {
@@ -804,24 +1031,13 @@ func (r *Redactor) subWrapped(v *collapsedView) (string, bool) {
 		// rather than the offset after it.
 		start, end := v.byteStart[loc.start], v.byteStart[loc.end-1]+1
 		if strings.ContainsAny(string(v.runes[start:end]), "\n\r") {
-			spans = append(spans, wrappedSpan{start: start, end: end, token: token})
+			spans = append(spans, tokenSpan{start: start, end: end, token: token})
 		}
 	}
 	if len(spans) == 0 {
 		return "", false
 	}
-
-	var b strings.Builder
-	cursor := 0
-	for _, s := range spans {
-		if s.start < cursor { // overlapping match, already covered
-			continue
-		}
-		b.WriteString(string(v.runes[cursor:s.start]))
-		b.WriteString(s.token)
-		r.counts[s.token]++
-		cursor = s.end
-	}
-	b.WriteString(string(v.runes[cursor:]))
-	return b.String(), true
+	return r.spliceSpans(spans, len(v.runes), func(a, b int) string {
+		return string(v.runes[a:b])
+	}), true
 }

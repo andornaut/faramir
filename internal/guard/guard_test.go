@@ -262,3 +262,95 @@ func TestAConfigDirUnderAHomeIsRecognisedInTheRenderedForm(t *testing.T) {
 			"/var/lib/faramir-broker, so it would get no rules of its own")
 	}
 }
+
+// The exemption spares faramir's own flags and refs, not a redirect attached to
+// the call nor the child command it runs. A redirect is the shell's, and redact
+// does not guard what it runs, so both must still be scanned.
+func TestExemptionKeepsRedirectsAndChildCommands(t *testing.T) {
+	for _, cmd := range []string{
+		"faramir redact -- cat /etc/faramir/age.key",
+		"faramir redact < /etc/faramir/age.key",
+		"faramir status > /etc/faramir/age.key",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("the exemption hid a disclosure: %q was allowed", cmd)
+		}
+	}
+	// The ref before the child command is still spared, and a child that trips
+	// nothing is still allowed.
+	for _, cmd := range []string{
+		"faramir run --env DB=faramir://prod/db -- deploy.sh",
+		"faramir run --env A=faramir://a",
+	} {
+		if pattern, denied := decide(cmd); denied {
+			t.Errorf("the exemption over-refused %q (pattern %q)", cmd, pattern)
+		}
+	}
+}
+
+// A command is already wrapped only if it is the single wrap invocation. One
+// that begins with a wrap invocation and chains more is not, since the chained
+// part would run unredacted.
+func TestIsWrappedRequiresASingleSegment(t *testing.T) {
+	ws := wrapScript()
+	for _, cmd := range []string{
+		"source " + ws + " 'echo hi'",
+		"source " + ws + " --stream 'echo hi' &",
+		". " + ws + " 'echo hi'",
+	} {
+		if !isWrapped(cmd) {
+			t.Errorf("a wrapped command was seen as unwrapped: %q", cmd)
+		}
+	}
+	for _, cmd := range []string{
+		"source " + ws + " 'make test' && cat build/output.log",
+		"source " + ws + " 'make test' | tee log",
+		"cat /etc/hostname",
+	} {
+		if isWrapped(cmd) {
+			t.Errorf("a chained command was treated as already wrapped: %q", cmd)
+		}
+	}
+}
+
+// An argv element is a literal word to the program, so a separator inside one is
+// not a command break. Joined raw it would split cat from its path into two
+// segments and slip the read past the rule; quoted, the read stays in one
+// segment and is refused.
+func TestArgvArrayCannotSmuggleAReadPastSegmentation(t *testing.T) {
+	p := &payload{}
+	p.ToolInput.Args = []any{"cat", ";", "/etc/faramir/age.key"}
+	command := commandOf(p)
+	if _, denied := decide(command); !denied {
+		t.Errorf("argv read not denied: commandOf = %q", command)
+	}
+	// The raw join this quoting replaces evaded the rule, so the fix is load
+	// bearing rather than incidental.
+	if _, denied := decide("cat ; /etc/faramir/age.key"); denied {
+		t.Skip("the two-segment raw form is denied here; the quoted form still holds")
+	}
+}
+
+// A plain string command is unchanged: no argv array, no quoting.
+func TestAPlainStringCommandIsScannedAsWritten(t *testing.T) {
+	p := &payload{}
+	p.ToolInput.Command = "cat /etc/faramir/age.key"
+	if got := commandOf(p); got != "cat /etc/faramir/age.key" {
+		t.Errorf("commandOf = %q, want it unchanged", got)
+	}
+}
+
+// A patterns file whose lines will not compile must not thin the list to
+// nothing: the built-in rules stand in, so the guard is no weaker than with a
+// missing file.
+func TestABadPatternLineFallsBackToTheBuiltinRules(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "deny-patterns.txt")
+	if err := os.WriteFile(path, []byte("cat (unterminated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_DENY_PATTERNS", path)
+	if _, denied := decide("sops -d /etc/faramir/secrets/db.sops.yml"); !denied {
+		t.Error("a bad patterns file left the guard open; want the built-in rules")
+	}
+}

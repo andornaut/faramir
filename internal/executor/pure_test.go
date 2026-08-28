@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/andornaut/faramir/internal/execserver"
 )
 
 // The output path's byte handling, tested directly. Run() needs a PTY and a
@@ -253,5 +255,25 @@ func TestRound3RoundsToMilliseconds(t *testing.T) {
 				t.Errorf("round3(%v) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
+	}
+}
+
+// exitStatus is reached only after the command ran and its output was
+// collected. A missing or late executor status must not discard that: it
+// becomes a kill code, never a fabricated success, and never an error that
+// reads as a run that never happened.
+func TestExitStatusPreservesAFinishedRun(t *testing.T) {
+	if code, timedOut, unknown := exitStatus(&execserver.ChildResult{ExitCode: 42}, nil, false); code != 42 || timedOut || unknown {
+		t.Errorf("reported status: code=%d timedOut=%v unknown=%v, want 42/false/false", code, timedOut, unknown)
+	}
+	// The whole budget elapsed with no status: the run overran the backstop and
+	// was killed, which is a timeout.
+	if code, timedOut, unknown := exitStatus(nil, errors.New("executor closed the connection"), true); code != 128+9 || !timedOut || unknown {
+		t.Errorf("deadline-passed status: code=%d timedOut=%v unknown=%v, want 137/true/false", code, timedOut, unknown)
+	}
+	// The executor vanished before the deadline while the command had already
+	// run: the status is unknowable, marked as such, output still returned.
+	if code, timedOut, unknown := exitStatus(nil, errors.New("executor restarted"), false); code != 128+9 || timedOut || !unknown {
+		t.Errorf("lost-status status: code=%d timedOut=%v unknown=%v, want 137/false/true", code, timedOut, unknown)
 	}
 }

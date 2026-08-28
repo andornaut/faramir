@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -163,8 +164,10 @@ func newRunCmd() *cobra.Command {
 			}
 			return nil
 		},
-		// The program's own flags are its own: pflag stops at the "--", and
-		// everything after it is passed through untouched.
+		// The program's own flags are its own: with interspersing off (below)
+		// pflag stops at the first non-flag word, the program name, so a `--quiet`
+		// or `--env` after it is the program's and is passed through untouched.
+		// A `--` still works and is not required.
 		RunE: func(c *cobra.Command, rest []string) error {
 			refs, err := execRefs(envFiles, envRefs)
 			if err != nil {
@@ -175,6 +178,12 @@ func newRunCmd() *cobra.Command {
 			request := map[string]any{"op": opRun, "cmd": rest}
 			if len(refs) > 0 {
 				request["env_refs"] = refs
+			}
+			// An absolute path only: the broker runs it, so a relative one would
+			// resolve against the broker's directory rather than the caller's.
+			// Refused as a wrong invocation rather than sent to fail there.
+			if cwd != "" && !filepath.IsAbs(cwd) {
+				return usagef("--cwd must be an absolute path")
 			}
 			// The caller's own directory unless -C says otherwise: a brokered
 			// command runs where it was typed.
@@ -187,8 +196,8 @@ func newRunCmd() *cobra.Command {
 				request["cwd"] = cwd
 			}
 			// Zero is "name none", which the broker reads as its configured
-			// default. Below zero is a value nothing can mean, and taking it as
-			// "none" ran the command under a timeout the caller did not ask for.
+			// default. A negative value has no meaning, so refuse it rather than
+			// treat it as "none" and run under a timeout the caller did not ask for.
 			if timeout < 0 {
 				return usagef("--timeout must not be negative; leave it out for " +
 					"the broker's own default")
@@ -207,13 +216,21 @@ func newRunCmd() *cobra.Command {
 		"NAME=faramir://ref, or a bare NAME for the ref of that name (repeatable)")
 	c.Flags().StringArrayVar(&envFiles, "env-file", nil,
 		"file of NAME=faramir://ref lines, or a bare NAME for the ref of that name (repeatable)")
+	// Stop at the program name so its own flags stay with it. Without this pflag
+	// reads a colliding flag after the command (-C, -t, --env, --quiet) as run's
+	// own, running a different command than the caller typed.
+	c.Flags().SetInterspersed(false)
 	return c
 }
 
 // execRefs is what a command's environment is built from: every --env-file in
-// the order it was given, and then every --env, so a flag naming a variable a
-// file also names is the one that takes. Its own function so the rule can be
-// asserted without a broker to run a command against.
+// the order it was given, and then every --env. A --env overrides a file that
+// names the same variable, by design: a flag is the near edit to a file's
+// defaults. But two files, or two --env flags, that name one variable with two
+// different refs are an ambiguity nothing resolves, and silently picking one is
+// how the wrong credential reaches a host: those are refused, the same as a
+// name given twice inside one file. Its own function so the rule can be asserted
+// without a broker to run a command against.
 func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 	refs := map[string]string{}
 	for _, path := range envFiles {
@@ -221,8 +238,17 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		maps.Copy(refs, pairs)
+		for name, uri := range pairs {
+			if existing, seen := refs[name]; seen && existing != uri {
+				return nil, fmt.Errorf("--env-file: %s is given twice, as %s and %s",
+					name, existing, uri)
+			}
+			refs[name] = uri
+		}
 	}
+	// The flags are their own layer: they override a file, but among themselves
+	// the same conflict is refused, so they are gathered apart and merged on top.
+	flags := map[string]string{}
 	for _, pair := range envRefs {
 		name, uri, ok := strings.Cut(pair, "=")
 		if !ok {
@@ -235,8 +261,13 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 		if err := checkRef(name, uri); err != nil {
 			return nil, fmt.Errorf("--env %w", err)
 		}
-		refs[name] = uri
+		if existing, seen := flags[name]; seen && existing != uri {
+			return nil, fmt.Errorf("--env %s is given twice, as %s and %s",
+				name, existing, uri)
+		}
+		flags[name] = uri
 	}
+	maps.Copy(refs, flags)
 	return refs, nil
 }
 
@@ -327,8 +358,7 @@ func readEnvFile(path string) (map[string]string, error) {
 		if !ok {
 			// A name on its own. Not taken on trust: checkRef below holds it to
 			// what an environment variable may be called, so a line that is not a
-			// name at all is refused naming this file and this line, as it was when
-			// every line had to carry a ref.
+			// name at all is refused, naming this file and this line.
 			name, uri = line, "faramir://"+line
 		}
 		name, uri = strings.TrimSpace(name), strings.TrimSpace(uri)
@@ -398,10 +428,10 @@ func redactChild(socketPath string, argv []string) int {
 		// The path once and what the kernel said: exec.Error carries the name and
 		// wraps it in "fork/exec", which is Go's plumbing rather than the reader's.
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", fserr.At(argv[0], err))
-		// The shell's two, which `faramir run` gives for the same conditions:
+		// The shell's two conditions, which `faramir run` gives for the same:
 		// 126 for a program that is there and cannot be run, 127 for one that is
-		// not there. One number for both had a script reading "not installed"
-		// where the file was present and not executable.
+		// not there. Distinct codes so a script does not read "not installed"
+		// where the file is present and not executable.
 		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.ENOEXEC) {
 			return 126
 		}
@@ -704,10 +734,6 @@ const (
 	// execGrace is what a brokered command's own timeout is padded by: the broker
 	// kills at the timeout and still has to write the record and the response.
 	execGrace = 30 * time.Second
-	// execCeiling stands in for [command] max_timeout_sec, which cannot be read
-	// from here. Only reached when no -t was given, where the server's own
-	// default decides and this is the outer bound.
-	execCeiling = 3600 * time.Second
 )
 
 // responseWait is how long to wait for this request's answer. A command's own
@@ -723,13 +749,19 @@ func responseWait(request map[string]any) time.Duration {
 	if request["op"] != opRun {
 		return quickWait
 	}
-	if seconds, ok := request["timeout_sec"].(int); ok && seconds > 0 {
-		if seconds > maxWaitSeconds {
-			seconds = maxWaitSeconds
-		}
-		return time.Duration(seconds)*time.Second + execGrace
+	// A named -t is the bound the broker will clamp to and honour, so the wait is
+	// built from it. With no -t the broker applies its own default and enforces
+	// [command] max_timeout_sec, which cannot be read from here and is only
+	// lower-bounded by config: a fixed ceiling of the client's own could fall
+	// below it and hang up on a within-policy run, which reads as a broker that
+	// never answered and makes it kill the run. So the client sets no ceiling of
+	// its own; it waits the largest span a Duration holds and lets the broker's
+	// answer end the wait. Overflow is the only bound.
+	seconds := maxWaitSeconds
+	if s, ok := request["timeout_sec"].(int); ok && s > 0 && s < maxWaitSeconds {
+		seconds = s
 	}
-	return execCeiling + execGrace
+	return time.Duration(seconds)*time.Second + execGrace
 }
 
 // maxWaitSeconds is the largest command timeout responseWait can add execGrace
@@ -805,6 +837,10 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		TimedOut     bool   `json:"timed_out"`
 		LogID        string `json:"log_id"`
 		InvalidBytes int    `json:"invalid_bytes"`
+		// The exit code is a stand-in: the executor did not report a status though
+		// the command had already run, so the code is non-zero to avoid reading as
+		// a success rather than the status itself.
+		StatusUnknown bool `json:"status_unknown"`
 		// Why a sudo inside the command was turned down, where one was: sudo
 		// reports a refusal and an expiry alike, as its own authentication
 		// failure.
@@ -831,10 +867,11 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetEscapeHTML(false)
 			enc.SetIndent("", "  ")
-			// The line came back from Unmarshal, so a round trip cannot fail;
-			// printing it as it arrived is the answer if it somehow does.
+			// The round trip cannot fail on the encoding; an error here is the
+			// write to stdout, which is not something to discard.
 			if err := enc.Encode(raw); err != nil {
-				fmt.Println(string(line))
+				fmt.Fprintf(os.Stderr, "faramir %s: writing output: %v\n", prog, err)
+				return 1
 			}
 		}
 		if response.Error != nil {
@@ -857,7 +894,12 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		return errorExit(response.Error.Code)
 	}
 
-	fmt.Print(response.Output)
+	// A failed write to stdout is an error, not something to discard: a broken
+	// pipe means the caller never received the output.
+	if _, err := io.WriteString(os.Stdout, response.Output); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: writing output: %v\n", prog, err)
+		return 1
+	}
 
 	// Outside --quiet, which suppresses the redaction summary rather than this:
 	// `faramir run --quiet` is how an agent runs a command, and suppressing this
@@ -888,6 +930,11 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		}
 		if response.TimedOut {
 			notes = append(notes, "timed out")
+		}
+		// The command ran but the broker never got its exit status, so the code is
+		// a non-zero stand-in rather than the command's own or a signal kill.
+		if response.StatusUnknown {
+			notes = append(notes, "exit status unknown; the reported code is a stand-in")
 		}
 		if response.LogID != "" {
 			notes = append(notes, "log_id="+response.LogID)

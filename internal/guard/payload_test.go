@@ -16,11 +16,11 @@ func TestCommandOfReadsBothSpellingsOfAToolInput(t *testing.T) {
 		want string
 	}{
 		{"a command string", `{"tool_input":{"command":"ls -la"}}`, "ls -la"},
-		{"an argv array", `{"tool_input":{"args":["ls","-la"]}}`, "ls -la"},
-		{"both, command first", `{"tool_input":{"command":"sh -c","args":["ls"]}}`, "sh -c ls"},
+		{"an argv array", `{"tool_input":{"args":["ls","-la"]}}`, "'ls' '-la'"},
+		{"both, command first", `{"tool_input":{"command":"sh -c","args":["ls"]}}`, "sh -c 'ls'"},
 		{"neither", `{"tool_input":{}}`, ""},
-		{"empty argv entries are dropped", `{"tool_input":{"args":["ls","","-la"]}}`, "ls -la"},
-		{"non-string argv entries are ignored", `{"tool_input":{"args":["ls",7,null,true,"-la"]}}`, "ls -la"},
+		{"empty argv entries are dropped", `{"tool_input":{"args":["ls","","-la"]}}`, "'ls' '-la'"},
+		{"non-string argv entries are ignored", `{"tool_input":{"args":["ls",7,null,true,"-la"]}}`, "'ls' '-la'"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var p payload

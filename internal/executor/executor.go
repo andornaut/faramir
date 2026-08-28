@@ -43,6 +43,12 @@ type Result struct {
 	Redactions []redact.Count
 	// Non-zero when the command's output was not text; see redact.InvalidBytes.
 	InvalidBytes int
+	// StatusUnknown is a run that produced output and then went unaccounted for:
+	// the executor did not report an exit status (it restarted, or the connection
+	// dropped) though the command had already run. ExitCode is then a stand-in
+	// kill code, never a fabricated success, and the output is still returned so
+	// a caller is not told a command that ran never happened.
+	StatusUnknown bool
 }
 
 // Request is one resolved command: Argv[0] is an absolute path and Env is the
@@ -164,7 +170,7 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	emit(redactor.Flush())
 
 	var exitCode int
-	var timedOut bool
+	var timedOut, statusUnknown bool
 	switch {
 	case abandoned:
 		// Killed, so the status is the signal's, and not a timeout: the command
@@ -173,11 +179,20 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	case aborted:
 		exitCode, timedOut = 128+9, true
 	default:
-		result, err := client.Result(30 * time.Second)
+		// Wait for the status until the command's own deadline, not a fixed span:
+		// a child that closed its stdout early keeps running, and the executor
+		// reports only when it exits or is killed at its timeout. A short wait here
+		// would cut that off and lose a status the executor was about to send. The
+		// executor still enforces the timeout, so this only bounds how long a
+		// vanished executor is waited for.
+		result, err := client.Result(max(time.Until(deadline), time.Second))
 		if err != nil {
-			return nil, err
+			// The command ran; its output is already collected. Tear the run down
+			// and decide a status rather than discarding that output as if nothing
+			// had run.
+			client.Abort()
 		}
-		exitCode, timedOut = result.ExitCode, result.TimedOut
+		exitCode, timedOut, statusUnknown = exitStatus(result, err, !time.Now().Before(deadline))
 	}
 	output, truncated := out.result()
 	switch {
@@ -190,15 +205,37 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	}
 
 	return &Result{
-		ExitCode:     exitCode,
-		Output:       output,
-		Truncated:    truncated,
-		DurationSec:  round3(time.Since(started).Seconds()),
-		TimedOut:     timedOut,
-		Abandoned:    abandoned,
-		Redactions:   redactor.Summary(),
-		InvalidBytes: redactor.InvalidBytes(),
+		ExitCode:      exitCode,
+		Output:        output,
+		Truncated:     truncated,
+		DurationSec:   round3(time.Since(started).Seconds()),
+		TimedOut:      timedOut,
+		Abandoned:     abandoned,
+		Redactions:    redactor.Summary(),
+		InvalidBytes:  redactor.InvalidBytes(),
+		StatusUnknown: statusUnknown,
 	}, nil
+}
+
+// exitStatus decides a finished run's status from what the executor reported.
+// Reached only once the PTY has closed, so the command ran and its output is
+// already in hand: a missing or late status must not turn that into a run that
+// never happened.
+func exitStatus(result *execserver.ChildResult, err error, deadlinePassed bool) (
+	code int, timedOut, statusUnknown bool) {
+	switch {
+	case err == nil:
+		return result.ExitCode, result.TimedOut, false
+	case deadlinePassed:
+		// Waited the whole budget with no status: the run overran the backstop and
+		// is torn down. A kill at the deadline is a timeout.
+		return 128 + 9, true, false
+	default:
+		// The executor did not report though the command had already run. The
+		// status cannot be known; a kill code stands in so it is never read as a
+		// success, and StatusUnknown marks it as the guess it is.
+		return 128 + 9, false, true
+	}
 }
 
 // isClosed reports whether a channel has been closed, without blocking. A nil

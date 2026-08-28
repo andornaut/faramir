@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/andornaut/faramir/internal/cli"
 	"github.com/andornaut/faramir/internal/config"
@@ -297,41 +298,87 @@ func named(raw []string, dir string) bool {
 	return false
 }
 
-func loadPatterns() []compiled {
-	raw := fallback
-	if data, err := os.ReadFile(patternsFile()); err == nil {
-		var lines []string
-		for line := range strings.SplitSeq(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if line != "" && !strings.HasPrefix(line, "#") {
-				lines = append(lines, line)
-			}
-		}
-		if len(lines) > 0 {
-			raw = lines
-		}
-	}
-	// After the file, not before it: the file replaces the list wholesale, so a
-	// rule appended first was thrown away on every host that had one, which is
-	// every installed host. It went unnoticed while the shipped file named
-	// age.key and sops/age as literals, which covered a moved config by
-	// accident; the subjects are generated per install now, so a config that
-	// moved after the rules were rendered is covered by this and nothing else.
-	//
-	// Only for a directory the list does not already name: this runs on every
-	// Bash call, and a duplicate would compile three more regexps each time.
-	if dir := configDir(); dir != "" && dir != "/" && !named(raw, dir) {
-		raw = append(slices.Clone(raw), configDirRules(dir)...)
-	}
+// The compiled deny list is cached on the pattern strings it was built from, so
+// decide does not recompile every regexp on each Bash call. A different patterns
+// file or config dir yields a different key and recompiles. Guarded by a mutex
+// because the hook may be exercised concurrently by a test.
+var (
+	patternCacheMu  sync.Mutex
+	patternCacheKey string
+	patternCacheVal []compiled
+)
 
-	out := make([]compiled, 0, len(raw))
+// rawFilePatterns reads the deny-pattern lines from the patterns file, dropping
+// blanks and comments. Nil when the file is missing or holds no rule.
+func rawFilePatterns() []string {
+	data, err := os.ReadFile(patternsFile())
+	if err != nil {
+		return nil
+	}
+	var lines []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+// withConfigDir appends the rules for a moved config dir. After the list, not
+// before it: the file replaces the list wholesale, so a rule appended first is
+// discarded, and the subjects are generated per install, so a config moved after
+// the rules were rendered is covered by this and nothing else. Only for a
+// directory the list does not already name, to avoid a duplicate rule.
+func withConfigDir(raw []string) []string {
+	if dir := configDir(); dir != "" && dir != "/" && !named(raw, dir) {
+		return append(slices.Clone(raw), configDirRules(dir)...)
+	}
+	return raw
+}
+
+// compilePatterns compiles each pattern case-insensitively. complete is false
+// when any line did not compile.
+func compilePatterns(raw []string) (out []compiled, complete bool) {
+	complete = true
+	out = make([]compiled, 0, len(raw))
 	for _, pattern := range raw {
 		re, err := regexp.Compile("(?i)" + pattern)
 		if err != nil {
-			continue // a typo in the list must not disable the whole hook
+			complete = false
+			continue
 		}
 		out = append(out, compiled{source: pattern, re: re})
 	}
+	return out, complete
+}
+
+func loadPatterns() []compiled {
+	fileLines := rawFilePatterns()
+	usingFile := len(fileLines) > 0
+	raw := fallback
+	if usingFile {
+		raw = fileLines
+	}
+	raw = withConfigDir(raw)
+
+	key := strings.Join(raw, "\n")
+	patternCacheMu.Lock()
+	defer patternCacheMu.Unlock()
+	if key == patternCacheKey && patternCacheVal != nil {
+		return patternCacheVal
+	}
+
+	out, complete := compilePatterns(raw)
+	if !complete && usingFile {
+		// A bad line in the file must not silently thin the list. Report it and
+		// use the built-in rules, which still cover faramir's own paths, so a
+		// broken file leaves the guard no weaker than a missing one does.
+		fmt.Fprintln(os.Stderr,
+			"faramir guard: the deny-patterns file has an uncompilable line; using the built-in rules")
+		out, _ = compilePatterns(withConfigDir(fallback))
+	}
+	patternCacheKey, patternCacheVal = key, out
 	return out
 }
 
@@ -349,13 +396,17 @@ type payload struct {
 
 func commandOf(p *payload) string {
 	parts := []string{}
+	// A command string is scanned as the shell reads it.
 	if p.ToolInput.Command != "" {
 		parts = append(parts, p.ToolInput.Command)
 	}
-	// Some clients send argv arrays; check those too.
+	// An argv array is a list of literal words, not a shell string. Each element
+	// is quoted so decide sees the words a real shell would pass: joined raw, an
+	// element's own spaces, quotes or separators could re-split the line and carry
+	// a read past a rule a faithful rendering catches.
 	for _, a := range p.ToolInput.Args {
 		if s, ok := a.(string); ok && s != "" {
-			parts = append(parts, s)
+			parts = append(parts, shellQuote(s))
 		}
 	}
 	return strings.Join(parts, " ")
@@ -531,16 +582,23 @@ func looksLikePath(candidate string) bool {
 
 // faramirCall matches a sanctioned faramir invocation so its own arguments are
 // not scanned. RE2 has no lookbehind, so the leading separator is captured and
-// put back by "$1"; the match stops at the first separator, so the rest of a
-// chain is still scanned. Subcommands are named rather than matched by shape,
-// the daemons being subcommands of this binary too.
+// put back by the strip in decide; the match stops at the first separator, so
+// the rest of a chain is still scanned. Subcommands are named rather than
+// matched by shape, the daemons being subcommands of this binary too.
 //
-// cli.Agent rather than cli.Operator: the exemption is for the arguments that
-// would otherwise trip the read rules, which is `run`'s inner command and
-// `redact`'s text.
+// cli.Agent rather than cli.Operator: the exemption is for faramir's own flags
+// and refs, e.g. a ref in `run --env`, which would otherwise trip the read
+// rules. It stops at a redirect operator (the `<>` in the class), so a redirect
+// attached to the call is still scanned; and decide keeps `redact`'s child
+// command after a `--`, since redact does not guard what it runs.
 var faramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*faramir[ \t]+(` +
-		sanctionAlternation(cli.Agent) + `)\b[^;&|\n]*`)
+		sanctionAlternation(cli.Agent) + `)\b[^;&|\n<>]*`)
+
+// childSeparator matches a standalone `--` token, the boundary before the child
+// command of `run` and `redact`. A flag such as `--env` does not match: `--` is
+// held to whitespace or an end on either side.
+var childSeparator = regexp.MustCompile(`(^|\s)--(\s|$)`)
 
 // sanctionAlternation renders subcommand names as one alternation. A grouped
 // command is named as two tokens, so the space between them becomes the
@@ -557,7 +615,22 @@ func sanctionAlternation(names []string) string {
 func decide(command string) (string, bool) {
 	// No sudo exemption: every faramir subcommand under sudo is refused below, so
 	// there is nothing whose arguments would need sparing.
-	stripped := faramirCall.ReplaceAllString(command, "$1")
+	//
+	// The exemption spares faramir's own flags and refs, but keeps the leading
+	// separator, and for `redact` the child command after a `--`. Redact runs
+	// that child locally and filters only known values, so it must still be
+	// scanned. Run sends its child to the broker, which guards it there, so
+	// run's child stays exempt.
+	stripped := faramirCall.ReplaceAllStringFunc(command, func(match string) string {
+		sub := faramirCall.FindStringSubmatch(match)
+		lead := sub[1]
+		if sub[2] == "redact" {
+			if loc := childSeparator.FindStringIndex(match); loc != nil {
+				return lead + match[loc[0]:]
+			}
+		}
+		return lead
+	})
 	// Per command rather than per line. A pattern matched against the whole
 	// string cannot tell one command from the next, so a reader in the first
 	// reached a path named in the second; quoting is what decides where one
@@ -626,10 +699,9 @@ func Run(args []string) int {
 
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
-		// The same answer an unreadable payload gets below, and for the same
-		// reason. Allowing here and denying there had the more broken case pass:
-		// stdin that could not be read at all is no less a payload this cannot
-		// guard than one that arrived and would not parse.
+		// The same answer an unreadable payload gets below: stdin that cannot be
+		// read at all is no less an unguardable payload than one that arrived and
+		// would not parse.
 		return emit(activeHost.deny(unreadablePayload))
 	}
 	decode := activeHost.decode
@@ -742,13 +814,24 @@ func emit(document map[string]any) int {
 }
 
 // isWrapped reports whether this command is one the rewrite already produced.
-// A prefix test, not a match anywhere, which would leave whatever is chained
-// after it unwrapped. A command merely piping into the redactor is not covered
-// either: a pipe carries stdout and leaves stderr unredacted.
+// It must be a single command that is the wrap invocation: a command that only
+// begins with one and chains more (`source wrap.sh 'x' && cat log`) is not
+// wrapped, since the chained part would run unredacted. A trailing background
+// `&` is the wrapper's own, so it is dropped before the command is split.
+// Re-wrapping a chain is safe: the outer wrapper redacts the whole of it, and
+// the rewrite is one quoted word that is stable on the next pass.
 func isWrapped(command string) bool {
-	trimmed := strings.TrimSpace(command)
+	trimmed := command
+	if backgrounded.MatchString(trimmed) {
+		trimmed = stripTrailingAmp(trimmed)
+	}
+	segments := denyrules.Segments(trimmed)
+	if len(segments) != 1 {
+		return false
+	}
+	only := strings.TrimSpace(segments[0])
 	for _, verb := range []string{"source ", ". "} {
-		if strings.HasPrefix(trimmed, verb+wrapScript()+" ") {
+		if strings.HasPrefix(only, verb+wrapScript()+" ") {
 			return true
 		}
 	}

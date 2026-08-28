@@ -888,6 +888,25 @@ func (a execEscalation) fields() map[string]any {
 // execResponse is what the caller is told about a command that ran. What the
 // escalation has to say rides along, each field present only where it says
 // something.
+// addRunConditions sets the audit-record fields that a run carries only when
+// they say something, keeping a zero off every record.
+func addRunConditions(record map[string]any, result *executor.Result) {
+	// Both mean the recorded output is not what the command wrote.
+	if result.InvalidBytes > 0 {
+		record["invalid_bytes"] = result.InvalidBytes
+	}
+	// The record is the whole of what is left of an abandoned run: the response
+	// goes to a connection nobody is reading.
+	if result.Abandoned {
+		record["abandoned"] = true
+	}
+	// The exit code is a stand-in: the executor went away before reporting a
+	// status, so the log does not read the code as a signal kill.
+	if result.StatusUnknown {
+		record["status_unknown"] = true
+	}
+}
+
 func execResponse(logID string, judged execEscalation,
 	result *executor.Result) protocol.Response {
 	response := protocol.Response{
@@ -896,6 +915,11 @@ func execResponse(logID string, judged execEscalation,
 		"log_id": logID, "timed_out": result.TimedOut,
 		"duration_sec":  result.DurationSec,
 		"invalid_bytes": result.InvalidBytes,
+	}
+	// Only when set: the exit code is a stand-in for a status the executor never
+	// reported, so a caller is told the code is a guess rather than a signal kill.
+	if result.StatusUnknown {
+		response["status_unknown"] = true
 	}
 	maps.Copy(response, judged.fields())
 	return response
@@ -1053,6 +1077,12 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	}
 	injected, why := s.inject(env, envRefs)
 	if why != "" {
+		// inject fills env ref by ref and can fail on a later one, so earlier
+		// values are already in the map: drop them here rather than leave plaintext
+		// referenced until the map is collected, as the post-exec cleanup does.
+		for k := range env {
+			delete(env, k)
+		}
 		return s.refuse("unknown_secret", why, logID, peer, cmd, cwd)
 	}
 
@@ -1121,18 +1151,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	record["op"] = recordRun
 	record["exit_code"], record["duration_sec"] = result.ExitCode, result.DurationSec
 	record["timed_out"], record["redactions"] = result.TimedOut, result.Redactions
-	// What the caller is told on stderr, so the log says it too: both mean the
-	// recorded output is not what the command wrote. Only when there was one, a
-	// zero on every record being noise.
-	if result.InvalidBytes > 0 {
-		record["invalid_bytes"] = result.InvalidBytes
-	}
-	// The record is the whole of what is left of an abandoned run: the response
-	// below goes to a connection nobody is reading. Without this the log shows a
-	// command killed at a second nobody asked for and no reason beside it.
-	if result.Abandoned {
-		record["abandoned"] = true
-	}
+	addRunConditions(record, result)
 	maps.Copy(record, judged.fields())
 	s.Audit.Write(record, collector.Output())
 

@@ -16,10 +16,12 @@ import (
 // 599 ms against 256, where the automaton is flat in the size of the set.
 //
 // The library returns every match, overlapping ones included. Which of them to
-// take is the security-relevant part, so leftmost-longest is decided here in
-// code that can be read rather than by a flag: a rendering that contains
-// another must win, or the shorter one is replaced and the rest of the longer
-// value is left in the output.
+// take is the security-relevant part, so it is decided here in code that can be
+// read rather than by a flag. A rendering that fully contains another wins, so
+// the shorter one is not replaced leaving the rest of the longer value behind.
+// Two renderings that only partially overlap are both kept: dropping the second
+// would leave the part of it past the first in the clear, so its tail is
+// redacted where it extends beyond what the first already covered.
 type matcher struct {
 	trie *ahocorasick.Trie
 }
@@ -35,9 +37,11 @@ func newMatcher(all []rendering) *matcher {
 // span is one match, as byte offsets into the haystack it was found in.
 type span struct{ start, end int }
 
-// find returns the non-overlapping leftmost-longest matches, in the order they
-// appear. Nothing is returned for a haystack with no match, which is the
-// ordinary case and the one worth not allocating for.
+// find returns the matches to replace, in the order they appear: leftmost first,
+// longest at a tie, dropping only a match wholly covered by an earlier one. A
+// match that starts inside an earlier one but ends past it is kept, so its
+// uncovered tail is still redacted. Nothing is returned for a haystack with no
+// match, which is the ordinary case and the one worth not allocating for.
 func (m *matcher) find(text string) []span {
 	hits := m.trie.MatchString(text)
 	if len(hits) == 0 {
@@ -67,7 +71,9 @@ func (m *matcher) find(text string) []span {
 	out := all[:0]
 	cursor := 0
 	for _, s := range all {
-		if s.start < cursor {
+		// Drop a match wholly inside one already kept; keep one that reaches past
+		// the cursor even if it starts inside, so its tail is not left in the clear.
+		if s.end <= cursor {
 			continue
 		}
 		out = append(out, s)

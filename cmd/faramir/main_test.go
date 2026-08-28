@@ -485,8 +485,12 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 
 // The socket is systemd's and listens whether or not the daemon behind it
 // started, so a broker that never becomes ready accepts the connection and
-// answers nothing. Without a bound the caller waits for ever, which for the
-// coding agent is a tool call that never returns.
+// answers nothing. A request that runs no command, and a run with its own -t,
+// are bounded tightly. A run with no -t defers to the broker, which enforces
+// [command] max_timeout_sec the client cannot read: the client sets no ceiling
+// that could fall below it and kill a within-policy run, so its wait is the
+// largest a Duration holds. Every wait stays finite, which is what keeps a
+// multiplied timeout from overflowing into a deadline already past.
 func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -495,8 +499,8 @@ func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
 	}{
 		{"a command's own timeout, plus room to be killed and recorded",
 			map[string]any{"op": "run", "timeout_sec": 30}, 30*time.Second + execGrace},
-		{"no timeout given, so the server's default decides and this is the outer bound",
-			map[string]any{"op": "run"}, execCeiling + execGrace},
+		{"no timeout given, so the broker's own max decides and the client does not preempt it",
+			map[string]any{"op": "run"}, time.Duration(maxWaitSeconds)*time.Second + execGrace},
 		{"a request that runs no command", map[string]any{"op": "status"}, quickWait},
 		{"nor does listing", map[string]any{"op": "refs"}, quickWait},
 		{"nor does a redact", map[string]any{"op": "redact", "text": "x"}, quickWait},
@@ -736,17 +740,82 @@ func TestAnEnvFlagOverridesTheFileThatNamesIt(t *testing.T) {
 	}
 }
 
-// And the order among files is the order they were given, so the last --env-file
-// wins where two name the same variable.
-func TestTheLastEnvFileWins(t *testing.T) {
+// Two files naming one variable with two different refs is an ambiguity nothing
+// resolves, so it is refused rather than silently picking one: that is how the
+// wrong credential reaches a host. The same policy a name given twice inside one
+// file gets, now across files.
+func TestConflictingEnvFilesAreRefused(t *testing.T) {
 	first := writeEnvFile(t, "PW=faramir://first\n")
 	second := writeEnvFile(t, "PW=faramir://second\n")
+	_, err := execRefs([]string{first, second}, nil)
+	if err == nil {
+		t.Fatal("two files naming PW differently were not refused")
+	}
+	if !strings.Contains(err.Error(), "PW") {
+		t.Errorf("the error does not name the conflicting variable: %v", err)
+	}
+}
+
+// An identical ref in two files is a merge artefact, not a conflict, so it
+// passes, the same as an identical repeat inside one file.
+func TestIdenticalEnvFilesArePermitted(t *testing.T) {
+	first := writeEnvFile(t, "PW=faramir://home/router/admin\n")
+	second := writeEnvFile(t, "PW=faramir://home/router/admin\n")
 	refs, err := execRefs([]string{first, second}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refs["PW"] != "faramir://second" {
-		t.Errorf("PW = %q, want the later file's ref", refs["PW"])
+	if refs["PW"] != "faramir://home/router/admin" {
+		t.Errorf("PW = %q, want the ref both files name", refs["PW"])
+	}
+}
+
+// Two --env flags naming one variable with two different refs is refused for the
+// same reason two files are: neither takes on trust.
+func TestConflictingEnvFlagsAreRefused(t *testing.T) {
+	_, err := execRefs(nil, []string{"PW=faramir://a", "PW=faramir://b"})
+	if err == nil {
+		t.Fatal("two --env flags naming PW differently were not refused")
+	}
+	if !strings.Contains(err.Error(), "PW") {
+		t.Errorf("the error does not name the conflicting variable: %v", err)
+	}
+}
+
+// run's flags stop at the program name, so a colliding flag after it is the
+// program's and is passed through, with or without a "--".
+func TestRunDoesNotStealTheChildsFlags(t *testing.T) {
+	c := newRunCmd()
+	args := []string{"deploy.sh", "--quiet", "--env", "production", "-C", "/elsewhere"}
+	if err := c.Flags().Parse(args); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := strings.Join(c.Flags().Args(), " "); got != strings.Join(args, " ") {
+		t.Errorf("run consumed the child's flags: rest = %q, want %q", got, strings.Join(args, " "))
+	}
+	if q, _ := c.Flags().GetBool("quiet"); q {
+		t.Error("the child's --quiet was read as run's own")
+	}
+	if env, _ := c.Flags().GetStringArray("env"); len(env) != 0 {
+		t.Errorf("the child's --env was read as run's own: %v", env)
+	}
+}
+
+// run's own flags before the program name still parse, and the program name and
+// everything after it are the child's.
+func TestRunReadsItsOwnFlagsBeforeTheCommand(t *testing.T) {
+	c := newRunCmd()
+	if err := c.Flags().Parse([]string{"-C", "/work", "--quiet", "deploy.sh", "--env", "production"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if q, _ := c.Flags().GetBool("quiet"); !q {
+		t.Error("run's own --quiet before the command was not read")
+	}
+	if cwd, _ := c.Flags().GetString("cwd"); cwd != "/work" {
+		t.Errorf("cwd = %q, want /work", cwd)
+	}
+	if got := strings.Join(c.Flags().Args(), " "); got != "deploy.sh --env production" {
+		t.Errorf("child args = %q, want %q", got, "deploy.sh --env production")
 	}
 }
 
@@ -998,5 +1067,21 @@ func TestInitRefusesTheAccountsItIsNaming(t *testing.T) {
 		if !refused[account] {
 			t.Errorf("%q is installed and is not refused", account)
 		}
+	}
+}
+
+// A relative -C is a wrong invocation: the broker runs the command, so a
+// relative path would resolve against the broker's directory. Refused with exit
+// 2 before the broker is contacted.
+func TestARelativeCwdIsRefused(t *testing.T) {
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"run", "-C", "relative/dir", "--", "echo", "hi"})
+	// Exit 2 (wrong invocation), as the sibling negative-timeout check gives:
+	// the message is silenced after PersistentPreRunE, as it is for that one.
+	if code := exitCode(root.Execute()); code != 2 {
+		t.Errorf("exit = %d, want 2 for a relative --cwd", code)
 	}
 }

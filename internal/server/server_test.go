@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/executor"
 	"github.com/andornaut/faramir/internal/keepertest"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/secretlink"
@@ -832,5 +833,21 @@ func TestTheUnreadableRefusalRecordsWhoWasRefused(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no no_secrets record was written: %s", body)
+	}
+}
+
+// A run whose executor vanished before reporting a status carries the stand-in
+// marker into the response, so a caller can tell the non-zero code from a
+// signal kill. A finished run does not.
+func TestExecResponseMarksAnUnknownStatus(t *testing.T) {
+	unknown := execResponse("log1", execEscalation{},
+		&executor.Result{ExitCode: 137, StatusUnknown: true})
+	if unknown["status_unknown"] != true {
+		t.Errorf("status_unknown = %v, want true", unknown["status_unknown"])
+	}
+	known := execResponse("log2", execEscalation{},
+		&executor.Result{ExitCode: 0})
+	if _, ok := known["status_unknown"]; ok {
+		t.Errorf("status_unknown present on a finished run: %v", known["status_unknown"])
 	}
 }
