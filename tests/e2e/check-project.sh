@@ -84,6 +84,14 @@ grep -q 'trigger: always_on' "$D/.agents/rules/faramir.md" \
 /usr/local/bin/faramir init --agent-user $OP --agent claude --agent antigravity \
   --agent agy --agent opencode --agent kilocode >/tmp/p-init.log 2>&1
 owned "$HOME_OP/.claude/settings.json" "claude: account-wide settings (from init)"
+# The account file carries the deny-only half: the rules, and a hook that
+# refuses what they name and approves nothing. Routing stays the tree's.
+grep -q -- '--deny-only' "$HOME_OP/.claude/settings.json" \
+  && ok "claude: the account-wide hook is deny-only" \
+  || bad "the account-wide hook is missing or routes, which approves Bash on the whole account"
+jq -e '.permissions.deny | length > 0' "$HOME_OP/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "claude: and the deny rules are beside it" \
+  || bad "the account-wide settings carry no deny rules"
 owned "$HOME_OP/.gemini/GEMINI.md" "antigravity: credentials section (from init)"
 # The CLI has a settings file and the IDE has none, which is the whole
 # difference between the two targets.

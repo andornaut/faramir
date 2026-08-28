@@ -179,6 +179,20 @@ echo "$reason" | grep -q 'matched deny pattern' && ok "and names the pattern tha
 echo "$reason" | grep -q 'hunter2\|tok_live' && bad "the refusal text contains a secret value" \
   || ok "the refusal quotes no value"
 
+# The account-wide registration runs `guard --deny-only`: it refuses what the
+# list names and approves nothing, so it can hold on the whole account without
+# trading away a permission prompt. Both halves matter and fail in opposite
+# directions: without the refusal it guards nothing, and an answer on an
+# ordinary command would approve the account rather than the enrolled trees.
+out=$(jq -cn '{tool_name:"Bash",tool_input:{command:"cat /etc/faramir/age.key"}}' \
+      | runuser -u op -- "$GUARD" guard --deny-only 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision')
+[ "$out" = deny ] && ok "deny-only refuses a command the list names" \
+  || bad "deny-only did not refuse: $out"
+out=$(jq -cn '{tool_name:"Bash",tool_input:{command:"ls"}}' \
+      | runuser -u op -- "$GUARD" guard --deny-only 2>/dev/null; echo "rc=$?")
+[ "$out" = "rc=0" ] && ok "and answers nothing about an ordinary one, approving nothing" \
+  || bad "deny-only answered an ordinary command: $out"
+
 head_ "5. an unknown dialect is an error, not a guess"
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"cat /etc/faramir/age.key"}}' \
       | runuser -u op -- "$GUARD" guard --host codex 2>/tmp/g.err; echo "rc=$?")
