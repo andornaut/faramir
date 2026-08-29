@@ -873,21 +873,17 @@ func wrap(h *host, command string, p *payload) (string, bool) {
 	case backgrounded.MatchString(command):
 		return "source " + wrapScript() + " --stream " +
 			shellQuote(stripTrailingAmp(command)) + " &", true
-	// Antigravity's own asynchrony is deliberately not read here. Its
-	// run_command carries WaitMsBeforeAsync, after which the host takes the
-	// command async and polls, so a long one is captured rather than streamed and
-	// shows nothing until it exits. Streaming it instead would cost more than it
-	// bought: --stream runs in a subshell, and that host's shell persists between
-	// calls, so an "export" would stop surviving. Its working directory does not
-	// persist, being passed per call, so only the environment and shell functions
-	// are at stake. Withheld output is the safe failure; lost shell state is a
-	// wrong answer the agent cannot see.
-	//
 	// run_in_background hands the whole command to the host to background; it
 	// carries no "&" of its own, and the host reads its output later through
 	// BashOutput, which sees what the redactor already passed.
 	case p.ToolInput.InBackgd:
 		return "source " + wrapScript() + " --stream " + shellQuote(command), true
+	// Antigravity's run_command carries WaitMsBeforeAsync, after which the host
+	// takes the command async and polls, so a captured long command showed
+	// nothing until it exited. --stream-state redacts live with the eval kept in
+	// the host's persistent shell, so an export survives the call as well.
+	case h.streamsInPlace:
+		return "source " + wrapScript() + " --stream-state " + shellQuote(command), true
 	}
 
 	// One simple command rather than a compound statement, so the rewritten text

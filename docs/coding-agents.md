@@ -15,7 +15,7 @@ Feature | Claude Code | agy | Antigravity IDE | opencode | Kilo Code | pi
 Command routed through the broker | Enrolled trees | Yes | Yes | Yes | Yes | Yes
 Its output redacted | Enrolled trees | Yes | Yes | Yes | Yes | Yes
 Deny list refuses a command | Yes | Yes | Yes | Yes | Yes | Yes
-A backgrounded command streams rather than buffering | Yes | Trailing `&` | Trailing `&` | Yes | Yes | Yes
+A backgrounded command streams rather than buffering | Yes | Yes | Yes | Yes | Yes | Yes
 File tools refused | Yes | Yes | Yes | Yes | Yes | Yes
 &nbsp;&nbsp;by a rule file the agent enforces | Yes | Yes | No | No | No | No
 &nbsp;&nbsp;by faramir itself | N/A | Yes | Yes | Yes | Yes | Yes
@@ -132,7 +132,7 @@ Two agents, one contract. The CLI (`agy`) and the IDE ship a single hook contrac
 
 The hook returns `overwrite` beside its decision, a shallow merge into the tool call's own arguments whose merged form is what runs. So `run_command` is rewritten to `source .../wrap.sh '<command>'` exactly as Claude Code's `Bash` is, and the output comes back redacted. Nothing else carries a command, and the guard answers for nothing else.
 
-A command backgrounded with a trailing `&` streams like any other. Antigravity's own asynchrony does not: `run_command` carries a wait after which the host takes the command async and polls, and the guard deliberately does not stream on it, because `--stream` runs in a subshell and this host's shell persists between calls, so an `export` would stop surviving. A long command is captured and shows nothing until it exits.
+Every `run_command` is rewritten to `--stream-state`, which redacts live with the eval kept in the host's persistent shell: `run_command` carries a wait after which the host takes the command async and polls, so a long build shows its output as it runs, and an `export` still survives the call. A trailing `&` streams the way it does everywhere.
 
 The registration matches every tool rather than naming `run_command`. An empty reply is a call left alone here, so answering for a tool that runs nothing costs nothing, and taking every tool is what makes a payload the guard cannot read refuse the call rather than pass it, whatever tool it arrived on.
 

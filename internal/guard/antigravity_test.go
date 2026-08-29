@@ -338,3 +338,30 @@ func TestAPayloadInAnotherShapeIsRefusedRatherThanLetThrough(t *testing.T) {
 		})
 	}
 }
+
+// A plain run_command is rewritten to --stream-state: this host's shell
+// persists between calls and its runner takes a long command async and polls,
+// so a capture showed nothing until the command exited, and --stream would
+// lose an export to its subshell. Claude Code keeps the capture path, its
+// BashOutput reading a buffer the host already fills.
+func TestARunCommandStreamsInPlace(t *testing.T) {
+	got := runGuard(t, "agy",
+		`{"toolCall":{"name":"run_command","args":{"CommandLine":"make build","Cwd":"/srv"}}}`)
+	overwrite, _ := got["overwrite"].(map[string]any)
+	if overwrite == nil {
+		t.Fatalf("no overwrite in %v", got)
+	}
+	rewritten, _ := overwrite["CommandLine"].(string)
+	if !strings.Contains(rewritten, " --stream-state ") {
+		t.Errorf("rewrite = %q, want --stream-state", rewritten)
+	}
+
+	hook := hookOutput(t, bashCall(t, "make build"))
+	claude, _ := hook["updatedInput"].(map[string]any)
+	if claude == nil {
+		t.Fatalf("no updatedInput in %v", hook)
+	}
+	if cmd, _ := claude["command"].(string); strings.Contains(cmd, "--stream") {
+		t.Errorf("Claude Code's rewrite = %q, want the capture path", cmd)
+	}
+}

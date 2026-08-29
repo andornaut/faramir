@@ -121,6 +121,8 @@ A denied command | Refused instead
 
 A **backgrounded** command takes a third path: `source wrap.sh --stream '<cmd>'`, which streams through the redactor rather than capturing, the capture path otherwise holding a dev server unshown until it exited. The wrapper runs `{ eval "$cmd"; } 2>&1 | faramir redact` under `set -o pipefail`, carrying the command's exit status out past the redactor. A trailing `&` is moved outside the rewrite; a tool's own background flag gets no `&` appended, the host backgrounding it. This is also what makes `BashOutput` read redacted.
 
+Antigravity's `run_command` takes a fourth, `--stream-state`: the same live redaction with the eval kept in the caller's shell, because that host's shell persists between calls and its runner polls a long command, so a capture showed nothing until exit and `--stream` would lose an `export` to its subshell. The redactor sits behind a process substitution set up with `exec`, so its pid and status are the shell's to read and a failed redaction is not a clean success; SIGPIPE is ignored for the duration and the caller's disposition put back, or a builtin writing to a dead redactor would kill the persistent shell.
+
 An incomplete command is *not* left alone. One ending in `\`, `&&`, `||` or `;` is wrapped like any other and fails inside the wrapper's `eval`, which re-parses it in isolation, so it fails the way it would have failed unwrapped rather than breaking the wrapper's syntax.
 
 The already-covered test is a single-command prefix rather than a match anywhere, because three forms look covered and are not:

@@ -273,4 +273,39 @@ lines=$(grep -c padding-line <<<"$out")
 [ "$lines" -gt 0 ] && ok "a quiet backgrounded producer's output appears before it exits ($lines line(s))" \
   || bad "streamed output was held until the command exits: [$(head -c 80 <<<"$out")]"
 
+
+# --------------------------------------------------------------------------
+head_ "11. --stream-state redacts live and keeps the shell's state"
+# The Antigravity rewrite: the eval stays in the host's persistent shell, so an
+# export survives the call, while the output streams through the redactor
+# rather than being captured until the command exits.
+W="source /usr/local/libexec/faramir/wrap.sh --stream-state"
+
+out=$(asAgent "$W 'export SSMARK=held; cat notes.txt'; echo mark=\$SSMARK")
+grep -q "$SECRET" <<<"$out" && bad "THE SECRET REACHED THE TRANSCRIPT VIA --stream-state: $out" \
+  || ok "a value read under --stream-state does not reach the transcript"
+grep -q "$TOKEN" <<<"$out" && ok "  it came back as its token instead" \
+  || bad "  no token in the streamed output: $out"
+grep -q 'mark=held' <<<"$out" && ok "an export survived the call" \
+  || bad "shell state was lost: $out"
+
+# The command's own failure carries out.
+out=$(asAgent "$W 'sh -c \"exit 7\"'; echo rc=\$?")
+grep -q 'rc=7' <<<"$out" && ok "the command's exit status carried out" \
+  || bad "status lost under --stream-state: $out"
+
+# A redactor that cannot answer leaks nothing and is not a clean success.
+out=$(asAgent "export FARAMIR_CLI=/bin/false; $W 'cat notes.txt'; echo rc=\$?")
+grep -q "$SECRET" <<<"$out" && bad "a dead redactor leaked the raw value: $out" \
+  || ok "a redactor that cannot answer leaks nothing"
+grep -q 'rc=0' <<<"$out" && bad "a failed redaction read as a clean success: $out" \
+  || ok "  and the status says the redaction failed"
+
+# The guard hands run_command this path.
+agyw=$(jq -cn '{toolCall:{name:"run_command",args:{CommandLine:"cat notes.txt",Cwd:"/home/op/project"}}}' \
+  | runuser -u op -- /usr/local/bin/faramir guard --host agy \
+  | jq -r '.overwrite.CommandLine')
+grep -q -- '--stream-state' <<<"$agyw" && ok "the Antigravity rewrite carries --stream-state" \
+  || bad "the Antigravity rewrite does not stream in place: [$agyw]"
+
 summary

@@ -39,6 +39,44 @@ if [ "${1:-}" = "--stream" ]; then
   return
 fi
 
+# A host whose shell persists between calls and whose runner takes a long
+# command async and polls it takes a third path:
+#
+#   source /usr/local/libexec/faramir/wrap.sh --stream-state '<command>'
+#
+# The same live redaction as --stream, with the eval kept in this shell, so a
+# "cd" or an "export" survives the call. The redactor sits behind a process
+# substitution set up with exec, which makes its pid and status this shell's to
+# read: a redaction that failed must not read as a clean success. SIGPIPE is
+# ignored for the duration, a builtin writing to a dead redactor would kill the
+# host's persistent shell, and the caller's own disposition is put back after.
+# The fd is closed inside the eval group, so a child holds the stream open only
+# through its own stdout or stderr, exactly as the --stream pipe is held.
+if [ "${1:-}" = "--stream-state" ]; then
+  __fpt=$(trap -p PIPE)
+  trap '' PIPE
+  if exec {__ffd}> >("${FARAMIR_CLI:-/usr/local/bin/faramir}" redact); then
+    __fpid=$!
+    { :; eval "${2:-}"
+    } >&"$__ffd" 2>&1 {__ffd}>&-
+    __frc=$?
+    exec {__ffd}>&-
+    # Waited for, so everything the redactor emitted is out before this
+    # returns, and its failure surfaces: output that could not be redacted was
+    # never printed, and the status says so.
+    if ! wait "$__fpid" 2>/dev/null && [ "$__frc" -eq 0 ]; then
+      __frc=1
+    fi
+  else
+    echo "faramir: the redactor could not be started, so the command was not run" >&2
+    __frc=1
+  fi
+  trap - PIPE
+  eval "${__fpt:-}"
+  eval "unset __fpt __ffd __fpid __frc; ( exit $__frc )"
+  return
+fi
+
 # The capture files hold unredacted output, so they go in a directory no other
 # account can enter, and nowhere else. XDG_RUNTIME_DIR is that directory: a
 # tmpfs the login session owns at 0700. There is deliberately no /dev/shm

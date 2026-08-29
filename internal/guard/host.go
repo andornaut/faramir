@@ -18,6 +18,11 @@ type host struct {
 	// skipped deliberately.
 	shellTools []string
 	wrapTool   string
+	// streamsInPlace marks a host whose shell persists between calls and whose
+	// runner takes a long command async and polls it: a plain command is
+	// rewritten to --stream-state, which redacts live without a subshell, so an
+	// export survives the call and a long build shows its output as it runs.
+	streamsInPlace bool
 	// anyShellTool takes every tool as one that runs a command. For faramir's own
 	// plugin, which asks only about a call carrying a command string, so gating on
 	// the name again would leave a renamed shell tool unguarded. A hook host
@@ -142,10 +147,11 @@ func antigravityHost() *host {
 		// The IDE half of this family keeps its permission lists as its own state,
 		// so no file an install writes refuses its file tools. Both halves are
 		// registered for every tool and answer here, so the refusal lives here.
-		refusesPaths: true,
-		commandKey:   "CommandLine",
-		mergesInput:  true,
-		deny:         denyPlain,
+		refusesPaths:   true,
+		commandKey:     "CommandLine",
+		mergesInput:    true,
+		streamsInPlace: true,
+		deny:           denyPlain,
 		rewrite: func(updated map[string]any) map[string]any {
 			return map[string]any{
 				"decision":  "allow",
