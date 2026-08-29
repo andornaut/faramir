@@ -726,3 +726,21 @@ func TestADisagreementIsFoundWhereverItFalls(t *testing.T) {
 		}
 	}
 }
+
+// A scalar with no JSON shape is dropped rather than rendered with %v: a Go
+// rendering is a spelling no tool prints, so it would sit in the redactor
+// matching nothing and be injected as text nobody chose. Ints still format,
+// YAML parsers producing them where JSON gives float64.
+func TestFlattenDropsWhatItCannotSpell(t *testing.T) {
+	got := Flatten(map[string]any{
+		"count":  int(7),
+		"wide":   int64(9),
+		"opaque": struct{ X int }{X: 1},
+	})
+	if got["count"] != "7" || got["wide"] != "9" {
+		t.Errorf("integer leaves = %q and %q, want 7 and 9", got["count"], got["wide"])
+	}
+	if v, ok := got["opaque"]; ok {
+		t.Errorf("opaque = %q, want it absent rather than a Go rendering", v)
+	}
+}

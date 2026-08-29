@@ -89,12 +89,19 @@ func flattenNode(node any, prefix string, out map[string]string) {
 		return
 	case string:
 		out[prefix] = v
+	case int:
+		out[prefix] = strconv.Itoa(v)
+	case int64:
+		out[prefix] = strconv.FormatInt(v, 10)
 	case float64:
 		out[prefix] = strconv.FormatFloat(v, 'f', -1, 64)
 	case json.Number:
 		out[prefix] = v.String()
-	default:
-		out[prefix] = fmt.Sprintf("%v", v)
+		// Anything else -- a timestamp a YAML parser typed, a scalar with no JSON
+		// shape -- is dropped rather than rendered with %v: a Go rendering is a
+		// spelling no tool prints, so it would sit in the redactor matching
+		// nothing and be injected as text nothing chose. secretlink's scalar()
+		// refuses the same shapes with a reason.
 	}
 }
 

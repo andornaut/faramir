@@ -298,7 +298,10 @@ func iniKeys(data []byte) []string {
 
 // selectPath walks a decoded tree by a "path/to/key" selector, the same
 // spelling the keeper flattens a sops file into, so a ref and a selector read
-// the same way. A list is indexed by number.
+// the same way. A list is indexed by number. One divergence: the keeper
+// escapes nothing, so a sops key that itself carries a "/" flattens to a ref
+// that also spells the nested form, where a selector here escapes it. The ref
+// grammar has no escape, so renaming such a key is the fix, not spelling it.
 func selectPath(tree any, key string) (string, error) {
 	node := tree
 	walked := ""
