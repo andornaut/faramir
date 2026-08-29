@@ -208,6 +208,23 @@ func sshKeyHalves(path string) []sshKeyHalf {
 // the age key and the audit log already handed to accounts whose units were
 // never written.
 func (r *runner) checkSSHKey(path string, uid, gid int) error {
+	return wrongSSHKeyHalves(path, uid, gid, func(half sshKeyHalf) error {
+		// Both halves in the remedy, and the group in the chown: this compares uid
+		// and gid, so a remedy naming the owner alone would leave the same refusal
+		// standing.
+		return fmt.Errorf("%s is %s, and [ssh] key names it, so %s cannot load it and brokered commands "+
+			"reach no managed host. Hand both halves over:\n    chown %s:%s %s %s\n    chmod "+
+			"0600 %s && chmod 0644 %s\nOr unset [ssh] key",
+			half.path, ownsWithGroup(half.path), r.layout.BrokerUser,
+			r.layout.BrokerUser, r.brokerGroupName(), path, path+".pub",
+			path, path+".pub")
+	})
+}
+
+// wrongSSHKeyHalves visits each half of the key that is not held at uid, gid
+// and its own mode. The stat and the comparison are shared by the check and
+// the repair, which differ only in what visit does to a wrong half.
+func wrongSSHKeyHalves(path string, uid, gid int, visit func(half sshKeyHalf) error) error {
 	for _, half := range sshKeyHalves(path) {
 		info, err := os.Stat(half.path)
 		if err != nil {
@@ -222,15 +239,9 @@ func (r *runner) checkSSHKey(path string, uid, gid int) error {
 		if !wrong && info.Mode().Perm() == half.mode.Perm() {
 			continue
 		}
-		// Both halves in the remedy, and the group in the chown: this compares uid
-		// and gid, so a remedy naming the owner alone would leave the same refusal
-		// standing.
-		return fmt.Errorf("%s is %s, and [ssh] key names it, so %s cannot load it and brokered commands "+
-			"reach no managed host. Hand both halves over:\n    chown %s:%s %s %s\n    chmod "+
-			"0600 %s && chmod 0644 %s\nOr unset [ssh] key",
-			half.path, ownsWithGroup(half.path), r.layout.BrokerUser,
-			r.layout.BrokerUser, r.brokerGroupName(), path, path+".pub",
-			path, path+".pub")
+		if err := visit(half); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -244,27 +255,17 @@ func (r *runner) ownSSHKey(path string, repair bool) (bool, error) {
 		return false, r.checkSSHKey(path, r.brokerUID, r.brokerGID)
 	}
 	changed := false
-	for _, half := range sshKeyHalves(path) {
-		info, err := os.Stat(half.path)
-		if err != nil {
-			return false, fmt.Errorf("%s: %w\nThe broker needs both halves of the key. "+
-				"Regenerate the public half with: ssh-keygen -y -f %s > %s",
-				half.path, err, path, path+".pub")
-		}
-		wrong, err := wrongOwner(info, r.brokerUID, r.brokerGID)
-		if err != nil {
-			return false, err
-		}
-		if !wrong && info.Mode().Perm() == half.mode.Perm() {
-			continue
-		}
+	err := wrongSSHKeyHalves(path, r.brokerUID, r.brokerGID, func(half sshKeyHalf) error {
+		// Path-based, so a key kept behind a symlink is repaired at its target,
+		// which is the file [ssh] key means.
 		if err := os.Chown(half.path, r.brokerUID, r.brokerGID); err != nil {
-			return false, err
+			return err
 		}
 		if err := os.Chmod(half.path, half.mode); err != nil {
-			return false, err
+			return err
 		}
 		changed = true
-	}
-	return changed, nil
+		return nil
+	})
+	return changed, err
 }
