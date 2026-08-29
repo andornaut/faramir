@@ -51,3 +51,24 @@ func TestNoSegmentIsNamedWhenNoneMatchesAlone(t *testing.T) {
 		t.Errorf("an unknown pattern should name no segment, got %q", got)
 	}
 }
+
+// The program a segment runs, which decides whether a patch envelope is examined
+// at all. A shell needs no separator before a redirection, so cutting the first
+// word on a space alone left `apply_patch<<'EOF'` reading as a program of that
+// name and its envelope unread.
+func TestFirstWordEndsAtMoreThanASpace(t *testing.T) {
+	for _, tc := range []struct{ segment, want string }{
+		{"apply_patch", "apply_patch"},
+		{"apply_patch 'x'", "apply_patch"},
+		{"apply_patch\t'x'", "apply_patch"},
+		{"apply_patch<<'EOF'", "apply_patch"},
+		{"apply_patch>out", "apply_patch"},
+		{"apply_patch<in", "apply_patch"},
+		{"  apply_patch  ", "apply_patch"},
+		{"/usr/bin/apply_patch<<'EOF'", "/usr/bin/apply_patch"},
+	} {
+		if got := firstWord(tc.segment); got != tc.want {
+			t.Errorf("firstWord(%q) = %q, want %q", tc.segment, got, tc.want)
+		}
+	}
+}

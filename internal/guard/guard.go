@@ -637,12 +637,27 @@ func refusedPatchCommand(h *host, cwd, command string) (string, bool) {
 // the tool named as an argument to something else does not.
 func runsPatchTool(tool, command string) bool {
 	for _, segment := range denyrules.Segments(command) {
-		word, _, _ := strings.Cut(strings.TrimSpace(segment), " ")
-		if filepath.Base(word) == tool {
+		if filepath.Base(firstWord(segment)) == tool {
 			return true
 		}
 	}
 	return false
+}
+
+// firstWord is the program a segment runs: everything up to the first character
+// that cannot be part of the name.
+//
+// A space is not the only thing that ends it. A shell needs no separator before
+// a redirection, so `apply_patch<<'EOF'` and `apply_patch>out` name the same
+// program as `apply_patch `, and a tab separates as well as a space. Cutting on
+// a space alone left every one of those reading as a different program, which
+// for the patch tool meant its envelope was never examined.
+func firstWord(segment string) string {
+	segment = strings.TrimSpace(segment)
+	if i := strings.IndexAny(segment, " \t<>|&;"); i >= 0 {
+		return segment[:i]
+	}
+	return segment
 }
 
 // refusedPatchPath is the first file a patch envelope names that the deny list
