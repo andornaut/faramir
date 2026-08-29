@@ -238,6 +238,19 @@ func shortPattern(pattern string) string {
 	return pattern[:keep] + "…"
 }
 
+// shortSegment bounds the command a refusal quotes back. Longer than a pattern's
+// cap, this being the part the agent has to recognise as its own, and a command
+// cut at sixty characters usually loses the argument that matched. Cut on a rune
+// boundary: a pattern is ASCII and a command is whatever was typed.
+func shortSegment(segment string) string {
+	const keep = 160
+	runes := []rune(segment)
+	if len(runes) <= keep {
+		return segment
+	}
+	return string(runes[:keep]) + "…"
+}
+
 // namesOwn reports whether the command names a directory belonging to this
 // install, which is what separates a write faramir refuses to protect itself
 // from a write to a secret the operator declared.
@@ -734,16 +747,19 @@ func sanctionAlternation(names []string) string {
 	return strings.Join(out, "|")
 }
 
-func decide(command string) (string, bool) {
-	// No sudo exemption: every faramir subcommand under sudo is refused below, so
-	// there is nothing whose arguments would need sparing.
-	//
-	// The exemption spares faramir's own flags and refs, but keeps the leading
-	// separator, and for `redact` the child command after a `--`. Redact runs
-	// that child locally and filters only known values, so it must still be
-	// scanned. Run sends its child to the broker, which guards it there, so
-	// run's child stays exempt.
-	stripped := faramirCall.ReplaceAllStringFunc(command, func(match string) string {
+// stripFaramirCalls removes faramir's own invocations from a line before it is
+// matched, so a ref name or a flag cannot read as the thing a rule refuses.
+//
+// No sudo exemption: every faramir subcommand under sudo is refused by a rule of
+// its own, so there is nothing whose arguments would need sparing.
+//
+// The exemption spares faramir's own flags and refs, but keeps the leading
+// separator, and for `redact` the child command after a `--`. Redact runs that
+// child locally and filters only known values, so it must still be scanned. Run
+// sends its child to the broker, which guards it there, so run's child stays
+// exempt.
+func stripFaramirCalls(command string) string {
+	return faramirCall.ReplaceAllStringFunc(command, func(match string) string {
 		sub := faramirCall.FindStringSubmatch(match)
 		lead := sub[1]
 		if sub[2] == "redact" {
@@ -753,6 +769,10 @@ func decide(command string) (string, bool) {
 		}
 		return lead
 	})
+}
+
+func decide(command string) (string, bool) {
+	stripped := stripFaramirCalls(command)
 	// Per command rather than per line. A pattern matched against the whole
 	// string cannot tell one command from the next, so a reader in the first
 	// reached a path named in the second; quoting is what decides where one
@@ -780,6 +800,36 @@ func decide(command string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// matchingSegment returns the one command in a line that the reported pattern
+// matched. A hook answers for the whole tool call, so a single refused segment
+// refuses the batch, and a message naming only the pattern leaves the agent to
+// work out which part of a compound line was at fault. Naming the wrong part is
+// what an agent then does: it rewrites the innocent half, is refused again, and
+// reports the rule as a false positive against a command the rule never saw.
+//
+// Empty for a line holding one command, where the pattern is already the whole
+// answer, and empty when no segment matches alone: a pattern can match a
+// spelling that normalisation produced rather than anything that was written,
+// and a message quoting a command the agent did not type is worse than none.
+func matchingSegment(command, pattern string) string {
+	segments := denyrules.Segments(stripFaramirCalls(command))
+	if len(segments) < 2 {
+		return ""
+	}
+	for _, p := range loadPatterns() {
+		if p.source != pattern {
+			continue
+		}
+		for _, segment := range segments {
+			if p.re.MatchString(segment) || p.re.MatchString(denyrules.NormalizePaths(segment)) {
+				return segment
+			}
+		}
+		break
+	}
+	return ""
 }
 
 // Run is the `faramir guard` subcommand.
@@ -909,8 +959,14 @@ func Run(args []string) int {
 	}
 
 	if pattern, denied := decide(command); denied {
-		return emit(activeHost.deny(adviceFor(pattern, command) +
-			"\n\n(matched deny pattern: " + shortPattern(pattern) + ")"))
+		note := "\n\n(matched deny pattern: " + shortPattern(pattern) + ")"
+		if segment := matchingSegment(command, pattern); segment != "" {
+			note = "\n\nOne command in the line matched, and the whole call is refused" +
+				" because a hook answers for all of it. This is the command to change:" +
+				"\n\n    " + shortSegment(segment) +
+				"\n\n(matched deny pattern: " + shortPattern(pattern) + ")"
+		}
+		return emit(activeHost.deny(adviceFor(pattern, command) + note))
 	}
 
 	// The same question the patch branch above asks, of a command that runs the
