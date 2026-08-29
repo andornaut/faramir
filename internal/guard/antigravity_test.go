@@ -204,22 +204,26 @@ func TestThePathCheckLeavesCommandsToTheRewrite(t *testing.T) {
 	}
 }
 
-// Every host whose own rule file does not refuse a path asks the guard to.
-// Claude Code is the exception and the only one: it enforces the deny rules
-// `faramir init` writes, so a second refusal here would be one more thing to
-// keep in step with the file that already says it.
+// Every host asks the guard to refuse a path, with no exception.
 //
-// The others each fail differently and arrive at the same place. The
-// Antigravity IDE has no rule file an install can write; opencode and Kilo Code
-// have one whose "deny" is a prompt an autonomous run approves; pi has none
-// either, and Codex's own rule files are an exec policy, which decides commands
-// and names no path. The Antigravity CLI has real deny rules and is included
-// anyway, sharing one dialect with the IDE.
-func TestEveryHostWithoutAnEnforcedRuleFileRefusesPaths(t *testing.T) {
+// Most of them have no rule file that would do it. The Antigravity IDE has none
+// an install can write; opencode and Kilo Code have one whose "deny" is a prompt
+// an autonomous run approves; pi has none either, and Codex's own rule files are
+// an exec policy, which decides commands and names no path. The Antigravity CLI
+// has real deny rules and is included anyway, sharing one dialect with the IDE.
+//
+// Claude Code was the exception until it was not. It does enforce the deny rules
+// `faramir init` writes, but only in the permission modes that apply them, and a
+// session started in bypassPermissions applies none: a rule there says what the
+// operator asked for without being what happens. A hook runs in every mode. So
+// the duplication this test once existed to avoid is the point of it now, and a
+// new host arriving with its own rule file does not get an exemption on that
+// ground.
+func TestEveryHostRefusesPaths(t *testing.T) {
 	for name, h := range hosts {
-		want := name != "claude"
-		if h.refusesPaths != want {
-			t.Errorf("%s refusesPaths = %v, want %v", name, h.refusesPaths, want)
+		if !h.refusesPaths {
+			t.Errorf("%s does not refuse paths, so its file tools are guarded only by "+
+				"whatever rule file it has, in whichever modes apply one", name)
 		}
 	}
 }

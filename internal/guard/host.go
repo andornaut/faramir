@@ -41,9 +41,13 @@ type host struct {
 
 	// refusesPaths says a tool carrying a path rather than a command is checked
 	// against the same deny list, rather than being left to whatever the host's
-	// own permission rules do with it. For the agent whose permission lists are
-	// its own state and cannot be written by an install, this is the only thing
-	// that refuses a read.
+	// own permission rules do with it.
+	//
+	// Set for every host, for one of two reasons. Some have no permission list an
+	// install can write, their rules being an exec policy or their own state, so
+	// there is nowhere else to say "not this file". The rest have one, and a
+	// permission list is only applied in some of the modes the agent runs in,
+	// while a hook is applied in all of them.
 	refusesPaths bool
 
 	// patchTool names a tool whose input carries a patch envelope rather than a
@@ -165,9 +169,18 @@ const bashTool = "Bash"
 
 // claudeCodeHost adds the second tool Claude Code names: BashOutput reads a
 // running command's buffer, recognised so it can be skipped deliberately.
+//
+// Its file tools are refused here rather than left to the Read() and Edit()
+// deny rules an install writes into its settings, because those rules are not
+// always in force: a session started in bypassPermissions does not apply them,
+// and that is a mode this is run in. A hook is applied in every mode, so what
+// the deny rules describe is enforced here instead of only being declared
+// there. The rules stay: they are what refuses a read in a session that never
+// reaches the hook, and they say in one place what the operator asked for.
 func claudeCodeHost() *host {
 	h := hookDecision()
 	h.shellTools = []string{bashTool, "BashOutput"}
+	h.refusesPaths = true
 	return h
 }
 

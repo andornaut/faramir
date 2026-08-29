@@ -47,17 +47,31 @@ Account-wide they run `faramir guard --deny-only`, which refuses what the list
 names and says nothing about anything else, leaving the host's own permission
 flow as it was.
 
-**File tools refused.** By a rule file where the agent enforces one, and by
-faramir where it does not. Claude Code and the Antigravity CLI enforce a deny
-rule in their own settings. The Antigravity IDE and pi have no such file at all;
-Codex has none either, its own `.rules` files being an exec policy that decides
-commands and names no path. opencode and Kilo Code have one and it is not a
-refusal: an entry of `deny` is put to the operator as a prompt, and an
-autonomous run approves it. So every agent but Claude Code is refused a path by
-faramir itself, through a hook, a plugin or an extension installed in a home,
-all asking the same `faramir guard` and checking the same list by the shape of
-the tool call rather than by tool name. The Antigravity CLI is refused twice,
-its own rules holding as well.
+**File tools refused.** By faramir, for every agent, through a hook, a plugin or
+an extension installed in a home, all asking the same `faramir guard` and
+checking the same list by the shape of the tool call rather than by tool name.
+
+A rule file in the agent's own settings is written as well where the agent has
+one, and refuses the same paths. Claude Code and the Antigravity CLI have one.
+The Antigravity IDE and pi have no such file at all; Codex has none either, its
+own `.rules` files being an exec policy that decides commands and names no path.
+opencode and Kilo Code have one and it is not a refusal: an entry of `deny` is
+put to the operator as a prompt, and an autonomous run approves it.
+
+Where both exist, both hold, and the duplication is the point. A rule file is
+applied in some of the permission modes an agent runs in and not in others: a
+Claude Code session started in `bypassPermissions` applies none of its deny
+rules, so a rule there says what the operator asked for without being what
+happens. A hook is run in every mode. The rules stay because they are what
+refuses a read in a session that never reaches the hook, and because they say in
+one file what the operator asked for.
+
+This is why the hook is registered for every tool rather than for the shell
+alone. An empty reply is a call left alone, so answering for a tool that runs
+nothing costs nothing, and matching every tool is what puts the file tools in
+front of the deny list at all. `faramir doctor` reports a registration that
+matches less than that: an enrolment written by an older version matches `Bash`,
+and its file tools reach the guard through nothing.
 
 **Runs a hook only once told to trust it.** Codex alone. It skips a hook it has
 not been trusted with and says nothing when it does, so what faramir writes is
@@ -155,7 +169,7 @@ The tool is also invocable from a shell, and the documented spelling puts the en
 
 Reads need none of that. Codex reads a file by running one of the shell's own readers, so the command guard covers every read it makes.
 
-**A hook has to be trusted before it runs.** Codex skips a hook it has not been told to trust and says nothing when it does, so what `faramir init` and `faramir init-project` write is inert until you start Codex once and trust it. The trust is a hash of the hook set, so it is yours to grant and it has to be granted again after a change. Both commands say so on every run.
+**A hook has to be trusted before it runs.** Codex skips a hook it has not been told to trust and says nothing when it does, so what `faramir init` and `faramir init-project` write is inert until you start Codex once and trust it. The trust is a hash of the hook as Codex parses it, so it is yours to grant and it has to be granted again after a change. Both commands say so on every run, and `faramir doctor` fails on a hook that is still untrusted: it is the only misconfiguration here that produces no refusal, no failed play and no degraded ref, so nothing else would report it.
 
 > [!IMPORTANT]
 > **Codex must run without its own sandbox** (`codex --dangerously-bypass-approvals-and-sandbox`). Sandboxed, it is refused the broker socket: `read-only` and `workspace-write` both deny the `AF_UNIX` connect and deny writes to `XDG_RUNTIME_DIR`, and `network_access` governs `AF_INET` alone and does not lift it. The wrapper fails closed, so what that costs is every command's output withheld rather than redacted.
@@ -174,7 +188,7 @@ The registration matches every tool rather than naming `run_command`. An empty r
 
 The permission check runs before the hook. A command with no rule permitting it is refused before the guard is asked, so the guard's allow approves nothing that was going to prompt: enrolling takes nothing away, unlike Claude Code.
 
-Where they differ is the rule file, which is [which half each gets](../README.md#supported-agents). The CLI reads `~/.gemini/antigravity-cli/settings.json` and gets deny rules there as well as the hook. The IDE keeps its permission lists as its own state, so the hook is the whole of what refuses its file tools.
+Where they differ is the rule file, which is [which half each gets](../README.md#supported-agents). The CLI reads `~/.gemini/antigravity-cli/settings.json` and gets deny rules there as well as the hook. The IDE keeps its permission lists as its own state, so it gets none, and for it the hook is not a second answer but the only one.
 
 The hook goes into `~/.gemini/config/hooks.json`, which both halves read for every workspace, so nothing about guarding one waits on an enrolment. What an enrolment writes into a tree is the credentials section, and both load a tree's customizations only once that tree is a project they have opened, which the enrolment says.
 

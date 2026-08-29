@@ -17,6 +17,16 @@ trade per tree. What this one does is refuse what the list names, wherever the
 agent is working, and say nothing about anything else: a silent answer leaves
 the host's own permission flow as it was.
 
+The matcher is "*" rather than "Bash". An empty reply is a call left alone, so
+answering for a tool that runs nothing costs nothing, and matching every tool is
+what puts the file tools in front of the deny list at all.
+
+That matters because the deny rules below are not always applied. A session
+started in bypassPermissions does not apply them, and that is a mode this agent
+is run in, so a rule here is a statement of what the operator asked for rather
+than a thing that always happens. The hook runs in every mode. The rules stay
+because they are what refuses a read in a session that never reaches the hook.
+
 GENERATED. The paths come from internal/install/protectedpaths.go, written
 once and rendered into each agent's own spelling; nothing here is a path of its
 own. Add one there.
@@ -34,7 +44,7 @@ retroactively.
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",

@@ -271,6 +271,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	report.merge(brokerReport)
 	diagnoseSopsConfig(&report, opts)
 	diagnoseAgentRules(&report, opts)
+	diagnoseHookReach(&report, opts)
 	diagnoseCodexTrust(&report, opts)
 	diagnoseAgentCode(&report, opts)
 	diagnoseAgentRuleDrift(&report, opts)
@@ -353,6 +354,104 @@ func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 				"from this account", name)
 		}
 	}
+}
+
+// hookReachFiles are the settings files whose PreToolUse registration decides
+// which tools reach the guard at all: the account-wide one and each enrolled
+// tree's. Claude Code only, being the one agent whose registration ever carried
+// a matcher narrower than every tool.
+func hookReachFiles(home string, dirs []string) []string {
+	paths := make([]string, 0, 1+len(dirs))
+	paths = append(paths, filepath.Join(home, ".claude/settings.json"))
+	for _, dir := range dirs {
+		paths = append(paths, filepath.Join(dir, ".claude/settings.local.json"))
+	}
+	return paths
+}
+
+// hookMatchers is the matcher of every PreToolUse group in one settings file
+// that runs faramir's guard. A file that is absent, unreadable or not JSON
+// returns nothing: what that file says is diagnoseAgentRules' question, and two
+// checks reporting one missing file is one report too many.
+func hookMatchers(path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher *string `json:"matcher"`
+				Hooks   []struct {
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return nil
+	}
+	var out []string
+	for _, group := range doc.Hooks.PreToolUse {
+		for _, h := range group.Hooks {
+			if !strings.Contains(h.Command, "faramir guard") {
+				continue
+			}
+			matcher := ""
+			if group.Matcher != nil {
+				matcher = *group.Matcher
+			}
+			out = append(out, matcher)
+			break
+		}
+	}
+	return out
+}
+
+// diagnoseHookReach asks which tools the registered hook is invoked for.
+//
+// A registration written before the guard refused paths matches "Bash" alone, so
+// the file tools never reach it. That leaves them to the deny rules in the same
+// file, which are applied in some of the agent's permission modes and not in
+// others: a session started in bypassPermissions applies none of them, and a
+// read of the age key is then refused by nothing but the file's own mode.
+//
+// Reported rather than repaired, an agent's settings being the operator's file:
+// re-running the enrolment rewrites the matcher.
+func diagnoseHookReach(report *DoctorReport, opts DoctorOptions) {
+	if opts.AgentUser == "" {
+		return
+	}
+	home, err := agentHomeFor(opts.AgentUser)
+	if err != nil || home == "" {
+		return
+	}
+	var dirs []string
+	for _, tree := range readEnrolled(opts.ConfigDir) {
+		if slices.Contains(tree.Agents, "claude") {
+			dirs = append(dirs, tree.Dir)
+		}
+	}
+	var narrow []string
+	for _, path := range hookReachFiles(home, dirs) {
+		for _, matcher := range hookMatchers(path) {
+			if matcher != "*" {
+				narrow = append(narrow, fmt.Sprintf("%s (%q)", path, matcher))
+			}
+		}
+	}
+	if len(narrow) == 0 {
+		report.addf("hook reach", StatusOK, "every registration of the guard answers "+
+			"for all tools, so a file tool reaches it whatever permission mode the "+
+			"agent is in")
+		return
+	}
+	report.addf("hook reach", StatusFailed, "the guard is registered for some tools "+
+		"and not others in %s, so its file tools reach the guard only through the "+
+		"deny rules beside it, and a session in a permission mode that ignores those "+
+		"is refused nothing. Re-run `sudo faramir init` for the account-wide one and "+
+		"`faramir init-project` in the tree for the rest",
+		strings.Join(narrow, ", "))
 }
 
 // agentInUse reports whether this agent is present in the home at all: its own

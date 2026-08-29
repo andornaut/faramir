@@ -61,7 +61,7 @@ Pi | none | `~/.pi/agent/extensions/faramir.ts` | `~/.pi/agent/AGENTS.md` | No r
 Antigravity CLI (`agy`) | `~/.gemini/antigravity-cli/settings.json` | the hook in `~/.gemini/config/hooks.json` | `~/.gemini/GEMINI.md` | `~/.gemini` is where the whole Antigravity family keeps its own things, so the section and the hook are shared with the IDE and the deny rules are not
 Antigravity IDE | none | the same hook | `~/.gemini/GEMINI.md` | It keeps its permission lists as its own state rather than in a file an install may write, so that hook is what refuses its file tools
 
-Every one of these but Claude Code's and Codex's routes a command through the broker and refuses a path by asking `faramir guard`. Those two return a permission decision, so the hook that rewrites a command must also approve it, and their account-wide hooks are `--deny-only`: each refuses a command the list names and nothing else, and routing is what an enrolment buys. Codex's still refuses a path there, having no rule file to leave that to.
+Every one of these refuses a path by asking `faramir guard`, and every one but Claude Code's and Codex's also routes a command through the broker. Those two return a permission decision, so the hook that rewrites a command must also approve it, and their account-wide hooks are `--deny-only`: each refuses what the list names and nothing else, and routing is what an enrolment buys.
 
 Why each agent gets what it gets is in [coding-agents.md](coding-agents.md).
 
