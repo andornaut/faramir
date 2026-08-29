@@ -800,18 +800,17 @@ func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
 	return protocol.ErrorResponse(code, detail, logID)
 }
 
-// refuseUnauditable is the gate on running anything at all: a command that
-// cannot be recorded is not run, and the agent can reach that state by printing
-// enough to fill the filesystem. Nothing is recorded here, there being nowhere
-// to record it: the refusal goes back to the caller and to the daemon log.
-// privateTmpDirs are the directories every unit gets a private copy of, so a
-// path under one is the daemon's own and not the caller's.
-var privateTmpDirs = []string{"/tmp", "/var/tmp", "/dev/shm"}
+// privateTmpDirs is what PrivateTmp= gives every unit its own copy of, so a path
+// under one is the daemon's and not the caller's. These two and no others:
+// /dev/shm is shared with the caller, which is why a brokered command's
+// leavings there are the caller's to find. Must agree with install.privateTmp,
+// which is the same list for the install's own purposes.
+var privateTmpDirs = []string{"/tmp", "/var/tmp"}
 
 // cwdMissing explains a working directory the broker cannot find, and names the
 // one reason it goes missing while the caller is looking straight at it: every
-// faramir unit runs with PrivateTmp=true, so the daemon's /tmp, /var/tmp and
-// /dev/shm are its own and hold nothing the caller put there.
+// faramir unit runs with PrivateTmp=true, so the daemon's /tmp and /var/tmp are
+// its own and hold nothing the caller put there.
 //
 // Without this the message is "cwd does not exist" about a directory the caller
 // just made and can list, which reads as a bug in the broker rather than as the
@@ -825,11 +824,15 @@ func cwdMissing(cwd string) string {
 		return "cwd does not exist for this daemon: " + cwd + ". Every faramir unit " +
 			"runs with PrivateTmp=true, so " + private + " here is the daemon's own " +
 			"and holds nothing you put in yours. Name a directory outside " +
-			strings.Join(privateTmpDirs, ", ") + "."
+			strings.Join(privateTmpDirs, " and ") + "."
 	}
 	return "cwd does not exist: " + cwd
 }
 
+// refuseUnauditable is the gate on running anything at all: a command that
+// cannot be recorded is not run, and the agent can reach that state by printing
+// enough to fill the filesystem. Nothing is recorded here, there being nowhere
+// to record it: the refusal goes back to the caller and to the daemon log.
 func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
 	reason := s.Audit.Unwritable()
 	if reason == "" {

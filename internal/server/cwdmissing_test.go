@@ -6,8 +6,8 @@ import (
 )
 
 // A working directory the caller can list and the broker cannot find. Every
-// faramir unit runs with PrivateTmp=true, so the daemon's /tmp, /var/tmp and
-// /dev/shm are its own; "cwd does not exist" about a directory that plainly does
+// faramir unit runs with PrivateTmp=true, so the daemon's /tmp and /var/tmp are
+// its own; "cwd does not exist" about a directory that plainly does
 // reads as a broker fault rather than as the boundary it is, and scratch under
 // /tmp is where anyone would put a working directory first.
 func TestCwdMissingNamesPrivateTmpWhereThatIsTheReason(t *testing.T) {
@@ -18,7 +18,11 @@ func TestCwdMissingNamesPrivateTmpWhereThatIsTheReason(t *testing.T) {
 	}{
 		{"under /tmp", "/tmp/faramir-agent-test-work", true},
 		{"under /var/tmp", "/var/tmp/build", true},
-		{"under /dev/shm", "/dev/shm/scratch", true},
+		// /dev/shm is NOT private: it is shared with the caller, which is what
+		// makes a brokered command's leavings there the caller's to find. Blaming
+		// PrivateTmp for it would steer the reader away from the one hierarchy
+		// that is actually shared.
+		{"under /dev/shm, which is shared", "/dev/shm/scratch", false},
 		{"/tmp itself", "/tmp", true},
 		// Not private, so the ordinary message is the true one: this directory is
 		// absent for the daemon and for the caller alike.
