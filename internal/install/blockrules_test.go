@@ -215,7 +215,7 @@ func TestDoctorPassesWhenARefusedPathIsRefused(t *testing.T) {
 	  ]}
 	}`)
 	var report DoctorReport
-	reportBlockedPaths(&report, home, []string{"/etc/luks/volume.key"})
+	blockedPathsCheck.report(&report, "blocked paths", home, []string{"/etc/luks/volume.key"})
 
 	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusOK {
@@ -231,7 +231,7 @@ func TestDoctorFailsWhenARefusedPathIsNotRefused(t *testing.T) {
 	  "permissions": {"deny": ["Read(**/*.pem)"]}
 	}`)
 	var report DoctorReport
-	reportBlockedPaths(&report, home, []string{"/etc/luks/volume.key"})
+	blockedPathsCheck.report(&report, "blocked paths", home, []string{"/etc/luks/volume.key"})
 
 	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusFailed {
@@ -248,7 +248,7 @@ func TestDoctorFailsWhenARefusedPathIsNotRefused(t *testing.T) {
 // refuses nothing, and reporting OK would say the opposite.
 func TestDoctorDoesNotClaimARefusedPathIsCoveredWithNoRuleFile(t *testing.T) {
 	var report DoctorReport
-	reportBlockedPaths(&report, t.TempDir(), []string{"/etc/luks/volume.key"})
+	blockedPathsCheck.report(&report, "blocked paths", t.TempDir(), []string{"/etc/luks/volume.key"})
 
 	finding := findingFor(t, report, "blocked paths")
 	if finding.Status == StatusOK {
@@ -264,7 +264,7 @@ func TestDoctorDoesNotAskWhetherARefusedPathExists(t *testing.T) {
 	  "permissions": {"deny": ["Read(`+absent+`)"]}
 	}`)
 	var report DoctorReport
-	reportBlockedPaths(&report, home, []string{absent})
+	blockedPathsCheck.report(&report, "blocked paths", home, []string{absent})
 
 	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusOK {

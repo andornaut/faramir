@@ -150,7 +150,7 @@ func TestDoctorPassesWhenALinkedFileIsRefused(t *testing.T) {
 	  ]}
 	}`)
 	var report DoctorReport
-	reportLinkedFiles(&report, home, []string{"/home/operator/.config/gh/hosts.yml"})
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.config/gh/hosts.yml"})
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status != StatusOK {
@@ -166,7 +166,7 @@ func TestDoctorFailsWhenALinkedFileIsNotRefused(t *testing.T) {
 	  "permissions": {"deny": ["Read(**/*.key)"]}
 	}`)
 	var report DoctorReport
-	reportLinkedFiles(&report, home, []string{"/home/operator/.npmrc"})
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"})
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status != StatusFailed {
@@ -183,7 +183,7 @@ func TestDoctorFailsWhenALinkedFileIsNotRefused(t *testing.T) {
 // refuses nothing, and reporting OK would say the opposite.
 func TestDoctorDoesNotClaimCoverageWithNoRuleFile(t *testing.T) {
 	var report DoctorReport
-	reportLinkedFiles(&report, t.TempDir(), []string{"/home/operator/.npmrc"})
+	linkedFilesCheck.report(&report, "linked files", t.TempDir(), []string{"/home/operator/.npmrc"})
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status == StatusOK {
