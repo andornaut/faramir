@@ -3,16 +3,20 @@ package install
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/redact"
+	"github.com/andornaut/faramir/internal/secretref"
 )
 
 // The boundary checks: what each account can and cannot reach on a real host.
@@ -136,7 +140,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		func() { diagnoseStore(report, opts, cfg) },
 		func() { diagnoseConfigWritable(report, opts) },
 		func() { diagnoseInstalledFiles(report, opts) },
-		func() { diagnoseProtectProc(report, opts) },
+		func() { diagnoseProtectProc(report) },
 		func() { diagnoseBrokered(report, opts, serves) },
 	}
 	checks := append(append([]func(){}, aboutTheHost...), aboutTheOperator...)
@@ -147,23 +151,40 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 			opts.ExecUser)
 		return
 	}
-	// The probe itself: every check below reads a refusal as a boundary, so a
-	// runuser that cannot run would report all of them as holding. Every account
-	// can read /, so a refusal here is runuser failing.
+	// The probe itself, per account: every check below reads a refusal as a
+	// boundary, so an account whose runuser cannot run, or that cannot execute
+	// this binary, would have every question about it answered as holding.
+	// Every account can read /, so a refusal there is the asking failing, not
+	// an answer. The keeper failing means runuser itself is broken and nothing
+	// can be asked; any other dead account has its questions dropped by
+	// askable, each check's own skipped bookkeeping saying so.
 	if !canRead(opts.KeeperUser, "/") {
 		report.unaskedf("boundaries", len(checks), "cannot ask %s what it can reach, so none "+
 			"of these %d checks were made: runuser has to be installed for this",
 			opts.KeeperUser, len(checks))
 		return
 	}
+	opts.deadProbers = map[string]bool{}
+	for _, account := range []string{opts.AgentUser, opts.BrokerUser, opts.ExecUser} {
+		if account != "" && !canRead(account, "/") {
+			opts.deadProbers[account] = true
+		}
+	}
+	if len(opts.deadProbers) > 0 {
+		report.unaskedf("boundaries", len(opts.deadProbers), "cannot ask %s what "+
+			"it can reach: runuser refused the account or it cannot execute this "+
+			"binary, so its questions below are reported as unasked",
+			strings.Join(slices.Sorted(maps.Keys(opts.deadProbers)), " or "))
+	}
 	for _, check := range aboutTheHost {
 		check()
 	}
 	// With no SUDO_USER and nothing recorded there is no account to put these to.
 	// Named as unasked rather than run: each would otherwise report its boundary
-	// as holding on the strength of a question nobody could ask.
-	if opts.AgentUser == "" {
-		report.unaskedf("boundaries", len(aboutTheOperator), "the agent account is not named, so %d check(s) that ask what it "+
+	// as holding on the strength of a question nobody could ask. An agent
+	// account nothing can ask as is the same bar.
+	if opts.AgentUser == "" || opts.deadProbers[opts.AgentUser] {
+		report.unaskedf("boundaries", len(aboutTheOperator), "the agent account is not named or cannot be asked as, so %d check(s) that ask what it "+
 			"can reach were not made: run through sudo so SUDO_USER carries it, or "+
 			"record the account with `faramir init --agent-user`", len(aboutTheOperator))
 		return
@@ -177,9 +198,9 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 // whether any was dropped. A check that dropped one must not go on to claim
 // its boundary holds: canRead answers false for an account it cannot name,
 // which is what it answers for one that is properly shut out.
-func askable(accounts ...string) (named []string, skipped bool) {
+func (opts DoctorOptions) askable(accounts ...string) (named []string, skipped bool) {
 	for _, account := range accounts {
-		if account == "" {
+		if account == "" || opts.deadProbers[account] {
 			skipped = true
 			continue
 		}
@@ -268,6 +289,11 @@ func diagnoseConfigReadable(report *DoctorReport, opts DoctorOptions) {
 	configFile := filepath.Join(opts.ConfigDir, "config.toml")
 	if !exists(configFile) {
 		report.addf("config reach", StatusNA, "%s is not there to be read", configFile)
+		return
+	}
+	if opts.deadProbers[opts.BrokerUser] {
+		report.unaskedf("config reach", 1, "%s cannot be asked as, so whether it "+
+			"can read the config was not", opts.BrokerUser)
 		return
 	}
 	if canRead(opts.BrokerUser, configFile) {
@@ -360,6 +386,9 @@ func enterable(uid int, groups map[int]bool, mode os.FileMode, owner, group int)
 func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 	enforcers := []string{
 		filepath.Join(DefaultBinDir, "faramir"),
+		// The directory too, its own rule below applying to the binary's home as
+		// much as to libexec: write there is permission to replace the hook.
+		DefaultBinDir,
 		DefaultLibexecDir,
 		filepath.Join(DefaultLibexecDir, "deny-patterns.txt"),
 		filepath.Join(DefaultLibexecDir, "wrap.sh"),
@@ -571,7 +600,7 @@ func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	if wrongMode(report, "age key", path, want) {
 		return
 	}
-	accounts, skipped := askable(opts.AgentUser, opts.BrokerUser, opts.ExecUser)
+	accounts, skipped := opts.askable(opts.AgentUser, opts.BrokerUser, opts.ExecUser)
 	for _, account := range accounts {
 		if canRead(account, path) {
 			report.addf("age key", StatusFailed, "%s can read %s, so every file this "+
@@ -682,7 +711,7 @@ func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 	if wrongMode(report, "audit log", path, want) {
 		return
 	}
-	accounts, skipped := askable(opts.AgentUser, opts.ExecUser)
+	accounts, skipped := opts.askable(opts.AgentUser, opts.ExecUser)
 	for _, account := range accounts {
 		if canRead(account, path) {
 			report.addf("audit log", StatusFailed, "%s can read %s, so it can also "+
@@ -721,7 +750,7 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 		if socket.path == "" || !exists(socket.path) {
 			continue
 		}
-		accounts, skipped := askable(socket.accounts...)
+		accounts, skipped := opts.askable(socket.accounts...)
 		reached := false
 		for _, account := range accounts {
 			if canWrite(account, socket.path) {
@@ -803,7 +832,7 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	// The operator alongside the executor: the coding agent runs as that account,
 	// so a key it can read reaches the model's context by any route the deny
 	// patterns miss. init asserts the mode; this catches a chmod afterwards.
-	operator, skipped := askable(opts.AgentUser)
+	operator, skipped := opts.askable(opts.AgentUser)
 	if key := cfg.Ssh.Key; exists(key) {
 		if canRead(opts.ExecUser, key) {
 			report.addf("ssh key", StatusFailed, "%s can read %s, so the agent gains "+
@@ -858,11 +887,17 @@ var sudoNoPasswd = passwordlessSudo
 // A claim that could not be put is a warning rather than a pass: silence would
 // report an unread file as an absent credential.
 func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
+	if opts.ExecUser == "" {
+		report.unaskedf("sudo credential", 1, "which account runs the executor is not "+
+			"known here, so a NOPASSWD entry for it went unchecked. Pass --exec-user")
+		return
+	}
 	nopasswd, known := sudoNoPasswd(opts.ExecUser)
 	switch {
 	case !known:
-		report.unaskedf("sudo credential", 1, "which account runs the executor is not "+
-			"known here, so a NOPASSWD entry for it went unchecked. Pass --exec-user")
+		report.unaskedf("sudo credential", 1, "`sudo -l` could not list %s's entries, "+
+			"so a NOPASSWD one went unchecked: a sudoers this sudo refuses to parse "+
+			"reads the same from here as one holding no entry", opts.ExecUser)
 		return
 	case nopasswd != "":
 		report.addf("sudo credential", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so a brokered command sudoes without the "+
@@ -977,7 +1012,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		return
 	}
 	// An account that can write the helper chooses what decides every escalation.
-	accounts, skipped := askable(opts.ExecUser, opts.AgentUser)
+	accounts, skipped := opts.askable(opts.ExecUser, opts.AgentUser)
 	for _, account := range accounts {
 		if canWrite(account, cfg.Sudo.Helper) {
 			report.addf("sudo grant", StatusFailed, "%s can write %s, which is what "+
@@ -1244,24 +1279,49 @@ func execUnitDelegates() (delegates, known bool) {
 // setuid sudo is the executor's own, and the broker answers the escalate op to
 // root alone.
 func pamStackProblem(body, helper string) string {
+	// Position matters as much as the helper line itself: an auth entry ahead of
+	// it authenticates before the broker is asked, and the requisite below then
+	// gates nothing. Ahead of the helper only the sudo-rs block's own branch may
+	// stand, a pam_succeed_if under a [success=ok ...] spec; the sudo-rs path
+	// holds what is outside the block to the same rule with firstAuthLine.
 	for line := range strings.Lines(body) {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "#") || !strings.Contains(line, "pam_exec.so") {
+		if strings.HasPrefix(line, "#") {
 			continue
 		}
-		if !strings.HasPrefix(line, "auth") {
+		if strings.HasPrefix(line, "@include") {
+			return "an @include ahead of the helper pulls in an auth stack that " +
+				"answers before the broker is asked (" + line + "). Re-run " +
+				"`faramir init --allow-sudo`"
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] != "auth" {
 			continue
 		}
+		control, rest := pamAuthLine(fields)
+		module := ""
+		if len(rest) > 0 {
+			module = rest[0]
+		}
+		if module != "pam_exec.so" {
+			if module == "pam_succeed_if.so" && strings.HasPrefix(control, "[success=ok ") {
+				continue
+			}
+			return "an auth line ahead of the helper answers before the broker is " +
+				"asked (" + line + "). Re-run `faramir init --allow-sudo`"
+		}
+		// The helper line, each word matched as the field it is rather than as a
+		// substring anything on the line could carry.
 		switch {
-		case !strings.Contains(line, "requisite"):
+		case control != "requisite":
 			return "the helper is not `requisite`, so a refusal falls through to whatever permits " +
 				"below and every escalation is granted without asking. Re-run `faramir init " +
 				"--allow-sudo`"
-		case !strings.Contains(line, "seteuid"):
+		case !slices.Contains(rest, "seteuid"):
 			return "the helper runs without `seteuid`, so pam_exec runs it as the executor rather " +
 				"than root, and the broker answers the escalate op to root alone: every " +
 				"escalation fails. Re-run `faramir init --allow-sudo`"
-		case helper != "" && !strings.Contains(line, helper):
+		case helper != "" && !slices.Contains(rest, helper):
 			return "the helper is not " + helper + ", so something other than faramir " +
 				"decides these escalations"
 		}
@@ -1269,6 +1329,21 @@ func pamStackProblem(body, helper string) string {
 	}
 	return "no pam_exec auth line, so nothing asks the broker and whatever else " +
 		"is in this file decides. Re-run `faramir init --allow-sudo`"
+}
+
+// pamAuthLine splits one auth entry into its control field, a bracketed spec
+// kept whole, and the module with its arguments after it.
+func pamAuthLine(fields []string) (control string, rest []string) {
+	if len(fields) < 2 {
+		return "", nil
+	}
+	i := 2
+	if strings.HasPrefix(fields[1], "[") {
+		for i < len(fields) && !strings.HasSuffix(fields[i-1], "]") {
+			i++
+		}
+	}
+	return strings.Join(fields[1:i], " "), fields[i:]
 }
 
 // permissiveAuth reports whether a stack authenticates without asking: a
@@ -1289,38 +1364,32 @@ func permissiveAuth(body string) bool {
 	return false
 }
 
-// diagnoseProtectProc: a brokered command's value is in the executor's
-// environment while it runs, and /proc is where another account would read it.
-func diagnoseProtectProc(report *DoctorReport, opts DoctorOptions) {
-	pid := mainPID(brokerUnit)
-	if pid == "" {
-		// Warn, not fail: the unit is socket-activated, so idle is its resting
-		// state, and a broker that cannot be reached at all is already reported by
-		// the socket check and the broker probe.
-		report.unaskedf("protectproc", 1, "the broker is not running, so what "+
-			"/proc shows of it cannot be checked")
-		return
+// diagnoseProtectProc: all three units carry ProtectProc=invisible, which
+// hides every other account's processes from the daemon; a drop-in or a hand
+// edit that takes it off leaves that daemon reading a /proc it has no business
+// seeing. Asked of systemd, which resolves drop-ins, rather than of the files.
+//
+// What this deliberately does not probe: another account reading a daemon's
+// /proc/<pid>/environ. The kernel's own mode bits refuse that on every host
+// whatever the unit says, so a probe there passes unconditionally and measures
+// nothing; the e2e suite reads the boundary itself.
+func diagnoseProtectProc(report *DoctorReport) {
+	for _, unit := range []string{brokerUnit, keeperUnit, execUnit} {
+		value, ok := unitProperty(unit, "ProtectProc")
+		if !ok {
+			report.unaskedf("protectproc", 1, "systemd could not report %s's "+
+				"ProtectProc, so it was not asked", unit)
+			continue
+		}
+		if value != "invisible" {
+			report.addf("protectproc", StatusFailed, "%s runs with ProtectProc=%s "+
+				"rather than the invisible the install writes, so that daemon sees "+
+				"every account's /proc. A drop-in or an edit took it off; `sudo "+
+				"faramir init` writes the unit back", unit, value)
+			continue
+		}
+		report.addf("protectproc", StatusOK, "%s hides other accounts' /proc", unit)
 	}
-	environ := filepath.Join("/proc", pid, "environ")
-	if canRead(opts.AgentUser, environ) {
-		report.addf("protectproc", StatusFailed, "%s can read %s; ProtectProc is not "+
-			"in effect and a running command's value is readable there",
-			opts.AgentUser, environ)
-		return
-	}
-	report.addf("protectproc", StatusOK, "%s cannot read the broker's environ", opts.AgentUser)
-}
-
-// mainPID asks systemd rather than matching a process name.
-func mainPID(unit string) string {
-	pid, ok := unitProperty(unit, "MainPID")
-	if !ok {
-		return ""
-	}
-	if n, err := strconv.Atoi(pid); err != nil || n <= 0 {
-		return ""
-	}
-	return pid
 }
 
 // diagnoseBrokered asks the broker to run something: the one place the answer
@@ -1371,24 +1440,37 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 	}
 	// The key arrives through LoadCredential=, so the credential directory and
 	// the environment are where a child might find it. Both go through a shell,
-	// being a glob and an expansion.
-	leaks := []struct{ name, script, want string }{
-		{"the environment", `echo "[${SOPS_AGE_KEY:-unset}]"`, "[unset]"},
-		{"a systemd credential", `cat /run/credentials/*/age_key 2>&1 | head -1`, ""},
+	// being a glob and an expansion, and -c alone: -l would source the
+	// executor's login profiles on every run and let a banner into the verdict.
+	//
+	// Each script answers with a word of its own, so the verdict reads the same
+	// under any locale, and nothing a probe might find is printed or carried:
+	// the environment probe never expands the value and the credential probe
+	// sends the read to /dev/null, so a hit reaches neither this output nor the
+	// audit record.
+	leaks := []struct{ name, script string }{
+		{"the environment", `[ -z "${SOPS_AGE_KEY:-}" ] && echo clean || echo readable`},
+		{"a systemd credential", `cat /run/credentials/*/age_key >/dev/null 2>&1 && echo readable || echo clean`},
 	}
 	for _, leak := range leaks {
-		out, _ := brokered("bash", "-lc", leak.script)
+		out, err := brokered("bash", "-c", leak.script)
 		got := strings.TrimSpace(out)
 		switch {
-		case leak.want != "" && got != leak.want:
-			report.addf("brokered command", StatusFailed, "the age key reaches a child "+
-				"through %s", leak.name)
+		case err != nil:
+			// A probe that did not run answered nothing: scoring it clean would
+			// pass the boundary on a broken probe, and scoring it a leak would
+			// fail a healthy host over one.
+			report.unaskedf("brokered command", 1, "the %s probe could not run "+
+				"(%v), so whether the age key reaches a child there was not asked",
+				leak.name, err)
 			return
-		// Without the output: a finding that quotes it has published it.
-		case leak.want == "" && got != "" && !strings.Contains(strings.ToLower(got), "no such file") &&
-			!strings.Contains(strings.ToLower(got), "permission denied"):
-			report.addf("brokered command", StatusFailed, "a child read something from "+
-				"%s; inspect /run/credentials by hand", leak.name)
+		case got == "readable":
+			report.addf("brokered command", StatusFailed, "the age key reaches a child "+
+				"through %s; inspect it by hand", leak.name)
+			return
+		case got != "clean":
+			report.unaskedf("brokered command", 1, "the %s probe answered something "+
+				"other than its own verdict, so it was not read", leak.name)
 			return
 		}
 	}
@@ -1419,10 +1501,13 @@ func diagnoseRedaction(report *DoctorReport, opts DoctorOptions) {
 		report.addf("redaction", StatusFailed, "could not run the probe: %v", err)
 		return
 	}
-	if !strings.Contains(probe, "«SECRET:") {
+	// The whole output has to be the injected ref's own token: a substring
+	// match would pass a value redacted in part, with the remainder in the
+	// probe's output and its audit record in the clear.
+	if strings.TrimSpace(probe) != redact.TokenFor(secretref.Bare(ref)) {
 		report.addf("redaction", StatusFailed, "a command printing %s returned something "+
-			"that is not its token, which is the value itself. Not quoted here: read it "+
-			"with `faramir run --env X=%s -- printenv X`", ref, ref)
+			"other than its token, so some or all of the value is in that output "+
+			"and its audit record. Not quoted here", ref)
 		return
 	}
 	report.addf("redaction", StatusOK, "an injected value comes back as its token")
@@ -1491,10 +1576,23 @@ func passwordlessSudo(account string) (string, bool) {
 	}
 	// The exit status is not read: sudo exits non-zero for an account with no
 	// entries, which is the healthy default and prints the same output as an
-	// account whose entries all authenticate.
+	// account whose entries all authenticate. What is read is the listing
+	// itself, which names the account whenever it ran.
 	out, _ := command("sudo", "-l", "-U", account)
+	return noPasswdEntry(out, account)
+}
+
+// noPasswdEntry reads a `sudo -l -U` listing for a grant that skips PAM. A
+// listing that ran names the account whatever it grants; output that does not
+// is sudo itself failing (a sudoers syntax error, an -l this sudo does not
+// take), which must not read as no entry. `!authenticate` is the other
+// spelling of the same grant, and never prints the string NOPASSWD.
+func noPasswdEntry(out, account string) (string, bool) {
+	if !strings.Contains(out, account) {
+		return "", false
+	}
 	for line := range strings.Lines(out) {
-		if strings.Contains(line, "NOPASSWD") {
+		if strings.Contains(line, "NOPASSWD") || strings.Contains(line, "!authenticate") {
 			return strings.TrimSpace(line), true
 		}
 	}

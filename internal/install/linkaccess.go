@@ -500,7 +500,7 @@ func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.
 		report.addf(name, StatusOK, "no [[secret.link]] entries are configured")
 		return
 	}
-	accounts, skipped := askable(opts.BrokerUser, opts.ExecUser)
+	accounts, skipped := opts.askable(opts.BrokerUser, opts.ExecUser)
 	if skipped || len(accounts) < 2 {
 		report.unaskedf(name, len(cfg.Secret.Links), "the broker and executor "+
 			"accounts are not both named, so whether the %d linked file(s) are "+

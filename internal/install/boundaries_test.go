@@ -279,3 +279,77 @@ func TestUserNamespacesDecideNothingWithoutAnEscalationGrant(t *testing.T) {
 		})
 	}
 }
+
+// An account the liveness probe could not ask as is dropped exactly as an
+// unnamed one: a check that would have asked it reports skipped rather than
+// claiming its boundary holds on a question nobody could put.
+func TestAskableDropsAnAccountNothingCanAskAs(t *testing.T) {
+	opts := DoctorOptions{deadProbers: map[string]bool{"ghost": true}}
+	named, skipped := opts.askable("op", "ghost", "")
+	if !skipped {
+		t.Error("a dead prober did not mark the check skipped")
+	}
+	if len(named) != 1 || named[0] != "op" {
+		t.Errorf("named = %v, want just the askable account", named)
+	}
+}
+
+// The stack check reads position as well as the helper line: an auth entry
+// ahead of it answers before the broker is asked, and requisite below gates
+// nothing. Only the sudo-rs branch shape may stand ahead.
+func TestPamStackProblemReadsWhatStandsAheadOfTheHelper(t *testing.T) {
+	const helperLine = "auth requisite pam_exec.so quiet seteuid /usr/local/libexec/faramir/pam-escalate\n"
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{"the rendered service", helperLine +
+			"auth optional pam_env.so envfile=/x readenv=1\nauth sufficient pam_permit.so\n", ""},
+		{"the sudo-rs block's branch stands ahead",
+			"auth [success=ok default=3] pam_succeed_if.so quiet user = faramir-exec\n" + helperLine, ""},
+		{"a permit ahead of the helper",
+			"auth sufficient pam_permit.so\n" + helperLine, "ahead of the helper"},
+		{"an include ahead of the helper",
+			"@include common-auth\n" + helperLine, "@include ahead of the helper"},
+		{"a sufficient succeed_if ahead is not the branch",
+			"auth sufficient pam_succeed_if.so uid >= 0\n" + helperLine, "ahead of the helper"},
+		{"requisite matched as a field, not a substring",
+			"auth sufficient pam_exec.so quiet seteuid /opt/requisite-tool\n", "not `requisite`"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := pamStackProblem(tc.body, "/usr/local/libexec/faramir/pam-escalate")
+			if tc.want == "" && got != "" {
+				t.Errorf("refused a sound stack: %s", got)
+			}
+			if tc.want != "" && !strings.Contains(got, tc.want) {
+				t.Errorf("problem = %q, want it to say %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// A listing that ran names the account whatever it grants; output that does
+// not is sudo itself failing, which must not read as no entry. !authenticate
+// is the grant's other spelling and never prints NOPASSWD.
+func TestNoPasswdEntryTellsAFailedListingFromACleanOne(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		out       string
+		wantEntry string
+		wantKnown bool
+	}{
+		{"a clean account", "User faramir-exec may run the following commands:\n    (ALL) /usr/bin/id\n", "", true},
+		{"a NOPASSWD grant", "User faramir-exec may run:\n    (ALL) NOPASSWD: ALL\n", "(ALL) NOPASSWD: ALL", true},
+		{"the !authenticate spelling", "User faramir-exec may run:\n    (ALL) ALL\nDefaults:faramir-exec !authenticate\n", "Defaults:faramir-exec !authenticate", true},
+		{"sudo itself failed", "", "", false},
+		{"a syntax error", "sudo: parse error in /etc/sudoers.d/broken near line 3\n", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			entry, known := noPasswdEntry(tc.out, "faramir-exec")
+			if known != tc.wantKnown || entry != tc.wantEntry {
+				t.Errorf("noPasswdEntry() = (%q, %v), want (%q, %v)", entry, known, tc.wantEntry, tc.wantKnown)
+			}
+		})
+	}
+}

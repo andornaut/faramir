@@ -229,11 +229,11 @@ if [ -n "$BROKERPID" ] && [ "$BROKERPID" != 0 ]; then
     && bad "*** $OP can read the broker's environ, where a run's values are ***" \
     || ok "the agent's account cannot read the broker's environ"
   snap
-  [ "$(st protectproc)" = ok ] \
-    && ok "and doctor reads the same boundary" \
+  [ "$(st protectproc)" = "ok,ok,ok" ] \
+    && ok "and doctor reads ProtectProc=invisible off all three units" \
     || bad "protectproc is [$(st protectproc)]: $(dt protectproc)"
 else
-  ok "the broker is idle, which is its resting state, so protectproc goes unasked"
+  ok "the broker is idle, which is its resting state; the unit properties are still read"
 fi
 
 # A config.d is not read, so the pass names the config and the creation rule and

@@ -57,6 +57,12 @@ type DoctorOptions struct {
 	// and executor sockets, so a socket that was down comes up. Empty when the
 	// caller did not sample, and then the state is read here.
 	SocketStates map[string]string
+	// deadProbers is the accounts this run could not ask anything as: the
+	// liveness probe against / failed for them, so a refusal from one is the
+	// asking failing rather than a boundary holding. Filled by
+	// diagnoseBoundaries; askable drops them. Unexported: a probe result, not a
+	// caller's setting.
+	deadProbers map[string]bool
 }
 
 // unitUnreportable is systemctl itself failing to answer, which is a subject
