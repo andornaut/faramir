@@ -69,9 +69,10 @@ OUT=$(cd -- "$OUT" && pwd) || exit 2
 #             fixed word matches that echo and every model looks supported
 #   pi        reaches a provider only through OpenRouter, so the name carries
 #             that prefix
-#   kilo      is signed in to nothing, so every paid model is refused whatever
-#             it costs and only the free tier runs. That tier carries no Google
-#             model, hence NVIDIA
+#   kilo      answers PAID_MODEL_AUTH_REQUIRED for its own `kilo/` provider,
+#             which is a separate sign-in from the OpenRouter one it does hold.
+#             So the openrouter/ spelling works where the kilo/ spelling of the
+#             same model does not
 modelfor() {
     local slug=$1 override
     override=FARAMIR_AGENT_MODEL_${slug^^}
@@ -84,7 +85,7 @@ modelfor() {
     codex) echo gpt-5.6-terra ;;
     agy) echo gemini-3.7-flash-high ;;
     opencode) echo openrouter/google/gemini-3.7-flash ;;
-    kilo) echo kilo/nvidia/nemotron-3-ultra-550b-a55b:free ;;
+    kilo) echo openrouter/google/gemini-3.7-flash ;;
     pi) echo openrouter/google/gemini-3.7-flash ;;
     esac
 }
