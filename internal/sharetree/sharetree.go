@@ -119,7 +119,14 @@ func Share(opts Options) (Result, error) {
 		keep[filepath.Clean(rel)] = true
 	}
 	sticky := stickyDirs(opts.Keep)
-	result.Sticky, result.Kept = len(sticky), len(keep)
+	result.Sticky = len(sticky)
+	// Kept counts the files found, not the list: a keep path not there yet is
+	// nothing this run left at its own mode.
+	for rel := range keep {
+		if _, err := os.Lstat(filepath.Join(dir, rel)); err == nil {
+			result.Kept++
+		}
+	}
 	// Asked before each operation, and the operation still made unconditionally:
 	// what is counted is whether this run altered the host.
 	const rootMode = 0o2770 | os.ModeSetgid

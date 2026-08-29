@@ -428,6 +428,9 @@ func printOutcome(outcome escalation.Outcome, paint palette) {
 			*outcome.ExitCode, ranFor(outcome))))
 	default:
 		ending := fmt.Sprintf("exited %d %s", *outcome.ExitCode, ranFor(outcome))
+		if outcome.StatusUnknown {
+			ending += ", exit status unknown"
+		}
 		if *outcome.ExitCode != 0 {
 			fmt.Printf("  %s %s\n", id, paint.bad(ending))
 			break
@@ -726,8 +729,9 @@ func printQuestion(question escalation.Question, paint palette) {
 	//
 	// How long the command has been blocked comes with it, wherever it rounds to
 	// a second or more, joined by a comma: the ending this same watcher prints
-	// reads "exited 0 after 41.0s, waited 40s of it", and two durations about one
-	// question are separated the same way wherever they are printed. Past tense
+	// reads "exited 0 in 1.0s (40.0s waiting to be approved, 41.0s total)", and
+	// two durations about one question are separated the same way wherever they
+	// are printed. Past tense
 	// for the same reason: this line is printed once and never rewritten, so the
 	// number is what the wait was at the moment it was printed rather than a
 	// figure counting up on the screen. Which is not the same as saying nobody

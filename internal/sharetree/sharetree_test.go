@@ -628,3 +628,43 @@ func TestTheOwningGroupIsAnsweredByItsOwnBits(t *testing.T) {
 		t.Errorf("traversalAction for a foreign group = %v (%v), want leaveAlone", got, err)
 	}
 }
+
+// Kept is the files found, not the keep list: a tree enrolled for an agent
+// whose file is not written yet reports only what was actually left at its own
+// mode.
+func TestKeptCountsTheFilesFoundNotTheList(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip("cannot name this account")
+	}
+	group, err := user.LookupGroupId(me.Gid)
+	if err != nil {
+		t.Skip("cannot name this account's group")
+	}
+	// The same environment guard TestShareReportsWhatItAltered carries: Share
+	// grants traversal from the home down, so a TMPDIR inside it would chmod the
+	// real home.
+	if home, err := Resolve(me.HomeDir); err == nil {
+		if tmp, err := Resolve(os.TempDir()); err == nil && within(home, tmp) {
+			t.Skipf("TMPDIR (%s) is inside %s, and this grants traversal from the "+
+				"home down: running it here would chmod the real home", tmp, home)
+		}
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".claude", "settings.json"),
+		[]byte("{}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Share(Options{Dir: root, Operator: me.Username, Group: group.Name,
+		Keep: []string{".claude/settings.json", ".mcp.json"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Kept != 1 {
+		t.Errorf("Kept = %d, want 1: only settings.json is there to keep", result.Kept)
+	}
+}

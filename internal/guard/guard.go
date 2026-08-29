@@ -71,8 +71,8 @@ var defaultInstallPaths = []string{
 var fallback = fallbackPatterns()
 
 // ActionPatterns is what the guard refuses for what a command does rather than
-// for what it points at: decryption, another tool's secret store, and the
-// commands that act on faramir's own install.
+// for what it points at: the commands that act on faramir's own install, and
+// writes to the files an enrolment installs.
 //
 // Exported for `faramir block ls`, which lists them beside the entries this
 // host declares. Nothing else could be asked what they are: an agent meets one

@@ -16,7 +16,7 @@ Off by default, an install grants nothing. **Re-running without `--allow-sudo` t
 
 ### The two sudos
 
-Ubuntu ships two implementations from 25.10 on, and both read `/etc/sudoers.d`. Which one is `/usr/bin/sudo` is the `sudo` alternatives group: sudo-rs at priority 50, the original at 40 as `sudo.ws`. `init` probes it and writes the arrangement that sudo can read, so the flag works on either.
+Ubuntu ships two implementations from 25.10 on, and both read `/etc/sudoers.d`. Which one is `/usr/bin/sudo` is the `sudo` alternatives group: sudo-rs at priority 50, the original at 40 as `sudo.ws`. `init` asks the binary rather than the packaging, reading the version banner of what `sudo` resolves to, and writes the arrangement that sudo can read, so the flag works on either.
 
 They differ in one thing: where the stack that decides an escalation lives, and so what sends a brokered command's sudo to it.
 
@@ -86,22 +86,22 @@ sudo faramir sudo watch
 5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else `requisite` makes the non-zero exit fatal at once, and `sudo` reports its own authentication failure. That report is the same whichever no it was, so `faramir run` names it on the way out and the `run` record keeps it:
 
    ```text
-   faramir run: escalation rejected: refused by root (pid 1000); log_id=w9yj6dda000005
-   faramir run: escalation expired: nobody answered within 120s; log_id=w9z1ec21000003
+   faramir run: escalation rejected: rejected by root (pid 1000)
+   faramir run: escalation expired: nobody answered within 120s
    ```
 
    Which one it was decides whether running the command again is worth anything, so `--quiet` does not suppress it.
-6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `run` record it belongs to. `outcome_code` says which ending it was in one word so a log can be read for `expired` apart from `rejected` without matching English; `outcome` says it in a sentence. `faramir logs` prints the code itself, so what a row says and what a reader selects on are one word. The full set is in [protocol.md](protocol.md#escalations).
+6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `run` record it belongs to. `outcome_code` says which ending it was in one word so a log can be read for `expired` apart from `rejected` without matching English; `outcome` says it in a sentence. `faramir logs` prints `approved` and `rejected` as the code itself and the rest as short labels (`expired` shows as `timed out`), so select on the record's `outcome_code` rather than the row's wording. The full set is in [protocol.md](protocol.md#escalations).
 7. `sudo watch` prints how an approved run ended, when it does:
 
    ```text
      w5vq7dbf000119 started
-     w5vq7dbf000119 exited 0 after 41.0s, waited 40s of it
+     w5vq7dbf000119 exited 0 in 1.0s (40.0s waiting to be approved, 41.0s total)
    ```
 
-   Every line names its run, the ending arriving after the terminal has moved on. The duration is wall time and the command sits inside `sudo` for the whole question, so the part spent waiting is named rather than subtracted; under a second it is left off, every approved run waiting a little. `exited 2 after 3.1s, timed out` when `[command] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
+   Every line names its run, the ending arriving after the terminal has moved on. The line leads with the time the command ran net of the wait, and names the wait and the wall-time total beside it, the total staying because `[command] max_timeout_sec` is enforced against it; a wait under a second is left off, every approved run waiting a little. `exited 2 in 3.1s, timed out` when that timeout ended it, `failed: <reason>` where the broker got no exit status, `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
 
-   A refusal prints `<log_id> refused` with the line it read, quoted, and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question. Its `run` record lands when it ends like any other command's.
+   A refusal prints `<log_id> rejected:` with the line it read, quoted, and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question. Its `run` record lands when it ends like any other command's.
 
 There is no password anywhere: what satisfies `sudo` is a decision, so nothing is minted, stored, injected or typed. The answer must come from root, checked with `SO_PEERCRED`.
 
@@ -146,7 +146,7 @@ The file holds two things:
 - **`[command.env]`**, so a command keeps its `TERM`, `LANG` and the rest across `sudo` rather than losing them at it. Set with `--command-env`; see [configuration.md](configuration.md#what-a-flag-sets).
 - **`FARAMIR_OPERATOR`**, the account the coding agent runs as, which is whose host it is. The run already has it, the broker setting it on every brokered command, and `env_reset` is what drops it. `SUDO_USER` cannot stand in: `sudo` sets that from the account that invoked it, which here is the executor, whose home holds none of your configuration.
 
-Not all of `[command.env]` reaches it. A variable is added only where `sudo` did not already set one, so `HOME`, `PATH` and `SUDO_*` stay `sudo`'s own. Three kinds of entry are left out with a warning:
+Not all of `[command.env]` reaches it. A variable is added only where `sudo` did not already set one, so `HOME`, `PATH` and `SUDO_*` stay `sudo`'s own. Three kinds of entry are left out with a warning (`PATH` and `HOME` quietly, sudo setting those itself):
 
 - **A name that is not a variable name.** `--command-env` splits on the first `=`, so anything else in the name would be read as a second variable.
 - **A name [an injected value may not carry either](protocol.md#run)**, because sudoers reads this file without `env_keep` or `env_check`.
@@ -166,7 +166,7 @@ Dropped | Why it had to go
 `SystemCallFilter=@system-service` | Excludes `@mount`, `@swap`, `@module`, `@reboot`
 the `Protect*` family | Names the things root configures
 
-Not dropped is anything bounding the uid below the escalation: `ProtectProc=invisible`, the supplementary groups, the umask, `AmbientCapabilities=`. Re-running `init` without `--allow-sudo` restores all of them.
+Still kept: `ProtectProc=invisible`, the supplementary groups, the umask, `AmbientCapabilities=`. Re-running `init` without `--allow-sudo` restores everything dropped.
 
 `faramir doctor` re-checks the arrangement on a host that has it and on one that does not:
 

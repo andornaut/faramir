@@ -40,7 +40,7 @@ Flag | Key | Default | Bounds
 `--command-env NAME=VALUE` | `[command.env] NAME` | `PATH`, `TERM`, `LANG`, `LC_ALL`, `DEBIAN_FRONTEND` | Repeatable, and it **adds**: naming one variable keeps the rest. `PATH` may not be empty, and every component must be absolute.
 `--command-timeout-sec` | `[command] timeout_sec` | 600 | At least 1. Zero would kill every command as it started.
 `--command-max-timeout-sec` | `[command] max_timeout_sec` | 3600 | At least 1, and not below `timeout_sec`. A lower value would silently replace `timeout_sec` for every command.
-`--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor forks at once. `init` refuses a negative value and anything above 16, where the surplus is refused by the executor *after* the run was recorded as started. Zero is the unset signal, so `--command-concurrency 0` installs the default.
+`--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor forks at once. `init` refuses a negative value and anything above 16, where the surplus is refused by the executor *after* the run was recorded as started. Zero is the unset signal: it keeps what the install already has, and takes the default only where the file holds none.
 `--command-max-memory-percent` | `[command] max_memory_percent` | 25 | 1 to 100. Rendered as `MemoryMax=` on the executor unit.
 `--command-max-process-memory-mb` | `[command] max_process_memory_mb` | 4096 | 256 to 1048576. Rendered as `LimitDATA=` on the executor unit and inherited by every child.
 `--sudo-timeout-sec` | `[sudo] timeout_sec` | 120 | 1 to 3600, and never more than `[command] max_timeout_sec`: a longer value is read as that one. How long a sudo question waits for a human. While a question is open every other brokered command is refused, so a long one holds the whole host.
@@ -209,7 +209,7 @@ The deny rules, the command guard's patterns and the broker's own check are buil
 
 A path refuses the file at that path. A name is matched against the path the agent *names*, not against this host's filesystem, which is how it reaches a path the host does not have. A container mounts `/srv/ha/config` as `/config`, the agent names the second, and a rule carrying the first covers nothing it runs. Naming both in one entry is refused rather than answered by picking one.
 
-There are five kinds of name pattern, and which one you get is inferred from the shape:
+There are five kinds of name pattern, and which one you get is inferred from the shape; an exact name may carry its parent directory, which is the second row rather than a kind of its own:
 
 Name | Matches
 --- | ---
@@ -309,7 +309,7 @@ Injectable by ref | Yes | No
 - No config key is a file mode. `--check` and `doctor` stat the bound socket rather than reading a setting.
 - `socket_path` stays in the file because the broker *dials* the keeper and the executor at it, and a daemon run outside systemd binds it itself. `init` rewrites both sides together, so they cannot drift apart.
 - The broker binds its own ssh-agent socket. Its mode is a constant next to the code that sets it, rather than a value anything could widen past the group `exec_group` names.
-- `allowed_group` exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_user`. The group form is not a key there, and setting it is a hard error that names the alternative, because the only group in play is the client group, which holds the agent's own uid.
+- `allowed_group` exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_user`. The group form is not a key there, and setting it is a hard error, the unknown-key refusal listing the keys that do exist, because the only group in play is the client group, which holds the agent's own uid.
 
 ## The install gate, and the same gate at startup
 

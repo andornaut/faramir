@@ -8,10 +8,10 @@ Decision | Choice | Rationale
 --- | --- | ---
 Isolation | Uid separation plus systemd hardening. No containers. | Network isolation is a non-goal, and it was the main thing containers made easy. A sandbox confines what a child sees; it is not a substitute for a uid that holds nothing.
 How the roles are separated | `User=` in three units, all starting one binary. | The uid is what the kernel checks against `0400 faramir-keeper` and against a socket's group. Separate executables check nothing extra.
-Filesystem isolation | None beyond file modes and `ProtectSystem=strict`. | A home the executor may not read is one the mode already refuses; one it may read, the agent can read directly.
+Filesystem isolation | None beyond file modes and `ProtectSystem=strict`, which `--allow-sudo` drops. | A home the executor may not read is one the mode already refuses; one it may read, the agent can read directly.
 Where commands run | The agent's working tree, directly. | A promotion gate provides an immutable snapshot and a commit sha, both properties against a deliberate agent, which is out of scope.
 Who executes | The broker, as its own uid. | If the client execs, plaintext lives in a process the agent owns.
-Who holds the key | A separate uid that executes nothing. | A key the broker can load is a key any brokered command can read.
+Who holds the key | A separate uid that executes nothing but sops. | A key the broker can load is a key any brokered command can read.
 Who forks the child | A third uid, given the PTY slave over `SCM_RIGHTS`. | Anything the forking uid can reach, the child can reach.
 Command allowlist | None. | Any rule permitting an interpreter is reachable in one step through `bash`, which a usable policy must permit.
 How a program gets values | `env_refs`, read from the environment. | The alternative is handing the program the master key.
@@ -114,7 +114,7 @@ Left alone rather than rewritten:
 
 Case | Why
 --- | ---
-One this rewrite already produced | Idempotence. Matched as a prefix of the whole command, in either spelling, `source` or `.`, each followed by a space
+One this rewrite already produced | Idempotence. The whole command must be a single wrap invocation, matched as a prefix in either spelling, `source` or `.`, each followed by a space; one that begins with a wrap invocation and chains more (`source wrap.sh 'x' && cat log`) is re-wrapped, since the chained part would run unredacted
 A read of a running command's output, such as Claude Code's `BashOutput` | It starts nothing. What it reads was redacted when the command filling the buffer was started
 An empty command | Nothing to cover
 A denied command | Refused instead
@@ -123,9 +123,10 @@ A **backgrounded** command takes a third path: `source wrap.sh --stream '<cmd>'`
 
 An incomplete command is *not* left alone. One ending in `\`, `&&`, `||` or `;` is wrapped like any other and fails inside the wrapper's `eval`, which re-parses it in isolation, so it fails the way it would have failed unwrapped rather than breaking the wrapper's syntax.
 
-The already-covered test is a prefix rather than a match anywhere, because two forms look covered and are not:
+The already-covered test is a single-command prefix rather than a match anywhere, because three forms look covered and are not:
 
 - **A command that merely names the wrap script.** The path is in this project's documentation and in the wrapper itself, so a match anywhere would leave `echo /usr/local/libexec/faramir/wrap.sh; cat secrets` unrewritten.
+- **A command chaining past a wrap invocation.** The prefix is there and everything after the `&&` would run unredacted, which is why the test takes a single command rather than a prefix alone.
 - **A command piping into the redactor.** A pipe carries stdout, so whatever the upstream wrote to stderr reaches the transcript unredacted, and chaining past it with `;`, `&&` or `||` runs the rest of the line uncovered. Wrapping one captures both streams and costs a second redaction pass, which changes nothing because a token is not a value.
 
 What each agent does with that rewrite, how the rules reach it, and what enrolling one costs is in [coding-agents.md](coding-agents.md).
@@ -200,4 +201,4 @@ Four things follow:
 
 So the scope is "the command a human approves is trusted with permanent root on this host". Serialisation keeps every *other* command out of that trust; nothing walls the approved command itself in. `--allow-sudo` belongs where that command is operator-owned and read-only to brokered commands.
 
-The uid stays the bound. `faramir-exec` gains the ability to *ask*, not the ability to sudo, and the ask is answered by an account the agent cannot become. What remains is operational: an operator with `NOPASSWD` sudo or a warm sudo timestamp has already handed the agent that account, and a watcher left in a terminal the agent can type into is a prompt the agent can answer. A `NOPASSWD` entry would remove all of this in one line, so `faramir doctor` checks for one whether or not this host was installed with `--allow-sudo`.
+The uid stays the bound. `faramir-exec` gains the ability to *ask*, not the ability to sudo, and the ask is answered by an account the agent cannot become. What remains is operational: an operator with `NOPASSWD` sudo or a warm sudo timestamp has already handed the agent that account, and a watcher left in a terminal the agent can type into is a prompt the agent can answer. A `NOPASSWD` entry for the executor's account would remove all of this in one line, so `faramir doctor` checks that account for one whether or not this host was installed with `--allow-sudo`.

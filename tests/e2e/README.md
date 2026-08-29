@@ -47,7 +47,7 @@ Ubuntu ships two behind one `sudo` alternatives group, and `faramir init --allow
 SUDO=sudo-rs ./e2e.sh up && SUDO=sudo-rs ./e2e.sh run   # under sudo-rs
 ```
 
-Every container, image and network name takes a suffix from `SUDO`, so the two stacks share nothing and can be up together. `./e2e.sh both` is that pair run concurrently, one log per arrangement and per uid under `$TMPDIR`. Each container's systemd roots under its own `docker-<id>.scope`, so the cgroup trees do not meet even though both run `--cgroupns=host`.
+Every container, image and network name takes a suffix from `SUDO`, so the two stacks share nothing and can be up together. `./e2e.sh both` is that pair run concurrently, two logs per arrangement (`up` and `run`) and per uid under `$TMPDIR`. Each container's systemd roots under its own `docker-<id>.scope`, so the cgroup trees do not meet even though both run `--cgroupns=host`.
 
 `SUDO` is `sudo` or `sudo-rs`, the implementations' own names rather than labels for them, so what a CI job is called, what you type and what the docs say are one word. Unset is `sudo`, which is what the image pins, and it takes the unsuffixed names.
 
@@ -59,7 +59,7 @@ Every container, image and network name takes a suffix from `SUDO`, so the two s
 
 **Naming suites is the same hazard from the other side.** Each leaves what the later ones examine (`check-project` runs `init --agent claude`, which writes the account-wide settings `check-doctor` then reports missing), so a set that is not a prefix of the run order is measured against a box its predecessors never set up. `run` warns about that too, and `./e2e.sh run logs doctor` above is one: useful while changing those two suites, and not a verdict on the build.
 
-`check-secrets.sh`, `check-link.sh` and `check-block.sh` are the exceptions. The first rotates the shared `db/password` that five other suites redact against; the second adds refs to the running install and regroups two files in the operator's home; the third writes entries into the config and renders rules into the operator's settings. Each snapshots what it changes on the way in and restores it on the way out.
+`check-secrets.sh`, `check-link.sh` and `check-block.sh` are the exceptions. The first rotates the shared `db/password` that four other suites redact against; the second adds refs to the running install and regroups two files in the operator's home; the third writes entries into the config and renders rules into the operator's settings. Each snapshots what it changes on the way in and restores it on the way out.
 
 Each suite prints one line per check and exits non-zero if any failed.
 

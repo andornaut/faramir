@@ -10,7 +10,7 @@ Socket | Who may connect | What it does | Request limit
 
 The internal sockets are root-owned so neither the keeper's nor the executor's own uid can connect: a child reaching the executor socket would run commands the broker never authorised and never logged.
 
-All three drop a connection that sends no request within 30s. Only the broker answers with an error code first.
+All three drop a connection that sends no request within 30s. The broker answers `timeout` first and the executor `bad_request`; the keeper says nothing.
 
 ## version
 
@@ -42,7 +42,7 @@ Op | Does | Notes
 `run` | run a command | The default: an absent `op` is read as this. An `op` this broker does not know is refused rather than defaulted, so a caller naming one is told.
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
 `refs` | ref names only | Adds `refs`.
-`status` | version, `build`, `config`, the managed store's `patterns` and resolved `files`, secret count, load errors, `degraded`, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never a value. The store's paths are already the agent's to know: `config` names the config file, which is `0644`, and its `[secret]` patterns name the directory. So `files` lists which of those globs resolved, never what any holds. `degraded` is why the exit status is `1`, counted rather than named: a ref in no redactor is a value nothing tokenizes, so how many there are is said and which they are is `doctor`'s.
+`status` | version, `build`, `config`, the managed store's `patterns` and resolved `files`, secret count, load errors, `unresolved_patterns`, a `links` count, `degraded_links`, `degraded`, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never a value. The store's paths are already the agent's to know: `config` names the config file, which is `0644`, and its `[secret]` patterns name the directory. So `files` lists which of those globs resolved, never what any holds, and a linked file is a count and never a path. `degraded` is why the exit status is `1`. A ref the redactor refused is counted rather than named, which they are being `doctor`'s to say; a linked file that did not load is named by its ref in `degraded_links` with a reason, the ref being one `faramir link ls` already lists.
 `refresh` | re-read the managed store now | Root only. Adds `refs`. For a writer of the store: `faramir vault` sends it so a rotated value is redacted before the command that rotated it returns, instead of up to a second later, which is what the staleness check bounds.
 `escalations` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
 `answer` | answer a question by `id`, carrying `approved` | Root only.
@@ -97,7 +97,7 @@ A caller with more text than one request may carry sends it a chunk at a time **
 
 `escalations` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. The wait is clamped to 60s. It returns at most one question, ever, carrying `caller` (the account that asked, never the one the command would run as), `received` (RFC 3339, when `sudo` asked), `waiting_sec` and `expires_in_sec`; a second command asking to sudo while one is waiting is refused rather than queued.
 
-It also takes an optional `await_log_id`, naming the run the caller approved and has not yet heard the end of. When that run ends the response carries `finished`: `log_id`, `exit_code`, `duration_sec`, `waited_sec`, `timed_out` and `error`, and the poll returns as soon as the run ends rather than waiting out `wait_sec`. `exit_code` is `null` where the broker got no status for the run, `error` saying why; a zero there would read as a clean exit. Only an approved run has an ending to report, and only the caller naming it is told: the broker holds the last one rather than emptying it when it is read, so two watchers both see it and a caller that approved nothing sees none.
+It also takes an optional `await_log_id`, naming the run the caller approved and has not yet heard the end of. When that run ends the response carries `finished`: `log_id`, `exit_code`, `duration_sec`, `waited_sec`, `timed_out`, `error` and, where the code is a stand-in, `status_unknown`, and the poll returns as soon as the run ends rather than waiting out `wait_sec`. `exit_code` is `null` where the command never started, `error` saying why; a zero there would read as a clean exit. A run whose status the executor never reported carries the stand-in code and `status_unknown` instead. Only an approved run has an ending to report, and only the caller naming it is told: the broker holds the last one rather than emptying it when it is read, so two watchers both see it and a caller that approved nothing sees none.
 
 `escalate` carries `procs`, the ancestry above the asking `sudo`, most recent first: a non-empty array of pids, each an integer above 1 (`0` and negatives name a process group to `kill`, and pid 1 is `init`, which no brokered command is). It blocks until a human answers, the question expires, or the broker stops. The broker asks the [executor](#the-executor-socket) which of its live runs forked one of them; an ancestry none owns is refused without asking anybody. A pid is a claim, not proof, so the executor checks each against a handle it took at the fork: a number the kernel has since handed to something else answers for nothing. `sudo` is blocked on it throughout, which is what makes the wait an authentication step.
 
@@ -139,6 +139,7 @@ Field | Meaning
 `waited_sec` | How much of `duration_sec` the command spent blocked on its own escalation, present only where a `sudo` waited at all. Written to the `run` record and carried on `finished` as well. `duration_sec` is wall time from fork to exit and the child sits inside `sudo` for the whole question, so an escalation answered slowly reads as a slow command without this. Reported beside the duration rather than subtracted from it: `[command] max_timeout_sec` is enforced against the same clock, and a duration that no longer matched it would be a second, quieter number.
 `escalation_code`, `escalation` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `rejected` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [escalate codes](#escalations); the same pair is written to the `run` record.
 `truncated` | Output hit the output cap.
+`status_unknown` | Present only where the executor never reported an exit status. The output is kept and `exit_code` is a non-zero stand-in rather than the child's own, so a `137` here is not a signal kill. Written to the `run` record as well. A command that failed to start is not this: that is an `error` response, `exec_failed`, `not_found` or `not_executable`.
 `abandoned` | The audit record only: the caller's connection went and the run was killed rather than left to its timeout. Told apart from `timed_out`, which is the command taking too long; this one was inside the time it was given. There is nobody left to send a response to, so the record is the whole of what is reported.
 
 A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `exit_code` and adds `error`:
@@ -178,7 +179,7 @@ Peer uid is checked against `[keeper] allowed_user` on top of the mode. There is
 {"values": {"home/router/admin": "…"},
  "state": [{"path": "/etc/faramir/secrets/x.sops.yml",
             "mtime_unix_nano": 1743160000000000000, "size": 812}],
- "errors": [], "unresolved_patterns": []}
+ "errors": [], "unresolved_patterns": [], "shadowed_refs": []}
 ```
 
 Every managed value, never a subset: the redactor is built from the whole value set, because a managed host can print a credential no command injected. The `state` is the fingerprint of each file this decrypt read, returned with the values so the two describe the same moment. Fetched separately it could fingerprint a file edited after the decrypt, and that edit would never be noticed.
@@ -193,6 +194,7 @@ The staleness poll, and where the managed store globs are expanded, so a file ad
 
 - A file that could not be stat-ed or decrypted comes back in `errors` rather than as an error response, so one broken file does not blank the whole value set. Key material is stripped from those strings before they cross the socket.
 - `unresolved_patterns` is separate, and the separation is the point: an entry that named no file is a secrets directory not written yet, which is what every first install looks like, while a file that is there and will not open is a value the redactor is missing without knowing it. Neither stops the daemon; both fail `faramir broker --check` and `faramir doctor`.
+- `shadowed_refs`, on `get_values` only, names a ref more than one managed file defines with different values: one value ends up in no redactor, which `doctor` fails under `shadowed refs`.
 - An oversized or malformed request gets no response: the connection closes. A JSON `null` payload is the one that answers `bad_request`.
 
 ```json
@@ -220,7 +222,7 @@ One request, carrying a single file descriptor as ancillary data:
 
 The descriptor is the **slave** end of a PTY the broker created. The broker keeps the master, so redaction and the audit log read the child's bytes directly. Both sides close their copy of the slave once the child holds it, or the master never reaches EOF.
 
-`argv[0]` arrives already resolved to an absolute path and the executor checks nothing about it. What bounds a brokered command is the uid it runs as (no age key, no audit log, no SSH key) and the mode on this socket, which the executor's own uid cannot open. An exit code is `128+signal` where the child was signalled.
+`argv[0]` arrives already resolved to an absolute path and the executor checks nothing about it before running it; only after a failed start does it inspect why, answering `not_executable` or `exec_failed` rather than a run with no status. What bounds a brokered command is the uid it runs as (no age key, no audit log, no SSH key) and the mode on this socket, which the executor's own uid cannot open. An exit code is `128+signal` where the child was signalled.
 
 `run_id` is what the broker calls this run, passed through so a `sudo` raised inside it can be attributed back to the command a human was shown. Empty where the host grants no escalation, which leaves the run unattributable and so unable to sudo.
 

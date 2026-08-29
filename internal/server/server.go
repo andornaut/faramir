@@ -1145,7 +1145,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 
 	outcome.ExitCode = &result.ExitCode
 	outcome.DurationSec, outcome.TimedOut = result.DurationSec, result.TimedOut
-	outcome.WaitedSec = judged.waited
+	outcome.WaitedSec, outcome.StatusUnknown = judged.waited, result.StatusUnknown
 
 	record := s.execFields(audited)
 	record["op"] = recordRun

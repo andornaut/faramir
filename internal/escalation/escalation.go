@@ -211,6 +211,10 @@ type Outcome struct {
 	// timeout is enforced against the same wall clock the duration measures.
 	WaitedSec float64 `json:"waited_sec,omitempty"`
 	TimedOut  bool    `json:"timed_out"`
+	// StatusUnknown marks ExitCode as a stand-in for a status the executor never
+	// reported, so a 137 here is not read as a signal kill. The run response and
+	// audit record carry the same flag.
+	StatusUnknown bool `json:"status_unknown,omitempty"`
 	// Error is the broker's own failure, already through the redaction the audit
 	// record gets: this is printed to a terminal by the same route the question
 	// was.

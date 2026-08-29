@@ -239,13 +239,14 @@ faramir redact -- ./deploy.sh
 `--env NAME=faramir://ref` | Once per secret, or a bare `NAME` meaning `faramir://NAME`
 `--env-file FILE` | `NAME=faramir://ref` per line, or a bare `NAME` meaning `faramir://NAME`. `#` starts a comment, at the start of a line or after whitespace
 `--quiet` | Suppress the redaction summary on stderr. Not why a `sudo` was refused: that is printed either way, being what says whether running the command again is worth anything
-`--cwd`/`-C` | Where the command runs. Defaults to the caller's directory
+`--cwd`/`-C` | Where the command runs, an absolute path. Defaults to the caller's directory
 `--timeout`/`-t` | Seconds before the broker kills it. Defaults to `[command] timeout_sec`, and `max_timeout_sec` is the ceiling
-`--json` | The raw response, on every broker-facing command
+`--json` | The raw response, on every broker-facing command but `redact`, whose output is the redaction itself
 
-- The child's exit code is faramir's own. A broker that is not running exits 69 (`EX_UNAVAILABLE`), and one at its concurrency limit exits 75 (`EX_TEMPFAIL`), which is the one refusal that the same request survives a moment later. A program that is not there exits 127 and one that is there and cannot be run exits 126, which is what a shell gives for each. Every other refusal exits 1, and a usage error exits 2.
+- Flags after the program name are the program's own: parsing stops at the first non-flag word, so a `--` still works and is not required.
+- The child's exit code is faramir's own. A run whose exit status was lost keeps its output and reports a non-zero stand-in code, saying so on stderr. A broker that is not running exits 69 (`EX_UNAVAILABLE`), and one at its concurrency limit exits 75 (`EX_TEMPFAIL`), which is the one refusal that the same request survives a moment later. A program that is not there exits 127 and one that is there and cannot be run exits 126, which is what a shell gives for each. Every other refusal exits 1, and a usage error exits 2.
 - **`faramir redact` writes nothing it could not redact**, in either shape. A chunk the broker cannot cover is withheld, the stream stops there, and the exit status is non-zero: for `-- CMD` the child's own status when it failed, else 1. Chunks already redacted are kept, so a broker lost mid-stream truncates rather than empties.
-- Both `--env` and `--env-file` refuse a literal value and a name that cannot be an environment variable. One file refuses a name given twice with different refs, the bare and the mapping form counting as the same name; across sources a later `--env-file` beats an earlier one, and `--env` beats both. A bad line is reported with file and line, and the offending value never appears. A bare name is held to both rules, so a word that is not a usable variable name or not a ref a store can hold is refused where it is written rather than becoming a ref nothing serves.
+- Both `--env` and `--env-file` refuse a literal value and a name that cannot be an environment variable. A name given twice with different refs is refused, within a file, across files, and across `--env` flags, the bare and the mapping form counting as the same name; `--env` still overrides `--env-file`. A bad line is reported with file and line, and the offending value never appears. A bare name is held to both rules, so a word that is not a usable variable name or not a ref a store can hold is refused where it is written rather than becoming a ref nothing serves.
 
 ### Allowing sudo on the controller
 

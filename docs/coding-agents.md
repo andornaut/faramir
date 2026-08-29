@@ -15,7 +15,7 @@ Feature | Claude Code | agy | Antigravity IDE | opencode | Kilo Code | pi
 Command routed through the broker | Enrolled trees | Yes | Yes | Yes | Yes | Yes
 Its output redacted | Enrolled trees | Yes | Yes | Yes | Yes | Yes
 Deny list refuses a command | Yes | Yes | Yes | Yes | Yes | Yes
-A backgrounded command streams rather than buffering | Yes | Yes | Yes | Yes | Yes | Yes
+A backgrounded command streams rather than buffering | Yes | Trailing `&` | Trailing `&` | Yes | Yes | Yes
 File tools refused | Yes | Yes | Yes | Yes | Yes | Yes
 &nbsp;&nbsp;by a rule file the agent enforces | Yes | Yes | No | No | No | No
 &nbsp;&nbsp;by faramir itself | N/A | Yes | Yes | Yes | Yes | Yes
@@ -101,7 +101,7 @@ A rules file faramir creates carries the frontmatter that makes it always-on, wh
 
 ## opencode, Kilo Code and pi
 
-These three have no hook that runs a program. A plugin inside the agent's own process blocks a call by throwing and changes one by mutating its arguments, so it asks the guard and applies the answer:
+These three have no hook that runs a program. A plugin inside the agent's own process blocks a call and changes one by mutating its arguments, so it asks the guard and applies the answer:
 
 ```json
 {"decision": "deny", "reason": "<what the model is told>"}
@@ -112,7 +112,7 @@ A rewrite carries back every field of the original tool input with only `command
 
 Every other answer fails closed: a guard that cannot be run, a non-zero exit, an answer that is not JSON, a rewrite naming no command, a decision the plugin does not recognise. That last one covers version skew, which is why `faramir init` [comes before enrolling one of these](operating.md#rules-a-command-does-not-state).
 
-opencode and Kilo Code load a JavaScript plugin. Pi loads a TypeScript extension. All three are installed in a home and loaded for every project; each translates a decision the guard made, and none of them decides anything.
+opencode and Kilo Code load a JavaScript plugin, which blocks by throwing. Pi loads a TypeScript extension, which blocks by returning `{ block: true, reason }`. All three are installed in a home and loaded for every project; each translates a decision the guard made, and none of them decides anything.
 
 ## Claude Code
 
@@ -132,6 +132,8 @@ Two agents, one contract. The CLI (`agy`) and the IDE ship a single hook contrac
 
 The hook returns `overwrite` beside its decision, a shallow merge into the tool call's own arguments whose merged form is what runs. So `run_command` is rewritten to `source .../wrap.sh '<command>'` exactly as Claude Code's `Bash` is, and the output comes back redacted. Nothing else carries a command, and the guard answers for nothing else.
 
+A command backgrounded with a trailing `&` streams like any other. Antigravity's own asynchrony does not: `run_command` carries a wait after which the host takes the command async and polls, and the guard deliberately does not stream on it, because `--stream` runs in a subshell and this host's shell persists between calls, so an `export` would stop surviving. A long command is captured and shows nothing until it exits.
+
 The registration matches every tool rather than naming `run_command`. An empty reply is a call left alone here, so answering for a tool that runs nothing costs nothing, and taking every tool is what makes a payload the guard cannot read refuse the call rather than pass it, whatever tool it arrived on.
 
 The permission check runs before the hook. A command with no rule permitting it is refused before the guard is asked, so the guard's allow approves nothing that was going to prompt: enrolling takes nothing away, unlike Claude Code.
@@ -144,4 +146,4 @@ The hook goes into `~/.gemini/config/hooks.json`, which both halves read for eve
 
 The CLI's rules are `read_file(<path>)` and `write_file(<path>)`. A path names the hierarchy under it: a rule on a directory refuses every file below it, at any depth.
 
-A trailing wildcard does not. `read_file(<dir>/*)` matches nothing, including the files directly in that directory, so a rule written that way is one that looks protective and refuses nothing. Only literal paths are rendered for this agent, and a `[[secret.block]]` entry naming a pattern rather than a path is reported as one this agent cannot be given.
+A trailing wildcard does not. `read_file(<dir>/*)` matches nothing, including the files directly in that directory, so a rule written that way is one that looks protective and refuses nothing. A leading wildcard is the one pattern its matcher has: `*<suffix>` refuses every path ending that way, so a suffix name entry renders here as `read_file(*.pem)`. The other name shapes have no spelling that refuses the set that was asked for, and the nearest pattern refuses a different set (an exact `.env` rendered as `*.env` would refuse `faramir.env`, which holds refs and is meant to be read), so each is dropped and reported as one this agent cannot be given. The command guard still applies all of them.

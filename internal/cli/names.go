@@ -49,9 +49,10 @@ var Operator = []string{
 }
 
 // Agent is the subcommands the coding agent may run, and so the only ones whose
-// arguments the guard leaves unscanned: a ref in `run --env`, and the text
-// `redact` is scrubbing, would otherwise trip the patterns that exist to catch
-// a value being read.
+// own arguments the guard leaves unscanned: a ref in `run --env` would
+// otherwise trip the patterns that exist to catch a value being read. The
+// child a `redact --` runs is scanned all the same; only `run`'s child is
+// exempt, the broker guarding that one.
 //
 // Everything in Operator and absent here acts on the install rather than
 // through it, and is refused to the agent's shell.

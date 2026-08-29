@@ -388,10 +388,10 @@ func (p EligibilityPolicy) Check(value string) string {
 			len(value), MaxValueBytes)
 	}
 	// A value that is faramir's own token, guillemets and all. The redactor
-	// emits that shape for another ref, and the streaming buffer redacts the
-	// tail it already redacted, so a stored token would be matched there and
-	// re-wrapped: a real value's output would carry this ref's token instead of
-	// its own. Refused the way a short value is, being a value the redactor
+	// emits that shape for another ref, so a stored token in output cannot be
+	// told from a token the redactor wrote, and wherever it is matched it is
+	// re-wrapped: the output would carry this ref's token instead of the one it
+	// held. Refused the way a short value is, being a value the redactor
 	// cannot represent rather than one it will not hold. No real credential is
 	// this shape; it is faramir's reserved output format.
 	if strings.HasPrefix(value, tokenOpen) && strings.HasSuffix(value, tokenClose) {

@@ -797,7 +797,8 @@ func TestAnApprovedRunPublishesItsEnding(t *testing.T) {
 	token := approved(t, s)
 
 	code := 3
-	s.Release(token, Outcome{LogID: "log-1", ExitCode: &code, DurationSec: 1.5})
+	s.Release(token, Outcome{LogID: "log-1", ExitCode: &code, DurationSec: 1.5,
+		StatusUnknown: true})
 
 	_, finished := s.Poll(0, "log-1")
 	if finished == nil {
@@ -808,6 +809,9 @@ func TestAnApprovedRunPublishesItsEnding(t *testing.T) {
 	}
 	if finished.DurationSec != 1.5 {
 		t.Errorf("duration = %v, want 1.5", finished.DurationSec)
+	}
+	if !finished.StatusUnknown {
+		t.Error("StatusUnknown was dropped, so a stand-in code reads as a signal kill")
 	}
 }
 
