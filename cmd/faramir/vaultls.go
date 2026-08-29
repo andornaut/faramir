@@ -69,10 +69,9 @@ func newVaultListCmd() *cobra.Command {
 
 func runVaultList(f vaultListFlags) int {
 	const label = "vault ls"
-	paint, err := newPalette(f.when)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
-		return 2
+	paint, bad := paletteFor(label, f.when)
+	if bad != 0 {
+		return bad
 	}
 	// The secrets directory is 2750 and the group is the keeper's, so the operator
 	// cannot list it. Blocked with the reason rather than reported as an empty

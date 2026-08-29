@@ -693,10 +693,9 @@ func recordedOperator(configFile string) string {
 
 func runDoctor(f doctorFlags) int {
 
-	paint, err := newPalette(f.when)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir doctor: %v\n", err)
-		return 2
+	paint, bad := paletteFor("doctor", f.when)
+	if bad != 0 {
+		return bad
 	}
 	// Before the round trip below, which changes what it would report: opening
 	// the broker socket activates the service, and that starts the keeper and

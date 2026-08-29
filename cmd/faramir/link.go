@@ -210,10 +210,9 @@ func newLinkListCmd() *cobra.Command {
 }
 
 func runLinkList(f linkFlags) int {
-	paint, err := newPalette(f.when)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)
-		return 2
+	paint, bad := paletteFor("link ls", f.when)
+	if bad != 0 {
+		return bad
 	}
 	dir, err := installedConfigDir(socketDefault())
 	if err != nil {

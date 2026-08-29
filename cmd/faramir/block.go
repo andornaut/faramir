@@ -464,10 +464,9 @@ const (
 )
 
 func runBlockList(f blockFlags) int {
-	paint, err := newPalette(f.when)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", err)
-		return 2
+	paint, bad := paletteFor("block ls", f.when)
+	if bad != 0 {
+		return bad
 	}
 	// Both halves is the default, so naming both narrows to everything and says
 	// nothing. Refused rather than answered, a caller that wrote both having

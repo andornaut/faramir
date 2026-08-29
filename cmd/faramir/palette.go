@@ -26,6 +26,18 @@ func addColorFlag(c *cobra.Command, when *string) {
 	c.Flags().StringVar(when, "color", "auto", "colourise: auto, always or never")
 }
 
+// paletteFor resolves --color for one command, printing a refusal under that
+// command's own name. A non-zero second return is the usage status to exit
+// with.
+func paletteFor(label, when string) (palette, int) {
+	paint, err := newPalette(when)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return paint, 2
+	}
+	return paint, 0
+}
+
 func newPalette(when string) (palette, error) {
 	switch when {
 	case "always":

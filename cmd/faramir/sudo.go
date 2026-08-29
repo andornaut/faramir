@@ -103,10 +103,9 @@ func newSudoListCmd() *cobra.Command {
 			if !requireRootToAnswer("sudo ls") {
 				return codeErr(1)
 			}
-			paint, err := newPalette(when)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
-				return codeErr(2)
+			paint, bad := paletteFor("sudo ls", when)
+			if bad != 0 {
+				return codeErr(bad)
 			}
 			return codeErr(listEscalations(socketDefault(), o.json, paint))
 		},
@@ -134,10 +133,9 @@ func newSudoWatchCmd() *cobra.Command {
 			if !requireRootToAnswer("sudo watch") {
 				return codeErr(1)
 			}
-			paint, err := newPalette(when)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir sudo watch: %v\n", err)
-				return codeErr(2)
+			paint, bad := paletteFor("sudo watch", when)
+			if bad != 0 {
+				return codeErr(bad)
 			}
 			return codeErr(watchEscalations(socketDefault(), paint))
 		},
@@ -194,10 +192,9 @@ func newRejectCmd() *cobra.Command {
 			if len(args) == 1 && args[0] != "" {
 				return codeErr(answer("reject", socketDefault(), args[0], false, o.json))
 			}
-			paint, err := newPalette(when)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir sudo reject: %v\n", err)
-				return codeErr(2)
+			paint, bad := paletteFor("sudo reject", when)
+			if bad != 0 {
+				return codeErr(bad)
 			}
 			return codeErr(rejectWaiting(socketDefault(), o.json, paint))
 		},

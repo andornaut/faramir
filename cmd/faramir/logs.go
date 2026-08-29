@@ -68,10 +68,9 @@ func newLogsCmd() *cobra.Command {
 }
 
 func runLogs(f logsFlags, args []string) int {
-	paint, err := newPalette(f.when)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
-		return 2
+	paint, bad := paletteFor("logs", f.when)
+	if bad != 0 {
+		return bad
 	}
 
 	// A log-id names a command already recorded, so there is nothing to watch for.

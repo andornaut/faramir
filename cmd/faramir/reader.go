@@ -290,10 +290,9 @@ func listedOrNot(adding bool) string {
 // keys and a rule and no value. It reads that file rather than asking the
 // broker.
 func runReaderList(f readerFlags) int {
-	paint, err := newPalette(f.when)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir reader ls: %v\n", err)
-		return 2
+	paint, bad := paletteFor("reader ls", f.when)
+	if bad != 0 {
+		return bad
 	}
 	cfg, err := loadResolved(socketDefault())
 	if err != nil {
