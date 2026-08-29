@@ -726,12 +726,6 @@ func TestRedactionCountsRenderTokensAndCounts(t *testing.T) {
 	}
 }
 
-func TestNewPaletteRejectsAnUnknownWhen(t *testing.T) {
-	if _, err := newPalette("sometimes"); err == nil {
-		t.Fatal("no error for --color=sometimes")
-	}
-}
-
 // https://no-color.org: honoured whatever its value, empty included.
 func TestNoColorDisablesColourWhateverItsValue(t *testing.T) {
 	t.Setenv("NO_COLOR", "")

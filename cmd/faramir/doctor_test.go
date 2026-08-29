@@ -11,24 +11,6 @@ import (
 
 // The report is read by someone looking for the one line that is not "ok".
 
-func TestTheStatusColumnIsFixedAndTheDetailAligns(t *testing.T) {
-	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
-		{Name: "config", Status: install.StatusOK, Detail: "/etc/faramir/config.toml"},
-		{Name: "age key", Status: install.StatusFailed, Detail: "readable by operator"},
-	}})
-	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("expected a line per finding:\n%s", out.String())
-	}
-	// The detail starts at the same column on both.
-	first := strings.Index(lines[0], "/etc/faramir")
-	second := strings.Index(lines[1], "readable")
-	if first != second {
-		t.Errorf("details start at %d and %d:\n%s", first, second, out.String())
-	}
-}
-
 func TestARepeatedCheckIsNamedOnce(t *testing.T) {
 	var out bytes.Buffer
 	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{

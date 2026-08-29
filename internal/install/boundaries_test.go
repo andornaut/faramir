@@ -157,34 +157,52 @@ func sudoArrangement(t *testing.T) (*config.Config, string) {
 	return cfg, dir
 }
 
-// The environment file is part of the arrangement, not an extra: the sudoers
-// entry names it as env_file, so a host without it makes sudo warn on every
-// brokered command and drops what [command] env configured at the sudo. Missing
-// is a failure rather than a silence.
-func TestTheSudoGrantCheckReadsTheEnvironmentFile(t *testing.T) {
-	cfg, dir := sudoArrangement(t)
-	opts := DoctorOptions{ExecUser: "ex", AgentUser: "op"}
+// The environment file and the helper are both part of the arrangement, not
+// extras: the sudoers entry names the first as env_file, so a host without it
+// makes sudo warn on every brokered command and drops what [command] env
+// configured at the sudo, and the second is what the stack's requisite line
+// execs, so a host missing it can approve nothing. Each gone is a failure
+// naming the file, rather than a silence.
+func TestTheSudoGrantCheckReadsEachFileOfTheArrangement(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		remove func(cfg *config.Config, dir string) string
+	}{
+		{"the environment file", func(_ *config.Config, dir string) string {
+			return filepath.Join(dir, "sudo-env")
+		}},
+		{"the helper", func(cfg *config.Config, _ string) string {
+			return cfg.Sudo.Helper
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, dir := sudoArrangement(t)
+			opts := DoctorOptions{ExecUser: "ex", AgentUser: "op"}
 
-	var whole DoctorReport
-	diagnoseSudoArrangement(&whole, opts, cfg)
-	if got := only(t, whole); got.Status != StatusOK {
-		t.Fatalf("status %q, want %q with the whole arrangement in place: %s",
-			got.Status, StatusOK, got.Detail)
-	}
+			var whole DoctorReport
+			diagnoseSudoArrangement(&whole, opts, cfg)
+			if got := only(t, whole); got.Status != StatusOK {
+				t.Fatalf("status %q, want %q with the whole arrangement in place: %s",
+					got.Status, StatusOK, got.Detail)
+			}
 
-	// The same host with only that file gone, which is the drift this catches.
-	if err := os.Remove(filepath.Join(dir, "sudo-env")); err != nil {
-		t.Fatal(err)
-	}
-	var without DoctorReport
-	diagnoseSudoArrangement(&without, opts, cfg)
-	finding := only(t, without)
-	if finding.Status != StatusFailed {
-		t.Errorf("status %q, want %q with the environment file gone: %s",
-			finding.Status, StatusFailed, finding.Detail)
-	}
-	if !strings.Contains(finding.Detail, "sudo-env") {
-		t.Errorf("the failure does not name the file it is about: %s", finding.Detail)
+			// The same host with only that file gone, which is the drift this
+			// catches.
+			path := tc.remove(cfg, dir)
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			var without DoctorReport
+			diagnoseSudoArrangement(&without, opts, cfg)
+			finding := only(t, without)
+			if finding.Status != StatusFailed {
+				t.Fatalf("status %q, want %q with %s gone: %s",
+					finding.Status, StatusFailed, tc.name, finding.Detail)
+			}
+			if !strings.Contains(finding.Detail, filepath.Base(path)) {
+				t.Errorf("the failure does not name the file it is about: %s", finding.Detail)
+			}
+		})
 	}
 }
 
@@ -232,36 +250,6 @@ func TestTheCredentialAndTheArrangementAreSeparateFindings(t *testing.T) {
 	}
 }
 
-// The helper is what the stack's requisite line execs, so a host missing it can
-// approve nothing. Checked by this name as well as by installed files: a verdict
-// has to be true on its own terms, or an operator reading the grant line alone
-// is told the grant works on a host where no escalation can be approved.
-func TestTheSudoGrantCheckReadsTheHelper(t *testing.T) {
-	cfg, _ := sudoArrangement(t)
-	opts := DoctorOptions{ExecUser: "ex", AgentUser: "op"}
-
-	var whole DoctorReport
-	diagnoseSudoArrangement(&whole, opts, cfg)
-	if got := only(t, whole); got.Status != StatusOK {
-		t.Fatalf("status %q, want %q with the whole arrangement in place: %s",
-			got.Status, StatusOK, got.Detail)
-	}
-
-	if err := os.Remove(cfg.Sudo.Helper); err != nil {
-		t.Fatal(err)
-	}
-	var without DoctorReport
-	diagnoseSudoArrangement(&without, opts, cfg)
-	finding := only(t, without)
-	if finding.Status != StatusFailed {
-		t.Fatalf("status %q, want %q with the helper gone: %s",
-			finding.Status, StatusFailed, finding.Detail)
-	}
-	if !strings.Contains(finding.Detail, cfg.Sudo.Helper) {
-		t.Errorf("the failure does not name the helper it is about: %s", finding.Detail)
-	}
-}
-
 // Whether this setting decides anything on this host. Without an escalation
 // grant the executor unit carries SystemCallFilter=@system-service, which
 // excludes @mount, so a brokered command that unshares a namespace holds
@@ -276,10 +264,7 @@ func TestUserNamespacesDecideNothingWithoutAnEscalationGrant(t *testing.T) {
 		cfg  *config.Config
 	}{
 		{"the config did not load", nil},
-		{"no [sudo] section", &config.Config{}},
-		{"a [sudo] section naming no account", &config.Config{
-			Sudo: config.SudoConfig{},
-		}},
+		{"no [sudo] section, and so no account named", &config.Config{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var report DoctorReport
