@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -64,15 +63,12 @@ func runKeeper(f keeperFlags) int {
 			shadowed = map[string]string{}
 		}
 		// Names only, even for the operator.
-		out, err := json.MarshalIndent(map[string]any{
+		if rc := printJSON("keeper", map[string]any{
 			"refs": keeper.SortedRefs(values), "errors": errs,
 			"shadowed_refs": shadowed,
-		}, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir keeper: %v\n", err)
-			return 1
+		}); rc != 0 {
+			return rc
 		}
-		fmt.Println(string(out))
 		if len(errs) > 0 {
 			return 1
 		}

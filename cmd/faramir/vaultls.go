@@ -8,7 +8,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -101,13 +100,7 @@ func runVaultList(f vaultListFlags) int {
 	})
 
 	if f.json {
-		out, err := json.MarshalIndent(files, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
-			return 1
-		}
-		fmt.Println(string(out))
-		return 0
+		return printJSON(label, files)
 	}
 
 	if len(files) == 0 {

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -239,13 +238,7 @@ func runLinkList(f linkFlags) int {
 		if links == nil {
 			links = []config.Link{}
 		}
-		body, err := json.MarshalIndent(links, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)
-			return 1
-		}
-		fmt.Println(string(body))
-		return 0
+		return printJSON("link ls", links)
 	}
 	if len(links) == 0 {
 		fmt.Fprintln(os.Stderr, "no linked secrets")

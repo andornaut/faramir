@@ -279,12 +279,9 @@ func listAsJSON(questions []escalation.Question, code int) int {
 	if questions == nil {
 		questions = []escalation.Question{}
 	}
-	body, err := json.MarshalIndent(questions, "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
-		return 1
+	if rc := printJSON("sudo ls", questions); rc != 0 {
+		return rc
 	}
-	fmt.Println(string(body))
 	return code
 }
 

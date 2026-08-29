@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -505,13 +504,7 @@ func runBlockList(f blockFlags) int {
 		if rows == nil {
 			rows = []blockRow{}
 		}
-		body, marshalErr := json.MarshalIndent(rows, "", "  ")
-		if marshalErr != nil {
-			fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", marshalErr)
-			return 1
-		}
-		fmt.Println(string(body))
-		return 0
+		return printJSON("block ls", rows)
 	}
 	if len(rows) == 0 {
 		fmt.Fprintln(os.Stderr, "no [[secret.block]] entries")
