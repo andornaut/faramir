@@ -23,6 +23,14 @@ summary() {
   [ "$FAIL" -eq 0 ]
 }
 
+# snap runs doctor as root into $JSON, which each suite that uses it points at
+# a file of its own; st and dt read one check's statuses and details out of it,
+# joined: several findings share one name (the three sockets), and a suite that
+# read only the first would miss the one that broke.
+snap() { /usr/local/bin/faramir doctor --json >"$JSON" 2>/dev/null; }
+st() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.status]|join(",")' "$JSON"; }
+dt() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.detail]|join(" ")' "$JSON"; }
+
 # waitfor SECONDS COMMAND... runs COMMAND once a second until it succeeds, and
 # returns 1 if it never does. Use it wherever a suite would otherwise sleep for
 # as long as the slowest case is thought to take: a fixed sleep is slower than

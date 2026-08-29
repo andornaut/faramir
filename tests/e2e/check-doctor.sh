@@ -42,14 +42,7 @@ settle() {
   return 1
 }
 
-# snap is one examination, named to the operator account so the checks that ask
-# what it can reach actually run.
-snap() { /usr/local/bin/faramir doctor --json >$JSON 2>/dev/null; }
-# st is every status reported under a check name, joined: several findings share
-# one name (the three sockets), and a suite that read only the first would miss
-# the one that broke.
-st() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.status]|join(",")' $JSON; }
-dt() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.detail]|join(" ")' $JSON; }
+# snap, st and dt come from lib.sh; these two are this suite's own totals.
 broke() { jq -r .failed $JSON; }
 unasked() { jq -r .not_asked $JSON; }
 

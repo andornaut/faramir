@@ -314,10 +314,8 @@ fi
 head_ "6. what doctor makes of it"
 # The JSON report rather than the table: a detail wraps across lines there, so a
 # grep for a phrase would match on where the wrap happened to fall.
+# shellcheck disable=SC2034  # read by lib.sh's snap, st and dt
 JSON=/tmp/link-doctor.json
-snap() { "$faramir" doctor --json >$JSON 2>/dev/null; }
-st() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.status]|join(",")' $JSON; }
-dt() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.detail]|join(" ")' $JSON; }
 snap
 # Both questions the grant exists to make true, asked as those accounts rather
 # than worked out from the mode.

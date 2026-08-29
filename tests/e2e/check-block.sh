@@ -313,10 +313,8 @@ fi
 head_ "6. doctor"
 # The JSON report rather than the table, where a detail wraps across lines and a
 # grep for a phrase would match on where the wrap happened to fall.
+# shellcheck disable=SC2034  # read by lib.sh's snap, st and dt
 JSON=/tmp/refuse-doctor.json
-snap() { "$faramir" doctor --json >$JSON 2>/dev/null; }
-st() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.status]|join(",")' $JSON; }
-dt() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.detail]|join(" ")' $JSON; }
 snap
 [ "$(st 'blocked paths')" = ok ] \
   && ok "doctor is OK on the blocked paths with the rules in place" \
