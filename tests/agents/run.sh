@@ -41,16 +41,6 @@ here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 mkdir -p "$OUT" || exit 2
 OUT=$(cd -- "$OUT" && pwd) || exit 2
 
-# one runs a single agent, in the tree, with the flags that agent needs to work
-# unattended. Every one of these was arrived at by watching a run fail without
-# it, so none of them is decoration:
-#
-#   opencode, kilo   auto-reject every permission request without --auto, and
-#                    the run ends on the first tool call
-#   agy              gives up at --print-timeout, five minutes by default
-#   codex            has to be unsandboxed, or the guard's rewrite cannot run
-#   claude           has no prompt to answer in print mode, so the permission
-#                    mode is the whole of its configuration here
 # modelfor names the model each agent runs under, overridable per agent with
 # FARAMIR_AGENT_MODEL_<SLUG>. Anthropic, OpenAI and Google only, and the strongest
 # each agent can reach, so that a weak model's confident guesses are not mistaken
@@ -81,6 +71,16 @@ modelfor() {
     esac
 }
 
+# one runs a single agent, in the tree, with the flags that agent needs to work
+# unattended. Every one of these was arrived at by watching a run fail without
+# it, so none of them is decoration:
+#
+#   opencode, kilo   auto-reject every permission request without --auto, and
+#                    the run ends on the first tool call
+#   agy              gives up at --print-timeout, five minutes by default
+#   codex            has to be unsandboxed, or the guard's rewrite cannot run
+#   claude           has no prompt to answer in print mode, so the permission
+#                    mode is the whole of its configuration here
 one() {
     local slug=$1 tree=$2 prompt=$3
     local report=$OUT/$slug.md log=$OUT/$slug.log
@@ -125,7 +125,12 @@ one() {
 # differs only in those two facts.
 promptfor() {
     local slug=$1
-    cat "$here/PROMPT.md"
+    # PROMPT.md's own placeholder as well as headless.md's. It is written for a
+    # reader who picks their own name, and an unattended agent given the file
+    # verbatim takes "<you>" for the name: six of them then share one scratch
+    # path and one cleanup glob, which is the collision the placeholder exists to
+    # prevent.
+    sed "s|<you>|$slug|g" "$here/PROMPT.md"
     printf '\n---\n\n'
     sed "s|AGENTSLUG|$slug|g" "$here/headless.md"
     # The backticks are markdown the agent reads, not command substitution, so
