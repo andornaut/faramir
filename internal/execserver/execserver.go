@@ -175,12 +175,15 @@ func (e *Executor) serveConnection(conn net.Conn) {
 	}
 
 	payload, slaveFD, err := readRequest(conn)
-	// run takes ownership of slaveFD; any path that misses it must close the
-	// descriptor here, or the broker's master never reaches EOF.
-	if err != nil || payload == nil {
-		if slaveFD >= 0 {
+	// run takes ownership of slaveFD; every other return leaves it to this
+	// close, or the broker's master never reaches EOF.
+	adopted := false
+	defer func() {
+		if !adopted && slaveFD >= 0 {
 			_ = unix.Close(slaveFD)
 		}
+	}()
+	if err != nil || payload == nil {
 		_ = sockutil.Send(conn, sockutil.ErrorResponse("bad_request", "no usable request"))
 		return
 	}
@@ -188,9 +191,6 @@ func (e *Executor) serveConnection(conn net.Conn) {
 	// is refused whatever it asked for, and told that rather than told about
 	// whichever field changed under it.
 	if why := version.Mismatch(payload.Version); why != "" {
-		if slaveFD >= 0 {
-			_ = unix.Close(slaveFD)
-		}
 		_ = sockutil.Send(conn, sockutil.ErrorResponse("bad_request", why))
 		return
 	}
@@ -200,21 +200,12 @@ func (e *Executor) serveConnection(conn net.Conn) {
 	switch payload.Op {
 	case "", opExec:
 	case opQuiescent:
-		if slaveFD >= 0 {
-			_ = unix.Close(slaveFD)
-		}
 		_ = sockutil.Send(conn, e.quiescence())
 		return
 	case opOwner:
-		if slaveFD >= 0 {
-			_ = unix.Close(slaveFD)
-		}
 		_ = sockutil.Send(conn, e.ownerOf(payload.Procs))
 		return
 	default:
-		if slaveFD >= 0 {
-			_ = unix.Close(slaveFD)
-		}
 		_ = sockutil.Send(conn, sockutil.ErrorResponse("bad_request",
 			"unknown op "+strconv.Quote(payload.Op)))
 		return
@@ -228,11 +219,11 @@ func (e *Executor) serveConnection(conn net.Conn) {
 	case e.slots <- struct{}{}:
 		defer func() { <-e.slots }()
 	default:
-		_ = unix.Close(slaveFD)
 		_ = sockutil.Send(conn, sockutil.ErrorResponse("busy", "executor is at its concurrency limit"))
 		return
 	}
 
+	adopted = true
 	_ = sockutil.Send(conn, e.run(payload, slaveFD, conn))
 }
 
@@ -526,27 +517,37 @@ type Client struct {
 
 func NewClient(socketPath string) *Client { return &Client{socketPath: socketPath} }
 
+// ask sends one no-PTY question to the executor and returns the reply line.
+// Every failure is a refusal: problem is "" only where a line came back, and
+// each caller keeps its own fail-closed reading of what it got. asked names
+// the question in the messages ("whether this host is quiet").
+func ask(socketPath string, req request, timeout time.Duration, asked string) (line []byte, problem string) {
+	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)
+	if err != nil {
+		return nil, fmt.Sprintf("the executor could not be asked %s (%s: %v)", asked, socketPath, err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+
+	if err := sockutil.Send(conn, req); err != nil {
+		return nil, fmt.Sprintf("the executor could not be asked %s (%v)", asked, err)
+	}
+	line, err = sockutil.ReadLine(conn, maxRequestBytes)
+	if err != nil || len(line) == 0 {
+		return nil, fmt.Sprintf("the executor did not say %s (%v)", asked, err)
+	}
+	return line, ""
+}
+
 // Quiescent asks the executor whether anything is running as its uid outside
 // the runs it is confining. The broker calls this before an escalation takes;
 // see Executor.quiescence for why the broker cannot answer it. Every failure
 // is a no: an executor that cannot be reached has not said the host is quiet.
 func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
-	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)
-	if err != nil {
-		return false, fmt.Sprintf("the executor could not be asked whether this host "+
-			"is quiet (%s: %v)", socketPath, err)
-	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
-
-	if err := sockutil.Send(conn, request{Op: opQuiescent, Version: version.Version}); err != nil {
-		return false, fmt.Sprintf("the executor could not be asked whether this host "+
-			"is quiet (%v)", err)
-	}
-	line, err := sockutil.ReadLine(conn, maxRequestBytes)
-	if err != nil || len(line) == 0 {
-		return false, fmt.Sprintf("the executor did not say whether this host is "+
-			"quiet (%v)", err)
+	line, problem := ask(socketPath, request{Op: opQuiescent, Version: version.Version},
+		timeout, "whether this host is quiet")
+	if problem != "" {
+		return false, problem
 	}
 	var response struct {
 		Quiescent bool   `json:"quiescent"`

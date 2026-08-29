@@ -1,16 +1,13 @@
 package execserver
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"time"
 
 	"golang.org/x/sys/unix"
 
-	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -121,22 +118,11 @@ func (e *Executor) ownerOf(ancestors []int) map[string]any {
 // reached has not attributed anything, and an escalation nobody can attribute is
 // the thing this refuses.
 func Owner(socketPath string, ancestors []int, timeout time.Duration) (runID, detail string) {
-	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)
-	if err != nil {
-		return "", fmt.Sprintf("the executor could not be asked what it forked "+
-			"(%s: %v)", socketPath, err)
-	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
-
-	if err := sockutil.Send(conn, request{
+	line, problem := ask(socketPath, request{
 		Op: opOwner, Version: version.Version, Procs: ancestors,
-	}); err != nil {
-		return "", fmt.Sprintf("the executor could not be asked what it forked (%v)", err)
-	}
-	line, err := sockutil.ReadLine(conn, maxRequestBytes)
-	if err != nil || len(line) == 0 {
-		return "", fmt.Sprintf("the executor did not say what it forked (%v)", err)
+	}, timeout, "what it forked")
+	if problem != "" {
+		return "", problem
 	}
 	var response struct {
 		RunID  string `json:"run_id"`
