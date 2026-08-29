@@ -103,20 +103,30 @@ observations, and an agent whose configured model has been withdrawn fails at th
 first call with a provider error that has nothing to do with faramir. Both are
 mistaken for findings.
 
+These are not the strongest models available. Only `claude` carries a frontier
+one, as the anchor the cheaper reports are read against; the rest are chosen for
+what a round costs. That trade is real and runs one way: a cheap model
+confabulates, and the reader pays in verification what the run saved in tokens.
+An earlier round scored a case `PASS` against a path that does not exist on the
+host, and three agents blamed a refusal on the wrong half of their own command
+line.
+
 | Agent | Model | Reached through |
 | --- | --- | --- |
 | `claude` | `claude-opus-5` | Anthropic |
 | `codex` | `gpt-5.6-terra` | OpenAI, on a ChatGPT account |
 | `agy` | `gemini-3.7-flash-high` | Google |
-| `opencode` | `openrouter/anthropic/claude-opus-5` | OpenRouter |
-| `kilo` | `kilo/anthropic/claude-opus-5` | Kilo, signed in |
-| `pi` | `openrouter/anthropic/claude-opus-5` | OpenRouter |
+| `opencode` | `openrouter/google/gemini-3.7-flash` | OpenRouter |
+| `kilo` | `kilo/nvidia/nemotron-3-ultra-550b-a55b:free` | Kilo's free tier |
+| `pi` | `openrouter/google/gemini-3.7-flash` | OpenRouter |
 
-The names are not interchangeable between agents. `agy` offers no Opus and takes
-a reasoning level as part of the name; a ChatGPT account serves `gpt-5.6-terra`
-and refuses `sol`, `sol-pro`, `terra-pro` and `luna-pro`; `kilo` and `pi` reach
-Anthropic only through their own broker or OpenRouter, so the name carries that
-prefix. Override any of them with `FARAMIR_AGENT_MODEL_<SLUG>`.
+The names are not interchangeable between agents. `agy` takes a reasoning level
+as part of the name; a ChatGPT account serves `gpt-5.6-terra` and refuses `sol`,
+`sol-pro`, `terra-pro` and `luna-pro`; `pi` reaches a provider only through
+OpenRouter, so its name carries that prefix. `kilo` is signed in to nothing, so
+every paid model is refused whatever it costs and only its free tier runs, and
+that tier carries no Google model. Override any of them with
+`FARAMIR_AGENT_MODEL_<SLUG>`.
 
 Check a model with a question whose answer is not already in the prompt. Codex
 echoes the prompt it was given, so asking an agent to reply with a fixed word and
@@ -124,8 +134,9 @@ grepping the output for that word matches the echo: every model passes, includin
 one the account refuses, and the run then dies at its first real call.
 
 An agent reaching a model it is not entitled to fails at the first call and
-produces no report. `kilo` answers `PAID_MODEL_AUTH_REQUIRED` until the account
-is signed in, which is a `kilo auth login` and not something the runner can do.
+produces no report: `PAID_MODEL_AUTH_REQUIRED` where it is not signed in, and a
+402 from OpenRouter where the balance will not cover the request's `max_tokens`.
+Neither is anything the runner can answer.
 
 Each agent gets `$FARAMIR_AGENT_TIMEOUT`, 20 minutes by default. The runs that
 finished took around twelve, so this is headroom over a working run rather than a

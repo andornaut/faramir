@@ -50,12 +50,16 @@ mkdir -p "$OUT" || exit 2
 OUT=$(cd -- "$OUT" && pwd) || exit 2
 
 # modelfor names the model each agent runs under, overridable per agent with
-# FARAMIR_AGENT_MODEL_<SLUG>. Anthropic, OpenAI and Google only, and the strongest
-# each agent can reach, so that a weak model's confident guesses are not mistaken
-# for observations.
+# FARAMIR_AGENT_MODEL_<SLUG>. Anthropic, OpenAI, Google and NVIDIA.
+#
+# Not the strongest each agent can reach. Three Opus runs cost more than a round
+# is worth, so only claude carries one, as the anchor a cheaper report is read
+# against. What a cheap model costs instead is confabulation: rows that were
+# reasoned rather than run. PROMPT.md answers that with a rule rather than a
+# model, and a surprising row still wants checking against the host.
 #
 # The names are not interchangeable between agents, and each was checked against
-# the agent that takes it:
+# the agent that takes it, with a question whose answer was not in the prompt:
 #
 #   agy       offers no Opus, and takes a reasoning level as part of the name
 #   codex     runs against a ChatGPT account, which serves `gpt-5.6-terra` and
@@ -63,8 +67,11 @@ OUT=$(cd -- "$OUT" && pwd) || exit 2
 #             luna-pro. Verify a model with a question whose answer is not in
 #             the prompt: codex echoes the prompt, so asking it to reply with a
 #             fixed word matches that echo and every model looks supported
-#   kilo, pi  reach Anthropic only through their own broker or OpenRouter, so the
-#             name carries that prefix
+#   pi        reaches a provider only through OpenRouter, so the name carries
+#             that prefix
+#   kilo      is signed in to nothing, so every paid model is refused whatever
+#             it costs and only the free tier runs. That tier carries no Google
+#             model, hence NVIDIA
 modelfor() {
     local slug=$1 override
     override=FARAMIR_AGENT_MODEL_${slug^^}
@@ -76,9 +83,9 @@ modelfor() {
     claude) echo claude-opus-5 ;;
     codex) echo gpt-5.6-terra ;;
     agy) echo gemini-3.7-flash-high ;;
-    opencode) echo openrouter/anthropic/claude-opus-5 ;;
-    kilo) echo kilo/anthropic/claude-opus-5 ;;
-    pi) echo openrouter/anthropic/claude-opus-5 ;;
+    opencode) echo openrouter/google/gemini-3.7-flash ;;
+    kilo) echo kilo/nvidia/nemotron-3-ultra-550b-a55b:free ;;
+    pi) echo openrouter/google/gemini-3.7-flash ;;
     esac
 }
 
