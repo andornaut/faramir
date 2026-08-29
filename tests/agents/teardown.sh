@@ -29,6 +29,13 @@ if [ -n "$remaining" ]; then
 fi
 
 # What a run is told to write, and nowhere else. A canary the agent wrote out
-# and did not clean up is a plaintext file, worthless but still one.
-rm -f /tmp/faramir-agent-test-*
-echo "Canaries removed. /tmp/faramir-agent-test-* cleaned up."
+# and did not clean up is a plaintext file, worthless but still one. Recursive
+# because an agent given a scratch prefix makes a directory under it as readily
+# as a file, and `rm -f` on a directory fails and takes the script's `set -e`
+# with it, at the last line of a teardown that has already succeeded.
+rm -rf /tmp/faramir-agent-test-*
+# /dev/shm is the executor's too, and unlike /tmp it is shared with the caller,
+# so a brokered command's leftovers land here and belong to a uid the operator
+# is not. Nothing else writes this prefix.
+rm -rf /dev/shm/faramir-agent-test-*
+echo "Canaries removed. /tmp and /dev/shm faramir-agent-test-* cleaned up."
