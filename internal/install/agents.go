@@ -297,35 +297,63 @@ var agentTargets = map[string]*agentTarget{
 	// enrolled. Antigravity loads a tree's customizations once that tree is a
 	// project it has opened, and until then the files are there and inert. Said
 	// on enrolment, because nothing else reports it.
-	"agy": {
-		name:   "agy",
-		family: antigravityFamily,
-		// Deny rules only, in the CLI's own settings file. The documented
-		// precedence is deny over ask over allow, so these hold against an
-		// operator's own allow rather than being shadowed by one.
-		accountFiles: []agentFile{
-			{path: ".gemini/antigravity-cli/settings.json", asset: "agent/agy/settings.json", mode: 0o640, merge: true},
-			// And the hook both halves read for every workspace. The CLI has deny
-			// rules of its own and gets this too, the file being one the family
-			// shares: written once, it holds for whichever half is running.
-			{path: antigravityAccountHooks, asset: "agent/antigravity/hooks.json.tmpl", mode: 0o640, merge: true, noRules: true},
-		},
-		detect: []string{".agents/rules", antigravityHooks, antigravityMCP, ".agent/rules"},
-		// Its own directories, and the customization directory the whole
-		// Antigravity family reads.
+	// The CLI half. Its own deny-rules settings file on top of the family base,
+	// held against an operator's own allow by the documented deny-over-allow
+	// precedence.
+	"agy": antigravityMember(
+		"agy",
 		// Its own directory, and not the family's shared one. faramir writes
 		// ~/.gemini/config/hooks.json for either half, so that directory marks
 		// neither: installing for the IDE would otherwise report the CLI as present
 		// and its settings file as missing, for a CLI nobody installed. An agent's
 		// own file marking itself is deliberate and makes a second `init` a
 		// refresh; one agent's file marking another is not.
-		detectHome: []string{".gemini/antigravity-cli"},
+		[]string{".gemini/antigravity-cli"},
+		[]agentFile{
+			{path: ".gemini/antigravity-cli/settings.json", asset: "agent/agy/settings.json", mode: 0o640, merge: true},
+		},
+	),
+
+	// The IDE half. Same hook, same prose, and no account-wide rules of its own:
+	// its permission scopes are its own state, and no file an install may write
+	// was found for them. So commands it runs are routed and redacted, and its
+	// file tools are refused only by the shared hook.
+	"antigravity": antigravityMember(
+		"antigravity",
+		// Its own directories at both the names it has used: 2.5 reports a data
+		// directory of .antigravity-ide, and the earlier one is .antigravity. Not
+		// the family's shared one, for the reason the CLI's own is not.
+		[]string{".antigravity-ide", ".config/Antigravity IDE", ".antigravity", ".config/Antigravity"},
+		nil,
+	),
+}
+
+// antigravityMember builds one half of the Antigravity family from the fields
+// the two share: the hook both read for every workspace, the tree rules file,
+// the family's ~/.gemini/GEMINI.md prose, and the note about when a tree's
+// customizations load. name and detectHome are the half's own, and ownRules is
+// the CLI's deny-rules settings file, which the IDE has none of.
+//
+// The two are one dialect in the guard (antigravityHost) and one hook on disk;
+// this is the same fact for the config table, so the halves state only what
+// actually differs between them.
+func antigravityMember(name string, detectHome []string, ownRules []agentFile) *agentTarget {
+	// The hook both halves read for every workspace, shared: written once, it
+	// holds for whichever half is running.
+	sharedHook := agentFile{path: antigravityAccountHooks, asset: "agent/antigravity/hooks.json.tmpl",
+		mode: 0o640, merge: true, noRules: true}
+	return &agentTarget{
+		name:         name,
+		family:       antigravityFamily,
+		accountFiles: append(append([]agentFile{}, ownRules...), sharedHook),
+		detect:       []string{".agents/rules", antigravityHooks, antigravityMCP, ".agent/rules"},
+		detectHome:   detectHome,
 		// The family's global rules, applied in every workspace, under ~/.gemini
-		// rather than a second agent's directory. The IDE reads the same file.
+		// rather than a second agent's directory. Both halves read the same file.
 		homeInstructions: ".gemini/GEMINI.md",
-		// It reads a tree's own AGENTS.md as well, walking up from the file it is
-		// working on, so the section there is what every other agent gets. The
-		// rules file is written too: it is loaded whatever the tree's root file is
+		// A tree's own AGENTS.md is read too, walking up from the file being
+		// worked on, so the section there is what every other agent gets. The
+		// rules file is written as well: it loads whatever the tree's root file is
 		// called, and a tree whose own file is a CLAUDE.md would otherwise leave
 		// this agent nothing.
 		treeInstructions: treeRules{
@@ -342,39 +370,7 @@ var agentTargets = map[string]*agentTarget{
 		note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +
 			"project it has opened, so until then the rules file is there and inert. What " +
 			"holds meanwhile is the account-wide hook `faramir init` writes",
-	},
-
-	// The IDE half. Same hook, same prose, and no account-wide rules: its
-	// permission scopes are its own state, and no file an install may write was
-	// found for them. So commands it runs are routed and redacted, and its file
-	// tools are refused nothing here. That is the half that is missing, and it is
-	// a different half from the one this target used to be missing.
-	"antigravity": {
-		name:   "antigravity",
-		family: antigravityFamily,
-		accountFiles: []agentFile{
-			// The IDE keeps its permission lists as its own state, so there is no
-			// rule file to write. What it does read for every workspace is this
-			// hook, which is where its account-wide refusals go instead.
-			{path: antigravityAccountHooks, asset: "agent/antigravity/hooks.json.tmpl", mode: 0o640, merge: true, noRules: true},
-		},
-		detect: []string{".agents/rules", antigravityHooks, antigravityMCP, ".agent/rules"},
-		// Its own directories, at both the names it has used: 2.5 reports a data
-		// directory of .antigravity-ide, and the earlier one is .antigravity.
-		// Its own directories at both the names it has used, and not the family's
-		// shared one: see the CLI's above.
-		detectHome:       []string{".antigravity-ide", ".config/Antigravity IDE", ".antigravity", ".config/Antigravity"},
-		homeInstructions: ".gemini/GEMINI.md",
-		treeInstructions: treeRules{
-			path: ".agents/rules/faramir.md",
-			head: "---\ntrigger: always_on\n---\n",
-		},
-		autoApprovesBash: false,
-		noteStands:       true,
-		note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +
-			"project it has opened, so until then the rules file is there and inert. What " +
-			"holds meanwhile is the account-wide hook `faramir init` writes",
-	},
+	}
 }
 
 // writeAgentFiles writes one list of an agent's files under root, and reports
