@@ -2,7 +2,6 @@ package guard
 
 import (
 	"encoding/json"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -10,68 +9,15 @@ import (
 )
 
 // These drive the hook through its real contract (a JSON payload on stdin, a
-// JSON object on stdout) rather than calling decide() directly.
+// JSON object on stdout) rather than calling decide() directly; the pipe
+// harness is host_test's guardOutput.
 
-func withStdin(t *testing.T, input string, fn func()) {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	original := os.Stdin
-	os.Stdin = r
-	defer func() { os.Stdin = original; _ = r.Close() }()
-	go func() { _, _ = io.WriteString(w, input); _ = w.Close() }()
-	fn()
-}
-
-func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	original := os.Stdout
-	os.Stdout = w
-	done := make(chan string, 1)
-	go func() {
-		out, _ := io.ReadAll(r)
-		done <- string(out)
-	}()
-	fn()
-	_ = w.Close()
-	os.Stdout = original
-	return <-done
-}
-
-// hookOutput runs the guard the way the harness does.
+// hookOutput runs the guard as Claude Code's hook and unwraps its envelope.
 func hookOutput(t *testing.T, payload string) map[string]any {
 	t.Helper()
-	stdout := captureStdout(t, func() {
-		withStdin(t, payload, func() { Run(nil) })
-	})
-	if strings.TrimSpace(stdout) == "" {
-		return nil
-	}
-	var out struct {
-		Hook map[string]any `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
-		t.Fatalf("unmarshal %q: %v", stdout, err)
-	}
-	return out.Hook
-}
-
-func bashPayload(t *testing.T, command string) string {
-	t.Helper()
-	b, err := json.Marshal(map[string]any{
-		"tool_name":  "Bash",
-		"tool_input": map[string]any{"command": command},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
+	got := guardOutput(t, nil, payload)
+	hook, _ := got["hookSpecificOutput"].(map[string]any)
+	return hook
 }
 
 // updatedInput is the tool input a rewrite handed back, and wrappedCommand the
@@ -98,7 +44,7 @@ func wrappedCommand(t *testing.T, hook map[string]any) string {
 }
 
 func TestAnAllowedCommandIsRewrittenThroughTheRedactor(t *testing.T) {
-	hook := hookOutput(t, bashPayload(t, "ansible-playbook site.yml -vvv"))
+	hook := hookOutput(t, bashCall(t, "ansible-playbook site.yml -vvv"))
 	if hook == nil {
 		t.Fatal("no hook output; the command was neither denied nor wrapped")
 	}
@@ -128,7 +74,7 @@ func TestAnAllowedCommandIsRewrittenThroughTheRedactor(t *testing.T) {
 
 func TestTheCommandIsEmbeddedVerbatim(t *testing.T) {
 	original := `echo "it's" $HOME 'and' a\ space  # trailing comment`
-	hook := hookOutput(t, bashPayload(t, original))
+	hook := hookOutput(t, bashCall(t, original))
 	command := wrappedCommand(t, hook)
 
 	// Undo the shell's single-quote rule and compare with what went in.
@@ -184,7 +130,7 @@ func TestTheQuotedCommandIsOneWordToARealShell(t *testing.T) {
 // The agent's shell persists between calls, so a subshell would lose every cd
 // and export.
 func TestTheCommandRunsInTheCallersOwnShell(t *testing.T) {
-	command := wrappedCommand(t, hookOutput(t, bashPayload(t, "cd /var")))
+	command := wrappedCommand(t, hookOutput(t, bashCall(t, "cd /var")))
 	for _, forbidden := range []string{"bash -lc", "bash -c", "| " + "faramir"} {
 		if strings.Contains(command, forbidden) {
 			t.Errorf("command = %q, must not run the command through %q", command, forbidden)
@@ -199,7 +145,7 @@ func TestADeniedCommandIsStillDenied(t *testing.T) {
 	for _, command := range []string{
 		"cat /etc/faramir/age.key",
 	} {
-		hook := hookOutput(t, bashPayload(t, command))
+		hook := hookOutput(t, bashCall(t, command))
 		if hook == nil {
 			t.Fatalf("no hook output for %q", command)
 		}
@@ -240,7 +186,7 @@ func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
 		{`echo "run faramir redact next"`, true},
 		{"grep -r 'faramir redact' docs/", true},
 	} {
-		hook := hookOutput(t, bashPayload(t, tc.command))
+		hook := hookOutput(t, bashCall(t, tc.command))
 		if rewritten := hook != nil; rewritten != tc.wantRewritten {
 			t.Errorf("%q rewritten = %v, want %v", tc.command, rewritten, tc.wantRewritten)
 		}
@@ -340,7 +286,7 @@ func TestARunInBackgroundCallIsStreamedNotCaptured(t *testing.T) {
 // have failed unwrapped rather than breaking the wrapper's own syntax.
 func TestAnIncompleteCommandIsStillWrappedSafely(t *testing.T) {
 	for _, command := range []string{`echo hi \\`, "make build &&", "ls |", "echo hi;"} {
-		hook := hookOutput(t, bashPayload(t, command))
+		hook := hookOutput(t, bashCall(t, command))
 		if hook == nil {
 			t.Errorf("%q was not rewritten", command)
 			continue
