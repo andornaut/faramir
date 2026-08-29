@@ -7,9 +7,8 @@
 # project the operator believes is covered. So the assertions are about what
 # lands on disk AND about whether the thing it lands works.
 #
-# Four agents, and until now the suites enrolled only claude. The other three
-# write different files in different places, so each is enrolled into a tree of
-# its own here.
+# Every agent writes different files in different places, so each is enrolled
+# into a tree of its own here.
 #
 # Run as root in the e2e container.
 set -u
@@ -39,7 +38,7 @@ owned() { # path, label
 }
 absent() { [ -e "$1" ] && bad "$2 was written and should not be: $1" || ok "$2 is absent"; }
 
-echo "enrolling as $OP; agents: claude agy antigravity opencode kilocode"
+echo "enrolling as $OP; agents: claude codex agy antigravity opencode kilocode"
 
 # --------------------------------------------------------------------------
 head_ "1. what an enrolment writes into a tree"
@@ -64,6 +63,32 @@ grep -q '^# Credentials' "$D/CLAUDE.md" \
   && ok "claude: carrying the credentials section" \
   || bad "CLAUDE.md carries no credentials section, so the agent that reads it is told nothing"
 
+# Codex takes the same trade, into a hook file of its own. Its account-wide
+# half is deny-only for the same reason Claude Code's is.
+D=$(tree /home/op/p-codex); enrol "$D" --agent codex >/tmp/p-codex.log 2>&1 \
+  || bad "codex enrolment failed: $(tail -2 /tmp/p-codex.log)"
+owned "$D/.codex/hooks.json" "codex: the routing hook"
+grep -q -- '--host codex' "$D/.codex/hooks.json" \
+  && ok "codex: it runs the guard in this agent's dialect" \
+  || bad "the tree hook names no dialect, so the reply is in a shape Codex ignores"
+grep -q -- '--deny-only' "$D/.codex/hooks.json" \
+  && bad "the tree hook is deny-only, so nothing in this tree is redacted" \
+  || ok "codex: and it routes rather than only refusing"
+# AGENTS.md, which is the name this agent reads and CLAUDE.md is not. It is also
+# the tree's own file here, so the section is written into it once.
+owned "$D/AGENTS.md" "codex: its own instructions file"
+grep -q '^# Credentials' "$D/AGENTS.md" \
+  && ok "codex: carrying the credentials section" \
+  || bad "AGENTS.md carries no credentials section, so the agent that reads it is told nothing"
+# Two conditions faramir cannot meet, and both fail quietly: an untrusted hook
+# is skipped without a word, and a sandboxed Codex is refused the broker socket.
+grep -q 'trust this hook' /tmp/p-codex.log \
+  && ok "codex: the enrolment says the hook is inert until it is trusted" \
+  || bad "nothing said the hook has to be trusted, so an operator believes an inert tree is covered"
+grep -q 'without its own sandbox' /tmp/p-codex.log \
+  && ok "codex: and that Codex must run without its own sandbox" \
+  || bad "nothing said Codex must run unsandboxed, so every command's output is withheld with no reason given"
+
 # Every other agent gets the prose and nothing else.
 for a in antigravity agy opencode kilocode pi; do
   D=$(tree "/home/op/p-$a"); enrol "$D" --agent "$a" >"/tmp/p-$a.log" 2>&1 \
@@ -87,7 +112,7 @@ grep -q 'trigger: always_on' "$D/.agents/rules/faramir.md" \
 # The account-wide files are `faramir init --agent`'s half of enrolment, not
 # this command's: init-project writes the per-project hook, init writes the deny
 # rules that hold wherever the agent works.
-/usr/local/bin/faramir init --agent-user $OP --agent claude --agent antigravity \
+/usr/local/bin/faramir init --agent-user $OP --agent claude --agent codex --agent antigravity \
   --agent agy --agent opencode --agent kilocode >/tmp/p-init.log 2>&1
 owned "$HOME_OP/.claude/settings.json" "claude: account-wide settings (from init)"
 # The account file carries the deny-only half: the rules, and a hook that
@@ -98,6 +123,19 @@ grep -q -- '--deny-only' "$HOME_OP/.claude/settings.json" \
 jq -e '.permissions.deny | length > 0' "$HOME_OP/.claude/settings.json" >/dev/null 2>&1 \
   && ok "claude: and the deny rules are beside it" \
   || bad "the account-wide settings carry no deny rules"
+# Codex's account-wide half: one hook file, and no rule file beside it. Its own
+# rule files are an exec policy, which decides commands and names no path, so
+# the hook is the whole of what refuses this agent a file.
+owned "$HOME_OP/.codex/hooks.json" "codex: account-wide hook (from init)"
+grep -q -- '--deny-only' "$HOME_OP/.codex/hooks.json" \
+  && ok "codex: the account-wide hook is deny-only" \
+  || bad "the account-wide hook is missing or routes, which approves every command on the account"
+owned "$HOME_OP/.codex/AGENTS.md" "codex: credentials section (from init)"
+# The same two conditions, said by `init` as well: they hold on the account-wide
+# hook exactly as they do in a tree.
+grep -q 'trust this hook' /tmp/p-init.log \
+  && ok "codex: init says so too, the account-wide hook being inert under the same conditions" \
+  || bad "init wrote the account-wide hook without saying it has to be trusted"
 owned "$HOME_OP/.gemini/GEMINI.md" "antigravity: credentials section (from init)"
 # The CLI has a settings file and the IDE has none, which is the whole
 # difference between the two targets.
@@ -136,7 +174,9 @@ done
 head_ "2. every file it writes is valid to the tool that reads it"
 
 for f in /home/op/p-claude/.claude/settings.local.json \
+         /home/op/p-codex/.codex/hooks.json \
          $HOME_OP/.claude/settings.json \
+         $HOME_OP/.codex/hooks.json \
          $HOME_OP/.gemini/antigravity-cli/settings.json \
          $HOME_OP/.gemini/config/hooks.json \
          $HOME_OP/.config/opencode/opencode.json \
@@ -161,7 +201,9 @@ for js in $HOME_OP/.config/opencode/plugin/faramir.js $HOME_OP/.config/kilo/plug
 done
 # And each names the binary that is actually installed.
 for f in /home/op/p-claude/.claude/settings.local.json \
+         /home/op/p-codex/.codex/hooks.json \
          $HOME_OP/.claude/settings.json \
+         $HOME_OP/.codex/hooks.json \
          $HOME_OP/.gemini/config/hooks.json; do
   grep -q '/usr/local/bin/faramir' "$f" && ok "names the installed binary: ${f#/home/op/}" \
     || bad "does not name the binary: $f"
@@ -198,6 +240,37 @@ if [ -n "$hook" ] && [ "$hook" != null ]; then
     || bad "BashOutput was answered rather than left alone: ${out:0:120}"
 else
   bad "no PreToolUse command in the claude settings"
+fi
+
+# The same, for the tree hook Codex reads. Its file tools are refused here and
+# nowhere else, so what is exercised is the patch tool as well as the shell one.
+hook=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' /home/op/p-codex/.codex/hooks.json 2>/dev/null)
+if [ -n "$hook" ] && [ "$hook" != null ]; then
+  ok "codex hooks name a PreToolUse command: ${hook:0:48}"
+  out=$(printf '{"tool_name":"Bash","tool_input":{"command":"cat /etc/faramir/age.key"}}' \
+    | runuser -u $OP -- sh -c "cd /home/op/p-codex && $hook" 2>/dev/null)
+  grep -q '"permissionDecision":"deny"' <<<"$out" \
+    && ok "and running it denies reading the age key" \
+    || bad "the registered hook did not deny: ${out:0:120}"
+  out=$(printf '{"tool_name":"Bash","tool_input":{"command":"echo hello"}}' \
+    | runuser -u $OP -- sh -c "cd /home/op/p-codex && $hook" 2>/dev/null)
+  grep -q 'wrap.sh' <<<"$out" \
+    && ok "and rewrites an ordinary command through the wrapper" \
+    || bad "an ordinary command was not rewritten: ${out:0:120}"
+  # apply_patch is the whole of how this agent writes a file, and its input is
+  # the patch rather than a command.
+  out=$(printf '{"tool_name":"apply_patch","cwd":"/home/op/p-codex","tool_input":{"command":"*** Begin Patch\\n*** Update File: /etc/faramir/age.key\\n*** End Patch"}}' \
+    | runuser -u $OP -- sh -c "cd /home/op/p-codex && $hook" 2>/dev/null)
+  grep -q '"permissionDecision":"deny"' <<<"$out" \
+    && ok "and denies a patch that would replace the age key" \
+    || bad "apply_patch escaped the deny list: ${out:0:120}"
+  out=$(printf '{"tool_name":"apply_patch","cwd":"/home/op/p-codex","tool_input":{"command":"*** Begin Patch\\n*** Add File: notes.md\\n+hi\\n*** End Patch"}}' \
+    | runuser -u $OP -- sh -c "cd /home/op/p-codex && $hook" 2>/dev/null)
+  [ -z "$(tr -d '[:space:]' <<<"$out")" ] \
+    && ok "and leaves an ordinary patch alone rather than rewriting it" \
+    || bad "an ordinary patch was answered, so what applies is not what the model wrote: ${out:0:120}"
+else
+  bad "no PreToolUse command in the codex hooks"
 fi
 
 # The route the refusal names is a subcommand, not a server: nothing is
@@ -519,9 +592,13 @@ cp /tmp/rec.bak $REC; rm -f /tmp/rec.bak
 /usr/local/bin/faramir init --agent-user $OP >/dev/null 2>&1
 
 # Nothing to tell doctor about, and an entry with no agents would report as
-# though there were.
+# though there were. Codex is put aside for it: auto reads the home for that
+# one, so a tree with nothing in it is still an enrolment while this home
+# carries a Codex install. See section 11.
+mv "$HOME_OP/.codex" "$HOME_OP/.codex.aside"
 D=$(tree /home/op/p-noagent)
 enrol "$D" >/dev/null 2>&1
+mv "$HOME_OP/.codex.aside" "$HOME_OP/.codex"
 [ -z "$(agentsOf "$D")" ] && ok "a tree enrolled for no agent leaves no entry" \
   || bad "an agentless enrolment was recorded as [$(agentsOf "$D")]"
 
@@ -549,6 +626,13 @@ head_ "11. --agent auto, which the two commands ask of different places"
 # The default on both. `init` asks the operator's home and `init-project` asks
 # the tree, and naming an agent configures it whether or not it is there. So
 # the two compose into the union, and there is no rule about which wins.
+#
+# Codex is the exception and is put aside for the cases below: a tree carries
+# nothing of its own for it, so auto reads the home instead, and this home has
+# carried a Codex install since the `init` in section 1. Moved rather than
+# removed, and restored straight after, because the case that this run does
+# find it is asserted below.
+mv "$HOME_OP/.codex" "$HOME_OP/.codex.aside"
 
 D=$(tree /home/op/p-auto-claude); install -d -o $OP -g $OP "$D/.claude"
 enrol "$D" >/dev/null 2>&1
@@ -562,9 +646,9 @@ out=$(enrol "$D")
 grep -q 'no coding agent is configured' <<<"$out" \
   && ok "and says so rather than enrolling it silently" \
   || bad "an empty tree was enrolled with nothing said: ${out:0:120}"
-grep -q 'antigravity, claude, kilocode, opencode, pi' <<<"$out" \
-  && ok "  naming all five it could be told to write for" \
-  || bad "  the message does not name the five: ${out:0:160}"
+grep -q 'agy, antigravity, claude, codex, kilocode, opencode, pi' <<<"$out" \
+  && ok "  naming all seven it could be told to write for" \
+  || bad "  the message does not name the seven: ${out:0:160}"
 
 # Evidence, not proof: what is found is added to what was asked for.
 D=$(tree /home/op/p-auto-plus); install -d -o $OP -g $OP "$D/.claude"
@@ -576,6 +660,18 @@ D=$(tree /home/op/p-named-absent)
 enrol "$D" --agent pi >/dev/null 2>&1
 [ "$(agentsOf "$D")" = "pi" ] && ok "and a name alone enrols an agent the tree shows no sign of" \
   || bad "naming pi in a bare tree gave [$(agentsOf "$D")]"
+
+# And the exception, with the home put back. A tree carries nothing of Codex's
+# own until an enrolment writes it, so a tree asked on its own could only ever
+# find it already enrolled and would never enrol it a first time. The home is
+# where the evidence of using it is, so that is what auto reads.
+mv "$HOME_OP/.codex.aside" "$HOME_OP/.codex"
+D=$(tree /home/op/p-auto-codex)
+enrol "$D" >/dev/null 2>&1
+[ "$(agentsOf "$D")" = "codex" ] \
+  && ok "an empty tree enrols codex on a home that carries it, a tree carrying nothing of its own" \
+  || bad "auto found [$(agentsOf "$D")] in an empty tree on a home carrying Codex"
+owned "$D/.codex/hooks.json" "  and the routing hook is what it wrote"
 
 # Refused rather than skipped, which would leave an operator believing an agent
 # is covered.
@@ -653,13 +749,28 @@ grep -q 'not written; see the error' <<<"$out" \
   || bad "  the step does not name the file it left: ${out:0:140}"
 
 # CLAUDE.md when that is the file the tree has: the first of the two that
-# exists is the one written into, and a second is never created.
+# exists is the one written into, and the tree's own file is not doubled.
+# Enrolled for claude alone, which reads CLAUDE.md and is given no name beyond
+# it; the agent that does ask for a second name is the case below.
 D=$(tree /home/op/p-instr-claude)
 printf '# Notes\n' > "$D/CLAUDE.md"; chown $OP:$OP "$D/CLAUDE.md"
-enrol "$D" >/dev/null 2>&1
+enrol "$D" --agent claude >/dev/null 2>&1
 grep -q '^# Credentials' "$D/CLAUDE.md" && ok "CLAUDE.md is written into when that is the file the tree has" \
   || bad "the section did not go into CLAUDE.md"
 absent "$D/AGENTS.md" "a second instructions file"
+
+# Codex is the mirror image: it reads AGENTS.md and not CLAUDE.md, so a tree
+# whose own file is a CLAUDE.md gets an AGENTS.md as well. Not a duplicate --
+# each is the name an agent reads, and both carry the same section.
+D=$(tree /home/op/p-instr-codex)
+printf '# Notes\n' > "$D/CLAUDE.md"; chown $OP:$OP "$D/CLAUDE.md"
+enrol "$D" --agent claude --agent codex >/dev/null 2>&1
+grep -q '^# Credentials' "$D/CLAUDE.md" \
+  && ok "the tree's own CLAUDE.md still carries the section" \
+  || bad "the section did not go into CLAUDE.md"
+grep -q '^# Credentials' "$D/AGENTS.md" \
+  && ok "and codex gets the name it reads, which CLAUDE.md is not" \
+  || bad "codex was left nothing in a tree whose own file is a CLAUDE.md"
 
 # One file for every agent, which is a CLAUDE.md linked at the tree's AGENTS.md.
 # The two are then one file carrying one section rather than a pair refused as

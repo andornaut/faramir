@@ -179,7 +179,11 @@ func (p *project) preflight() error {
 	// auto looks at the tree, enrolling costing something here. Resolved before
 	// anything is written, so an unknown name stops the run before the tree's
 	// ownership changes.
-	targets, err := resolveAgents(p.opts.Agents, scopeTree, p.opts.Dir)
+	// Not fatal: an account that does not resolve fails later with a message
+	// about the account, and auto losing one agent is not the error to report
+	// here.
+	p.agentHome, _ = agentHomeFor(p.opts.AgentUser)
+	targets, err := resolveAgents(p.opts.Agents, scopeTree, p.opts.Dir, p.agentHome)
 	if err != nil {
 		return err
 	}
@@ -450,6 +454,10 @@ type project struct {
 	// so never read a config: the section then says nothing about escalations,
 	// which is the safe direction.
 	allowSudo bool
+	// agentHome is the operator's own home, which auto consults for an agent that
+	// keeps nothing beside a project. Empty where the account does not resolve,
+	// which leaves such an agent to be named rather than found.
+	agentHome string
 	// Resolved before any step runs, so an unknown name stops the run before the
 	// tree's ownership changes.
 	targets []*agentTarget
@@ -741,7 +749,7 @@ func (p *project) agentConfig() error {
 	// What auto would have taken and this run did not, which only happens when
 	// the operator named agents explicitly.
 	var unenrolled []string
-	for _, name := range detectedAgents(p.opts.Dir) {
+	for _, name := range detectedAgents(p.opts.Dir, p.agentHome) {
 		enrolled := false
 		for _, target := range p.targets {
 			// By family: two agents sharing one tree enrolment are covered by

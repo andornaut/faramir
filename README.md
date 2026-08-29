@@ -16,11 +16,12 @@ faramir run: redacted «SECRET:home/router/admin»×1; log_id=w5vq7dbf00002c
 
 ## Supported agents
 
-All six get full redaction: what the agent runs is rewritten into a brokered command, and its output comes back with every value replaced. `faramir init` installs that everywhere the agent works, except on Claude Code, where routing costs a permission and so is taken one tree at a time.
+All seven get full redaction: what the agent runs is rewritten into a brokered command, and its output comes back with every value replaced. `faramir init` installs that everywhere the agent works, except on Claude Code and Codex, where routing costs a permission and so is taken one tree at a time.
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
 [Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook and a credentials section in `CLAUDE.md` in the tree | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
+[Codex](https://developers.openai.com/codex/cli/) | A deny-only `PreToolUse` hook in `~/.codex/hooks.json`; the routing hook in `.codex/hooks.json` and a credentials section in `AGENTS.md` in the tree | The same, and only where Codex is run with approvals on. It has no rule file an install can write, so that hook is what refuses its file tools, `apply_patch` included
 [opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) in `~/.config/opencode/plugin/`; deny patterns in `~/.config/opencode/opencode.json` | None: there is no allow to return, so a plugin that has not denied has not approved
 [Kilo Code](https://kilo.ai/) | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) in `~/.config/kilo/plugin/`, loaded by the CLI and the VS Code extension; deny patterns in `~/.config/kilo/kilo.json` | Same as opencode
 [Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) in `~/.pi/agent/extensions/` | None. Installed in a home rather than a tree, which Pi loads for every project without the project being trusted
@@ -29,10 +30,10 @@ Agent | Registered in | Enrolment cost
 
 Choosing agents with `--agent`, repeatable on `init` and `init-project`:
 
-- Names are `agy`, `antigravity`, `claude`, `kilocode`, `opencode` and `pi`. `agy` is the Antigravity CLI and `antigravity` the IDE; they share one tree enrolment, so naming either writes the same files.
-- The default is `auto`: whichever agents are already there, which `init` asks of your home and `init-project` of the tree.
+- Names are `agy`, `antigravity`, `claude`, `codex`, `kilocode`, `opencode` and `pi`. `agy` is the Antigravity CLI and `antigravity` the IDE; they share one tree enrolment, so naming either writes the same files.
+- The default is `auto`: whichever agents are already there, which `init` asks of your home and `init-project` of the tree. Codex is asked of your home either way, a tree carrying nothing of its own for it.
 - A name configures that agent regardless and composes, so `--agent auto --agent pi` is "whatever is installed, plus pi".
-- Claude Code and the Antigravity CLI are the only two that refuse a path from a rule file of their own. Pi and the Antigravity IDE have none an install can write, and opencode's and Kilo Code's are not refusals: an entry of `deny` is put to the operator as a prompt, and an autonomous run approves it. So faramir refuses those four itself, from the plugin, the extension or the hook, and the Antigravity CLI is refused twice.
+- Claude Code and the Antigravity CLI are the only two that refuse a path from a rule file of their own. Pi and the Antigravity IDE have none an install can write; Codex has none either, its own `.rules` files being an exec policy that decides commands and names no path; and opencode's and Kilo Code's are not refusals: an entry of `deny` is put to the operator as a prompt, and an autonomous run approves it. So faramir refuses those five itself, from the plugin, the extension or the hook, and the Antigravity CLI is refused twice.
 
 Each agent is also told what those rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)). What each agent gets, feature by feature, is [the table in docs/coding-agents.md](docs/coding-agents.md#what-each-agent-gets); what each contract makes of the rewrite is the rest of that page.
 
@@ -42,6 +43,11 @@ Each agent is also told what those rules refuse and why, in the file it reads fo
 > `faramir init` writes that hook into `~/.gemini/config/hooks.json`, which both halves read for every workspace, so a tree nobody enrolled is covered too. No hook goes into a tree.
 >
 > What an enrolment writes into a *tree* is the credentials section, which for Antigravity means `.agents/rules/faramir.md` as well as the tree's own file. Both load a tree's customizations only once that tree is a project they have opened, so until then that file is there and inert, which enrolling says. The hook is not conditional on it.
+
+One agent needs something from you before any of this holds.
+
+> [!IMPORTANT]
+> **Codex has two conditions faramir cannot meet for you.** It skips a hook it has not been told to trust and says nothing when it does, so what `faramir init` writes is inert until you start Codex once and trust it. And it must run without its own sandbox (`codex --dangerously-bypass-approvals-and-sandbox`): sandboxed, it is refused the broker socket, and the wrapper fails closed, so every command's output is withheld rather than redacted. Both commands say so on every run. The detail is in [coding-agents.md](docs/coding-agents.md#codex).
 
 ## What it protects against
 

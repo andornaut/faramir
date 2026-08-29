@@ -54,10 +54,10 @@ func mergeJSON(existing, ours []byte, wrote []string) ([]byte, error) {
 
 // argvKeys name a command line rather than a set. A list under one of these is
 // ordered and positional, so faramir's replaces what is there instead of being
-// unioned into it: unioning two argv leaves the old program standing as the new
-// one's first argument, and the server it registers never starts. Only a key
-// both sides declare is merged at all, so this reaches faramir's own entries
-// and not an operator's.
+// unioned into it: unioning two argv leaves the program an earlier release
+// installed standing as the new one's first argument, and what runs is neither
+// of them. Only a key both sides declare is merged at all, so this reaches
+// faramir's own entries and not an operator's.
 var argvKeys = map[string]bool{"command": true, "args": true}
 
 func mergeValue(into, from any, wrote []string) (any, error) {

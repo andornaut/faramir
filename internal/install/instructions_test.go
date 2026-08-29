@@ -859,7 +859,7 @@ func TestInitWritesEveryOtherAgentBeforeFailingOnOne(t *testing.T) {
 	// Asked again at the step, which is where the collecting is: preconditions
 	// stop a run before anything is written, and this asserts what the step does
 	// when it is reached anyway.
-	run.agentTargets, _ = resolveAgents(run.opts.Agents, scopeHome, run.operatorHome)
+	run.agentTargets, _ = resolveAgents(run.opts.Agents, scopeHome, run.operatorHome, "")
 	err := run.stepAgentConfig()
 
 	if err == nil {

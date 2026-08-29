@@ -34,6 +34,13 @@ func TestTheCommandIsReadFromTheToolCallsArguments(t *testing.T) {
 	if p.RawInput["Cwd"] != "/srv" {
 		t.Errorf("Cwd was lost: %v", p.RawInput)
 	}
+	// And it is read out as well as kept, because it is what a relative path in
+	// this host's file tools is relative to. This host refuses paths and starts
+	// no guard of its own, so without this a store named "../secrets" from the
+	// tree beside it is asked about as written and matched by nothing.
+	if p.Cwd != "/srv" {
+		t.Errorf("Cwd = %q, want /srv: a relative path is asked about unresolved", p.Cwd)
+	}
 }
 
 // A tool carrying no command is left alone rather than refused, for every tool
@@ -205,8 +212,9 @@ func TestThePathCheckLeavesCommandsToTheRewrite(t *testing.T) {
 // The others each fail differently and arrive at the same place. The
 // Antigravity IDE has no rule file an install can write; opencode and Kilo Code
 // have one whose "deny" is a prompt an autonomous run approves; pi has none
-// either. The CLI has real deny rules and is included anyway, sharing one
-// dialect with the IDE.
+// either, and Codex's own rule files are an exec policy, which decides commands
+// and names no path. The Antigravity CLI has real deny rules and is included
+// anyway, sharing one dialect with the IDE.
 func TestEveryHostWithoutAnEnforcedRuleFileRefusesPaths(t *testing.T) {
 	for name, h := range hosts {
 		want := name != "claude"

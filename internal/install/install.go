@@ -700,7 +700,7 @@ func (r *runner) stepPreconditions() error {
 // The targets are resolved here and kept, so the question and the writing agree
 // on which agents this run is about.
 func (r *runner) refuseUnwritableAgentFiles() error {
-	targets, err := resolveAgents(r.opts.Agents, scopeHome, r.operatorHome)
+	targets, err := resolveAgents(r.opts.Agents, scopeHome, r.operatorHome, r.operatorHome)
 	if err != nil {
 		return err
 	}

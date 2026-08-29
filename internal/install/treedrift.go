@@ -320,7 +320,7 @@ func reportEditableFiles(report *DoctorReport, home string, uid int, opts Doctor
 	// knows: a refusal about a file an install would never write is a false
 	// alarm, an operator's own prose-file links across uninstalled agents the
 	// usual shape of one.
-	targets, err := resolveAgents(nil, scopeHome, home)
+	targets, err := resolveAgents(nil, scopeHome, home, home)
 	if err != nil {
 		targets = nil
 	}

@@ -75,3 +75,63 @@ func TestSegmentsSplitsAtTheSeparatorsThatEndACommand(t *testing.T) {
 		})
 	}
 }
+
+// A quoted heredoc body is a file being written, not commands being run. This
+// is what lets a script or a document quote an operator command without the
+// quotation being refused as the command itself.
+func TestSegmentsReadsAQuotedHeredocBodyAsData(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		line string
+		want []string
+	}{
+		{"a single-quoted delimiter", "cat > doc <<'EOF'\nsudo faramir vault add x\nEOF",
+			[]string{"cat > doc <<'EOF'"}},
+		{"a double-quoted delimiter", "cat > doc <<\"EOF\"\nsudo faramir doctor\nEOF",
+			[]string{"cat > doc <<\"EOF\""}},
+		{"a command after the terminator still counts", "cat > doc <<'EOF'\nsudo faramir doctor\nEOF\necho done",
+			[]string{"cat > doc <<'EOF'", "echo done"}},
+		{"the opening line still splits", "true | cat > doc <<'EOF'\ncat /etc/faramir/age.key\nEOF",
+			[]string{"true", "cat > doc <<'EOF'"}},
+		// `<<-` strips leading tabs from the terminator and nothing else.
+		{"a tab-indented terminator", "cat <<-'EOF'\nsudo faramir doctor\n\tEOF\necho done",
+			[]string{"cat <<-'EOF'", "echo done"}},
+		//nolint:dupword // the repeated EOF is the fixture: a space-indented terminator does not end a <<- heredoc, so the next one has to
+		{"spaces do not terminate a tab heredoc", "cat <<-'EOF'\nx\n  EOF\nEOF\necho done",
+			[]string{"cat <<-'EOF'", "echo done"}},
+		{"two heredocs on one line", "join <<'A' <<'B'\ncat /etc/faramir/age.key\nA\nsudo faramir doctor\nB\necho done",
+			[]string{"join <<'A' <<'B'", "echo done"}},
+
+		// THE REFUSAL: an unquoted delimiter expands `$(...)` and backticks in
+		// its body, so the body is commands and is read as commands.
+		{"an unquoted delimiter", "cat > doc <<EOF\nsudo faramir doctor\nEOF",
+			[]string{"cat > doc <<EOF", "sudo faramir doctor", "EOF"}},
+		{"a herestring is not a heredoc", "grep x <<< 'sudo faramir doctor'",
+			[]string{"grep x <<< 'sudo faramir doctor'"}},
+		// And the lines after one are still commands. A herestring's word is
+		// quoted exactly as a delimiter is, so a reader that starts at the second
+		// "<" takes it for one and skips every line up to the next line matching
+		// it: the commands between are then never matched against the deny list,
+		// whatever they are. Both spellings, the space being optional.
+		{"commands after a herestring are still read", "grep x <<< 'A'\nsudo faramir doctor\nA\necho done",
+			[]string{"grep x <<< 'A'", "sudo faramir doctor", "A", "echo done"}},
+		{"and with no space before the word", "grep x <<<'A'\nsudo faramir doctor\nA\necho done",
+			[]string{"grep x <<<'A'", "sudo faramir doctor", "A", "echo done"}},
+		// A terminator that never arrives leaves the line unreadable, so none of
+		// it is split: the shape that refuses more rather than less.
+		{"no terminator", "cat > doc <<'EOF'\nsudo faramir doctor\n",
+			[]string{"cat > doc <<'EOF'\nsudo faramir doctor"}},
+		{"a heredoc opened and the line ends", "cat > doc <<'EOF'",
+			[]string{"cat > doc <<'EOF'"}},
+		{"an unterminated delimiter quote", "cat > doc <<'EOF\nsudo faramir doctor\nEOF",
+			[]string{"cat > doc <<'EOF\nsudo faramir doctor\nEOF"}},
+		{"a heredoc inside quotes is not one", "echo \"a <<'EOF' b\"; sudo faramir doctor",
+			[]string{"echo \"a <<'EOF' b\"", "sudo faramir doctor"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Segments(tc.line); !slices.Equal(got, tc.want) {
+				t.Errorf("Segments(%q) =\n  %q\nwant\n  %q", tc.line, got, tc.want)
+			}
+		})
+	}
+}

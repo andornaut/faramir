@@ -91,8 +91,8 @@
 # registration that went missing, and the rule in the credentials section
 # against removing faramir's own entries from a file you are otherwise free to
 # change.
-{{writeCommands}}{{argSpan}}(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts)
->\s*\S*(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts)
+{{writeCommands}}{{argSpan}}(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts|codex/hooks\.json)
+>\s*\S*(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts|codex/hooks\.json)
 
 # Reaching the broker's private state. Reading the audit log is covered above;
 # listing the directory is not. journalctl is absent: the daemons log ref names

@@ -14,7 +14,7 @@ import (
 // into the operator's file and will not replace a file it cannot read.
 func TestAnUnparsableAgentConfigIsRefusedBeforeTheShare(t *testing.T) {
 	dir := t.TempDir()
-	targets, err := resolveAgents([]string{"claude"}, scopeTree, dir)
+	targets, err := resolveAgents([]string{"claude"}, scopeTree, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}

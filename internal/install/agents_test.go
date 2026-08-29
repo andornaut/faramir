@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -13,7 +14,7 @@ import (
 // rather than which targets.
 func names(t *testing.T, values []string, scope agentScope, dir string) []string {
 	t.Helper()
-	targets, err := resolveAgents(values, scope, dir)
+	targets, err := resolveAgents(values, scope, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,12 +45,12 @@ func TestAgentsDefaultToWhatIsThere(t *testing.T) {
 // An unknown name stops the run rather than being skipped, which would leave a
 // project the operator believes is covered.
 func TestUnknownAgentIsRefused(t *testing.T) {
-	if _, err := resolveAgents([]string{"claude", "nosuchagent"}, scopeTree, t.TempDir()); err == nil {
+	if _, err := resolveAgents([]string{"claude", "nosuchagent"}, scopeTree, t.TempDir(), ""); err == nil {
 		t.Error("an unknown agent was accepted")
 	}
 	// The error names auto as well, that being a value the flag takes and not
 	// an agent anybody could look up.
-	_, err := resolveAgents([]string{"nosuchagent"}, scopeTree, t.TempDir())
+	_, err := resolveAgents([]string{"nosuchagent"}, scopeTree, t.TempDir(), "")
 	if err == nil || !strings.Contains(err.Error(), "auto") {
 		t.Errorf("the error does not offer auto: %v", err)
 	}
@@ -116,14 +117,19 @@ func TestAutoLooksWhereTheScopeSays(t *testing.T) {
 	}
 }
 
-// What enrolling costs differs by agent: Claude Code's hook must approve a
-// rewritten command, and no other agent has an escalation to give.
-func TestOnlyClaudeAutoApprovesBash(t *testing.T) {
-	if !agentTargets["claude"].autoApprovesBash {
-		t.Error("claude does not record that it auto-approves Bash")
+// What enrolling costs differs by agent. Claude Code and Codex return a
+// permission decision, so the hook that rewrites a command must also approve
+// it, and that approval covers every command the deny list does not name. Every
+// other agent has no allow to return, so its prompts are untouched.
+func TestOnlyDecidingHostsAutoApproveBash(t *testing.T) {
+	decides := map[string]bool{"claude": true, "codex": true}
+	for name := range decides {
+		if !agentTargets[name].autoApprovesBash {
+			t.Errorf("%s does not record that it auto-approves Bash", name)
+		}
 	}
 	for _, name := range knownAgents() {
-		if name != "claude" && agentTargets[name].autoApprovesBash {
+		if !decides[name] && agentTargets[name].autoApprovesBash {
 			t.Errorf("%s claims to auto-approve Bash; it has no allow to return", name)
 		}
 	}
@@ -332,7 +338,7 @@ func TestDetectionFindsAnAgentsOwnConfiguration(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got := detectedAgents(dir)
+			got := detectedAgents(dir, "")
 			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
 				t.Errorf("detectedAgents = %v, want %v", got, tc.want)
 			}
@@ -365,5 +371,30 @@ func TestEveryAccountRuleFileIsMerged(t *testing.T) {
 	}
 	if seen == 0 {
 		t.Error("no agent writes account-wide rules, so this asserts nothing")
+	}
+}
+
+// An agent that keeps nothing beside a project is found from its home, or auto
+// could only ever enrol it where it was already enrolled.
+func TestAutoFindsATreelessAgentFromTheHome(t *testing.T) {
+	tree, home := t.TempDir(), t.TempDir()
+	if got := detectedAgents(tree, home); slices.Contains(got, "codex") {
+		t.Errorf("codex found with no evidence anywhere: %v", got)
+	}
+	if err := os.Mkdir(filepath.Join(home, ".codex"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := detectedAgents(tree, home); !slices.Contains(got, "codex") {
+		t.Errorf("codex not found from the home, so auto can never enrol it a "+
+			"first time: %v", got)
+	}
+	// Without a home to consult it is named rather than guessed at.
+	if got := detectedAgents(tree, ""); slices.Contains(got, "codex") {
+		t.Errorf("codex found with no home given: %v", got)
+	}
+	// The enrolment record asks a different question: what this tree carries.
+	// The home must not answer it, or a tree would keep an agent it never had.
+	if got := detectAgents(scopeTree, tree); slices.Contains(got, "codex") {
+		t.Errorf("the tree reports codex it does not carry: %v", got)
 	}
 }

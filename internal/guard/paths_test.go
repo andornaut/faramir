@@ -45,7 +45,7 @@ func TestTheGuardRefusesAPathHoweverItIsSpelled(t *testing.T) {
 		{"a sibling of the refused directory", dir + "-notes/id", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, blocked := refusedPath(map[string]any{"file_path": tc.path})
+			_, blocked := refusedPath("", map[string]any{"file_path": tc.path})
 			if blocked != tc.block {
 				t.Errorf("refused(%q) = %v, want %v", tc.path, blocked, tc.block)
 			}
@@ -115,10 +115,10 @@ func TestTheTildeFormIsRefusedWhereTheRulesLostTheHomeSpellings(t *testing.T) {
 	for _, agentUser := range []string{"", "root"} {
 		t.Run("agent_user "+agentUser, func(t *testing.T) {
 			declared := blockAFileAs(t, agentUser)
-			if _, refused := refusedPath(map[string]any{"p": declared}); !refused {
+			if _, refused := refusedPath("", map[string]any{"p": declared}); !refused {
 				t.Fatalf("the declared path is not refused as written: %s", declared)
 			}
-			if _, refused := refusedPath(map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
+			if _, refused := refusedPath("", map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
 				t.Error("the tilde form is not refused, so a rule rendered without a home " +
 					"leaves it uncovered and the guard's own expansion is doing nothing")
 			}
@@ -143,15 +143,15 @@ func TestTheTildeFormIsRefusedAsTheAbsoluteOneIs(t *testing.T) {
 	// The absolute form first: if the rule does not reach it, the tilde case
 	// below would agree with it and prove nothing, which is the failure this
 	// replaced.
-	if _, refused := refusedPath(map[string]any{"p": secret}); !refused {
+	if _, refused := refusedPath("", map[string]any{"p": secret}); !refused {
 		t.Fatalf("the declared path is not refused as written, so this asserts nothing: %s", secret)
 	}
-	if _, refused := refusedPath(map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
+	if _, refused := refusedPath("", map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
 		t.Error("the tilde form is not refused, so a path written the way a person writes it is a way past the rule")
 	}
 	// And an unrelated file under the same home is left alone, or the rule would
 	// be refusing the home rather than the file in it.
-	if _, refused := refusedPath(map[string]any{"p": "~/src/app/main.go"}); refused {
+	if _, refused := refusedPath("", map[string]any{"p": "~/src/app/main.go"}); refused {
 		t.Error("an ordinary file under the home is refused, so the rule is wider than the entry")
 	}
 }
@@ -194,5 +194,76 @@ func TestEveryStringInTheCallIsConsidered(t *testing.T) {
 	}, 0)
 	if strings.Join(got, ",") != "one,two,three" {
 		t.Errorf("pathsIn = %v, want the three strings in key order", got)
+	}
+}
+
+// A relative path names the file the call meant, and the rules name absolute
+// ones. The hosts asking here start the guard from the tree they are working
+// in, so this process's working directory is that tree and the resolved form is
+// the one a rule can match. Without it a declared name is covered and this
+// install's own directories are not: the store beside the tree is read by
+// naming it "../secrets/db.sops.yml".
+func TestARelativePathIsResolvedAgainstTheGuardsWorkingDirectory(t *testing.T) {
+	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
+	t.Setenv("FARAMIR_CONFIG", "/etc/faramir/config.toml")
+
+	// Asked as written it is refused by nothing, so what follows is the
+	// resolution rather than a rule that covered the relative form already.
+	if _, refused := refusedPath("", map[string]any{"p": "faramir/age.key"}); refused {
+		t.Fatal("the relative form is refused unresolved, so this asserts nothing")
+	}
+
+	for _, tc := range []struct {
+		name  string
+		cwd   string
+		path  string
+		block bool
+	}{
+		{"a path relative to the tree the call was made in", "/etc", "faramir/age.key", true},
+		{"a traversal out of that tree", "/etc/faramir/secrets", "../age.key", true},
+		{"the same name under a directory this install does not have", "/srv", "faramir/age.key", false},
+		{"an ordinary file beside the agent", "/srv/app", "notes.txt", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, blocked := refusedPath(tc.cwd, map[string]any{"p": tc.path})
+			if blocked != tc.block {
+				t.Errorf("refused(%q from %q) = %v, want %v", tc.path, tc.cwd, blocked, tc.block)
+			}
+		})
+	}
+}
+
+// The plugin and the extension an enrolment installs are the only thing
+// refusing these hosts' file tools, and the deny list refuses them to a write
+// command alone. A file tool writes as well as reads, so the list is asked both
+// ways: asked only about a read, one of these hosts could edit away the file
+// that is guarding it.
+func TestAFileToolIsRefusedTheFileThatRefusesIt(t *testing.T) {
+	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
+	home := guardHome()
+	if home == "" {
+		t.Skip("no home to name the installed files under")
+	}
+	for _, rel := range []string{
+		".pi/agent/extensions/faramir.ts",
+		".config/opencode/plugin/faramir.js",
+		".config/kilo/plugin/faramir.js",
+		".codex/hooks.json",
+	} {
+		path := filepath.Join(home, rel)
+		if _, refused := refusedPath("", map[string]any{"p": path}); !refused {
+			t.Errorf("%s is not refused, so a file tool can edit away its own guard", path)
+		}
+	}
+	// Codex's is a tree's own file as well as a home's, and the hook is the whole
+	// of what refuses it a path, so the spelling has to reach both.
+	if _, refused := refusedPath("", map[string]any{"p": "/srv/project/.codex/hooks.json"}); !refused {
+		t.Error("a tree's own .codex/hooks.json is not refused")
+	}
+	// An extension of the operator's own is ordinary work: the rule is about the
+	// file faramir installs rather than about the directory it sits in.
+	mine := filepath.Join(home, ".pi/agent/extensions/mine.ts")
+	if _, refused := refusedPath("", map[string]any{"p": mine}); refused {
+		t.Errorf("%s is refused, so the rule is wider than the file it names", mine)
 	}
 }

@@ -38,29 +38,30 @@ func array(t *testing.T, doc map[string]any, key string) []any {
 	return value
 }
 
-// The reason for merging: a registration faramir knows nothing about survives
-// enrolment.
-func TestMergeJSONKeepsOtherServers(t *testing.T) {
+// The reason for merging: a stanza faramir writes nothing under survives
+// enrolment. An MCP server is one such stanza, faramir registering none.
+func TestMergeJSONKeepsAStanzaFaramirDoesNotWrite(t *testing.T) {
 	existing := []byte(`{
 	  "mcpServers": {
 	    "ha-mcp": {"type": "http", "url": "http://hamcp.internal:8086/mcp"}
 	  }
 	}`)
-	ours := []byte(`{"mcpServers":{"faramir":{"command":"/usr/local/bin/faramir","args":["mcp"]}}}`)
+	ours := []byte(`{"permissions":{"deny":["Read(/etc/faramir/age.key)"]}}`)
 
 	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	servers, ok := decode(t, merged)["mcpServers"].(map[string]any)
+	doc := decode(t, merged)
+	servers, ok := doc["mcpServers"].(map[string]any)
 	if !ok {
 		t.Fatalf("mcpServers is not an object: %s", merged)
 	}
 	if _, ok := servers["ha-mcp"]; !ok {
 		t.Errorf("the operator's own server was dropped: %s", merged)
 	}
-	if _, ok := servers["faramir"]; !ok {
-		t.Errorf("faramir's server was not added: %s", merged)
+	if _, ok := doc["permissions"]; !ok {
+		t.Errorf("faramir's own keys were not written: %s", merged)
 	}
 }
 
@@ -142,22 +143,22 @@ func TestMergeJSONKeepsAHookSharingFaramirsGroup(t *testing.T) {
 }
 
 // An argv is ordered and positional, so faramir's replaces what is there. A
-// union leaves the old program standing as the new one's first argument, and
-// the server it registers never starts.
+// union leaves the program an earlier release installed standing as the new
+// one's first argument, and what runs is neither.
 func TestMergeJSONReplacesArgvRatherThanUnioningIt(t *testing.T) {
-	existing := []byte(`{"mcp":{"faramir":{"type":"local",` +
-		`"command":["/usr/local/libexec/faramir/faramir-mcp"],"enabled":true}}}`)
-	ours := []byte(`{"mcp":{"faramir":{"type":"local",` +
-		`"command":["/usr/local/bin/faramir","mcp"],"enabled":true}}}`)
+	existing := []byte(`{"hooks":{"faramir":{"type":"local",` +
+		`"command":["/usr/local/libexec/faramir/faramir-hook"],"enabled":true}}}`)
+	ours := []byte(`{"hooks":{"faramir":{"type":"local",` +
+		`"command":["/usr/local/bin/faramir","guard"],"enabled":true}}}`)
 
 	merged, err := mergeJSON(existing, ours, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(merged), "faramir-mcp") {
+	if strings.Contains(string(merged), "faramir-hook") {
 		t.Errorf("the old argv survived beside the new one: %s", merged)
 	}
-	command := array(t, object(t, object(t, decode(t, merged), "mcp"), "faramir"), "command")
+	command := array(t, object(t, object(t, decode(t, merged), "hooks"), "faramir"), "command")
 	if len(command) != 2 || command[0] != "/usr/local/bin/faramir" {
 		t.Errorf("command = %#v, want the argv this run writes: %s", command, merged)
 	}

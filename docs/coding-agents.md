@@ -10,50 +10,59 @@ Which agents are supported, and what enrolling each costs, is the table in the [
 means the agent cannot do it and nothing here pretends otherwise. **N/A** means
 the agent needs no such thing.
 
-Feature | Claude Code | agy | Antigravity IDE | opencode | Kilo Code | pi
---- | --- | --- | --- | --- | --- | ---
-Command routed through the broker | Enrolled trees | Yes | Yes | Yes | Yes | Yes
-Its output redacted | Enrolled trees | Yes | Yes | Yes | Yes | Yes
-Deny list refuses a command | Yes | Yes | Yes | Yes | Yes | Yes
-A backgrounded command streams rather than buffering | Yes | Yes | Yes | Yes | Yes | Yes
-File tools refused | Yes | Yes | Yes | Yes | Yes | Yes
-&nbsp;&nbsp;by a rule file the agent enforces | Yes | Yes | No | No | No | No
-&nbsp;&nbsp;by faramir itself | N/A | Yes | Yes | Yes | Yes | Yes
-The route reaches the agent | Yes | Yes | Yes | Yes | Yes | Yes
-Credentials section in the file it reads | Yes | Yes | Yes | Yes | Yes | Yes
-Enrolment costs a permission prompt | Bash | N/A | N/A | N/A | N/A | N/A
-Configuration written into a tree | The routing hook | None | None | None | None | None
+Feature | Claude Code | Codex | agy | Antigravity IDE | opencode | Kilo Code | pi
+--- | --- | --- | --- | --- | --- | --- | ---
+Command routed through the broker | Enrolled trees | Enrolled trees | Yes | Yes | Yes | Yes | Yes
+Its output redacted | Enrolled trees | Enrolled trees | Yes | Yes | Yes | Yes | Yes
+Deny list refuses a command | Yes | Yes | Yes | Yes | Yes | Yes | Yes
+A backgrounded command streams rather than buffering | Yes | Yes | Yes | Yes | Yes | Yes | Yes
+File tools refused | Yes | Yes | Yes | Yes | Yes | Yes | Yes
+&nbsp;&nbsp;by a rule file the agent enforces | Yes | No | Yes | No | No | No | No
+&nbsp;&nbsp;by faramir itself | N/A | Yes | Yes | Yes | Yes | Yes | Yes
+The route reaches the agent | Yes | Yes | Yes | Yes | Yes | Yes | Yes
+Credentials section in the file it reads | Yes | Yes | Yes | Yes | Yes | Yes | Yes
+Enrolment costs a permission prompt | Bash | Bash | N/A | N/A | N/A | N/A | N/A
+Configuration written into a tree | The routing hook | The routing hook | None | None | None | None | None
+Runs a hook only once told to trust it | No | Yes | No | No | N/A | N/A | N/A
 
 Everything here is account-wide unless a cell says otherwise: `faramir init`
 installs the guard into a home, and it holds in every directory the agent works
 in. An enrolment adds the prose, and shares the tree so the broker's own account
 can reach it.
 
-Three rows need reading carefully.
+Four rows need reading carefully.
 
 **Deny list refuses a command.** Everywhere, for every agent. This is what a
 `[[secret.block]]` entry is for: the entry describes the host, and an agent
 wanders into directories nobody pointed faramir at.
 
-**Command routed, and its output redacted.** Everywhere except Claude Code,
-where it is what an enrolment buys. Its hook has to approve the command it
-rewrote, and the approval covers every command the deny list does not name;
-Claude Code refuses the permission rule that would approve the rewrite instead,
-saying "'source' evaluates arguments as shell code". So routing costs a
-permission there and nowhere else, and an operator takes that trade one tree at
-a time. Account-wide it runs `faramir guard --deny-only`, which refuses what the
-list names and says nothing about anything else, leaving the host's own
-permission flow as it was.
+**Command routed, and its output redacted.** Everywhere except Claude Code and
+Codex, where it is what an enrolment buys. Their hooks return a permission
+decision, so a hook that rewrote a command has to approve it, and the approval
+covers every command the deny list does not name; Claude Code refuses the
+permission rule that would approve the rewrite instead, saying "'source'
+evaluates arguments as shell code". So routing costs a permission on those two
+and nowhere else, and an operator takes that trade one tree at a time.
+Account-wide they run `faramir guard --deny-only`, which refuses what the list
+names and says nothing about anything else, leaving the host's own permission
+flow as it was.
 
 **File tools refused.** By a rule file where the agent enforces one, and by
 faramir where it does not. Claude Code and the Antigravity CLI enforce a deny
-rule in their own settings. The Antigravity IDE and pi have no such file at all.
-opencode and Kilo Code have one and it is not a refusal: an entry of `deny` is
-put to the operator as a prompt, and an autonomous run approves it. So every
-agent but Claude Code is refused a path by faramir itself, through a hook, a
-plugin or an extension installed in a home, all asking the same `faramir guard`
-and checking the same list by the shape of the tool call rather than by tool
-name. The Antigravity CLI is refused twice, its own rules holding as well.
+rule in their own settings. The Antigravity IDE and pi have no such file at all;
+Codex has none either, its own `.rules` files being an exec policy that decides
+commands and names no path. opencode and Kilo Code have one and it is not a
+refusal: an entry of `deny` is put to the operator as a prompt, and an
+autonomous run approves it. So every agent but Claude Code is refused a path by
+faramir itself, through a hook, a plugin or an extension installed in a home,
+all asking the same `faramir guard` and checking the same list by the shape of
+the tool call rather than by tool name. The Antigravity CLI is refused twice,
+its own rules holding as well.
+
+**Runs a hook only once told to trust it.** Codex alone. It skips a hook it has
+not been trusted with and says nothing when it does, so what faramir writes is
+inert until you start Codex once and trust it. Both commands say so on every
+run, because nothing else would.
 
 ## Which agents an install configures
 
@@ -62,7 +71,9 @@ name. The Antigravity CLI is refused twice, its own rules holding as well.
 Command | Where `auto` looks
 --- | ---
 `faramir init` | the operator's home
-`faramir init-project` | the tree
+`faramir init-project` | the tree, and the home for an agent that keeps nothing beside a project
+
+Codex is that agent: the only thing a tree can carry for it is the hook an enrolment writes, so a tree asked on its own could only ever report Codex where Codex was already enrolled. `auto` reads `~/.codex` instead. The enrolment record is a separate question and still counts only what the tree carries, so a tree does not keep an agent it never had.
 
 Naming an agent configures it whether or not it is installed, which is how a tree is prepared for an agent before the agent is there. A name composes with `auto`, so `--agent auto --agent pi` means "whatever is installed, plus pi". Detection only ever adds, so the two never have to be ranked. An unknown name is an error rather than a skip, which would leave you believing something is covered.
 
@@ -75,7 +86,7 @@ There are two such sections:
 - **The account-wide one**, in the file each agent reads for every project. In a tree `init-project` has never been run in, this is the only thing faramir says: the deny rules still hold there, and there is no broker to point at.
 - **The tree's own**, written by `init-project`. It is the longer of the two, because in an enrolled tree there is a route to name.
 
-A tree's own file is whichever of `AGENTS.md` and `CLAUDE.md` it already has. Two agents read a name of their own beside it and get one there as well: Claude Code a `CLAUDE.md`, which is the name it reads and `AGENTS.md` is not, and Antigravity a `.agents/rules/faramir.md`. Every one of these carries the same section, so an operator who keeps a single file for every agent links `CLAUDE.md` at `AGENTS.md` and the section is written once into the file both names. Two agents' settings files linked that way are refused instead: those are different bytes, and only the last write would survive.
+A tree's own file is whichever of `AGENTS.md` and `CLAUDE.md` it already has. Three agents read a name of their own beside it and get one there as well: Claude Code a `CLAUDE.md`, which is the name it reads and `AGENTS.md` is not, Codex an `AGENTS.md`, which is the mirror image, and Antigravity a `.agents/rules/faramir.md`. Every one of these carries the same section, so an operator who keeps a single file for every agent links `CLAUDE.md` at `AGENTS.md` and the section is written once into the file both names. Two agents' settings files linked that way are refused instead: those are different bytes, and only the last write would survive.
 
 ### One list, rendered per agent
 
@@ -83,13 +94,15 @@ What the rules name is written once, in [internal/install/protectedpaths.go](../
 
 No pattern is compiled in. The list is the directories this install occupies, taken from the layout so they are this host's real paths, plus the file each `[[secret.link]]` entry reads and every `[[secret.block]]` entry the operator declared.
 
-Four agents cannot rely on a rule file: pi and the Antigravity IDE have none to write, and on opencode and Kilo Code a rule of `deny` is a prompt an autonomous run approves. All four get the same list applied by faramir instead, and applied by shape rather than by tool name: a tool call carrying a path is checked whatever the tool is called. None of them carries a copy of the list. The hook, the plugin and the extension all ask `faramir guard`, which puts the question as a read of that path, so one implementation answers for every agent and cannot drift from another.
+Five agents cannot rely on a rule file: pi, Codex and the Antigravity IDE have none to write, and on opencode and Kilo Code a rule of `deny` is a prompt an autonomous run approves. All five get the same list applied by faramir instead, and applied by shape rather than by tool name: a tool call carrying a path is checked whatever the tool is called. None of them carries a copy of the list. The hook, the plugin and the extension all ask `faramir guard`, which puts the question as a read of that path and as a write to it, so one implementation answers for every agent and cannot drift from another.
 
 ### What a rule matches
 
 A declared name matches as a name, a suffix, a prefix, a wildcard name or a directory, anywhere in a path, so `--name id_ed25519` covers `~/.ssh/id_ed25519` and `.ssh/id_ed25519` as readily as the absolute form. The five shapes are in [configuration.md](configuration.md#a-path-and-a-name-are-different-rules).
 
-A path this install names is a literal, so the guard tries the spellings that mean the same file: as the tool gave it, with `~` expanded, and with dot segments and doubled separators removed. A relative path is asked about as written and never resolved, because resolving it would need the working directory the call meant rather than the guard's.
+A path this install names is a literal, so the guard tries the spellings that mean the same file: as the tool gave it, with `~` expanded, and with dot segments and doubled separators removed. A relative path is resolved as well, against the directory the payload names where the host sends one and otherwise against the guard's own: the plugin and the extension run inside the agent's own process, so the guard's working directory is the one the call meant, and a hook host runs the guard as a program of its own and promises nothing about where. A hook host that names no directory has a relative path asked about as written.
+
+The question is put both ways, as a read of the path and as a write to it. A file tool does both, and the two are separate rules: the plugin, the extension and the hook an enrolment installs are refused to a write, and they are the only thing refusing those agents' file tools. Codex's is the one that is also a tree's own file, so one spelling covers `~/.codex/hooks.json` and a project's `.codex/hooks.json`.
 
 Where an agent has a rule file of its own, that agent does the matching. Which spellings are caught there is its answer, not faramir's.
 
@@ -125,6 +138,29 @@ Mode | Cost
 `default` | Bash would have prompted and now does not. This is what the warning is about.
 `acceptEdits` | Auto-accepts `Write` and `Edit`, leaves Bash prompting. Same cost as default.
 `bypassPermissions` | Bash never prompted, so approving it removes nothing. Enrolment is purely additive.
+
+## Codex
+
+Codex reads Claude Code's hook contract: the payload names the tool and flattens its input beside it, a decision goes back under `hookSpecificOutput`, and a rewrite is `updatedInput`, which replaces the call's arguments. So the enrolment is shaped the same way and for the same reason. The account gets a deny-only hook in `~/.codex/hooks.json`, which Codex reads wherever it is working; an enrolled tree gets the routing one in its own `.codex/hooks.json`. Both files load and both hooks run, the account's first, which costs a second pass over the deny list and nothing else.
+
+Three things differ.
+
+**There is no rule file.** Codex's `.rules` files are an exec policy: they decide commands and name no path, so nothing an install writes can say "not this file". The hook is the whole of what refuses Codex a path, which is why it matches every tool rather than `Bash`.
+
+**Files are written through `apply_patch`, whose input is a patch rather than a command.** The tool applies it itself, so there is nothing to route, and the files it writes are named on the envelope's own `Add File`, `Update File`, `Delete File` and `Move to` headers. Those are what the deny list is asked about; the patch is never scanned as a command line, or a patch that adds documentation quoting `rm /etc/faramir/config.toml` would be refused for what the documentation says. It is never rewritten either: fed through the wrapper, what came back would be a patch that no longer applies.
+
+A patch the guard cannot read is refused. This branch is the whole of what refuses Codex a path, so an envelope that is not where the guard reads it would otherwise leave every write unexamined and say nothing about it.
+
+The tool is also invocable from a shell, and the documented spelling puts the envelope in a quoted heredoc. A quoted heredoc body is data rather than commands, so the deny list never sees the headers inside it: every other heredoc write names its file on the opening line, and this is the one that does not. So a command that runs the patch tool has its headers read the same way the tool's own call does. Only that command: a heredoc that writes documentation quoting a header is ordinary work.
+
+Reads need none of that. Codex reads a file by running one of the shell's own readers, so the command guard covers every read it makes.
+
+**A hook has to be trusted before it runs.** Codex skips a hook it has not been told to trust and says nothing when it does, so what `faramir init` and `faramir init-project` write is inert until you start Codex once and trust it. The trust is a hash of the hook set, so it is yours to grant and it has to be granted again after a change. Both commands say so on every run.
+
+> [!IMPORTANT]
+> **Codex must run without its own sandbox** (`codex --dangerously-bypass-approvals-and-sandbox`). Sandboxed, it is refused the broker socket: `read-only` and `workspace-write` both deny the `AF_UNIX` connect and deny writes to `XDG_RUNTIME_DIR`, and `network_access` governs `AF_INET` alone and does not lift it. The wrapper fails closed, so what that costs is every command's output withheld rather than redacted.
+
+Enrolling costs the same permission it costs on Claude Code, and only where Codex is run with approvals on: the hook that rewrote a command has to approve it, and that approval covers every command the deny list does not name. Run with approvals bypassed, there is no prompt to give away and the trade is free.
 
 ## Antigravity
 

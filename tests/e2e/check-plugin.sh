@@ -1,7 +1,7 @@
 #!/bin/bash
 # The opencode and Kilo Code plugins, executed.
 #
-# Three of the six supported agents do not use a hook that runs a program. They
+# Three of the seven supported agents do not use a hook that runs a program. They
 # load JavaScript or TypeScript into their own process, and that file is the
 # whole enforcement path: it calls `faramir guard`, applies what comes back, and
 # refuses when it cannot. Nothing has ever run it. The project suite proved the file is
@@ -213,6 +213,27 @@ TOOLEOF
     || ok "pi: running the rewrite does not print the value"
   grep -q '«SECRET:db/password»' <<<"$out" && ok "pi: it comes back as its token" \
     || bad "pi: no token: $(head -c 90 <<<"$out")"
+
+  # A file tool naming a relative path. The extension starts the guard from the
+  # tree pi is working in, so the guard resolves one against that directory:
+  # asked as written it names nothing this install refuses, and the store beside
+  # the tree would be read under its relative name.
+  out=$(cd /etc && pidrive read '{"path":"faramir/age.key"}')
+  [ "$(jq -r .blocked <<<"$out")" = true ] \
+    && ok "pi: a relative path into this install is blocked" \
+    || bad "pi: a relative path was not blocked: ${out:0:90}"
+  out=$(cd /tmp && pidrive read '{"path":"faramir/age.key"}')
+  [ "$(jq -r .blocked <<<"$out")" = false ] \
+    && ok "pi: and the same name under an unrelated directory is not" \
+    || bad "pi: a path outside this install was blocked: ${out:0:90}"
+
+  # The extension is the whole of what refuses this host's file tools, so a file
+  # tool must not be able to edit it away. The deny list refuses it to a write
+  # command, which is why the guard is asked both ways.
+  out=$(pidrive write "{\"filePath\":\"$PI_EXT\",\"content\":\"x\"}")
+  [ "$(jq -r .blocked <<<"$out")" = true ] \
+    && ok "pi: writing to the extension itself is blocked" \
+    || bad "pi: the extension is writable through a file tool: ${out:0:90}"
 fi
 
 # --------------------------------------------------------------------------

@@ -103,10 +103,10 @@ func fallbackPatterns() []string {
 // is what holds when that file cannot be read, and it can no more carry a
 // declaration than it can carry a [[secret.block]] path.
 
-// pluginFiles is the one alternation both plugin-file rules carry: the plugin
-// and extension `faramir init` installs, which are faramir's own files and the
-// only thing refusing those agents' file tools.
-const pluginFiles = `(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts)`
+// pluginFiles is the one alternation both plugin-file rules carry: the plugin,
+// extension and hook file `faramir init` installs, which are faramir's own files
+// and the only thing refusing those agents' file tools.
+const pluginFiles = `(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts|codex/hooks\.json)`
 
 // fallbackOwn is the rest of faramir's own: its binary, the files an enrolment
 // installs, and the commands that act on the install rather than through it.
@@ -115,10 +115,17 @@ var fallbackOwn = []string{
 	// any unrelated tool into /usr/local/bin would be refused.
 	denyrules.WriteCommands + denyrules.ArgSpan + `/usr/local/bin/faramir\b`,
 	`>\s*\S*/usr/local/bin/faramir\b`,
-	// The plugin and extension `faramir init` installs, which are faramir's own
-	// files and now the only thing refusing those agents' file tools: deleting one
-	// is deleting their cover. Matched without a leading dot, the directories
-	// being ~/.config/opencode, ~/.config/kilo and ~/.pi/agent.
+	// The plugin, extension and hook file `faramir init` installs, which are
+	// faramir's own files and now the only thing refusing those agents' file
+	// tools: deleting one is deleting their cover. The directories are
+	// ~/.config/opencode, ~/.config/kilo, ~/.pi/agent and ~/.codex, and Codex's is
+	// also a tree's own file, so one spelling covers ~/.codex/hooks.json and a
+	// project's .codex/hooks.json.
+	//
+	// Matched as a suffix with no leading dot, which is wider than those
+	// directories: "somecodex/hooks.json" matches too. Over-refusal, on files
+	// nothing else writes, and narrowing it would cost the one spelling that
+	// reaches both a home and a tree.
 	//
 	// The merged files (.claude/settings.json, opencode.json, kilo.json) are
 	// deliberately absent: they carry the operator's own settings beside
@@ -394,7 +401,12 @@ func loadPatterns() []compiled {
 }
 
 type payload struct {
-	ToolName  string `json:"tool_name"`
+	ToolName string `json:"tool_name"`
+	// Cwd is the directory the agent is working in, where the host sends it. It
+	// is what a relative path in a tool call is relative to, and taking the
+	// host's word for it beats this process's own working directory, which a hook
+	// host promises nothing about. Empty where the host sends none.
+	Cwd       string `json:"cwd"`
 	ToolInput struct {
 		Command  string `json:"command"`
 		Args     []any  `json:"args"`
@@ -470,6 +482,15 @@ func decodeToolCall(data []byte) (*payload, error) {
 	if command, ok := doc.ToolCall.Args["CommandLine"].(string); ok {
 		p.ToolInput.Command = command
 	}
+	// The directory the call was made in, which this host keys inside the
+	// arguments rather than beside them. Read here as well as kept in RawInput:
+	// it is what a relative path in a file tool's arguments is relative to, and
+	// this host is one that refuses paths, so without it a store named
+	// "../secrets/db.sops.yml" from the tree beside it is asked about as written
+	// and matched by nothing.
+	if cwd, ok := doc.ToolCall.Args["Cwd"].(string); ok {
+		p.Cwd = cwd
+	}
 	return p, nil
 }
 
@@ -526,36 +547,126 @@ func pathsIn(value any, depth int) []string {
 // to open it. So only an argument shaped like an absolute path is asked about,
 // which is what a file tool is given and what a sentence is not.
 //
-// A relative path is deliberately not resolved, for the reason the plugins do
-// not resolve one: it needs the working directory the call meant rather than
-// this process's, and a guess refuses the wrong file as readily as the right
-// one.
-func refusedPath(input map[string]any) (string, bool) {
+// A relative path is resolved against cwd, and only where the caller had one to
+// give: see host.runsInAgentCwd. Without it a relative path is asked as written,
+// which covers a declared name and nothing else, so a store named "../secrets"
+// from the tree next to it would be read.
+//
+// Both verbs, because a file tool both reads and writes and the deny list
+// spells the two separately: the plugin and extension an enrolment installs are
+// refused to a write command alone, and those are the only thing refusing the
+// file tools of the hosts asking here. A path protected either way refuses the
+// call, whichever tool named it: an over-refusal here is a read of one of
+// faramir's own files through an agent's file tool, and the operator's own
+// tools are not this.
+func refusedPath(cwd string, input map[string]any) (string, bool) {
 	for _, candidate := range pathsIn(input, 0) {
 		if !looksLikePath(candidate) {
 			continue
 		}
-		for _, spelling := range spellings(candidate) {
-			if _, denied := decide("cat " + shellQuote(spelling)); denied {
-				return candidate, true
+		if refusedSpelling(cwd, candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+// refusedSpelling asks the deny list about one path, in every spelling that
+// names the same file and as a read and as a write. Split out because a patch
+// envelope's headers are asked the same question by a different route.
+func refusedSpelling(cwd, candidate string) bool {
+	for _, spelling := range spellings(cwd, candidate) {
+		for _, verb := range []string{"cat ", "tee "} {
+			if _, denied := decide(verb + shellQuote(spelling)); denied {
+				return true
 			}
+		}
+	}
+	return false
+}
+
+// patchHeaders matches the file each header line of a patch envelope names.
+// Codex's apply_patch carries the whole patch in the tool input's command, so
+// the files it writes are named on these lines and nowhere else.
+//
+// Anchored per line, and the whole of the rest of the line is the path: a name
+// may carry spaces, so the run-of-non-space test refusedPath uses is the wrong
+// one here and a header line needs none of it. The grammar has already decided
+// this is a path.
+//
+// The trailing class takes a carriage return as well. Go's `$` in multi-line
+// mode matches before the newline and leaves a CRLF's "\r" on the capture, and
+// a path rule is bounded at its right edge, so a CRLF envelope would name the
+// age key and match no rule about it.
+var patchHeaders = regexp.MustCompile(
+	`(?m)^\*\*\*[ \t]+(?:Add File|Update File|Delete File|Move to):[ \t]*(.+?)[ \t\r]*$`)
+
+// refusedPatchCommand is refusedPatchPath asked of a shell command rather than
+// of the patch tool's own call. The tool is invocable from a shell, and the
+// documented spelling puts the envelope in a quoted heredoc, whose body is data
+// rather than commands: the deny list is matched against the segments, so the
+// headers inside are never asked about. Every other heredoc write names its
+// file on the opening line, which the list does see.
+//
+// Only where a segment actually runs the tool. The alternative -- scanning
+// every command for patch headers -- refuses a heredoc that writes
+// documentation quoting one, which is ordinary work, and refusing it names the
+// quoted line as though the file were being written.
+func refusedPatchCommand(h *host, cwd, command string) (string, bool) {
+	if h.patchTool == "" || !runsPatchTool(h.patchTool, command) {
+		return "", false
+	}
+	return refusedPatchPath(cwd, command)
+}
+
+// runsPatchTool reports whether any command on this line is the patch tool. The
+// first word of a segment, by base name, so an absolute invocation counts and
+// the tool named as an argument to something else does not.
+func runsPatchTool(tool, command string) bool {
+	for _, segment := range denyrules.Segments(command) {
+		word, _, _ := strings.Cut(strings.TrimSpace(segment), " ")
+		if filepath.Base(word) == tool {
+			return true
+		}
+	}
+	return false
+}
+
+// refusedPatchPath is the first file a patch envelope names that the deny list
+// refuses.
+//
+// Every header, not the first: a patch is a list of edits, and one that adds a
+// README and replaces an age key is refused for the second.
+func refusedPatchPath(cwd, patch string) (string, bool) {
+	for _, header := range patchHeaders.FindAllStringSubmatch(patch, -1) {
+		candidate := header[1]
+		if candidate == "" {
+			continue
+		}
+		if refusedSpelling(cwd, candidate) {
+			return candidate, true
 		}
 	}
 	return "", false
 }
 
 // spellings is the ways one argument names the same file: as given, with "~"
-// expanded, and with dot segments and doubled separators taken out.
+// expanded, resolved against cwd where there is one and the argument is
+// relative, and with dot segments and doubled separators taken out.
 //
 // Each is a way past a literal rule. The paths this install names are rendered
 // as literals, and a literal only ever matches itself, so "/home/op/./creds.txt"
 // and "//home/op/creds.txt" name the refused file and match no rule about it.
 // A "~" is the same problem in another spelling: the rules carry the operator's
-// real home.
-func spellings(candidate string) []string {
+// real home. A relative path is the same problem again, and the resolved form
+// is what a rule naming an absolute path can match.
+func spellings(cwd, candidate string) []string {
 	out := []string{candidate}
 	if home := guardHome(); home != "" && strings.HasPrefix(candidate, "~/") {
 		out = append(out, home+candidate[1:])
+	}
+	if cwd != "" && !strings.HasPrefix(candidate, "/") && !strings.HasPrefix(candidate, "~/") {
+		out = append(out, filepath.Join(cwd, candidate))
 	}
 	for _, form := range slices.Clone(out) {
 		if cleaned := filepath.Clean(form); cleaned != form {
@@ -728,12 +839,45 @@ func Run(args []string) int {
 		// says so in the transcript, where somebody reads it.
 		return emit(activeHost.deny(unreadablePayload))
 	}
+	// The directory a relative path in this call is relative to: the host's own
+	// word for it where the payload carries one, and otherwise this process's,
+	// which is the agent's only where the host started the guard from there. An
+	// error leaves it empty, which asks the path as written.
+	//
+	// Load-bearing for the patch branch below rather than a convenience. Codex
+	// emits a header path either absolute or relative, observed both ways at one
+	// version (see TestTheCodexContractMatchesACapturedPayload), and a relative
+	// one asked as written matches no rule spelled absolutely. So a patch naming
+	// `../.config/faramir/<file>` from a tree beside the config is what this
+	// resolution catches and nothing else would.
+	cwd := p.Cwd
+	if cwd == "" && activeHost.runsInAgentCwd {
+		cwd, _ = os.Getwd()
+	}
+	// Before the tool gate and before the command is read: a patch envelope is
+	// not a command, so scanning it as one would refuse a patch for the text
+	// inside it and routing one through the wrapper would produce a patch that no
+	// longer applies. What it is asked instead is the files its headers name.
+	if activeHost.patchTool != "" && p.ToolName == activeHost.patchTool {
+		// An envelope that is not where this expects it is refused rather than
+		// allowed. This is the one tool the agent writes files with, and the only
+		// thing refusing it a path is this branch, so a key that has moved would
+		// otherwise leave every patch unexamined and say nothing. The sibling
+		// branches fail closed on a payload they cannot read; so does this one.
+		if strings.TrimSpace(p.ToolInput.Command) == "" {
+			return emit(activeHost.deny(unreadablePatch))
+		}
+		if path, denied := refusedPatchPath(cwd, p.ToolInput.Command); denied {
+			return emit(activeHost.deny(fmt.Sprintf(pathAdvice, path)))
+		}
+		return 0
+	}
 	// Before the tool gate: a file tool is one this host runs no commands
 	// through, so gating on the name first would leave every read unexamined on
 	// the host that has nothing else to refuse one.
 	command := commandOf(p)
 	if command == "" && activeHost.refusesPaths {
-		if path, denied := refusedPath(p.RawInput); denied {
+		if path, denied := refusedPath(cwd, p.RawInput); denied {
 			// No pattern named. The list is asked about a read of this path, so the
 			// pattern that answers is a reader-verb alternation, which describes how
 			// the question was put rather than why the file is refused.
@@ -767,6 +911,16 @@ func Run(args []string) int {
 	if pattern, denied := decide(command); denied {
 		return emit(activeHost.deny(adviceFor(pattern, command) +
 			"\n\n(matched deny pattern: " + shortPattern(pattern) + ")"))
+	}
+
+	// The same question the patch branch above asks, of a command that runs the
+	// patch tool itself: the documented way to invoke it from a shell is with the
+	// envelope in a quoted heredoc, and a quoted heredoc body is data rather than
+	// commands, so the list above never sees the headers. Every other heredoc
+	// write names its file on the opening line, which the list does see; this is
+	// the one that does not.
+	if path, denied := refusedPatchCommand(activeHost, cwd, command); denied {
+		return emit(activeHost.deny(fmt.Sprintf(pathAdvice, path)))
 	}
 
 	// Everything the list names has been refused by here, which is the whole of
@@ -812,6 +966,10 @@ const (
 	noCommandString = "Blocked: faramir's guard was handed a shell tool call carrying no command, so " +
 		"there was nothing to check.\n\nTell the operator: the tool's input is not the " +
 		"shape `faramir guard` reads."
+	unreadablePatch = "Blocked: faramir's guard was handed a patch it could not read, so it could not " +
+		"tell which files the patch writes.\n\nTell the operator: the patch tool's input is " +
+		"not the shape `faramir guard` reads, and until that is fixed this tool could write " +
+		"any file on the host."
 )
 
 func emit(document map[string]any) int {

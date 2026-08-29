@@ -142,9 +142,9 @@ out=$(agentStep)
 grep -q 'no coding agent found in /home/op' <<<"$out" \
   && ok "a home carrying no agent gets no deny rules, and is told so" \
   || bad "auto found something in a home with no agent in it: $out"
-grep -q 'agy, antigravity, claude, kilocode, opencode, pi' <<<"$out" \
-  && ok "and the message names all six it could be told to write for" \
-  || bad "the message does not name the six: $out"
+grep -q 'agy, antigravity, claude, codex, kilocode, opencode, pi' <<<"$out" \
+  && ok "and the message names all seven it could be told to write for" \
+  || bad "the message does not name the seven: $out"
 
 # The marker is made and removed here: init asks the home, so a directory left
 # behind would answer for every suite after this one.

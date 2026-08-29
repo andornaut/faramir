@@ -1,0 +1,40 @@
+{{- /*
+The account-wide half of a Codex enrolment, merged into ~/.codex/hooks.json,
+which Codex reads for every directory it works in.
+
+A hook and nothing beside it. Codex's own `.rules` files are an exec policy:
+they decide commands and name no path, so there is no file an install can put a
+deny rule for ~/.ssh/id_ed25519 in. The hook is what refuses a file tool, and
+`faramir guard --host codex` refuses one by the shape of the call rather than by
+the tool's name.
+
+Deny-only, and that is the whole of the difference from the tree's. A rewrite
+has to be approved to run, and the allow that approves it approves every command
+the list does not name. So routing costs an approval, and an operator takes that
+trade per tree. What this one does is refuse what the list names, wherever the
+agent is working, and say nothing about anything else: a silent answer leaves
+Codex's own approval flow as it was.
+
+The matcher is "*" rather than "Bash". An empty reply is a call left alone, so
+answering for a tool that runs nothing costs nothing, and matching every tool is
+what puts apply_patch and the file tools in front of the deny list at all.
+
+Codex does not run a hook it has not been told to trust, and says nothing when
+it skips one. See the note `faramir init` prints.
+*/ -}}
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": {{ quote (printf "%s/faramir guard --host codex --deny-only" .BinDir) }},
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

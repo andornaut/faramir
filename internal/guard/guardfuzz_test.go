@@ -8,7 +8,7 @@ import (
 )
 
 // The guard reads untrusted JSON on stdin, one payload from whichever of the
-// six agents registered it. Whatever arrives, three things have to hold for
+// seven agents registered it. Whatever arrives, three things have to hold for
 // every dialect, and each fails silently rather than loudly: a panic takes the
 // hook down and a hook that is down guards nothing; an unmarshalable reply is
 // one the agent cannot read and treats as no answer, which is a call let
@@ -26,13 +26,14 @@ func FuzzTheGuardDecidesAcrossEveryDialect(f *testing.F) {
 		`{"toolCall":{"name":"read_file","args":{"Path":"/etc/faramir/age.key"}}}`,
 		`{"tool_name":"read","tool_input":{"filePath":"/etc/faramir/age.key"}}`,
 		`{"tool_name":"bash","tool_input":{"command":"source /x/wrap.sh 'ls'"}}`,
+		`{"tool_name":"apply_patch","cwd":"/srv","tool_input":{"command":"*** Begin Patch\n*** Add File: notes.md\n+hi\n*** End Patch"}}`,
 		`{}`, `[]`, `null`, `"x"`, `42`,
 		`{"tool_input":{"command":""}}`,
 		`{"toolCall":{"name":"","args":{}}}`,
 	} {
 		f.Add(s)
 	}
-	hosts := []string{"claude", "opencode", "kilocode", "pi", "agy", "antigravity"}
+	hosts := []string{"claude", "codex", "opencode", "kilocode", "pi", "agy", "antigravity"}
 	f.Fuzz(func(t *testing.T, payload string) {
 		for _, name := range hosts {
 			h, err := lookupHost(name)

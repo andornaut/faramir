@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 )
 
@@ -50,6 +51,14 @@ type agentTarget struct {
 	// wrote instead of deciding the agent is gone.
 	detectHome []string
 
+	// detectsFromHome is for an agent that keeps nothing of its own beside a
+	// project, so the only thing a tree can carry for it is the file an enrolment
+	// writes. Asked of the tree alone, auto could only ever find such an agent
+	// already enrolled, and would never enrol it a first time. So the tree
+	// question is put to the home instead, where the evidence of using the agent
+	// actually is. Naming it explicitly still enrols it, as for any agent.
+	detectsFromHome bool
+
 	// homeInstructions is the file this agent reads as prose wherever it is
 	// working, relative to the agent account's home, and is where `init` writes
 	// the account-wide credentials section. Its own path per agent and not
@@ -82,6 +91,12 @@ type agentTarget struct {
 	// note is warned about on enrolment, for anything that is not the Bash
 	// trade.
 	note string
+
+	// accountNote is warned about by `init`, for a condition that holds on the
+	// account-wide half as well as in a tree. Its own field rather than a scope
+	// on note: every other note is about what an enrolment traded away, and one
+	// of those repeated on every `init` would be noise nobody reads.
+	accountNote string
 
 	// noteStands says the note describes what this tree is rather than what this
 	// run just did, so it is warned about on every enrolment rather than only on
@@ -169,7 +184,26 @@ const (
 	// The customization directory the whole family reads for every workspace,
 	// enrolled or not.
 	antigravityAccountHooks = ".gemini/config/hooks.json"
+	// Codex's hook file inside a tree. The same name it reads under a home, which
+	// is why the two are named apart: one path, two roots, and each renders the
+	// half of the enrolment that belongs at its own scope.
+	codexHooksFile = ".codex/hooks.json"
 )
+
+// codexNote is the two conditions faramir cannot meet on this agent's behalf,
+// and it holds at both scopes: the account-wide hook and a tree's are inert
+// under either of them.
+//
+// Said on every run rather than only on the one that wrote the files. Neither
+// condition is something a later run can check: trust is Codex's own state, and
+// how Codex was started is not this command's to know. What both have in common
+// is that they fail quietly, which is why they are said rather than left to be
+// discovered.
+const codexNote = "Codex does not run a hook it has not been told to trust, and says nothing when " +
+	"it skips one, so until you start Codex once and trust this hook nothing here is " +
+	"routed or refused. Codex must also run without its own sandbox " +
+	"(`codex --dangerously-bypass-approvals-and-sandbox`): sandboxed, it is refused the " +
+	"broker socket, and every command's output is withheld rather than redacted"
 
 // familyName is the tree enrolment this target belongs to, which is the target
 // itself where it shares one with nobody.
@@ -210,6 +244,48 @@ var agentTargets = map[string]*agentTarget{
 		treeInstructions: treeRules{path: "CLAUDE.md"},
 		autoApprovesBash: true,
 	},
+	// Codex reads the same hook contract Claude Code does, and its enrolment is
+	// shaped the same way for the same reason: a rewrite has to be approved to
+	// run, and the allow that approves it covers every command the deny list does
+	// not name. So the account gets a deny-only hook and a tree gets the routing
+	// one.
+	//
+	// Where it differs is what the account-wide half can be. Claude Code takes
+	// deny rules in its settings and enforces them itself; Codex's own `.rules`
+	// files are an exec policy, which decides commands and names no path, so
+	// there is no rule file to write and the hook is the whole of what refuses a
+	// file tool. That is why this hook matches every tool rather than Bash: see
+	// the assets.
+	"codex": {
+		name: "codex",
+		files: []agentFile{
+			{path: codexHooksFile, asset: "agent/codex/hooks.tree.json.tmpl", mode: 0o640, merge: true, local: true, noRules: true},
+		},
+		accountFiles: []agentFile{
+			{path: codexHooksFile, asset: "agent/codex/hooks.json.tmpl", mode: 0o640, merge: true, noRules: true},
+		},
+		detect:     []string{codexHooksFile},
+		detectHome: []string{".codex"},
+		// Codex keeps nothing of its own beside a project, so its only tree marker
+		// is the hook file an enrolment writes. Detected from the home instead.
+		detectsFromHome: true,
+		// Codex's global instructions, loaded wherever it is working.
+		homeInstructions: ".codex/AGENTS.md",
+		// Codex reads AGENTS.md and not CLAUDE.md, the mirror image of Claude
+		// Code, so a tree whose own file is a CLAUDE.md would leave this agent
+		// nothing. Named here rather than left to the tree's own file, which is
+		// whichever name the tree already has; where that name is AGENTS.md the
+		// two are one file and the section is written once. See oneSectionPerFile.
+		treeInstructions: treeRules{path: "AGENTS.md"},
+		// Same trade as Claude Code, and only in an enrolled tree: the hook has to
+		// approve the command it rewrote, and that approval covers every command
+		// the deny list does not name.
+		autoApprovesBash: true,
+		noteStands:       true,
+		note:             codexNote,
+		accountNote:      codexNote,
+	},
+
 	// opencode and Kilo Code extend through in-process plugins rather than a
 	// hook that runs a program, so what is installed is a JavaScript file that
 	// calls `faramir guard` and applies what it answers. The deny list and the
@@ -656,14 +732,17 @@ func knownAgents() []string {
 // Naming an agent configures it whether or not it is here and auto only adds
 // what it finds, so the result is the union of the two. Returned in a fixed
 // order, so a report reads the same twice.
-func resolveAgents(names []string, scope agentScope, dir string) ([]*agentTarget, error) {
+// home is the agent account's home, consulted for an agent that keeps nothing
+// of its own beside a project; empty where the caller has none to give, which
+// leaves such an agent undetected rather than guessed at.
+func resolveAgents(names []string, scope agentScope, dir, home string) ([]*agentTarget, error) {
 	if len(names) == 0 {
 		names = []string{AgentAuto}
 	}
 	wanted := map[string]bool{}
 	for _, name := range names {
 		if name == AgentAuto {
-			for _, found := range detectAgents(scope, dir) {
+			for _, found := range detectForEnrolment(scope, dir, home) {
 				wanted[found] = true
 			}
 			continue
@@ -703,6 +782,34 @@ func detectAgents(scope agentScope, dir string) []string {
 	return out
 }
 
-// detectedAgents is detectAgents over a tree, for the report that names what
-// was found and not enrolled.
-func detectedAgents(dir string) []string { return detectAgents(scopeTree, dir) }
+// detectForEnrolment is the question auto puts: which agents should this run
+// configure here. It is detectAgents plus the home fallback, which is a
+// different question from what a tree carries. [enrolled] asks that other one
+// and keeps detectAgents, an agent's enrolment record being what a tree still
+// shows rather than what the host has installed.
+func detectForEnrolment(scope agentScope, dir, home string) []string {
+	out := detectAgents(scope, dir)
+	if scope != scopeTree || home == "" {
+		return out
+	}
+	for _, name := range knownAgents() {
+		target := agentTargets[name]
+		if !target.detectsFromHome || slices.Contains(out, name) {
+			continue
+		}
+		for _, path := range target.detectHome {
+			if exists(filepath.Join(home, path)) {
+				out = append(out, name)
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// detectedAgents is what auto would find in a tree, for the report that names
+// what was found and not enrolled.
+func detectedAgents(dir, home string) []string {
+	return detectForEnrolment(scopeTree, dir, home)
+}

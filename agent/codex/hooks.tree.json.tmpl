@@ -1,0 +1,35 @@
+{{- /*
+What enrolling a tree writes for Codex: the PreToolUse hook that routes a
+command through the broker, merged into the tree's own .codex/hooks.json, which
+Codex reads alongside the account-wide one.
+
+Both files load and both hooks run, the account's first. That costs a second
+pass over the deny list on every call and nothing else: what the account's hook
+refuses, this one refuses too, and only this one rewrites.
+
+It goes in git's ignores rather than the repository, everything here naming a
+path this machine decided.
+
+The matcher is "*" for the reason the account-wide one is: an empty reply is a
+call left alone, and matching every tool is what puts apply_patch in front of
+the deny list.
+
+Codex does not run a hook it has not been told to trust, and says nothing when
+it skips one. See the note `faramir init-project` prints.
+*/ -}}
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": {{ quote (printf "%s/faramir guard --host codex" .BinDir) }},
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -78,16 +78,26 @@ func (r *runner) stepAgentConfig() error {
 		made, paths, err := writeAgentFiles(r.fs, r.warnf, r.operatorHome, r.layout.ConfigDir,
 			r.operatorUID, r.operatorGID, 0o700, false, asTarget(target), files)
 		written = append(written, paths...)
+		stood := true
 		switch {
 		case errors.Is(err, errNotOperators):
 			// Collected rather than returned, as the sections below are: every other
 			// agent's rules are still written and the run fails once at the end
 			// naming all of them.
 			refused = append(refused, err.Error())
+			stood = false
 		case err != nil:
 			return err
 		}
 		changed = changed || made
+		// Whether or not this run wrote anything, but not where the write was
+		// refused: what the note describes is a condition the agent is under rather
+		// than something this run just did, and nothing here can check it has been
+		// met -- but told to go and trust a hook that was never written, an operator
+		// goes looking for one. See agentTarget.accountNote.
+		if target.accountNote != "" && stood {
+			r.warnf("%s: %s", target.name, target.accountNote)
+		}
 	}
 	r.step(labelAgentConfig, changed, strings.Join(written, ", "))
 	// The sections first, so one refused rule file does not cost every agent its

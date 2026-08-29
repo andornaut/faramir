@@ -91,6 +91,21 @@ for cmd in "gnuplot /etc/faramir/notes.txt" "concat /etc/faramir/notes.txt"; do
     || ok "left alone: ${cmd%% *} is no tool in the list"
 done
 
+# A quoted heredoc body is data rather than commands, and a herestring's word is
+# quoted exactly as a delimiter is. Read as one, every line up to the next line
+# matching that word is skipped as the body of a heredoc that was never opened,
+# and the commands between never reach the deny list. Multi-line, so these are
+# built here rather than in the tables above, which are one case per line.
+herestring=$(printf "grep q <<< 'A'\ncat /etc/faramir/age.key\nA\necho done")
+[ "$(verdict "$herestring")" = deny ] \
+  && ok "a command after a herestring is still read" \
+  || bad "a herestring was taken for a heredoc, so the command after it was never checked"
+# And the heredoc it is not: a body naming a command is a file being written.
+heredoc=$(printf "tee doc <<'EOF'\nsudo faramir doctor\nEOF")
+[ "$(verdict "$heredoc")" = rewrite ] \
+  && ok "and a quoted heredoc body is still data rather than commands" \
+  || bad "a document quoting an operator command was refused as the command"
+
 # --------------------------------------------------------------------------
 head_ "2. ordinary work is rewritten, not refused"
 # The complement, and the more important half: a deny list that refuses real
@@ -164,6 +179,8 @@ check_shape() { # host jq-expr want label
 }
 check_shape claude   '.hookSpecificOutput.permissionDecision' deny  "deny"    'cat /etc/faramir/age.key' Bash
 check_shape claude   '.hookSpecificOutput.permissionDecision' allow "rewrite" 'ls'       Bash
+check_shape codex    '.hookSpecificOutput.permissionDecision' deny  "deny"    'cat /etc/faramir/age.key' Bash
+check_shape codex    '.hookSpecificOutput.permissionDecision' allow "rewrite" 'ls'       Bash
 check_shape opencode '.decision'                              deny    "deny"    'cat /etc/faramir/age.key' bash
 check_shape opencode '.decision'                              rewrite "rewrite" 'ls'       bash
 check_shape kilocode '.decision'                              deny    "deny"    'cat /etc/faramir/age.key' bash
@@ -195,7 +212,7 @@ out=$(jq -cn '{tool_name:"Bash",tool_input:{command:"ls"}}' \
 
 head_ "5. an unknown dialect is an error, not a guess"
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"cat /etc/faramir/age.key"}}' \
-      | runuser -u op -- "$GUARD" guard --host codex 2>/tmp/g.err; echo "rc=$?")
+      | runuser -u op -- "$GUARD" guard --host nosuchagent 2>/tmp/g.err; echo "rc=$?")
 grep -q 'rc=2' <<<"$out" && ok "an unknown --host exits 2" || bad "unknown --host: $out"
 [ "$(echo "$out" | grep -vc 'rc=')" = "0" ] && ok "and answers nothing, so nothing is approved" \
   || bad "it emitted a decision anyway: $out"
@@ -232,6 +249,31 @@ route() { # tool command -> deny|rewrite|pass
   || bad "BashOutput escapes the deny list"
 [ "$(route BashOutput 'ls')" = pass ] && ok "and is not rewritten, having no command to run" \
   || bad "BashOutput was rewritten"
+
+# Codex writes every file through apply_patch, whose input carries the patch
+# rather than a command. It is checked by the files its headers name and never
+# rewritten: routed through the wrapper, what came back would be a patch that no
+# longer applies.
+patch() { # patch-body -> deny|rewrite|pass
+  local out
+  out=$(jq -cn --arg c "$1" '{tool_name:"apply_patch",cwd:"/home/op",tool_input:{command:$c}}' \
+        | runuser -u op -- "$GUARD" guard --host codex 2>/dev/null)
+  [ -z "$out" ] && { echo pass; return; }
+  case "$(echo "$out" | jq -r '.hookSpecificOutput.permissionDecision')" in
+    deny) echo deny;; allow) echo rewrite;; *) echo "?";;
+  esac
+}
+[ "$(patch '*** Begin Patch
+*** Update File: /etc/faramir/age.key
+*** End Patch')" = deny ] \
+  && ok "codex: a patch replacing the age key is refused" \
+  || bad "codex: apply_patch escapes the deny list"
+[ "$(patch '*** Begin Patch
+*** Add File: notes.md
++hello
+*** End Patch')" = pass ] \
+  && ok "codex: and an ordinary patch is left alone rather than rewritten" \
+  || bad "codex: an ordinary patch was answered, so what applies is not what the model wrote"
 
 head_ "7. a payload it cannot use is refused, not passed over"
 # A tool this host does not run commands through is none of the guard's

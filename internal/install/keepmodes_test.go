@@ -10,7 +10,7 @@ import (
 // them.
 func everyTarget(t *testing.T) []*agentTarget {
 	t.Helper()
-	targets, err := resolveAgents(knownAgents(), scopeTree, "")
+	targets, err := resolveAgents(knownAgents(), scopeTree, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
