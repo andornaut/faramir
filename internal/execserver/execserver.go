@@ -439,10 +439,11 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	}
 	log.Printf("%s exit=%d dur=%.1fs%s", filepath.Base(req.Argv[0]), exitCode, duration, suffix)
 
+	// No duration on the wire: the broker measures a run on its own clock, and
+	// the log line above is the executor's record of its half.
 	return map[string]any{
-		"exit_code":    exitCode,
-		"timed_out":    timedOut,
-		"duration_sec": round3(duration),
+		"exit_code": exitCode,
+		"timed_out": timedOut,
 	}
 }
 
@@ -499,10 +500,6 @@ func positive(value, fallback int) int {
 		return value
 	}
 	return fallback
-}
-
-func round3(v float64) float64 {
-	return float64(int64(v*1000+0.5)) / 1000
 }
 
 type ChildResult struct {

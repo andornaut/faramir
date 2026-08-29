@@ -217,7 +217,7 @@ One request, carrying a single file descriptor as ancillary data:
  "timeout_sec": 600,
  "kill_grace_sec": 5}
 
-{"exit_code": 0, "timed_out": false, "duration_sec": 12.4}
+{"exit_code": 0, "timed_out": false}
 ```
 
 The descriptor is the **slave** end of a PTY the broker created. The broker keeps the master, so redaction and the audit log read the child's bytes directly. Both sides close their copy of the slave once the child holds it, or the master never reaches EOF.
