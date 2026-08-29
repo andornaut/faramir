@@ -183,6 +183,40 @@ func table(raw map[string]any, key, where string) (map[string]any, error) {
 	return out, nil
 }
 
+// section reads one named table and refuses its unknown keys, returning the
+// "path: [name]" prefix every refusal in it carries. Each loader is this
+// preamble and then its own fields.
+func section(raw map[string]any, name, path string, keys []string) (map[string]any, string, error) {
+	where := path + ": [" + name + "]"
+	sec, err := table(raw, name, path)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := rejectUnknownKeys(sec, keys, where); err != nil {
+		return nil, "", err
+	}
+	return sec, where, nil
+}
+
+// strField pairs a key with the field it fills; the field's current value is
+// its default.
+type strField struct {
+	key  string
+	into *string
+}
+
+// strFields fills string fields in the order given, stopping at the first
+// refusal so the key named is the same one the loop it replaces would name.
+func strFields(sec map[string]any, where string, fields []strField) error {
+	for _, f := range fields {
+		var err error
+		if *f.into, err = str(sec[f.key], where, *f.into); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func stringList(value any, where string, fallback []string) ([]string, error) {
 	if value == nil {
 		return fallback, nil
@@ -717,87 +751,56 @@ func clampSudoTimeout(sudo *SudoConfig, command CommandConfig) {
 }
 
 func loadServer(raw map[string]any, path string, out *ServerConfig) error {
-	where := path + ": [server]"
-	sec, err := table(raw, "server", path)
+	sec, where, err := section(raw, "server", path, serverKeys)
 	if err != nil {
-		return err
-	}
-	if err := rejectUnknownKeys(sec, serverKeys, where); err != nil {
 		return err
 	}
 	*out = ServerConfig{
 		SocketPath:   "/run/faramir/broker.sock",
 		AllowedGroup: "faramir-client",
 	}
-	if out.SocketPath, err = str(sec[keySocketPath], where, out.SocketPath); err != nil {
-		return err
-	}
-	if out.AllowedGroup, err = str(sec["allowed_group"], where, out.AllowedGroup); err != nil {
-		return err
-	}
-	if out.AgentUser, err = str(sec["agent_user"], where, out.AgentUser); err != nil {
-		return err
-	}
-	return nil
+	return strFields(sec, where, []strField{
+		{keySocketPath, &out.SocketPath},
+		{"allowed_group", &out.AllowedGroup},
+		{"agent_user", &out.AgentUser},
+	})
 }
 
 func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
-	where := path + ": [keeper]"
-	sec, err := table(raw, "keeper", path)
+	sec, where, err := section(raw, "keeper", path, keeperKeys)
 	if err != nil {
-		return err
-	}
-	if err := rejectUnknownKeys(sec, keeperKeys, where); err != nil {
 		return err
 	}
 	*out = KeeperConfig{
 		SocketPath:  "/run/faramir/keeper.sock",
 		AllowedUser: "faramir-broker", AgeKeyCredential: "age_key",
 	}
-	if out.SocketPath, err = str(sec[keySocketPath], where, out.SocketPath); err != nil {
-		return err
-	}
-	if out.AllowedUser, err = str(sec["allowed_user"], where, out.AllowedUser); err != nil {
-		return err
-	}
-	if out.AgeKeyCredential, err = str(sec["age_key_credential"], where, out.AgeKeyCredential); err != nil {
-		return err
-	}
-	if out.AgeKeyFile, err = str(sec["age_key_file"], where, ""); err != nil {
-		return err
-	}
-	return nil
+	return strFields(sec, where, []strField{
+		{keySocketPath, &out.SocketPath},
+		{"allowed_user", &out.AllowedUser},
+		{"age_key_credential", &out.AgeKeyCredential},
+		{"age_key_file", &out.AgeKeyFile},
+	})
 }
 
 func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
-	where := path + ": [executor]"
-	sec, err := table(raw, "executor", path)
+	sec, where, err := section(raw, "executor", path, executorKeys)
 	if err != nil {
-		return err
-	}
-	if err := rejectUnknownKeys(sec, executorKeys, where); err != nil {
 		return err
 	}
 	*out = ExecutorConfig{
 		SocketPath:  "/run/faramir/exec.sock",
 		AllowedUser: "faramir-broker",
 	}
-	if out.SocketPath, err = str(sec[keySocketPath], where, out.SocketPath); err != nil {
-		return err
-	}
-	if out.AllowedUser, err = str(sec["allowed_user"], where, out.AllowedUser); err != nil {
-		return err
-	}
-	return nil
+	return strFields(sec, where, []strField{
+		{keySocketPath, &out.SocketPath},
+		{"allowed_user", &out.AllowedUser},
+	})
 }
 
 func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
-	where := path + ": [command]"
-	sec, err := table(raw, "command", path)
+	sec, where, err := section(raw, "command", path, commandKeys)
 	if err != nil {
-		return err
-	}
-	if err := rejectUnknownKeys(sec, commandKeys, where); err != nil {
 		return err
 	}
 	*out = DefaultCommand()
@@ -869,12 +872,8 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 }
 
 func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
-	where := path + ": [secret]"
-	sec, err := table(raw, "secret", path)
+	sec, where, err := section(raw, "secret", path, secretKeys)
 	if err != nil {
-		return err
-	}
-	if err := rejectUnknownKeys(sec, secretKeys, where); err != nil {
 		return err
 	}
 	*out = DefaultSecret()
@@ -1277,43 +1276,26 @@ func selectingKinds() []string {
 }
 
 func loadSsh(raw map[string]any, path string, out *SshConfig) error {
-	where := path + ": [ssh]"
-	sec, err := table(raw, "ssh", path)
+	sec, where, err := section(raw, "ssh", path, sshKeys)
 	if err != nil {
-		return err
-	}
-	if err := rejectUnknownKeys(sec, sshKeys, where); err != nil {
 		return err
 	}
 	*out = SshConfig{
 		AgentSocket: "/run/faramir/ssh-agent.sock",
 		ExecGroup:   "faramir-exec", SshAgent: "/usr/bin/ssh-agent", SshAdd: "/usr/bin/ssh-add",
 	}
-	if out.Key, err = str(sec["key"], where, ""); err != nil {
-		return err
-	}
-	if out.AgentSocket, err = str(sec["agent_socket"], where, out.AgentSocket); err != nil {
-		return err
-	}
-	if out.ExecGroup, err = str(sec["exec_group"], where, out.ExecGroup); err != nil {
-		return err
-	}
-	if out.SshAgent, err = str(sec["ssh_agent"], where, out.SshAgent); err != nil {
-		return err
-	}
-	if out.SshAdd, err = str(sec["ssh_add"], where, out.SshAdd); err != nil {
-		return err
-	}
-	return nil
+	return strFields(sec, where, []strField{
+		{"key", &out.Key},
+		{"agent_socket", &out.AgentSocket},
+		{"exec_group", &out.ExecGroup},
+		{"ssh_agent", &out.SshAgent},
+		{"ssh_add", &out.SshAdd},
+	})
 }
 
 func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
-	where := path + ": [sudo]"
-	sec, err := table(raw, "sudo", path)
+	sec, where, err := section(raw, "sudo", path, sudoKeys)
 	if err != nil {
-		return err
-	}
-	if err := rejectUnknownKeys(sec, sudoKeys, where); err != nil {
 		return err
 	}
 	// No exec_user by default, which is the install that granted no sudoers
@@ -1331,16 +1313,12 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 		NotifyCommand: nil,
 		TimeoutSec:    DefaultSudoTimeoutSec,
 	}
-	if out.ExecUser, err = str(sec["exec_user"], where, ""); err != nil {
-		return err
-	}
-	if out.PamService, err = str(sec["pam_service"], where, out.PamService); err != nil {
-		return err
-	}
-	if out.PamStack, err = str(sec["pam_stack"], where, out.PamStack); err != nil {
-		return err
-	}
-	if out.Helper, err = str(sec["helper"], where, out.Helper); err != nil {
+	if err := strFields(sec, where, []strField{
+		{"exec_user", &out.ExecUser},
+		{"pam_service", &out.PamService},
+		{"pam_stack", &out.PamStack},
+		{"helper", &out.Helper},
+	}); err != nil {
 		return err
 	}
 	if out.NotifyCommand, err = stringList(sec["notify_command"], where, out.NotifyCommand); err != nil {
@@ -1383,17 +1361,10 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 const MaxSudoTimeoutSec = 3600
 
 func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
-	where := path + ": [audit]"
-	sec, err := table(raw, "audit", path)
+	sec, where, err := section(raw, "audit", path, auditKeys)
 	if err != nil {
 		return err
 	}
-	if err := rejectUnknownKeys(sec, auditKeys, where); err != nil {
-		return err
-	}
 	*out = AuditConfig{LogPath: "/var/log/faramir/audit.log"}
-	if out.LogPath, err = str(sec["log_path"], where, out.LogPath); err != nil {
-		return err
-	}
-	return nil
+	return strFields(sec, where, []strField{{"log_path", &out.LogPath}})
 }
