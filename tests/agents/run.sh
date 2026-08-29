@@ -50,8 +50,11 @@ OUT=$(cd -- "$OUT" && pwd) || exit 2
 # the agent that takes it:
 #
 #   agy       offers no Opus, and takes a reasoning level as part of the name
-#   codex     runs against a ChatGPT account, which serves `gpt-5.6-sol-pro` but
-#             refuses the bare `gpt-5.6-sol`
+#   codex     runs against a ChatGPT account, which serves `gpt-5.6-terra` and
+#             refuses every other 5.6 spelling tried: sol, sol-pro, terra-pro,
+#             luna-pro. Verify a model with a question whose answer is not in
+#             the prompt: codex echoes the prompt, so asking it to reply with a
+#             fixed word matches that echo and every model looks supported
 #   kilo, pi  reach Anthropic only through their own broker or OpenRouter, so the
 #             name carries that prefix
 modelfor() {
@@ -63,7 +66,7 @@ modelfor() {
     fi
     case $slug in
     claude) echo claude-opus-5 ;;
-    codex) echo gpt-5.6-sol-pro ;;
+    codex) echo gpt-5.6-terra ;;
     agy) echo gemini-3.7-flash-high ;;
     opencode) echo openrouter/anthropic/claude-opus-5 ;;
     kilo) echo kilo/anthropic/claude-opus-5 ;;

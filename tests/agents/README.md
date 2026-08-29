@@ -106,17 +106,22 @@ mistaken for findings.
 | Agent | Model | Reached through |
 | --- | --- | --- |
 | `claude` | `claude-opus-5` | Anthropic |
-| `codex` | `gpt-5.6-sol-pro` | OpenAI, on a ChatGPT account |
+| `codex` | `gpt-5.6-terra` | OpenAI, on a ChatGPT account |
 | `agy` | `gemini-3.7-flash-high` | Google |
 | `opencode` | `openrouter/anthropic/claude-opus-5` | OpenRouter |
 | `kilo` | `kilo/anthropic/claude-opus-5` | Kilo, signed in |
 | `pi` | `openrouter/anthropic/claude-opus-5` | OpenRouter |
 
 The names are not interchangeable between agents. `agy` offers no Opus and takes
-a reasoning level as part of the name; a ChatGPT account serves
-`gpt-5.6-sol-pro` but refuses the bare `gpt-5.6-sol`; `kilo` and `pi` reach
+a reasoning level as part of the name; a ChatGPT account serves `gpt-5.6-terra`
+and refuses `sol`, `sol-pro`, `terra-pro` and `luna-pro`; `kilo` and `pi` reach
 Anthropic only through their own broker or OpenRouter, so the name carries that
 prefix. Override any of them with `FARAMIR_AGENT_MODEL_<SLUG>`.
+
+Check a model with a question whose answer is not already in the prompt. Codex
+echoes the prompt it was given, so asking an agent to reply with a fixed word and
+grepping the output for that word matches the echo: every model passes, including
+one the account refuses, and the run then dies at its first real call.
 
 An agent reaching a model it is not entitled to fails at the first call and
 produces no report. `kilo` answers `PAID_MODEL_AUTH_REQUIRED` until the account
