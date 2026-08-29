@@ -58,7 +58,7 @@ sudo faramir sudo watch
      caller   you (uid 1000)
      host     controller
      received 2026-08-20 20:21:44 EDT (expires 120s, waited 23s)
-     approve? [y/n]
+     Approve? [y/n]
    ```
 
    Field | What it says
@@ -78,7 +78,7 @@ sudo faramir sudo watch
 4. Anything but `y` is a refusal, `yes` included, and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 3600 -- and never more than `[command] max_timeout_sec`, since the command waits inside `sudo` for the whole question and a longer one would be answered onto a run the broker had already killed -- counted from when it was raised. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
 
    ```text
-     approve? [y/n]
+     Approve? [y/n]
      w9h4d78d000016 expired
    ```
 

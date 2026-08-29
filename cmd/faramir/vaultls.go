@@ -204,8 +204,8 @@ func newVaultRemoveCmd() *cobra.Command {
 		Short:   "Remove an encrypted secret file",
 		Long: "Deletes one managed file and every value in it. Only a backup brings\n" +
 			"them back.\n\n" +
-			"It names the refs it is about to destroy and asks for the file name back.\n" +
-			"--force answers for you.",
+			"It names the refs it is about to destroy and asks. --force answers for\n" +
+			"you.",
 		Args: exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runVaultRemove(f, args[0]))
@@ -271,9 +271,11 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	return 0
 }
 
-// confirmRemoval puts the question to whoever is at the terminal, and takes
-// only the file's own name for an answer: a y/n prompt is answered by reflex.
-// Deny by default, so a closed stdin or an empty line is a no.
+// confirmRemoval puts the question to whoever is at the terminal, and takes the
+// same answer an escalation does: `approves`, so one y and nothing else,
+// preceded by the same [flushTypeahead]. Deny by default, so a closed stdin, an
+// empty line or a typo is a no. What the question is worth comes from the lines
+// above it, which name the file and every ref that goes with it.
 func confirmRemoval(target string, refs []string, refsErr error) bool {
 	fmt.Fprintf(os.Stderr, "%s\n", safe(target))
 	switch {
@@ -285,20 +287,17 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	default:
 		fmt.Fprintf(os.Stderr, "  %d ref(s) go with it: %s\n", len(refs), safe(strings.Join(refs, ", ")))
 	}
-	// The expected word is shown rather than guessed at: what makes this safe is
-	// having read which file it is, not having worked out what to type.
-	name := managedStem(target)
-	fmt.Fprintf(os.Stderr, "Every value in it is destroyed, and nothing here brings "+
-		"it back.\nType %s to remove it: ", safe(name))
+	// One keystroke answers this, so what was typed before the question was put
+	// must not be able to spell the answer to it. The same flush an escalation
+	// does, and for the same reason.
+	flushTypeahead()
+	fmt.Fprint(os.Stderr, "Remove? [y/n] ")
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && line == "" {
 		fmt.Fprintln(os.Stderr)
 		return false
 	}
-	// Either spelling, the short one being what was typed to get here and the
-	// full one what is on disk.
-	answer := strings.TrimSpace(line)
-	return answer == name || answer == filepath.Base(target)
+	return approves(line)
 }
 
 // newRefsCmd is what the broker is serving, which is not the same question as

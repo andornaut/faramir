@@ -535,16 +535,27 @@ func readLines(paint palette) *typed {
 // This narrows the window rather than closing it: a line the goroutine holds
 // between its read and its send lands after the drain.
 func (t *typed) discard() {
-	// Terminals only. Input that was not typed was not typed early: a
-	// substituted reader is a test's script and a redirected stdin is a file, and
-	// both are meant to be read in order.
 	if !t.terminal {
 		return
 	}
-	if err := unix.IoctlSetInt(int(os.Stdin.Fd()), unix.TCFLSH, unix.TCIFLUSH); err != nil {
+	if !flushTypeahead() {
 		return
 	}
 	t.drain()
+}
+
+// flushTypeahead drops input that arrived before a prompt was printed, so a
+// keystroke meant for something else cannot answer it. This is what makes a
+// one-character answer safe, and every prompt taking one has to call it.
+//
+// Terminals only, and it reports whether it flushed. Input that was not typed
+// was not typed early: a substituted reader is a test's script and a redirected
+// stdin is a file, and both are meant to be read in order.
+func flushTypeahead() bool {
+	if !isTerminal(os.Stdin) {
+		return false
+	}
+	return unix.IoctlSetInt(int(os.Stdin.Fd()), unix.TCFLSH, unix.TCIFLUSH) == nil
 }
 
 // drain empties the channel of lines the goroutine has already delivered.
@@ -583,7 +594,7 @@ func (t *typed) answer(deadline time.Time) (string, answerState) {
 		// Bold, and the trailing space left outside it: what is being asked for is
 		// the last thing on the screen before the cursor, and the cursor sits on a
 		// plain space rather than inside a highlight.
-		fmt.Print("  " + t.paint.bold("approve? [y/n]") + " ")
+		fmt.Print("  " + t.paint.bold("Approve? [y/n]") + " ")
 		select {
 		case line, open := <-t.lines:
 			if !open {

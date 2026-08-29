@@ -740,12 +740,12 @@ faramir vault add --editor /usr/local/sbin/writer3 full-name.sops.yml >/dev/null
 [ -e /etc/faramir/secrets/full-name.sops.yml ] && ok "and is not doubled" \
   || bad "wrote $(echo /etc/faramir/secrets/full-name*)"
 
-# The confirmation takes the name that was typed to get here.
-printf 'bare-name\n' | faramir vault rm bare-name >/dev/null 2>&1 \
-  && ok "rm takes the short name, at the argument and at the prompt" \
-  || bad "the short name was refused at the confirmation"
-printf 'full-name.sops.yml\n' | faramir vault rm full-name.sops.yml >/dev/null 2>&1 \
-  && ok "and the full one still answers too" || bad "the full name was refused"
+# Either spelling reaches the same file; the confirmation is the same y.
+printf 'y\n' | faramir vault rm bare-name >/dev/null 2>&1 \
+  && ok "rm takes the short name at the argument" \
+  || bad "the short name was refused"
+printf 'y\n' | faramir vault rm full-name.sops.yml >/dev/null 2>&1 \
+  && ok "and the full one too" || bad "the full name was refused"
 
 head_ "17. ls, refs and rm: the operator's view of the store"
 cat > /usr/local/sbin/writer2 <<'EOF'
@@ -787,9 +787,10 @@ runuser -u op -- faramir refs > /tmp/refs.log 2>&1 \
 grep -q 'faramir://inventory/one' /tmp/refs.log \
   && ok "and the broker is serving what ls found" || bad "the broker is not serving it"
 
-# THE REFUSAL: anything but the file's own name leaves it alone.
+# THE REFUSAL: anything but a bare y leaves it alone. "yes" among them, the same
+# answer an escalation refuses, so one prompt's habit does not misread another's.
 kept=1
-for answer in "no" "" "y" "yes" "inventor" "inventory.sops"; do
+for answer in "no" "" "n" "yes" "Y es" "inventory"; do
   printf '%s\n' "$answer" | faramir vault rm inventory.sops.yml >/dev/null 2>&1
   # Stop at the first one that removed it: every answer after that is asked of
   # a file that is already gone, and would report a refusal that never happened.
@@ -797,14 +798,14 @@ for answer in "no" "" "y" "yes" "inventor" "inventory.sops"; do
     || { bad "answering '$answer' removed the file"; kept=0; break; }
 done
 [ "$kept" -eq 1 ] \
-  && ok "only the file's own name removes it; no, an empty line, y, yes and a near miss do not"
+  && ok "only y removes it; no, an empty line, n, yes, 'Y es' and the file's own name do not"
 # A closed stdin is a refusal too, not a prompt nobody answered.
 faramir vault rm inventory.sops.yml </dev/null >/dev/null 2>&1
 [ -e /etc/faramir/secrets/inventory.sops.yml ] && ok "and a closed stdin refuses" \
   || bad "a closed stdin removed the file"
 
-printf 'inventory\n' | faramir vault rm inventory >/tmp/rm.log 2>&1 \
-  && ok "the file's own name removes it" || bad "rm failed: $(tail -2 /tmp/rm.log)"
+printf 'y\n' | faramir vault rm inventory >/tmp/rm.log 2>&1 \
+  && ok "y removes it" || bad "rm failed: $(tail -2 /tmp/rm.log)"
 [ -e /etc/faramir/secrets/inventory.sops.yml ] && bad "the file is still there" \
   || ok "and the file is gone"
 grep -q 'inventory/one' /tmp/rm.log && ok "it named the refs it was about to destroy" \

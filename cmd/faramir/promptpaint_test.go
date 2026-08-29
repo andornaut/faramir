@@ -134,7 +134,7 @@ func TestTheAnswerPromptIsBold(t *testing.T) {
 		readLines(always(t)).answer(time.Now().Add(time.Minute))
 		return 0
 	})
-	if !strings.Contains(out, sgrBold+"approve? [y/n]"+sgrReset+" ") {
+	if !strings.Contains(out, sgrBold+"Approve? [y/n]"+sgrReset+" ") {
 		t.Errorf("the ask is not bold, or the space landed inside the span:\n%q", out)
 	}
 }

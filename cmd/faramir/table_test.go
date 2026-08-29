@@ -159,10 +159,11 @@ func TestAnOrdinaryDoctorDetailKeepsItsWords(t *testing.T) {
 	}
 }
 
-// The removal prompt shows the file an operator is about to destroy and takes
-// its name back as the answer. A filename may hold anything the filesystem
-// accepts, so a carriage return in one would show a path other than the file
-// being deleted, on the one prompt where getting it wrong is unrecoverable.
+// The removal prompt shows the file an operator is about to destroy, and the
+// answer is a bare y, so that path is the whole of what identifies it. A
+// filename may hold anything the filesystem accepts, so a carriage return in one
+// would show a path other than the file being deleted, on the one prompt where
+// getting it wrong is unrecoverable.
 func TestTheRemovalPromptCannotBeDressedUp(t *testing.T) {
 	for _, name := range []string{
 		"ev\ril-SAFE-LOOKING.sops.yml", "boom\x1bc.sops.yml", "t\x1b]0;x\a.sops.yml",
