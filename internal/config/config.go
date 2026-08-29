@@ -36,6 +36,10 @@ const (
 	keyCommand = "command"
 	// keyStrict is the TOML key both entry kinds tighten a rule with.
 	keyStrict = "strict"
+	// keyAllowedUser is the key the two internal sockets name their one client
+	// with, and keyKey is [ssh] key as well as the selector a link reads with.
+	keyAllowedUser = "allowed_user"
+	keyKey         = "key"
 )
 
 // The limits no config key reaches. Variables rather than constants so a test
@@ -679,17 +683,17 @@ var (
 	sections = []string{"server", "keeper", "executor", keyCommand, "ssh",
 		"sudo", "secret", "audit"}
 	serverKeys = []string{keySocketPath, "allowed_group", "agent_user"}
-	keeperKeys = []string{keySocketPath, "allowed_user",
+	keeperKeys = []string{keySocketPath, keyAllowedUser,
 		"age_key_credential", "age_key_file"}
-	executorKeys = []string{keySocketPath, "allowed_user"}
+	executorKeys = []string{keySocketPath, keyAllowedUser}
 	commandKeys  = []string{"env", "timeout_sec", "max_timeout_sec", "concurrency",
 		"max_memory_percent", "max_process_memory_mb"}
-	sshKeys = []string{"key", "agent_socket", "exec_group",
+	sshKeys = []string{keyKey, "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
 	sudoKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
 		"notify_command", "timeout_sec"}
 	secretKeys = []string{"min_length", "link", "block"}
-	linkKeys   = []string{"ref", keyPath, "type", "key", keyStrict}
+	linkKeys   = []string{"ref", keyPath, "type", keyKey, keyStrict}
 	blockKeys  = []string{keyPath, "name", keyCommand, keyStrict}
 	auditKeys  = []string{"log_path"}
 )
@@ -777,7 +781,7 @@ func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
 	}
 	return strFields(sec, where, []strField{
 		{keySocketPath, &out.SocketPath},
-		{"allowed_user", &out.AllowedUser},
+		{keyAllowedUser, &out.AllowedUser},
 		{"age_key_credential", &out.AgeKeyCredential},
 		{"age_key_file", &out.AgeKeyFile},
 	})
@@ -794,7 +798,7 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 	}
 	return strFields(sec, where, []strField{
 		{keySocketPath, &out.SocketPath},
-		{"allowed_user", &out.AllowedUser},
+		{keyAllowedUser, &out.AllowedUser},
 	})
 }
 
@@ -1285,7 +1289,7 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 		ExecGroup:   "faramir-exec", SshAgent: "/usr/bin/ssh-agent", SshAdd: "/usr/bin/ssh-add",
 	}
 	return strFields(sec, where, []strField{
-		{"key", &out.Key},
+		{keyKey, &out.Key},
 		{"agent_socket", &out.AgentSocket},
 		{"exec_group", &out.ExecGroup},
 		{"ssh_agent", &out.SshAgent},
