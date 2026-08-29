@@ -26,7 +26,7 @@ if ! grep -q '^\[sudo\]' $CFGDIR/config.toml; then
   faramir init --allow-sudo --agent-user op >/tmp/u-init.log 2>&1 \
     || { echo "could not install the grant"; tail -3 /tmp/u-init.log; exit 1; }
   systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
-  sleep 3
+  waitfor 15 runuser -u op -- /usr/local/bin/faramir refs
 fi
 
 # A record to keep: an empty log satisfies "still there" without saying

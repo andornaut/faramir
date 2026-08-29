@@ -76,7 +76,7 @@ if ! grep -q '^notify_command' $CFG; then
     >/tmp/sudo-init.log 2>&1 \
     || { echo "could not install the grant"; tail -3 /tmp/sudo-init.log; exit 1; }
   systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
-  sleep 3
+  waitfor 15 runuser -u op -- /usr/local/bin/faramir refs
 fi
 rm -f "$NOTIFY"
 echo "grant installed; [sudo] timeout_sec=$(escalation_timeout)"
@@ -277,7 +277,7 @@ head_ "8. a question nobody answers"
 
 before=$(escalation_timeout)
 set_escalation_timeout 5
-systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
+systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; waitfor 15 runuser -u op -- /usr/local/bin/faramir refs
 
 start=$(date +%s)
 runuser -u op -- /usr/local/bin/faramir run --quiet -t 40 -- /usr/bin/sudo /usr/bin/id -un >/tmp/to.out 2>&1
@@ -308,7 +308,7 @@ out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo aft
   || bad "the listing does not tell it from a refusal: $(/usr/local/bin/faramir logs --color never -n 3)"
 
 set_escalation_timeout "${before:-120}"
-systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
+systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; waitfor 15 runuser -u op -- /usr/local/bin/faramir refs
 quiesce
 
 # --------------------------------------------------------------------------
@@ -713,7 +713,7 @@ quiesce
 # reach an answer after one.
 before=$(escalation_timeout)
 set_escalation_timeout 20
-systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
+systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; waitfor 15 runuser -u op -- /usr/local/bin/faramir refs
 
 out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
 [ "$(field "$out" EXPIRED)" = yes ] \
@@ -726,7 +726,7 @@ out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
   || bad "the second question could not be answered: ${out//$'\n'/ }"
 
 set_escalation_timeout "${before:-120}"
-systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
+systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; waitfor 15 runuser -u op -- /usr/local/bin/faramir refs
 quiesce
 
 # --------------------------------------------------------------------------
