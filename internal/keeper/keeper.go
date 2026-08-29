@@ -320,7 +320,11 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 	paths, errors, _ := Resolve(secrets.Patterns)
 
 	env := []string{
-		"PATH=" + envOr("PATH", "/usr/local/bin:/usr/bin:/bin"),
+		// Fixed rather than inherited: argv[0] is a bare "sops", so this PATH is
+		// what resolves it, and the binary that decrypts every managed file must
+		// not depend on the environment the keeper unit was started with. Shared
+		// with the rule-coverage check so the two cannot resolve different sops.
+		"PATH=" + config.SopsExecPATH,
 		"HOME=" + envOr("HOME", "/tmp"),
 		"LANG=C.UTF-8",
 	}

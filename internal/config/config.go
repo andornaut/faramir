@@ -26,6 +26,13 @@ import (
 const (
 	DefaultConfigPath = "/etc/faramir/config.toml"
 	defaultPATH       = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	// SopsExecPATH is the PATH the keeper and the rule-coverage check run sops
+	// under. Fixed and absolute, not inherited: which sops decrypts the store
+	// must not depend on how the keeper unit was launched, and the account that
+	// resolves a bare "sops" here is the one holding the age key. Equal to
+	// defaultPATH today but a separate concern, so a change to the brokered
+	// command's PATH cannot move sops resolution with it.
+	SopsExecPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	// The one key three sections share, named once so the list of keys a section
 	// accepts and the lookup that reads it cannot drift apart.
 	keySocketPath = "socket_path"

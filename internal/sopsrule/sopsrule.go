@@ -24,6 +24,8 @@ import (
 	"time"
 
 	yaml "go.yaml.in/yaml/v3"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // Rule is one creation rule, reduced to what any caller here asks about.
@@ -198,7 +200,9 @@ func Covers(sopsPath, configPath string, recipients []string, target string) (bo
 		home = "/tmp"
 	}
 	cmd.Env = []string{
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		// The same fixed PATH the keeper decrypts under, so a rule this reports as
+		// covered is one the keeper's own sops would read the same way.
+		"PATH=" + config.SopsExecPATH,
 		"HOME=" + home,
 		"LANG=C.UTF-8",
 	}
