@@ -91,20 +91,26 @@ for cmd in "gnuplot /etc/faramir/notes.txt" "concat /etc/faramir/notes.txt"; do
     || ok "left alone: ${cmd%% *} is no tool in the list"
 done
 
-# A quoted heredoc body is data rather than commands, and a herestring's word is
-# quoted exactly as a delimiter is. Read as one, every line up to the next line
-# matching that word is skipped as the body of a heredoc that was never opened,
-# and the commands between never reach the deny list. Multi-line, so these are
-# built here rather than in the tables above, which are one case per line.
+# A heredoc body is read as commands, and a herestring's word is not a body at
+# all. Multi-line, so these are built here rather than in the tables above, which
+# are one case per line.
 herestring=$(printf "grep q <<< 'A'\ncat /etc/faramir/age.key\nA\necho done")
 [ "$(verdict "$herestring")" = deny ] \
   && ok "a command after a herestring is still read" \
   || bad "a herestring was taken for a heredoc, so the command after it was never checked"
-# And the heredoc it is not: a body naming a command is a file being written.
+# The body an interpreter runs. `<<'EOF'` makes it literal, and literal is what
+# bash executes: nothing in the redirection separates this from a document being
+# written, so both are read as commands and this one is refused.
+interpreted=$(printf "bash <<'EOF'\ncat /etc/faramir/age.key\nEOF")
+[ "$(verdict "$interpreted")" = deny ] \
+  && ok "a read inside an interpreter heredoc is refused" \
+  || bad "a quoted heredoc body fed to bash never reached the deny list"
+# The cost of that, asserted so it is a decision on the record rather than a
+# surprise: writing a document that quotes an operator command is refused too.
 heredoc=$(printf "tee doc <<'EOF'\nsudo faramir doctor\nEOF")
-[ "$(verdict "$heredoc")" = rewrite ] \
-  && ok "and a quoted heredoc body is still data rather than commands" \
-  || bad "a document quoting an operator command was refused as the command"
+[ "$(verdict "$heredoc")" = deny ] \
+  && ok "and so is a document quoting one, which is the price of the above" \
+  || bad "a heredoc body was skipped, which is how an interpreter body escapes"
 
 # --------------------------------------------------------------------------
 head_ "2. ordinary work is rewritten, not refused"
