@@ -190,13 +190,13 @@ func table(raw map[string]any, key, where string) (map[string]any, error) {
 // section reads one named table and refuses its unknown keys, returning the
 // "path: [name]" prefix every refusal in it carries. Each loader is this
 // preamble and then its own fields.
-func section(raw map[string]any, name, path string, keys []string) (map[string]any, string, error) {
+func section(raw map[string]any, name, path string) (map[string]any, string, error) {
 	where := path + ": [" + name + "]"
 	sec, err := table(raw, name, path)
 	if err != nil {
 		return nil, "", err
 	}
-	if err := rejectUnknownKeys(sec, keys, where); err != nil {
+	if err := rejectUnknownKeys(sec, sectionKeys[name], where); err != nil {
 		return nil, "", err
 	}
 	return sec, where, nil
@@ -676,26 +676,30 @@ func readTOML(path string) (map[string]any, error) {
 	return raw, nil
 }
 
+// sectionKeys is every section the loader accepts and the keys each takes.
+// One structure, so the section list, the loaders and the docs test cannot
+// drift apart. The daemon sections keep their names: [server], [keeper] and
+// [executor] do describe faramir's own processes. The rest are named for what
+// an operator is deciding.
+var sectionKeys = map[string][]string{
+	"server": {keySocketPath, "allowed_group", "agent_user"},
+	"keeper": {keySocketPath, keyAllowedUser,
+		"age_key_credential", "age_key_file"},
+	"executor": {keySocketPath, keyAllowedUser},
+	keyCommand: {"env", "timeout_sec", "max_timeout_sec", "concurrency",
+		"max_memory_percent", "max_process_memory_mb"},
+	"ssh": {keyKey, "agent_socket", "exec_group",
+		"ssh_agent", "ssh_add"},
+	"sudo": {"exec_user", "pam_service", "pam_stack", "helper",
+		"notify_command", "timeout_sec"},
+	"secret": {"min_length", "link", "block"},
+	"audit":  {"log_path"},
+}
+
+// The entry tables inside [secret], which are not sections of their own.
 var (
-	// The daemon sections keep their names: [server], [keeper] and [executor] do
-	// describe faramir's own processes. The rest are named for what an operator
-	// is deciding.
-	sections = []string{"server", "keeper", "executor", keyCommand, "ssh",
-		"sudo", "secret", "audit"}
-	serverKeys = []string{keySocketPath, "allowed_group", "agent_user"}
-	keeperKeys = []string{keySocketPath, keyAllowedUser,
-		"age_key_credential", "age_key_file"}
-	executorKeys = []string{keySocketPath, keyAllowedUser}
-	commandKeys  = []string{"env", "timeout_sec", "max_timeout_sec", "concurrency",
-		"max_memory_percent", "max_process_memory_mb"}
-	sshKeys = []string{keyKey, "agent_socket", "exec_group",
-		"ssh_agent", "ssh_add"}
-	sudoKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
-		"notify_command", "timeout_sec"}
-	secretKeys = []string{"min_length", "link", "block"}
-	linkKeys   = []string{"ref", keyPath, "type", keyKey, keyStrict}
-	blockKeys  = []string{keyPath, "name", keyCommand, keyStrict}
-	auditKeys  = []string{"log_path"}
+	linkKeys  = []string{"ref", keyPath, "type", keyKey, keyStrict}
+	blockKeys = []string{keyPath, "name", keyCommand, keyStrict}
 )
 
 func fromMap(raw map[string]any, path string) (*Config, error) {
@@ -703,7 +707,7 @@ func fromMap(raw map[string]any, path string) (*Config, error) {
 
 	// A section name that is nearly right -- [secrets] for [secret] -- would
 	// leave a broker managing no files.
-	if err := rejectUnknownSections(raw, sections, path); err != nil {
+	if err := rejectUnknownSections(raw, slices.Sorted(maps.Keys(sectionKeys)), path); err != nil {
 		return nil, err
 	}
 
@@ -755,7 +759,7 @@ func clampSudoTimeout(sudo *SudoConfig, command CommandConfig) {
 }
 
 func loadServer(raw map[string]any, path string, out *ServerConfig) error {
-	sec, where, err := section(raw, "server", path, serverKeys)
+	sec, where, err := section(raw, "server", path)
 	if err != nil {
 		return err
 	}
@@ -771,7 +775,7 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 }
 
 func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
-	sec, where, err := section(raw, "keeper", path, keeperKeys)
+	sec, where, err := section(raw, "keeper", path)
 	if err != nil {
 		return err
 	}
@@ -788,7 +792,7 @@ func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
 }
 
 func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
-	sec, where, err := section(raw, "executor", path, executorKeys)
+	sec, where, err := section(raw, "executor", path)
 	if err != nil {
 		return err
 	}
@@ -803,7 +807,7 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 }
 
 func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
-	sec, where, err := section(raw, "command", path, commandKeys)
+	sec, where, err := section(raw, "command", path)
 	if err != nil {
 		return err
 	}
@@ -876,7 +880,7 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 }
 
 func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
-	sec, where, err := section(raw, "secret", path, secretKeys)
+	sec, where, err := section(raw, "secret", path)
 	if err != nil {
 		return err
 	}
@@ -1280,7 +1284,7 @@ func selectingKinds() []string {
 }
 
 func loadSsh(raw map[string]any, path string, out *SshConfig) error {
-	sec, where, err := section(raw, "ssh", path, sshKeys)
+	sec, where, err := section(raw, "ssh", path)
 	if err != nil {
 		return err
 	}
@@ -1298,7 +1302,7 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 }
 
 func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
-	sec, where, err := section(raw, "sudo", path, sudoKeys)
+	sec, where, err := section(raw, "sudo", path)
 	if err != nil {
 		return err
 	}
@@ -1365,7 +1369,7 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 const MaxSudoTimeoutSec = 3600
 
 func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
-	sec, where, err := section(raw, "audit", path, auditKeys)
+	sec, where, err := section(raw, "audit", path)
 	if err != nil {
 		return err
 	}

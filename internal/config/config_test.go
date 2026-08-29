@@ -354,19 +354,8 @@ func TestTheLoadedFileIsReported(t *testing.T) {
 // A boolean is wrong for all of them, whatever each one wants, so one document
 // per key asks the question without a table of expected types to keep in step.
 func TestEveryKeyRefusesAValueOfTheWrongType(t *testing.T) {
-	byName := map[string][]string{
-		"server": serverKeys, "keeper": keeperKeys, "executor": executorKeys,
-		keyCommand: commandKeys, "ssh": sshKeys, "sudo": sudoKeys,
-		"secret": secretKeys, "audit": auditKeys,
-	}
 	checked := 0
-	for _, section := range sections {
-		keys := byName[section]
-		if len(keys) == 0 {
-			t.Errorf("[%s] is a section the loader accepts and this test has no keys for",
-				section)
-			continue
-		}
+	for section, keys := range sectionKeys {
 		for _, key := range keys {
 			// minimal already carries [command], and a second header for it is a
 			// TOML error rather than the refusal being asked about.

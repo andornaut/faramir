@@ -26,19 +26,7 @@ var documentedKey = regexp.MustCompile("\\[([a-z.]+)\\][ \t]+`?([a-z_]+)`?")
 // Over the embedded docs, which is what installs onto a host and what an
 // operator reads there.
 func TestEverySettingTheDocsNameIsOneTheLoaderAccepts(t *testing.T) {
-	byName := map[string][]string{
-		"server": serverKeys, "keeper": keeperKeys, "executor": executorKeys,
-		"command": commandKeys, "ssh": sshKeys, "sudo": sudoKeys,
-		"secret": secretKeys, "audit": auditKeys,
-	}
-	// Every section the loader knows has an entry above, or a document could
-	// name a key in the one section nothing here checks.
-	for _, section := range sections {
-		if _, ok := byName[section]; !ok {
-			t.Errorf("[%s] is a section the loader accepts and this test does not "+
-				"check", section)
-		}
-	}
+	byName := sectionKeys
 
 	checked := 0
 	for _, name := range shippedDocs(t) {
