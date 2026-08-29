@@ -286,7 +286,7 @@ func TestRecordingIsRefusedWhenTheRecordMovedUnderIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := []byte(`[{"dir":"/home/op/three","agent_user":"op","agents":null}]` + "\n")
-	_, err = (fsys{}).writeFileExpecting(path, body, 0o600, keep, keep, before)
+	_, err = (fsys{}).writeFileExpecting(path, body, 0o600, before)
 	if err == nil {
 		t.Fatal("a record write onto a record something else had written was accepted")
 	}

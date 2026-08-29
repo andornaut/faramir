@@ -506,25 +506,22 @@ func pluginPatterns(layout Layout) []string {
 // comma-separated, and no trailing comma. Here rather than in a template,
 // where the last comma is a conditional per line.
 func jsonLines(indent string, items []string) string {
-	var b strings.Builder
-	for i, item := range items {
-		b.WriteString(indent)
-		b.WriteString(jsonString(item))
-		if i < len(items)-1 {
-			b.WriteString(",\n")
-		}
-	}
-	return b.String()
+	return jsonBody(indent, "", items)
 }
 
 // jsonDenyMap renders items as the body of a JSON object mapping each to
 // "deny", which is the shape the plugin hosts' permission blocks take.
 func jsonDenyMap(indent string, items []string) string {
+	return jsonBody(indent, `: "deny"`, items)
+}
+
+// jsonBody is both, suffix following each quoted item.
+func jsonBody(indent, suffix string, items []string) string {
 	var b strings.Builder
 	for i, item := range items {
 		b.WriteString(indent)
 		b.WriteString(jsonString(item))
-		b.WriteString(": \"deny\"")
+		b.WriteString(suffix)
 		if i < len(items)-1 {
 			b.WriteString(",\n")
 		}

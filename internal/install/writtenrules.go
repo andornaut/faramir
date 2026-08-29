@@ -103,8 +103,7 @@ func recordWrittenRules(configDir, path string, rules []string) error {
 	// Written beside the file and renamed over it, as the enrolment record is:
 	// a run interrupted partway through a truncating write leaves a record that
 	// does not parse, which readWrittenRules takes for having written nothing.
-	_, err = fsys{}.writeFileExpecting(
-		writtenRulesPath(configDir), append(body, '\n'), 0o600, keep, keep, before)
+	_, err = fsys{}.writeFileExpecting(writtenRulesPath(configDir), append(body, '\n'), 0o600, before)
 	return err
 }
 

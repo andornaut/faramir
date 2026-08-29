@@ -622,6 +622,22 @@ func ownerOf(info os.FileInfo) (int, int) {
 // this writes sits in the agent account's home or in an enrolled tree, which an
 // account other than root can replace while a run is in progress.
 func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
+	return f.writeFileWith(path, data, mode, uid, gid, unread())
+}
+
+// writeFileExpecting is writeFile for a file the caller read and is writing
+// back: the write is refused where something else has written it since, and
+// where something else created one the caller did not find. expect is the
+// digest of what was read, nil where nothing was there. Ownership is kept,
+// every caller writing a file the install already owns.
+func (f fsys) writeFileExpecting(path string, data []byte, mode os.FileMode,
+	expect []byte) (bool, error) {
+	return f.writeFileWith(path, data, mode, keep, keep, after(expect))
+}
+
+// writeFileWith is both, against the prior state the caller asserts.
+func (f fsys) writeFileWith(path string, data []byte, mode os.FileMode,
+	uid, gid int, prior priorState) (bool, error) {
 	root, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
 		// A dry run creates no directories, so the parent of a file it would create
@@ -632,27 +648,7 @@ func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int
 		return false, err
 	}
 	defer func() { _ = root.Close() }()
-	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid, unread())
-}
-
-// writeFileExpecting is writeFile for a file the caller read and is writing
-// back: the write is refused where something else has written it since, and
-// where something else created one the caller did not find. expect is the
-// digest of what was read, nil where nothing was there.
-func (f fsys) writeFileExpecting(path string, data []byte, mode os.FileMode,
-	uid, gid int, expect []byte) (bool, error) {
-	root, err := os.OpenRoot(filepath.Dir(path))
-	if err != nil {
-		// The directory a record lives in is the config directory, which every
-		// caller of this has already created. Reported as a write for a dry run,
-		// as writeFile does.
-		if f.dryRun {
-			return true, nil
-		}
-		return false, err
-	}
-	defer func() { _ = root.Close() }()
-	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid, after(expect))
+	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid, prior)
 }
 
 // copyFile writes src's contents to dst under dst's own mode and ownership.

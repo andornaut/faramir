@@ -455,14 +455,12 @@ func TestAWriteExpectingWhatItReadIsRefusedWhenThatChanged(t *testing.T) {
 		return sum[:]
 	}
 	was := digest()
-	if _, err := realFS.writeFileExpecting(path, []byte("edited\n"), 0o644,
-		keep, keep, was); err != nil {
+	if _, err := realFS.writeFileExpecting(path, []byte("edited\n"), 0o644, was); err != nil {
 		t.Fatalf("a write onto the file it read was refused: %v", err)
 	}
 
 	// The same expectation again, now stale.
-	_, err := realFS.writeFileExpecting(path, []byte("second edit\n"), 0o644,
-		keep, keep, was)
+	_, err := realFS.writeFileExpecting(path, []byte("second edit\n"), 0o644, was)
 	if err == nil {
 		t.Fatal("a write onto a file something else had changed was accepted")
 	}
@@ -483,7 +481,7 @@ func TestAWriteExpectingWhatItReadIsRefusedWhenThatChanged(t *testing.T) {
 	// A nil digest is a caller whose read found no file, not a caller that read
 	// nothing: one is here now, so another run created it and renaming over it
 	// would take whatever that run wrote.
-	_, err = realFS.writeFileExpecting(path, []byte("third\n"), 0o644, keep, keep, nil)
+	_, err = realFS.writeFileExpecting(path, []byte("third\n"), 0o644, nil)
 	if err == nil {
 		t.Fatal("a write expecting no file was accepted onto one that is there")
 	}
@@ -513,13 +511,11 @@ func TestAFirstWriteIsRefusedWhenAnotherRunGotThereFirst(t *testing.T) {
 
 	// Both runs read: neither finds a file.
 	// The first writes.
-	if _, err := realFS.writeFileExpecting(path, []byte("first\n"), 0o600,
-		keep, keep, nil); err != nil {
+	if _, err := realFS.writeFileExpecting(path, []byte("first\n"), 0o600, nil); err != nil {
 		t.Fatalf("a first write was refused: %v", err)
 	}
 	// The second, still holding what its own read found, is refused.
-	if _, err := realFS.writeFileExpecting(path, []byte("second\n"), 0o600,
-		keep, keep, nil); err == nil {
+	if _, err := realFS.writeFileExpecting(path, []byte("second\n"), 0o600, nil); err == nil {
 		t.Fatal("the second first-write was accepted, so the first run's record is gone")
 	}
 	body, err := os.ReadFile(path)
@@ -552,8 +548,7 @@ func TestAWriteThatReadNothingIsNotAWriteThatFoundNothing(t *testing.T) {
 		t.Errorf("a render onto an existing file was refused: %v", err)
 	}
 	// An edit whose read found no file: one is here, so another run wrote it.
-	if _, err := realFS.writeFileExpecting(path, []byte("third\n"), 0o644,
-		keep, keep, nil); err == nil {
+	if _, err := realFS.writeFileExpecting(path, []byte("third\n"), 0o644, nil); err == nil {
 		t.Error("a write expecting no file was accepted onto one that is there")
 	}
 }

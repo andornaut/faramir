@@ -297,13 +297,11 @@ func (r *runner) stepConfig() error {
 	// is preserving, and refusing it would leave a re-run unable to rewrite its
 	// own config.
 	owner, group := 0, 0
-	write := r.fs.writeFile
+	prior := unread()
 	if r.opts.configRead {
-		write = func(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
-			return r.fs.writeFileExpecting(path, data, mode, uid, gid, r.opts.configDigest)
-		}
+		prior = after(r.opts.configDigest)
 	}
-	changed, err := write(r.layout.ConfigFile, body, 0o644, owner, group)
+	changed, err := r.fs.writeFileWith(r.layout.ConfigFile, body, 0o644, owner, group, prior)
 	if err != nil {
 		return err
 	}

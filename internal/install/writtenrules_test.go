@@ -230,8 +230,7 @@ func TestRecordingRulesRefusesToClobberAnotherRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fsys{}.writeFileExpecting(
-		writtenRulesPath(dir), append(body, '\n'), 0o600, keep, keep, before)
+	_, err = fsys{}.writeFileExpecting(writtenRulesPath(dir), append(body, '\n'), 0o600, before)
 	if err == nil {
 		t.Fatal("a stale write was accepted, so the other run's entry is gone")
 	}

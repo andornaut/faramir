@@ -131,8 +131,7 @@ func recordEnrolment(configDir string, tree EnrolledTree) error {
 	// doctor reads this, and a run interrupted partway through a truncating write
 	// leaves a record that does not parse, which readEnrolled takes for no
 	// enrolment at all.
-	_, err = fsys{}.writeFileExpecting(
-		enrolledPath(configDir), append(body, '\n'), 0o600, keep, keep, before)
+	_, err = fsys{}.writeFileExpecting(enrolledPath(configDir), append(body, '\n'), 0o600, before)
 	return err
 }
 
