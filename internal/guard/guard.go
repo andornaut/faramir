@@ -103,6 +103,11 @@ func fallbackPatterns() []string {
 // is what holds when that file cannot be read, and it can no more carry a
 // declaration than it can carry a [[secret.block]] path.
 
+// pluginFiles is the one alternation both plugin-file rules carry: the plugin
+// and extension `faramir init` installs, which are faramir's own files and the
+// only thing refusing those agents' file tools.
+const pluginFiles = `(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts)`
+
 // fallbackOwn is the rest of faramir's own: its binary, the files an enrolment
 // installs, and the commands that act on the install rather than through it.
 var fallbackOwn = []string{
@@ -119,9 +124,8 @@ var fallbackOwn = []string{
 	// deliberately absent: they carry the operator's own settings beside
 	// faramir's, so editing them is ordinary work, and `faramir doctor` reports a
 	// registration that went missing.
-	denyrules.WriteCommands + denyrules.ArgSpan +
-		`(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts)`,
-	`>\s*\S*(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts)`,
+	denyrules.WriteCommands + denyrules.ArgSpan + pluginFiles,
+	`>\s*\S*` + pluginFiles,
 	// faramir under sudo, whichever subcommand. Nothing an agent may run needs
 	// root -- `run`, `redact`, `status` and `refs` all answer as the agent's own
 	// account -- so a sudo here is a daemon, a decision that is the operator's, or
@@ -132,8 +136,10 @@ var fallbackOwn = []string{
 	// The same commands unprivileged. They act on the install rather than through
 	// it, so they are the operator's whether or not sudo is in front: refused here
 	// so the agent is told that rather than meeting a permission error it will try
-	// to work around. Held to cli.OperatorOnly by a test.
-	`\bfaramir[-\s]+(block[ \t]+add|block[ \t]+ls|block[ \t]+rm|doctor|init|init-project|link[ \t]+add|link[ \t]+ls|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+ls|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b`,
+	// to work around. Derived from cli.OperatorOnly, so a command added there is
+	// refused here without a second list to update; the shipped file's copy is
+	// held to this one by TestTheFallbackMatchesTheShippedFile.
+	`\bfaramir[-\s]+(` + sanctionAlternation(cli.OperatorOnly()) + `)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Blocked for what it costs, not because it hides anything: the wrapper fails
 	// closed, so a stopped broker withholds every command's output in every

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/cli"
@@ -122,27 +121,6 @@ func TestEveryOperatorSubcommandIsRefused(t *testing.T) {
 				t.Errorf("the agent may run %q, which is the operator's", cmd)
 			}
 		}
-	}
-}
-
-// The rule that refuses them spells the list out, the shipped patterns file
-// being text rather than Go. This is what keeps the two from drifting: a
-// subcommand added to cli.Operator and not to cli.Agent has to appear in the
-// rule, or it is allowed to the agent by omission.
-func TestTheRefusalNamesEveryOperatorSubcommand(t *testing.T) {
-	want := "`" + `\bfaramir[-\s]+(` + sanctionAlternation(cli.OperatorOnly()) + `)\b` + "`"
-	found := false
-	for _, pattern := range fallback {
-		if strings.Contains(pattern, `\bfaramir[-\s]+(`) {
-			found = true
-			if got := "`" + pattern + "`"; got != want {
-				t.Errorf("the operator refusal does not match cli.OperatorOnly():\n  rule: %s\n  want: %s",
-					got, want)
-			}
-		}
-	}
-	if !found {
-		t.Error("no rule refuses the operator subcommands, so every one is allowed to the agent")
 	}
 }
 
