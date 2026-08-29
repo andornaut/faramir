@@ -165,19 +165,20 @@ min_length = {{.SecretMinLength}}
 # file sits, matching *.sops.yml. The agent's deny rules refuse that suffix and
 # the other two sops reads, so what the broker reads and what the agent cannot
 # open cannot disagree. How the keeper invokes sops is not a key either.
-{{range .Links}}
+{{if .Links}}
 # Managed by `faramir link`. The file stays where its own tool keeps it; init
-# grants {{$.BrokerUser}} read on it and re-asserts that every run. Ask for the
+# grants {{.BrokerUser}} read on it and re-asserts that every run. Ask for the
 # ref by name: reading the file itself is refused whichever route asks, and
 # strict refuses naming it at all.
+{{range .Links}}
 [[secret.link]]
 ref = {{quote .Ref}}
 path = {{quote .Path}}
 type = {{quote .Type}}
 {{if .Key}}key = {{quote .Key}}
 {{end}}{{if .Strict}}strict = true
-{{end}}{{end}}
-{{range .Blocked}}
+{{end}}{{end}}{{end}}
+{{if .Blocked}}
 # Managed by `faramir block`. Refused to the agent's file tools, to its shell,
 # and to a brokered command that would read, copy or move one: faramir never
 # reads these, so no account is granted anything and no value of theirs enters
@@ -191,11 +192,12 @@ type = {{quote .Type}}
 # strict refuses every command naming the entry rather than the ones that
 # would read it, `ls` and `chmod` included. Off unless the operator asked for
 # it: a file nothing may touch is a file nothing may rotate either.
+{{range .Blocked}}
 [[secret.block]]
 {{if .Name}}name = {{quote .Name}}
 {{else if .Command}}command = {{quote .Command}}
 {{else}}path = {{quote .Path}}
 {{end}}{{if .Strict}}strict = true
-{{end}}{{end}}
+{{end}}{{end}}{{end}}
 [audit]
 log_path = "{{.LogDir}}/audit.log"
