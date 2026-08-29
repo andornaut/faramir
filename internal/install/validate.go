@@ -98,16 +98,6 @@ func (c checkReport) onlyDegradedLinks() bool {
 		!c.refStatesOtherThan(len(c.Secrets.DegradedLinks))
 }
 
-// onlyShadowedRefs is the same question for a ref two managed files defined.
-// Not about the install either: every file loaded and the daemons are serving,
-// and what is wrong is that one of two values for one name reaches nothing.
-func (c checkReport) onlyShadowedRefs() bool {
-	return len(c.Secrets.ShadowedRefs) > 0 &&
-		len(c.Policy) == 0 &&
-		len(c.Secrets.Errors) == 0 &&
-		!c.refStatesOtherThan(len(c.Secrets.ShadowedRefs))
-}
-
 // refusedRefs is the refused refs and their reasons, ordered, for a message.
 func (c checkReport) refusedRefs() string {
 	return refsWithReasons(c.Secrets.NotRedactable)

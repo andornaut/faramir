@@ -132,11 +132,13 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		// "keeper" stands for the minted key's recipient; anything else is verbatim.
-		rule    []string
-		noKey   bool
-		want    Status
-		says    []string
-		saysNot []string
+		rule          []string
+		noKey         bool
+		unreadableKey bool
+		wantFailed    bool
+		want          Status
+		says          []string
+		saysNot       []string
 	}{
 		{
 			name: "the keeper is a recipient", rule: []string{"keeper"},
@@ -158,8 +160,17 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 			want: StatusWarn, says: []string{"no age recipient", "refuses"},
 		},
 		{
-			// Without the key there is no question to answer.
-			name: "the key cannot be read", rule: []string{"keeper"}, noKey: true,
+			// A missing key is a fault, not a privilege problem: the keeper can
+			// decrypt nothing, and "re-run as root" would send root in a circle.
+			name: "the key is missing", rule: []string{"keeper"}, noKey: true,
+			want: StatusFailed, says: []string{"missing", "backup"},
+			saysNot:    []string{"none of which", "root"},
+			wantFailed: true,
+		},
+		{
+			// A key that is there and refused is the privilege problem: unchecked,
+			// with root as the remedy.
+			name: "the key cannot be read", rule: []string{"keeper"}, unreadableKey: true,
 			want: StatusWarn, says: []string{"unchecked", "root"},
 			saysNot: []string{"none of which"},
 		},
@@ -181,6 +192,14 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if tc.unreadableKey {
+				if os.Geteuid() == 0 {
+					t.Skip("root reads through a 0000 mode, so the refusal cannot be staged")
+				}
+				if err := os.Chmod(filepath.Join(dir, "age.key"), 0o000); err != nil {
+					t.Fatal(err)
+				}
+			}
 
 			var report DoctorReport
 			diagnoseSopsConfig(&report, DoctorOptions{ConfigDir: dir, KeeperUser: "faramir-keeper"})
@@ -199,9 +218,8 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 					t.Errorf("detail says %q, which it cannot know: %s", unwanted, finding.Detail)
 				}
 			}
-			// Warn at worst: the values already in the secrets directory still decrypt.
-			if report.Failed {
-				t.Errorf("a sops rule finding failed the whole report: %s", finding.Detail)
+			if report.Failed != tc.wantFailed {
+				t.Errorf("report.Failed = %v, want %v: %s", report.Failed, tc.wantFailed, finding.Detail)
 			}
 		})
 	}
@@ -1008,9 +1026,14 @@ func TestDoctorRefusesAnAccountThatIsNotThere(t *testing.T) {
 	if !report.Failed {
 		t.Fatal("an account that is not there did not fail the report")
 	}
-	if len(report.Findings) != 1 {
-		t.Errorf("the report carries %d finding(s), want the one refusal: %v",
-			len(report.Findings), report.Findings)
+	if len(report.Findings) != 2 {
+		t.Errorf("the report carries %d finding(s), want the refusal and the "+
+			"abandoned-examination line: %v", len(report.Findings), report.Findings)
+	}
+	// The rest of the examination is accounted for, so one failed finding does
+	// not read like a host where everything else passed.
+	if report.NotAsked == 0 {
+		t.Error("the abandoned checks were not counted as unasked")
 	}
 	for _, want := range []string{"nosuchuser-uxqz", "--agent-user"} {
 		if !strings.Contains(report.Findings[0].Detail, want) {
@@ -1124,5 +1147,76 @@ func TestWhichCheckFailuresAnInstallFinishesOver(t *testing.T) {
 				t.Errorf("carried on = %v, want %v", got, tc.carriedOn)
 			}
 		})
+	}
+}
+
+// Two ref states at once are two named findings, not an unexplained failure:
+// each block accounts for the exit on its own, so their coexistence must not
+// cancel the bookkeeping and send the operator hunting for a fourth fault.
+func TestTwoRefStatesDoNotReadAsAnUnexplainedCheck(t *testing.T) {
+	var check checkReport
+	check.Secrets.Patterns = []string{"/etc/faramir/secrets/*.sops.yml"}
+	check.Secrets.Files = []string{"/etc/faramir/secrets/x.sops.yml"}
+	check.Secrets.NotRedactable = map[string]string{"a/short": "shorter than 8 characters"}
+	check.Secrets.ShadowedRefs = map[string]string{"b/dup": "x.sops.yml and y.sops.yml"}
+
+	var report DoctorReport
+	judgeBrokerCheck(&report, "faramir-broker", check, errors.New("exit status 1"))
+	for _, finding := range report.Findings {
+		if strings.Contains(finding.Detail, "reason not reported above") {
+			t.Errorf("both causes were named and the fallback still fired: %s", finding.Detail)
+		}
+	}
+}
+
+// A store that has not been written yet is a warning --check exits zero over,
+// so it explains nothing: a non-zero exit beside it has some other cause, and
+// swallowing it exits doctor 0 on a host broker --check fails.
+func TestAStoreWarningDoesNotExplainACheckFailure(t *testing.T) {
+	var check checkReport
+	check.Secrets.Patterns = []string{"/etc/faramir/secrets/*.sops.yml"}
+	check.Secrets.UnresolvedPatterns = []string{"/etc/faramir/secrets/*.sops.yml matched nothing"}
+
+	var report DoctorReport
+	judgeBrokerCheck(&report, "faramir-broker", check,
+		errors.New("exit status 1: the audit log cannot be written"))
+	found := false
+	for _, finding := range report.Findings {
+		if strings.Contains(finding.Detail, "reason not reported above") {
+			found = true
+			if !strings.Contains(finding.Detail, "audit log") {
+				t.Errorf("the fallback does not carry the reason: %s", finding.Detail)
+			}
+		}
+	}
+	if !found {
+		t.Error("a check failure beside a store warning was swallowed, and doctor would exit 0")
+	}
+	if !report.Failed {
+		t.Error("the swallowed failure did not fail the report")
+	}
+}
+
+// An executor with no cgroup total is the condition the percent bound exists
+// for: fan-out that no per-process limit sees. It must not read as ok.
+func TestAnUnboundedExecutorCgroupIsNotOK(t *testing.T) {
+	var report DoctorReport
+	reportMemoryBounds(&report, 4<<30, true, 0, false)
+	finding := only(t, report)
+	if finding.Status != StatusWarn {
+		t.Errorf("status = %q, want %q: %s", finding.Status, StatusWarn, finding.Detail)
+	}
+	if !strings.Contains(finding.Detail, "unbounded") {
+		t.Errorf("the detail does not say what is missing: %s", finding.Detail)
+	}
+}
+
+// remainingChecks feeds the abandoned-examination count; a rough figure is
+// fine, a zero or wildly stale one is not. Held loosely to the number of
+// distinct check names a full run can report, counted from this file's own
+// sources of truth: the labels are literals, so the bound is wide.
+func TestRemainingChecksIsRoughlyRight(t *testing.T) {
+	if remainingChecks < 30 || remainingChecks > 60 {
+		t.Errorf("remainingChecks = %d, which no longer resembles the examination", remainingChecks)
 	}
 }

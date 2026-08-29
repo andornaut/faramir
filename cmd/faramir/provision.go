@@ -804,8 +804,11 @@ func printNotAsked(w io.Writer, paint palette, count int) {
 	note := fmt.Sprintf("%d more check(s) were not made, so the totals above are not "+
 		"the whole examination.", count)
 	if os.Geteuid() != 0 {
-		note += " Each of them has to read a file or run a command as an account that " +
-			"is not yours: re-run as `sudo faramir doctor`."
+		// "Most", not "each": want of systemd, of sops on the PATH, or of a broker
+		// holding values is counted here too, and root changes none of those.
+		note += " Most of them have to read a file or run a command as an account " +
+			"that is not yours: re-run as `sudo faramir doctor`, and what root does " +
+			"not answer stays listed with its own reason."
 	}
 	_, _ = fmt.Fprintln(w)
 	for _, line := range wrapText(note, terminalWidth()) {

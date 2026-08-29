@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
@@ -18,6 +19,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/sopsrule"
+	"github.com/andornaut/faramir/internal/termsafe"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -57,6 +59,10 @@ type DoctorOptions struct {
 	SocketStates map[string]string
 }
 
+// unitUnreportable is systemctl itself failing to answer, which is a subject
+// out of reach rather than a state.
+const unitUnreportable = "unreportable"
+
 // SampleSockets is each socket unit's state now. Called before anything opens
 // the broker socket; see [DoctorOptions.SocketStates].
 func SampleSockets() map[string]string {
@@ -71,7 +77,7 @@ func SampleSockets() map[string]string {
 		// answer is systemctl itself having failed, as is an error alongside
 		// "active".
 		if state == "" || (err != nil && state == unitActive) {
-			state = "unreportable"
+			state = unitUnreportable
 		}
 		states[socket] = state
 	}
@@ -168,6 +174,17 @@ func (d *DoctorReport) merge(other DoctorReport) {
 	d.NotAsked += other.NotAsked
 }
 
+// abandoned marks the rest of an examination that stopped before it began:
+// one line under the totals, so a report holding a single failure cannot read
+// as a host where everything else passed. The count is the checks the full
+// examination reports, held to reality by a test rather than recounted here.
+const remainingChecks = 40
+
+func abandoned(report *DoctorReport, why string) {
+	report.unaskedf("examination", remainingChecks, "every other check was not "+
+		"run: %s", why)
+}
+
 // Diagnose reports whether an install is doing its job, which the install steps
 // cannot answer: everything can be written correctly and still protect
 // nothing.
@@ -183,10 +200,11 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	// examination of a host rather than of a name nothing on it has.
 	if opts.AgentUser != "" {
 		if _, err := lookupUser(opts.AgentUser); err != nil {
-			report.addf(labelConfig, StatusFailed, "there is no account %q on this "+
+			report.addf("identities", StatusFailed, "there is no account %q on this "+
 				"host, so what the agent can reach was not examined. Name the account "+
 				"the coding agent runs as; `faramir init --agent-user` is what records "+
 				"one", opts.AgentUser)
+			abandoned(&report, "the agent account does not resolve")
 			return report
 		}
 	}
@@ -194,6 +212,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	if !exists(configFile) {
 		report.addf(labelConfig, StatusFailed, "%s is missing; the daemons read it at "+
 			"startup and exit without one", configFile)
+		abandoned(&report, "there is no config to examine against")
 		return report
 	}
 	report.addf(labelConfig, StatusOK, "%s", configFile)
@@ -203,6 +222,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	cfg, err := config.Load(configFile)
 	if err != nil {
 		report.addf(labelConfig, StatusFailed, "%s does not load: %v", configFile, err)
+		abandoned(&report, "the config did not load")
 		return report
 	}
 	// A test that set the patterns keeps them, having no config to take them
@@ -215,6 +235,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	// would be repeated as a confident answer by all of them.
 	opts, ok := resolveIdentities(&report, opts, cfg)
 	if !ok {
+		abandoned(&report, "the install's identities did not resolve")
 		return report
 	}
 
@@ -384,6 +405,13 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path string) {
 	listed, err := sopsRecipients(path)
 	if err != nil {
+		// An unreadable file and one that does not parse are different faults
+		// with different remedies, and only the second is sops's concern too.
+		if errors.Is(err, fs.ErrPermission) {
+			report.unaskedf("sops config", 1, "%s could not be read (%v), so who can "+
+				"decrypt the secrets directory went unchecked here. Re-run as root", path, err)
+			return
+		}
 		report.addf("sops config", StatusFailed, "%s does not parse (%v), so who can "+
 			"decrypt the secrets directory is unknown here. sops has to read this file too", path, err)
 		return
@@ -406,6 +434,16 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 	keyPath := filepath.Join(opts.ConfigDir, "age.key")
 	keeper, err := agekey.Recipient(keyPath)
 	if err != nil {
+		// A key that is not there is not a privilege problem, and telling root to
+		// re-run as root would send the operator in a circle: the keeper can
+		// decrypt nothing until the key is restored.
+		if errors.Is(err, fs.ErrNotExist) {
+			report.addf("sops config", StatusFailed, "%s is missing, so %s can decrypt "+
+				"nothing and every managed value is unreadable. Restore the key from "+
+				"backup; there is no re-minting a key the store is sealed to",
+				keyPath, opts.KeeperUser)
+			return
+		}
 		report.unaskedf("sops config", 1, "%s lists %s, and whether %s is among "+
 			"them went unchecked: %v. Re-run as root", path, strings.Join(listed, ", "),
 			keyPath, err)
@@ -828,7 +866,15 @@ func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 	for _, socket := range sockets {
 		state, sampled := states[socket]
 		if !sampled {
-			state = "unreportable"
+			state = unitUnreportable
+		}
+		// systemctl failing to answer is a subject this could not reach, not a
+		// socket known to be down: failing would point an operator at a
+		// journalctl that fails the same way.
+		if state == unitUnreportable {
+			report.unaskedf("sockets", 1, "systemctl could not report %s, so its "+
+				"state was not asked", socket)
+			continue
 		}
 		if state != unitActive {
 			report.addf("sockets", StatusFailed, "%s is %s; check journalctl -u %s",
@@ -886,14 +932,18 @@ func reportMemoryBounds(report *DoctorReport, perProcess int64, havePer bool,
 			"process not at all, so a runaway is stopped by the OOM killer rather "+
 			"than by an allocation failure it can report", execUnit, gib(maxMemory))
 	case !haveMax:
-		report.addf(check, StatusOK, "one brokered process may allocate %s, and "+
-			"the executor as a whole is unbounded", gib(perProcess))
+		// The cgroup total is the half that catches fan-out, which no per-process
+		// bound sees, so its absence is the condition this check exists for.
+		report.addf(check, StatusWarn, "one brokered process may allocate %s, and "+
+			"the executor as a whole is unbounded, so fan-out is bounded by the "+
+			"machine. `sudo faramir init` writes MemoryMax back", gib(perProcess))
 	case perProcess >= maxMemory:
 		report.addf(check, StatusWarn, "one process may allocate %s while the "+
 			"executor as a whole is held to %s, so the per-process bound is out of "+
 			"reach and a runaway meets the OOM killer. Lower [command] "+
-			"max_process_memory_mb below %s, then `sudo faramir init`",
-			gib(perProcess), gib(maxMemory), gib(maxMemory))
+			"max_process_memory_mb below %d, or raise [command] max_memory_percent, "+
+			"then `sudo faramir init`",
+			gib(perProcess), gib(maxMemory), maxMemory/(1<<20))
 	default:
 		report.addf(check, StatusOK, "one brokered process may allocate %s, and "+
 			"every brokered command together %s",
@@ -974,7 +1024,7 @@ func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 	case opts.BrokerVersion != version.Version:
 		report.addf("version", StatusFailed, "the broker is running %s and this binary "+
 			"is %s, so the daemons were never restarted onto what is installed and "+
-			"every finding below describes the wrong build. Run `sudo faramir init`",
+			"every check made against it describes the wrong build. Run `sudo faramir init`",
 			opts.BrokerVersion, version.Version)
 	// Same version, different build. Every unstamped binary reports "dev", so
 	// the comparison above passes between two of them and this is what catches
@@ -985,8 +1035,8 @@ func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 		opts.BrokerBuild != version.Build:
 		report.addf("version", StatusFailed, "the broker and this binary are both %s "+
 			"but they are different builds, %s against %s, so the daemons were never "+
-			"restarted onto what is installed and every finding below describes the "+
-			"wrong build. Run `sudo faramir init`",
+			"restarted onto what is installed and every check made against it "+
+			"describes the wrong build. Run `sudo faramir init`",
 			version.Version, opts.BrokerBuild, version.Build)
 	case version.Build != "":
 		report.addf("version", StatusOK, "broker and binary are both %s (%s)",
@@ -1024,12 +1074,24 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 		report.addf("broker", StatusFailed, "could not read the --check report: %v", err)
 		return servesUnknown
 	}
+	return judgeBrokerCheck(report, brokerUser, check, checkErr)
+}
+
+// judgeBrokerCheck is diagnoseBroker past the probe: the report parsed and the
+// exit judged, split out so what gets named for which exit can be asserted
+// without a broker.
+func judgeBrokerCheck(report *DoctorReport, brokerUser string, check checkReport,
+	checkErr error) brokerServes {
 	const store = "secrets store"
 	status, detail := storeFinding(check)
 	report.addf(store, status, "%s", detail)
-	// Whether this accounted for a non-zero --check. Only a clean store leaves it
-	// unexplained; a warning is still this function having named the reason.
-	explained := status != StatusOK
+	// Whether something in this report named a cause --check exits non-zero
+	// for. A failed store finding is one (load errors); a warning is not, an
+	// empty or unwritten store being a state --check reports and exits zero
+	// over. Socket policy problems are in the report too, under `policy` from
+	// diagnoseSocketPolicy's own examination. Several causes at once can still
+	// leave one unnamed, which the fallback's %v carries as --check's stderr.
+	explained := status == StatusFailed || len(check.Policy) > 0
 
 	// Refs the store read and the redactor refused. Named here rather than left
 	// to the fallback below, which would report a condition --check describes
@@ -1042,9 +1104,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			"they are never injected and never redacted: %s. Fix each with `sudo "+
 			"faramir vault edit`; the reason beside it says how",
 			len(check.Secrets.NotRedactable), check.refusedRefs())
-		if check.onlyNotRedactable() {
-			explained = true
-		}
+		explained = true
 	}
 	// A ref two managed files both defined. Reported beside the refused refs because
 	// the consequence is the same one: a value this host manages that is injected
@@ -1057,9 +1117,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			"redactor and a command that prints it prints it in the clear: %s. Take "+
 			"the ref out of one file with `sudo faramir vault edit`",
 			len(check.Secrets.ShadowedRefs), refsWithReasons(check.Secrets.ShadowedRefs))
-		if check.onlyShadowedRefs() {
-			explained = true
-		}
+		explained = true
 	}
 	// Links that did not load, read out of the file rather than off its mode:
 	// this catches a selector the owning tool stopped writing, which no mode says
@@ -1080,9 +1138,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			"fingerprints a linked file by mtime and size, so a repair that changes "+
 			"neither leaves its view as it was",
 			linkEntries(len(check.Secrets.DegradedLinks)), check.degradedRefs())
-		if check.onlyDegradedLinks() {
-			explained = true
-		}
+		explained = true
 	}
 	// --check fails for reasons the switch does not cover: an unusable [ssh] key,
 	// a bound socket with world bits. Judged on whether this function accounted
@@ -1135,6 +1191,16 @@ func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 		report.unaskedf("ssh agent", 1, "%s", reason)
 		return
 	}
+	// The probe stands for the agent account's reach, so it must run as that
+	// account. Root gets there through runuser; the agent running doctor is
+	// already it; anybody else's answer would be reported as the operator's.
+	if os.Geteuid() != 0 {
+		if current, err := user.Current(); err != nil || current.Username != opts.AgentUser {
+			report.unaskedf("ssh agent", 1, "the probe has to run as %s and this is "+
+				"not that account: run as it, or as root", opts.AgentUser)
+			return
+		}
+	}
 	out, err := asOperator(opts, filepath.Join(DefaultBinDir, "faramir"),
 		"run", "--quiet", "--", "ssh-add", "-l")
 	reportSSHProbe(report, cfg, serves, out, err)
@@ -1178,8 +1244,10 @@ func reportSSHProbe(report *DoctorReport, cfg *config.Config, serves brokerServe
 			"fails to authenticate. Place the key and restart faramir-broker",
 			cfg.Ssh.Key)
 	case sshProbeUnreachable:
+		// Bounded: out is a brokered command's whole output, and a finding is a
+		// line an operator reads, not the record.
 		report.addf("ssh agent", StatusFailed, "could not ask the broker: %v: %s",
-			err, strings.TrimSpace(out))
+			err, termsafe.Bound(strings.TrimSpace(out), 512))
 	}
 }
 
