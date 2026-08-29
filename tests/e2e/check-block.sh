@@ -461,48 +461,49 @@ grep -q 'faramir block ls' <<<"$out" \
   || bad "removing a path that is not refused rewrote the config"
 
 # --------------------------------------------------------------------------
-head_ "11. a name rather than a path"
+head_ "11. a declared directory"
 #
-# The case a path cannot reach: a file the agent names by a path this host does
-# not have. Nothing here mounts a container, so the assertion is on the rule
-# that was rendered rather than on a tool being refused, that rule being the
-# whole of what the entry does.
-NAME='*.e2e-htpasswd'
-out=$(block add --name "$NAME")
-grep -qF 'ends in ".e2e-htpasswd"' <<<"$out" \
-  && ok "block add --name says what the pattern will match" \
-  || bad "block add --name printed no match description: ${out:0:200}"
-grep -qF 'name = "*.e2e-htpasswd"' $CFG \
-  && ok "and the entry is written as a name" \
-  || bad "the name entry is not in config.toml"
-grep -qF 'Read(**/*.e2e-htpasswd)' $RULES \
-  && ok "and the agent's rules carry it in their own spelling" \
-  || bad "the rule was not rendered into $RULES"
-out=$(block add --name "$NAME")
+# The entry a list of file names cannot stand in for: a directory covers what is
+# under it, including the files nobody enumerated. Asserted on the rendered rule
+# rather than on a tool being refused, that rule being the whole of what the
+# entry does.
+NAME=/tmp/e2e-keys
+mkdir -p "$NAME"
+out=$(block add --path "$NAME")
+grep -qF "blocked $NAME" <<<"$out" \
+  && ok "block add --path takes a directory" \
+  || bad "block add --path printed no confirmation: ${out:0:200}"
+grep -qF "path = \"$NAME\"" $CFG \
+  && ok "and the entry is written as a path" \
+  || bad "the path entry is not in config.toml"
+grep -qF "Read($NAME/**)" $RULES \
+  && ok "and the agent's rules cover what is under it" \
+  || bad "the subtree rule was not rendered into $RULES"
+out=$(block add --path "$NAME")
 grep -q 'already blocked' <<<"$out" \
-  && ok "adding the same name again is not an error" \
-  || bad "a second add of one name: ${out:0:160}"
-out=$(block add --name '*' 2>&1)
+  && ok "adding the same path again is not an error" \
+  || bad "a second add of one path: ${out:0:160}"
+out=$(block add --path / 2>&1)
 grep -q 'every file on the host' <<<"$out" \
-  && ok "and a pattern matching everything is refused" \
-  || bad "'*' was not refused: ${out:0:160}"
+  && ok "and the whole filesystem is refused" \
+  || bad "'/' was not refused: ${out:0:160}"
 
 block ls --declared | grep -q "$NAME" \
   && ok "block ls --declared lists what the config carries" \
-  || bad "--declared does not list the declared name"
+  || bad "--declared does not list the declared path"
 
-# There are no built-in rules, so nothing is unremovable: an entry naming what
-# faramir used to carry is an ordinary entry, and removing one it does not carry
-# is the no-op it has always been.
+# There are no built-in rules, so nothing outside this install's own directories
+# is unremovable: removing an entry it does not carry is the no-op it has always
+# been.
 before=$(cat $CFG)
-for pattern in 'age.key' '*.pem'; do
-  out=$(block rm --name "$pattern" 2>&1)
+for path in /tmp/e2e-absent.key /srv/e2e-absent; do
+  out=$(block rm --path "$path" 2>&1)
   rc=$?
   [ $rc -eq 0 ] \
-    && ok "block rm --name $pattern is not refused as a built-in" \
-    || bad "removing $pattern exited $rc: ${out:0:200}"
+    && ok "block rm --path $path is not refused as a built-in" \
+    || bad "removing $path exited $rc: ${out:0:200}"
   grep -q 'compiled into faramir' <<<"$out" \
-    && bad "$pattern is still read as a built-in: ${out:0:160}" \
+    && bad "$path is still read as a built-in: ${out:0:160}" \
     || ok "and nothing claims faramir carries it"
 done
 [ "$(cat $CFG)" = "$before" ] \
@@ -676,12 +677,12 @@ out=$(block rm --path /etc/faramir/age.key 2>&1); code=$?
   && ok "and a path only the layout blocks cannot be removed at all" \
   || bad "block rm of an undeclared covered path: exit $code [${out:0:200}]"
 
-out=$(block rm --name "$NAME")
+out=$(block rm --path "$NAME")
 grep -qF "stopped blocking $NAME" <<<"$out" \
-  && ok "block rm --name removes it" \
-  || bad "block rm --name: ${out:0:160}"
-grep -qF 'name = "*.e2e-htpasswd"' $CFG \
-  && bad "the name entry is still in config.toml" \
+  && ok "block rm --path removes it" \
+  || bad "block rm --path: ${out:0:160}"
+grep -qF "path = \"$NAME\"" $CFG \
+  && bad "the path entry is still in config.toml" \
   || ok "and the entry is gone from config.toml"
 
 head_ "12. an entry a rule cannot carry"
@@ -696,12 +697,10 @@ RULES=/usr/local/libexec/faramir/deny-patterns.txt
 rules_now() { grep -cvE '^\s*(#|$)' $RULES; }
 before_rules=$(rules_now)
 
-for form in --name --command; do
-  out=$(block add "$form" "$(printf 'aa\nbb')"); code=$?
-  [ $code -ne 0 ] && grep -q 'control\|carries' <<<"$out" \
-    && ok "block add $form refuses an entry carrying a newline" \
-    || bad "block add $form took a newline: exit $code [${out:0:200}]"
-done
+out=$(block add --command "$(printf 'aa\nbb')"); code=$?
+[ $code -ne 0 ] && grep -q 'control\|carries' <<<"$out" \
+  && ok "block add --command refuses an entry carrying a newline" \
+  || bad "block add --command took a newline: exit $code [${out:0:200}]"
 out=$(block add --path "$(printf '/tmp/aa\nbb')"); code=$?
 [ $code -ne 0 ] \
   && ok "and so does the path form" \
@@ -713,10 +712,10 @@ out=$(block add --path "$(printf '/tmp/aa\nbb')"); code=$?
 ctl_names=('carriage return' 'ESC c' 'BEL')
 ctl_bytes=($'\r' $'\ec' $'\a')
 for i in 0 1 2; do
-  out=$(block add --name "aa${ctl_bytes[$i]}bb"); code=$?
+  out=$(block add --path "/tmp/aa${ctl_bytes[$i]}bb"); code=$?
   [ $code -ne 0 ] \
     && ok "and an entry carrying a ${ctl_names[$i]} is refused" \
-    || bad "block add --name took a ${ctl_names[$i]}: exit $code"
+    || bad "block add --path took a ${ctl_names[$i]}: exit $code"
 done
 
 [ "$(rules_now)" = "$before_rules" ] \

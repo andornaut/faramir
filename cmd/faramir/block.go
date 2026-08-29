@@ -26,7 +26,7 @@ import (
 func newBlockCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "block",
-		Short:   "Block paths, names and commands from the agent",
+		Short:   "Block paths and commands from the agent",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
@@ -37,71 +37,60 @@ func newBlockCmd() *cobra.Command {
 
 type blockFlags struct {
 	paths    []string
-	names    []string
 	commands []string
 	declared bool
 	builtIn  bool
 	json     bool
 	when     string
-	// strict tightens every path and name this invocation names. On add
-	// alone: rm takes the entry out whichever strictness it carried.
+	// strict tightens every path this invocation names. On add alone: rm takes
+	// the entry out whichever strictness it carried.
 	strict bool
 }
 
-// entries is the refusals a command was asked for: every --path, --name and
-// --command given, each one entry, in that order.
+// entries is the refusals a command was asked for: every --path and --command
+// given, each one entry, in that order.
 //
-// Any number of either, and the two mix. One entry is a path or a name and
+// Any number of either, and the two mix. One entry is a path or a command and
 // never both, which the loader holds each of these to; an invocation is a list,
-// so nothing here has to choose between the forms. A dozen names in one command
+// so nothing here has to choose between the forms. A dozen paths in one command
 // is what a first run pastes and what a converge hands over, and it costs one
 // config rewrite rather than a dozen.
 func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, error) {
-	// A positional argument is refused rather than read as a path. The three
-	// forms block different things and a path is not the obvious one of them: an
-	// operator who means "every file called id_rsa" and types the argument gets
-	// a rule about one file on this host, which is not what they asked for and
-	// looks like it worked. Each form is named, so an entry says which it is.
+	// A positional argument is refused rather than read as a path. The two forms
+	// block different things and neither is the obvious one: an operator who
+	// means a command and types the argument gets a rule about a file, which is
+	// not what they asked for and looks like it worked.
 	if len(args) > 0 {
 		return nil, fmt.Errorf("faramir block %s: %q is not named as a form. Pass "+
-			"--path for one file on this host, --name for every file of that name "+
-			"wherever it turns up, or --command for something the agent's shell may "+
-			"not run. The three block different things, so none of them is the "+
-			"default", verb, args[0])
+			"--path for a file or directory on this host, or --command for "+
+			"something the agent's shell may not run. The two block different "+
+			"things, so neither of them is the default", verb, args[0])
 	}
-	out := make([]config.BlockedPath, 0, len(f.paths)+len(f.names)+len(f.commands))
-	// --strict rides on every path and name the command names, and on no
-	// command entry: one invocation is one strictness, which is the only reading
-	// that does not need an operator to remember which flag bound to which.
+	out := make([]config.BlockedPath, 0, len(f.paths)+len(f.commands))
+	// --strict rides on every path the command names, and on no command entry:
+	// one invocation is one strictness, which is the only reading that does not
+	// need an operator to remember which flag bound to which.
 	for _, path := range f.paths {
 		out = append(out, config.BlockedPath{Path: path, Strict: f.strict})
-	}
-	for _, name := range f.names {
-		out = append(out, config.BlockedPath{Name: name, Strict: f.strict})
 	}
 	for _, command := range f.commands {
 		out = append(out, config.BlockedPath{Command: command})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("faramir block %s: name a path with --path, a "+
-			"pattern with --name, or a command with --command. A path blocks that "+
-			"file on this host; a name blocks every file whose name matches it, "+
-			"wherever it turns up, which is what reaches a path this host does not "+
-			"have; a command blocks the agent's shell from running it. Each may be "+
+		return nil, fmt.Errorf("faramir block %s: name a path with --path or a "+
+			"command with --command. A path blocks that file or directory on this "+
+			"host; a command blocks the agent's shell from running it. Each may be "+
 			"given more than once, and they mix", verb)
 	}
 	return out, nil
 }
 
 // registerForms is on add and rm and not on ls, which takes none of them. Each
-// form is a flag, including the path: three things are blocked here and a
+// form is a flag, including the path: two things are blocked here and a
 // positional argument would make one of them the default.
 func (f *blockFlags) registerForms(c *cobra.Command) {
 	c.Flags().StringArrayVar(&f.paths, "path", nil,
 		"one file or directory on this host, absolute; repeatable")
-	c.Flags().StringArrayVar(&f.names, "name", nil,
-		"a file name, suffix (*.pem), prefix (.env*), name with a wildcard "+
-			"(secrets*.yml) or directory (.storage/) rather than a path; repeatable")
 	c.Flags().StringArrayVar(&f.commands, "command", nil,
 		"a command that may not be run, as it would be typed "+
 			"(\"op read\"); the words are literal, not a pattern; repeatable")
@@ -110,9 +99,9 @@ func (f *blockFlags) registerForms(c *cobra.Command) {
 func newBlockAddCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
-		Use:   "add [options] (--path PATH | --name PATTERN | --command COMMAND)...",
-		Short: "Block one path, name or command from the agent",
-		Long: "Adds a [[secret.block]] entry per --path, --name and --command, and\n" +
+		Use:   "add [options] (--path PATH | --command COMMAND)...",
+		Short: "Block one path or command from the agent",
+		Long: "Adds a [[secret.block]] entry per --path and --command, and\n" +
 			"re-renders the agent's deny rules. For a credential faramir has no use for\n" +
 			"the value of: a LUKS keyfile, an SSH identity.\n\n" +
 			"The file is never opened, so nothing of it enters the redactor. What is\n" +
@@ -120,8 +109,6 @@ func newBlockAddCmd() *cobra.Command {
 			"would read, copy or move it. A command outside that vocabulary is left\n" +
 			"alone, writing over the file included. --strict refuses naming it at\n" +
 			"all.\n\n" +
-			"--name matches what the agent names rather than a path on this host, for a\n" +
-			"file a container mounts somewhere of its own.\n\n" +
 			"A bare argument is refused; a missing path is recorded and reported; an\n" +
 			"entry already there re-renders the rules and reports changed=false.",
 		Args: cobra.ArbitraryArgs,
@@ -131,7 +118,7 @@ func newBlockAddCmd() *cobra.Command {
 	}
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.strict, "strict", false,
-		"refuse every command NAMING these paths and names, not only the ones that "+
+		"refuse every command NAMING these paths, not only the ones that "+
 			"would read, copy or move them: ls, stat and chmod included. For a "+
 			"directory the agent has no business in at all. Off by default, since a "+
 			"file nothing may touch is a file nothing may rotate; not for --command, "+
@@ -196,12 +183,12 @@ func runBlockAdd(f blockFlags, args []string) int {
 func newBlockRemoveCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
-		Use:   "rm [options] (--path PATH | --name PATTERN | --command COMMAND)...",
-		Short: "Unblock one path, name or command",
+		Use:   "rm [options] (--path PATH | --command COMMAND)...",
+		Short: "Unblock one path or command",
 		Long: "Removes the entry, so `faramir init` stops rendering the rule.\n\n" +
 			"The rule stays in the agent's settings, which are merged rather than\n" +
 			"replaced: remove that line yourself. This names it on the way out.\n\n" +
-			"The form identifies the entry, so --name does not remove a path of the\n" +
+			"The form identifies the entry, so --command does not remove a path of the\n" +
 			"same string. An entry that is not there reports changed=false; a rule\n" +
 			"compiled into faramir is refused, `faramir block ls` showing which is\n" +
 			"which.",
@@ -282,12 +269,12 @@ func newBlockListCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
 		Use:   useLs,
-		Short: "List the blocked paths, names and commands",
+		Short: "List the blocked paths and commands",
 		Long: "Lists both halves of what this host blocks: the [[secret.block]] entries\n" +
 			"it declares, in the table, and the rules faramir carries itself, under it.\n" +
 			"--json is one list with a `source` field per row.\n\n" +
-			"The kind says where a rule is enforced: a `name` or a `path` reaches the\n" +
-			"agent's file tools and its shell, a `command` the shell alone.\n\n" +
+			"The kind says where a rule is enforced: a `path` reaches the agent's file\n" +
+			"tools and its shell, a `command` the shell alone.\n\n" +
 			"--declared is the half a configuration manager converges; --built-in is\n" +
 			"the half no config names and no `block rm` removes. Naming both is the\n" +
 			"default and is refused.",
@@ -308,20 +295,14 @@ func newBlockListCmd() *cobra.Command {
 // caller filtering to what it declared should not have to parse prose.
 type blockRow struct {
 	Source string `json:"source"`
-	// Kind is one of three: a name, a path, or a command. Where the rule is
-	// enforced follows from it rather than being carried beside it: a name and a
-	// path are rendered into the agents' file-tool rules and into the command
-	// guard's patterns from one set, and a command reaches the guard alone,
-	// being nothing a file tool can name.
-	//
-	// Three and not the shape a name was read as. A suffix and a prefix are
-	// spellings of a name, and the entry shows which it is: "*.pem" is a suffix
-	// on sight. `block add` says what a pattern will match as it is written,
-	// which is where the shape decides something.
+	// Kind is one of two: a path or a command. Where the rule is enforced
+	// follows from it rather than being carried beside it: a path is rendered
+	// into the agents' file-tool rules and into the command guard's patterns
+	// from one set, and a command reaches the guard alone, being nothing a file
+	// tool can name.
 	Kind  string `json:"kind"`
 	Entry string `json:"entry"`
-	// State is whether the path is there, for a path entry alone. A name is not
-	// asked of this filesystem at all.
+	// State is whether the path is there, for a path entry alone.
 	//
 	// JSON only, as Detail is: whether a file happens to exist today is a
 	// different question from what this host blocks, and a column answering it
@@ -368,14 +349,6 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 			rows = append(rows, blockRow{
 				Source: sourceDeclared, Kind: kindCommand, Entry: entry.Command,
 				Detail: "neither the agent's shell nor a brokered command may run it",
-			})
-			continue
-		}
-		if entry.Name != "" {
-			rows = append(rows, blockRow{
-				Source: sourceDeclared, Kind: kindName,
-				Entry:  entry.Name,
-				Detail: strictDetail(install.BlockedNameMatches(entry.Name), entry.Strict),
 			})
 			continue
 		}
@@ -449,10 +422,8 @@ func blockedPathState(path string) string {
 	return "present"
 }
 
-// The three kinds a row can be, and the two places one can come from.
+// The two kinds a row can be, and the two places one can come from.
 const (
-	// kindName is a rule about what a file is called, wherever it turns up.
-	kindName = "name"
 	// kindPath is a rule about one file on this host.
 	kindPath = "path"
 	// kindCommand is a rule about what a command does rather than what it names.

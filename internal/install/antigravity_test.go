@@ -224,19 +224,13 @@ func TestTheCLIGetsBothATreeFileAndARulesFile(t *testing.T) {
 // Antigravity's matcher takes one leading wildcard and nothing after it that
 // crosses a separator. Every other shape refuses nothing at all, which is the
 // failure this package is built to avoid: a rule that covers nothing reads
-// exactly like one that covers everything. And a shape that refuses a different
-// set is worse than none, a dotenv rule spelled as a suffix taking the refs
-// file with it.
+// exactly like one that covers everything.
 func TestNoRuleIsWrittenInAShapeTheAgentMatchesNothingWith(t *testing.T) {
 	layout := testLayout()
 	layout.Blocked = []config.BlockedPath{
-		{Name: "*.key"},         // suffix, the one kind that renders
-		{Name: "credentials"},   // an exact name
-		{Name: "secrets*.yml"},  // a glob
-		{Name: ".env"},          // an exact name too, and the one that matters
-		{Name: ".env*"},         // a prefix
-		{Name: "sops/age/"},     // a directory tail
-		{Path: "/home/op/.ssh"}, // a literal path
+		{Path: "/home/op/.ssh"},
+		{Path: "/mnt/vol/luks.key"},
+		{Path: "/home/op/.config/sops/age"},
 	}
 	rules := agyRules(layout)
 	for _, rule := range rules {
@@ -255,30 +249,12 @@ func TestNoRuleIsWrittenInAShapeTheAgentMatchesNothingWith(t *testing.T) {
 		}
 	}
 
+	// A literal path is named bare: a path covers the hierarchy under it, so the
+	// directory is the whole rule.
 	joined := strings.Join(rules, "\n")
-	// The suffix renders, and a literal path is named bare: a path covers the
-	// hierarchy under it, so the directory is the whole rule.
-	for _, want := range []string{"read_file(*.key)", "read_file(/home/op/.ssh)"} {
+	for _, want := range []string{"read_file(/home/op/.ssh)", "write_file(/mnt/vol/luks.key)"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("%s is missing:\n%s", want, joined)
-		}
-	}
-	// A refs file names secrets and holds none, which is why an exact-name
-	// dotenv rule must not become a suffix here.
-	if strings.Contains(joined, "*.env") {
-		t.Errorf("a dotenv rule was written as a suffix, which refuses faramir.env "+
-			"with it:\n%s", joined)
-	}
-	// The four kinds with no spelling are dropped and reported instead, so a file
-	// short of what the config declares does not read as a complete one.
-	missing := agyUnexpressible(layout)
-	want := []string{".env", ".env*", "credentials", "secrets*.yml", "sops/age/"}
-	if len(missing) != len(want) {
-		t.Errorf("unexpressible = %v, want %v", missing, want)
-	}
-	for _, name := range want {
-		if !slices.Contains(missing, name) {
-			t.Errorf("%q was not reported as one this agent cannot be given", name)
 		}
 	}
 }

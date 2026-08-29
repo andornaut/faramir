@@ -178,8 +178,8 @@ func Dir(dir string) string {
 //
 // Deliberately not the bare relative spelling. `.private/x` names this file
 // only from one directory and names somebody else's from anywhere else, and the
-// rule cannot tell which: that breadth is what a name entry is for, where it is
-// asked for rather than inferred.
+// rule cannot tell which. Refusing it everywhere would refuse the file of that
+// name in every tree on the host, which is not what the entry asked for.
 //
 // The list is what a shell expands, not every string that could reach the same
 // file: a command may build a path a way no rule can enumerate, and this is the
@@ -310,83 +310,6 @@ func fragments(subjects []string) (ruleSet, bool) {
 		redirect: `>\s*\S*` + alternation,
 		binding:  binding + boundAlternation,
 	}, true
-}
-
-// NameKind is the shape a declared name takes, inferred from how it is written.
-// The shapes differ only in breadth, so reading one as another refuses more or
-// fewer files of the same kind; inferring a path from a name is what could turn
-// a typo into a rule matching nothing, and nothing here does that.
-type NameKind int
-
-const (
-	// KindExact is a whole file name, wherever it appears: "age.key".
-	KindExact NameKind = iota
-	// KindSuffix is a name ending this way: ".key" covers "deploy.key".
-	KindSuffix
-	// KindPrefix is a name starting this way: ".env" covers ".env.local" but not
-	// "faramir.env", which holds refs and is meant to be read.
-	KindPrefix
-	// KindGlob is a name whose wildcards are not the single leading or trailing
-	// one the two kinds above take: "secrets*.yml", and as many as are written.
-	KindGlob
-	// KindDir is anything below a directory named by the tail of its path:
-	// "sops/age/" covers ~/.config/sops/age/keys.txt.
-	KindDir
-)
-
-// Name is how a declared name is read, and the value with the wildcard or the
-// separator that said so taken off. One inference, here, because more than one
-// spelling is derived from it -- a regex for the command rules, a glob for each
-// agent's own rule file -- and a second copy would be a name that means one
-// thing to the guard and another to the agent that typed it.
-//
-// The order is the order the shapes exclude each other in: a trailing separator
-// is a directory whatever else it holds, and a wildcard at one end is an open
-// end rather than a name with a hole in it.
-func Name(name string) (NameKind, string) {
-	switch {
-	case strings.HasSuffix(name, "/"):
-		return KindDir, name
-	case strings.Count(name, "*") == 1 && strings.HasPrefix(name, "*"):
-		return KindSuffix, strings.TrimPrefix(name, "*")
-	case strings.Count(name, "*") == 1 && strings.HasSuffix(name, "*"):
-		return KindPrefix, strings.TrimSuffix(name, "*")
-	case strings.Contains(name, "*"):
-		return KindGlob, name
-	}
-	return KindExact, name
-}
-
-// NameSubject is a declared name as a fragment of a command line, for the rules
-// For and Disclosing build. A command line carries a path inside other text, so
-// what anchors it is the reader in front of it rather than the start of a
-// string.
-func NameSubject(name string) string {
-	kind, value := Name(name)
-	q := regexp.QuoteMeta(value)
-	// An exact name may carry separators, so what precedes it is a separator or
-	// the start of the word rather than the start of the line. Named here rather
-	// than written twice: it is both the shape KindExact takes and the reading a
-	// kind Name does not return would get.
-	exact := pathStart + q + `(` + pathEnd + `)`
-	switch kind {
-	case KindSuffix:
-		return q + `(` + pathEnd + `)`
-	case KindPrefix:
-		// No end: a prefix is open by definition, ".env" covering ".env.local".
-		return pathStart + q
-	case KindGlob:
-		return pathStart + strings.ReplaceAll(q, regexp.QuoteMeta("*"), `[^/\s]*`) + `(` + pathEnd + `)`
-	case KindDir:
-		// The directory itself as well as what is under it. Matching only the form
-		// with the separator left `rm -rf ~/.ssh` allowed while `rm -rf ~/.ssh/`
-		// was refused, which is a rule a keystroke walks around and a deletion
-		// that destroys everything the rule was protecting.
-		return pathStart + strings.TrimSuffix(q, `/`) + `(/|` + pathEnd + `)`
-	case KindExact:
-		return exact
-	}
-	return exact
 }
 
 // CommandPosition is what may stand in front of a command on a line: the start

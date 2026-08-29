@@ -562,7 +562,7 @@ func pathsIn(value any, depth int) []string {
 //
 // A relative path is resolved against cwd, and only where the caller had one to
 // give: see host.runsInAgentCwd. Without it a relative path is asked as written,
-// which covers a declared name and nothing else, so a store named "../secrets"
+// which matches only a rule spelled the same way, so a store named "../secrets"
 // from the tree next to it would be read.
 //
 // Both verbs, because a file tool both reads and writes and the deny list

@@ -390,9 +390,8 @@ func diagnoseInstallRules(report *DoctorReport, opts DoctorOptions) {
 // stale rule refuses more than the list asks for, while this refuses less.
 func diagnoseBlockedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	const name = "blocked paths"
-	// Both forms, each compared as it is written: the rendered rule carries the
-	// pattern a name entry declared, so containment answers for one the way it
-	// answers for a path.
+	// Compared as it is written: the rendered rule carries the path the entry
+	// declared, so containment is the whole of the question.
 	paths := make([]string, 0, len(cfg.Secret.Blocked))
 	for _, entry := range cfg.Secret.Blocked {
 		// A command entry reaches the command guard and no agent's rule file, so
@@ -406,22 +405,9 @@ func diagnoseBlockedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.
 		report.addf(name, StatusOK, "no [[secret.block]] entries are configured")
 		return
 	}
-	// The CLI's own settings file cannot express four of the five name-pattern
-	// kinds, which the enrolment reports as unexpressible rather than rendering
-	// a rule that refuses a different set: a subject it cannot be given is not
-	// missing from it.
-	agyDropped := map[string]bool{}
-	for _, entry := range cfg.Secret.Blocked {
-		if entry.Name == "" {
-			continue
-		}
-		if blockedNameRule(entry.Name).kind != kindSuffix {
-			agyDropped[entry.Blocks()] = true
-		}
-	}
-	expressible := func(file, subject string) bool {
-		return file != agySettingsFile || !agyDropped[subject]
-	}
+	// Every agent can be given a rule for a path, so nothing an entry declares
+	// is beyond one of them now.
+	expressible := func(_, _ string) bool { return true }
 	// Whether the path is there is not asked. An entry for a key on an unmounted
 	// volume is doing its job by being in the rules, and a check that failed on
 	// the absence would fail every time the volume was unmounted.
@@ -546,14 +532,16 @@ func named(entries map[string]bool, path string) bool {
 	return false
 }
 
-// anyDirectory reports whether what precedes a match is the "in any directory"
-// prefix a name entry is rendered with: "**/" for Claude Code and "*/" for the
-// plugin hosts. That separator is the left edge of the name, so the match is
-// the whole of what the rule names.
+// anyDirectory reports whether what precedes a match is an "in any directory"
+// prefix: "**/" for Claude Code and "*/" for the plugin hosts. That separator is
+// the left edge of the subject, so the match is the whole of what the rule
+// names.
 //
 // Only that spelling. A separator reached by an actual directory -- the "/"
-// before ".env" in a rule naming /home/operator/proj/.env -- is a rule about
-// one file, and must not vouch for a name entry that refuses ".env" everywhere.
+// before ".env" in a rule naming /home/operator/proj/.env -- is a rule about one
+// file, and must not vouch for one that refuses ".env" everywhere. Nothing
+// faramir renders takes the wildcard form now that every subject is a path, so
+// this holds the line against a rule some other hand wrote into a merged file.
 func anyDirectory(before string) bool {
 	return strings.HasSuffix(before, "*/")
 }

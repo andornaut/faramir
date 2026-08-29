@@ -104,9 +104,6 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 			if rule := denyrules.CommandRule(entry.Command); rule != "" {
 				add("the command "+entry.Command, remedy, false, []string{rule})
 			}
-		case entry.Name != "":
-			add(named("the name "+entry.Name, entry.Strict), remedy, entry.Strict,
-				rulesFor(denyrules.NameSubject(entry.Name), entry.Strict))
 		case entry.Path != "":
 			add(named("the path "+entry.Path, entry.Strict), remedy, entry.Strict,
 				rulesFor(denyrules.DirUnder(agentHome, entry.Path), entry.Strict))

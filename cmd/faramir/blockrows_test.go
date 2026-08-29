@@ -56,7 +56,6 @@ func TestEveryBuiltInRuleGoesUnderTheTable(t *testing.T) {
 func TestEveryDeclaredFormIsListed(t *testing.T) {
 	declared := []config.BlockedPath{
 		{Path: "/srv/luks.key"},
-		{Name: "*.pem"},
 		{Command: "op read"},
 	}
 	rows := blockRows(t.TempDir(), declared, false)

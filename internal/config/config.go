@@ -534,11 +534,6 @@ type BlockedPath struct {
 	// Path is the file or directory, absolute. No "~", for the reason a link's
 	// path carries none: nothing expands one here.
 	Path string `json:"path,omitempty"`
-	// Name is a file name, a suffix, a prefix, a name with a wildcard in it, or
-	// a directory tail ending in "/", matched against the path an agent names
-	// rather than against this host's filesystem. The same forms the built-in
-	// rules are written in, and rendered by the same code.
-	Name string `json:"name,omitempty"`
 	// Command is a command the agent's shell may not run, written the way it
 	// would be typed: "op read", "sops -d". Not a path and not a pattern, so it
 	// reaches the command guard alone and no agent's file-tool rules.
@@ -569,10 +564,7 @@ type BlockedPath struct {
 // Blocks is what an entry names, whichever form it took, for a message or a
 // listing that wants one string.
 func (r BlockedPath) Blocks() string {
-	switch {
-	case r.Name != "":
-		return r.Name
-	case r.Command != "":
+	if r.Command != "" {
 		return r.Command
 	}
 	return r.Path
@@ -989,8 +981,18 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		if refused.Path, err = str(entry["path"], at, ""); err != nil {
 			return nil, err
 		}
-		if refused.Name, err = str(entry["name"], at, ""); err != nil {
+		// CLEANUP (added 2026-08-29): the name form is gone, and this refuses a
+		// config still carrying one rather than letting rejectUnknownKeys answer
+		// with "unknown key", which says nothing about where the form went.
+		// Remove once no config on this host declares one.
+		if removed, err := str(entry["name"], at, ""); err != nil {
 			return nil, err
+		} else if removed != "" {
+			return nil, fmt.Errorf("%s: name %q, and the name form has been removed. "+
+				"A name matched a pattern against every file on the host, which "+
+				"refused ordinary files and missed credential ones. Declare the "+
+				"file or the directory with a path entry instead, which is exact",
+				at, Shown(removed))
 		}
 		if refused.Command, err = str(entry[keyCommand], at, ""); err != nil {
 			return nil, err
@@ -1006,10 +1008,7 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		// form as well as the value: a path and a name that read alike are two
 		// different rules.
 		key := "path\x00" + refused.Path
-		switch {
-		case refused.Name != "":
-			key = "name\x00" + refused.Name
-		case refused.Command != "":
+		if refused.Command != "" {
 			key = "command\x00" + refused.Command
 		}
 		if seen[key] {
@@ -1035,7 +1034,7 @@ func ValidateBlocked(refused BlockedPath) error {
 func validateBlocked(blocked BlockedPath, at string) error {
 	var named []string
 	for _, form := range []struct{ key, value string }{
-		{"path", blocked.Path}, {"name", blocked.Name}, {"command", blocked.Command},
+		{"path", blocked.Path}, {"command", blocked.Command},
 	} {
 		if form.value != "" {
 			named = append(named, fmt.Sprintf("%s %q", form.key, form.value))
@@ -1046,11 +1045,9 @@ func validateBlocked(blocked BlockedPath, at string) error {
 	}
 	switch {
 	case len(named) > 1:
-		return fmt.Errorf("%s: names %s, and an entry is one of them: a path blocks that file here, a name "+
-			"blocks every file it matches wherever it is, and a command blocks a command. "+
-			"Write an entry each", at, strings.Join(named, " and "))
-	case blocked.Name != "":
-		return validateBlockedName(blocked.Name, at)
+		return fmt.Errorf("%s: names %s, and an entry is one of them: a path blocks "+
+			"that file here and a command blocks a command. Write an entry each",
+			at, strings.Join(named, " and "))
 	case blocked.Command != "":
 		// A command entry is already about what a command does, so there is no
 		// looser reading of it for this to tighten. Refused rather than ignored:
@@ -1175,47 +1172,6 @@ func validateBlockedPath(refused BlockedPath, at string) error {
 	if refused.Path == "/" {
 		return fmt.Errorf("%s: path is /, which would refuse the agent every file "+
 			"on the host. Name the file or the directory that holds it", at)
-	}
-	return nil
-}
-
-// validateBlockedName holds a name pattern to what can be rendered and what is
-// worth rendering. The forms are the built-in rules' own: a file name, a suffix
-// ("*.pem"), a prefix (".env*"), a name with a wildcard inside it
-// ("secrets*.yml"), or a directory tail (".storage/").
-//
-// The failure this guards is the opposite of a path's. A mistyped path refuses
-// one file and the operator meets the file still readable; a pattern that
-// matches too much refuses a class of files at once, and the agent meets that
-// as tools failing on files nobody discussed. So what is refused here is the
-// pattern that matches everything, and `block add` prints what a pattern will
-// match rather than leaving a wide one silent.
-func validateBlockedName(name, at string) error {
-	switch {
-	case strings.TrimSpace(name) != name:
-		return fmt.Errorf("%s: name %q is padded with whitespace, and a rule matches "+
-			"the pattern as written", at, Shown(name))
-	case strings.HasPrefix(name, "~"):
-		return fmt.Errorf("%s: name %q starts with ~, which nothing expands here", at, Shown(name))
-	case strings.HasPrefix(name, "/"):
-		return fmt.Errorf("%s: name %q is an absolute path, and a name is matched "+
-			"against the end of what an agent names rather than the whole of it. "+
-			"Write it as a path entry, or drop the leading /", at, Shown(name))
-	case strings.Contains(name, "**"):
-		return fmt.Errorf("%s: name %q carries **, and a name already matches in "+
-			"any directory. Write the name itself", at, Shown(name))
-	case slices.Contains(strings.Split(name, "/"), ".."):
-		return fmt.Errorf("%s: name %q carries a .. segment, and a rule matches the "+
-			"pattern as written rather than a path it resolves", at, Shown(name))
-	}
-	// What is left once the wildcards and the separators are taken out. Nothing
-	// left is a pattern matching every file the agent can name, which fails
-	// closed and leaves it unable to read anything at all: the same answer "/"
-	// gets as a path.
-	if strings.Trim(name, "*/") == "" {
-		return fmt.Errorf("%s: name %q matches every file on the host, which would "+
-			"refuse the agent all of them. Name the file, the suffix or the "+
-			"directory that holds it", at, Shown(name))
 	}
 	return nil
 }

@@ -231,7 +231,7 @@ func TestABatchCarryingOneBadEntryWritesNoneOfIt(t *testing.T) {
 		name string
 		bad  config.BlockedPath
 	}{
-		{"a name carrying a newline", config.BlockedPath{Name: "aaa\nbbb"}},
+		{"a path carrying a newline", config.BlockedPath{Path: "/etc/aaa\nbbb"}},
 		{"a relative path", config.BlockedPath{Path: "etc/luks.key"}},
 		{"the whole filesystem", config.BlockedPath{Path: "/"}},
 		{"an entry naming nothing", config.BlockedPath{}},
@@ -280,19 +280,19 @@ func TestABatchNamingOneEntryTwiceAddsItOnce(t *testing.T) {
 	}
 }
 
-// The form is part of what an entry says. A path and a name spelled the same
+// The form is part of what an entry says. A path and a command spelled the same
 // render different rules, so neither stands in for the other and an add of the
 // second is not an add of what is already there.
 func TestAnEntryIsTheSameOnlyWhenItsFormIsTheSame(t *testing.T) {
 	const spelling = "/etc/luks/volume.key"
 	path := config.BlockedPath{Path: spelling}
-	name := config.BlockedPath{Name: spelling}
-	if sameBlock(path, name) {
-		t.Error("a path and a name spelled alike are read as one entry")
+	command := config.BlockedPath{Command: spelling}
+	if sameBlock(path, command) {
+		t.Error("a path and a command spelled alike are read as one entry")
 	}
-	entries, added := blockedWith([]config.BlockedPath{path}, name)
+	entries, added := blockedWith([]config.BlockedPath{path}, command)
 	if !added || len(entries) != 2 {
-		t.Errorf("added = %v, entries = %+v, want the name added beside the path",
+		t.Errorf("added = %v, entries = %+v, want the command added beside the path",
 			added, entries)
 	}
 }
@@ -313,12 +313,6 @@ func TestEachFormOfEntryIsWarnedAboutOnItsOwnTerms(t *testing.T) {
 			name:  "a command names what it will and will not catch",
 			entry: config.BlockedPath{Command: "sops"},
 			want:  []string{"sops", "literal", "where a command starts", "is left alone"},
-			gone:  []string{"is not there"},
-		},
-		{
-			name:  "a name says what it matches, that being what a pattern hides",
-			entry: config.BlockedPath{Name: "*.key"},
-			want:  []string{"*.key"},
 			gone:  []string{"is not there"},
 		},
 		{
@@ -396,9 +390,9 @@ func TestAddRefusedWillNotBlockAnEnrolledTree(t *testing.T) {
 			t.Errorf("%s was refused: %v", path, err)
 		}
 	}
-	// A name or a command names no path, so neither is asked about.
+	// A command names no path, so it is not asked about.
 	if err := refuseEnrolledTrees(dir, []config.BlockedPath{
-		{Name: "*.pem"}, {Command: "op read"},
+		{Command: "op read"},
 	}); err != nil {
 		t.Errorf("an entry naming no path was refused: %v", err)
 	}

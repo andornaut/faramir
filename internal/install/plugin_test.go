@@ -89,7 +89,7 @@ func newPluginRig(t *testing.T, agent, exportKind string) *pluginRig {
 		// layout pi's rig uses, so the two agents' refusals are checked against
 		// one list rather than two that drift.
 		Layout: Layout{ConfigDir: "/opt/conf", Blocked: []config.BlockedPath{
-			{Name: "id_ed25519"}, {Name: "id_rsa"}, {Name: "sops/age/"},
+			{Path: "/home/op/.ssh"}, {Path: "/home/op/.config/sops/age"},
 		}},
 	})
 	if err != nil {
@@ -369,7 +369,7 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 		// to name, and the case worth covering here is that a declared one
 		// reaches this extension like a compiled-in one does.
 		Layout: Layout{ConfigDir: "/opt/conf", Blocked: []config.BlockedPath{
-			{Name: "id_ed25519"}, {Name: "id_rsa"}, {Name: "sops/age/"},
+			{Path: "/home/op/.ssh"}, {Path: "/home/op/.config/sops/age"},
 		}},
 	})
 	if err != nil {

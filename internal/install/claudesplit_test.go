@@ -18,7 +18,7 @@ import (
 // written differently refuses two different things with nothing reporting it.
 func TestTheAccountAndTreeSettingsCarryTheSameRules(t *testing.T) {
 	layout := testLayout()
-	layout.Blocked = []config.BlockedPath{{Name: "*.pem"}, {Path: "/srv/luks.key"}}
+	layout.Blocked = []config.BlockedPath{{Path: "/srv/certs/server.pem"}, {Path: "/srv/luks.key"}}
 
 	type settings struct {
 		Permissions struct {

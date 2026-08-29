@@ -184,18 +184,15 @@ type = {{quote .Type}}
 # reads these, so no account is granted anything and no value of theirs enters
 # the redactor.
 #
-# A path names one file on this host. A name names every file it matches,
-# wherever it turns up, which is what reaches a path this host does not have:
-# a container's own mount point, or a volume mounted somewhere else. A command
-# names something that may not be run, matched where a command starts.
+# A path names one file or directory on this host, absolute. A command names
+# something that may not be run, matched where a command starts.
 #
 # strict refuses every command naming the entry rather than the ones that
 # would read it, `ls` and `chmod` included. Off unless the operator asked for
 # it: a file nothing may touch is a file nothing may rotate either.
 {{range .Blocked}}
 [[secret.block]]
-{{if .Name}}name = {{quote .Name}}
-{{else if .Command}}command = {{quote .Command}}
+{{if .Command}}command = {{quote .Command}}
 {{else}}path = {{quote .Path}}
 {{end}}{{if .Strict}}strict = true
 {{end}}{{end}}{{end}}

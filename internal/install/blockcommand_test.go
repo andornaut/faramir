@@ -99,7 +99,7 @@ func TestADeclaredCommandReachesTheGuardAlone(t *testing.T) {
 		Blocked: []config.BlockedPath{
 			{Command: "op read"},
 			{Command: "sops -d"},
-			{Name: "*.pem"},
+			{Path: "/srv/certs/server.pem"},
 		},
 	}
 	rules := commandRules(layout)
@@ -264,15 +264,15 @@ func TestTwoCommandsAreTwoEntries(t *testing.T) {
 	}
 }
 
-// A command and a path are not one entry, the way a path and a name are not.
+// A command and a path are not one entry even where they read alike.
 func TestACommandAndAPathAreNotOneEntry(t *testing.T) {
 	entries, added := foldBlocked(
 		[]config.BlockedPath{{Path: "/srv/luks.key"}},
-		[]config.BlockedPath{{Command: "op read"}, {Name: "op read"}},
+		[]config.BlockedPath{{Command: "op read"}, {Command: "op inject"}},
 	)
 	if want := []bool{true, true}; !slices.Equal(added, want) {
-		t.Errorf("added = %v, want %v: a command, a name and a path that read "+
-			"alike render different rules", added, want)
+		t.Errorf("added = %v, want %v: a command and a path that read alike "+
+			"render different rules", added, want)
 	}
 	if len(entries) != 3 {
 		t.Fatalf("the set holds %d entries, want 3: %+v", len(entries), entries)

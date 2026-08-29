@@ -1,10 +1,8 @@
 package install
 
 import (
-	"fmt"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -21,32 +19,6 @@ import (
 // broker. What it refuses is reading or writing the material directly, which
 // is the operator's own -- ~/.ssh and ~/.config/sops are covered by no uid
 // boundary, the agent running as the operator.
-type pathKind int
-
-const (
-	// kindName is an exact file name, wherever it appears: "age.key".
-	kindName pathKind = iota
-	// kindSuffix is a name ending this way: ".key" covers "deploy.key".
-	kindSuffix
-	// kindPrefix is a name starting this way: ".env" covers ".env.local" but
-	// not "faramir.env", which holds refs and is meant to be read.
-	kindPrefix
-	// kindGlobName is a name whose wildcards are not the single leading or
-	// trailing one the two kinds above take: "secrets*.yml", and as many
-	// wildcards as are written.
-	kindGlobName
-	// kindDir is anything below a directory named by the tail of its path:
-	// "sops/age/" covers ~/.config/sops/age/keys.txt.
-	kindDir
-)
-
-// protectedPath is one rule, in the form every agent's spelling derives from.
-type protectedPath struct {
-	kind pathKind
-	// value is the name, suffix, prefix, glob or directory tail.
-	value string
-}
-
 // Nothing is compiled in, and that is the design rather than a list waiting to
 // be filled.
 //
@@ -67,46 +39,6 @@ type protectedPath struct {
 // What a host blocks beyond its own install is the operator's to name: `faramir
 // block add`, or a configuration manager declaring what a fleet keeps. What that
 // costs a host nobody declares anything on is in installing.md.
-
-// blockedNameRules is the [[secret.block]] entries that named a pattern rather
-// than a path, in the same form the built-in rules take, so the renderers below
-// spell them the way they spell everything else.
-//
-// Which kind a pattern is comes from its shape, the way a .gitignore line's
-// does. That is inference, and it is safe where the path-or-name choice is not:
-// the shapes render to matchers that differ in breadth, and the operator is
-// shown which one their pattern became before it is written. Getting it wrong
-// refuses more or fewer files of the same kind; it cannot turn a rule into one
-// that silently matches nothing, which is what an inferred path would do.
-func blockedNameRules(layout Layout) []protectedPath {
-	seen := make(map[string]bool, len(layout.Blocked))
-	out := make([]protectedPath, 0, len(layout.Blocked))
-	for _, refused := range layout.Blocked {
-		if refused.Name == "" || seen[refused.Name] {
-			continue
-		}
-		seen[refused.Name] = true
-		out = append(out, blockedNameRule(refused.Name))
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].value < out[j].value })
-	return out
-}
-
-// blockedNameRule is one pattern's kind and value, in this package's spelling
-// of the kinds. The inference is denyrules', so a name means the same thing to
-// the rules the guard matches and to the glob each agent's own file carries:
-// more than one spelling is derived from it, and a second reading of "*.pem"
-// would be one of them refusing a different set of files.
-func blockedNameRule(name string) protectedPath {
-	kind, value := denyrules.Name(name)
-	return protectedPath{map[denyrules.NameKind]pathKind{
-		denyrules.KindExact:  kindName,
-		denyrules.KindSuffix: kindSuffix,
-		denyrules.KindPrefix: kindPrefix,
-		denyrules.KindGlob:   kindGlobName,
-		denyrules.KindDir:    kindDir,
-	}[kind], value}
-}
 
 // InstalledDirs is what this install occupies, for a caller that has to show an
 // operator what is blocked here without being able to say why each path is on
@@ -157,51 +89,6 @@ func InstalledDirCovering(configDir, path string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// BlockedNameMatches says in a sentence what a name pattern will match, for the
-// command that writes one and the listing that shows it. A pattern's breadth is
-// the thing about it that goes unnoticed, so it is stated at the moment the
-// operator can still change it.
-func BlockedNameMatches(name string) string {
-	rule := blockedNameRule(name)
-	switch rule.kind {
-	case kindSuffix:
-		return fmt.Sprintf("any file whose name ends in %q, in any directory", rule.value)
-	case kindPrefix:
-		return fmt.Sprintf("any file whose name starts with %q, in any directory", rule.value)
-	case kindGlobName:
-		return fmt.Sprintf("any file whose name matches %q, in any directory", rule.value)
-	case kindDir:
-		return fmt.Sprintf("everything under any directory named %q",
-			strings.TrimSuffix(rule.value, "/"))
-	case kindName:
-		// A name may carry separators, which is how a file inside a directory of a
-		// given name is said: it is matched against the end of the path rather
-		// than against the last segment of it.
-		if strings.Contains(rule.value, "/") {
-			return fmt.Sprintf("any path ending in %q, in any directory", rule.value)
-		}
-		return fmt.Sprintf("any file named %q, in any directory", rule.value)
-	}
-	return fmt.Sprintf("any file named %q, in any directory", rule.value)
-}
-
-// String names a kind the way the listing and the messages spell it.
-func (k pathKind) String() string {
-	switch k {
-	case kindSuffix:
-		return "suffix"
-	case kindPrefix:
-		return "prefix"
-	case kindGlobName:
-		return "glob"
-	case kindDir:
-		return "dir"
-	case kindName:
-		return "name"
-	}
-	return "name"
 }
 
 // installDirs are the paths this install occupies, known only once it is laid
@@ -329,51 +216,6 @@ func perInstallPaths(layout Layout) []string {
 // The spellings. One function per matcher rather than one parameterised over
 // them: the agents differ in what a wildcard crosses.
 
-// claudePatterns renders the list in Claude Code's glob spelling, where "**/"
-// means "in any directory" and a plain "*" does not cross a separator, so a
-// suffix needs one of each.
-func claudePatterns(layout Layout) []string {
-	rules := blockedNameRules(layout)
-	out := make([]string, 0, len(rules))
-	for _, p := range rules {
-		switch p.kind {
-		case kindName, kindGlobName:
-			out = append(out, "**/"+p.value)
-		case kindSuffix:
-			out = append(out, "**/*"+p.value)
-		case kindPrefix:
-			out = append(out, "**/"+p.value+"*")
-		case kindDir:
-			out = append(out, "**/"+strings.TrimSuffix(p.value, "/")+"/**")
-		}
-	}
-	return out
-}
-
-// pluginGlobs renders the list for the two plugin hosts, whose "*" matches any
-// run of characters including separators, so one leading wildcard does the work
-// of both "in any directory" and "any name ending this way".
-func pluginGlobs(layout Layout) []string {
-	rules := blockedNameRules(layout)
-	out := make([]string, 0, len(rules)+1)
-	for _, p := range rules {
-		switch p.kind {
-		case kindName, kindGlobName, kindSuffix:
-			out = append(out, "*"+p.value)
-		case kindPrefix:
-			// Both forms: at the root of what is matched, and in a directory.
-			out = append(out, p.value+"*", "*/"+p.value+"*")
-		case kindDir:
-			// Both forms again: whether these hosts' "*" crosses a separator is
-			// undocumented. If it does, the second is redundant; if it does not,
-			// the second is the one that matches.
-			dir := strings.TrimSuffix(p.value, "/")
-			out = append(out, "*"+dir+"/*", "*/"+dir+"/*")
-		}
-	}
-	return out
-}
-
 // claudeRules is the deny list Claude Code reads: one Read and one Edit rule
 // per path, plus this install's own directories. Read and Edit take the same
 // list: a value the agent cannot read is one it can still destroy.
@@ -381,9 +223,6 @@ func claudeRules(layout Layout) []string {
 	var out []string
 	add := func(pattern string) {
 		out = append(out, "Read("+pattern+")", "Edit("+pattern+")")
-	}
-	for _, pattern := range claudePatterns(layout) {
-		add(pattern)
 	}
 	for _, dir := range installDirs(layout) {
 		add(dir + "/**")
@@ -396,65 +235,6 @@ func claudeRules(layout Layout) []string {
 		add(path + "/**")
 	}
 	return out
-}
-
-// agyGlobs renders the name patterns Antigravity's CLI can be given, which is
-// one of the five kinds.
-//
-// Its matcher is not a glob language. One leading "*" matches any run of
-// characters, including separators, and the rest of the pattern is taken
-// literally; a separator anywhere after the wildcard stops it matching at all.
-// So "*.key" refuses every path ending that way, and "*/name" and "<dir>/*"
-// each refuse nothing, not even the files directly inside that directory.
-//
-// A suffix is exactly that matcher and renders. The other four kinds all need
-// an anchor it has no spelling for, and the nearest available pattern refuses a
-// different set of files rather than a wider one:
-//
-// An exact name would become the suffix it is not. "name" rendered as "*name"
-// refuses "myname" too, and the case that matters is a dotenv: ".env" is an
-// exact name here, and "*.env" would refuse "faramir.env", which holds refs
-// rather than values and is meant to be read.
-//
-// A prefix, a glob and a directory tail are the same problem in their own
-// shapes. All four are dropped rather than approximated and reported instead;
-// see agyUnexpressible. What still covers them is the command guard, which
-// reads the same list, and any [[secret.block]] entry naming a path.
-//
-// Only an operator's own [[secret.block]] name patterns reach here. Nothing is
-// compiled in, so a host that declares none renders none of this.
-func agyGlobs(layout Layout) []string {
-	rules := blockedNameRules(layout)
-	out := make([]string, 0, len(rules))
-	for _, p := range rules {
-		switch p.kind {
-		case kindSuffix:
-			out = append(out, "*"+p.value)
-		case kindName, kindPrefix, kindGlobName, kindDir:
-			// See above: no spelling that refuses the set that was asked for.
-		}
-	}
-	return out
-}
-
-// agyUnexpressible is the declared patterns Antigravity's CLI cannot be given a
-// rule for, in the operator's own spelling, so an enrolment can name them
-// rather than leaving a file that is quietly short of what the config declares.
-// Empty where every pattern rendered, which is every host declaring none.
-func agyUnexpressible(layout Layout) []string {
-	var out []string
-	for _, refused := range layout.Blocked {
-		if refused.Name == "" {
-			continue
-		}
-		switch blockedNameRule(refused.Name).kind {
-		case kindName, kindPrefix, kindGlobName, kindDir:
-			out = append(out, refused.Name)
-		case kindSuffix:
-		}
-	}
-	sort.Strings(out)
-	return slices.Compact(out)
 }
 
 // agyRules is the deny list Antigravity's CLI reads, one read_file and one
@@ -475,9 +255,6 @@ func agyRules(layout Layout) []string {
 	add := func(target string) {
 		out = append(out, "read_file("+target+")", "write_file("+target+")")
 	}
-	for _, pattern := range agyGlobs(layout) {
-		add(pattern)
-	}
 	// The literal paths, each covering itself and anything below it.
 	for _, dir := range installDirs(layout) {
 		add(dir)
@@ -491,7 +268,7 @@ func agyRules(layout Layout) []string {
 // pluginPatterns is the deny list the two plugin hosts read, which key a map by
 // the pattern rather than listing rules. Same paths, their spelling.
 func pluginPatterns(layout Layout) []string {
-	out := pluginGlobs(layout)
+	out := make([]string, 0, len(layout.Blocked)+8)
 	for _, dir := range installDirs(layout) {
 		out = append(out, dir+"/*")
 	}
@@ -568,10 +345,7 @@ func strictSubjects(layout Layout) []string {
 		if !entry.Strict {
 			continue
 		}
-		switch {
-		case entry.Name != "":
-			out = append(out, denyrules.NameSubject(entry.Name))
-		case entry.Path != "":
+		if entry.Path != "" {
 			out = append(out, denyrules.DirUnder(home, entry.Path))
 		}
 	}
@@ -603,11 +377,6 @@ func BlockedCommandRule(command string) string {
 // anchors it is the reader in front of it rather than the start of a string.
 func commandSubjects(layout Layout) []string {
 	out := make([]string, 0, len(layout.Blocked)+8)
-	for _, refused := range layout.Blocked {
-		if refused.Name != "" {
-			out = append(out, denyrules.NameSubject(refused.Name))
-		}
-	}
 	// This install's own directories, and the files it names as linked or
 	// blocked, at the paths this host uses. Bounded, so that a rule about
 	// /etc/faramir is about that directory and not about /etc/faramir-notes.md.
@@ -642,39 +411,4 @@ func agentHome(layout Layout) string {
 // way would be asserting on rules nobody installs.
 func RenderDenyPatterns(layout Layout) ([]byte, error) {
 	return render("agent/hooks/deny-patterns.txt", layout)
-}
-
-// jsFragments renders the declared names as regex source, one per rule.
-//
-// Nothing installs this: no agent carries a copy of the list any more, every
-// one of them asking `faramir guard`. It stays because it is the only rendering
-// a test can compile and run, so the tests that ask what a pattern *matches*
-// rather than what string was written execute this. The kinds and their
-// breadth are blockedNameRule's, so it cannot drift from what the guard
-// applies without the shared inference changing under both.
-func jsFragments(layout Layout) []string {
-	rules := blockedNameRules(layout)
-	out := make([]string, 0, len(rules))
-	for _, p := range rules {
-		q := regexp.QuoteMeta(p.value)
-		switch p.kind {
-		case kindName:
-			// A whole path component: "credentials" must not match
-			// "credentials.md".
-			out = append(out, `(^|/)`+q+`$`)
-		case kindSuffix:
-			out = append(out, q+`$`)
-		case kindPrefix:
-			out = append(out, `(^|/)`+q)
-		case kindGlobName:
-			// Every wildcard, not the first: the other two spellings pass a pattern
-			// through with all of them intact and the Go-side matcher is
-			// filepath.Match, so replacing one would leave this the only agent a
-			// two-wildcard pattern did not reach, and silently.
-			out = append(out, `(^|/)`+strings.ReplaceAll(q, regexp.QuoteMeta("*"), `[^/]*`)+`$`)
-		case kindDir:
-			out = append(out, q)
-		}
-	}
-	return out
 }

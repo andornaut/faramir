@@ -112,7 +112,7 @@ Five agents cannot rely on a rule file: pi, Codex and the Antigravity IDE have n
 
 ### What a rule matches
 
-A declared name matches as a name, a suffix, a prefix, a wildcard name or a directory, anywhere in a path, so `--name id_ed25519` covers `~/.ssh/id_ed25519` and `.ssh/id_ed25519` as readily as the absolute form. The five shapes are in [configuration.md](configuration.md#a-path-and-a-name-are-different-rules).
+A declared path covers itself and everything under it, and is refused in the spellings a shell expands to it: `~/`, `$HOME/` and `${HOME}/`. See [configuration.md](configuration.md#blocked-paths).
 
 A path this install names is a literal, so the guard tries the spellings that mean the same file: as the tool gave it, with `~` expanded, and with dot segments and doubled separators removed. A relative path is resolved as well, against the directory the payload names where the host sends one and otherwise against the guard's own: the plugin and the extension run inside the agent's own process, so the guard's working directory is the one the call meant, and a hook host runs the guard as a program of its own and promises nothing about where. A hook host that names no directory has a relative path asked about as written.
 

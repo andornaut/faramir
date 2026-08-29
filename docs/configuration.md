@@ -184,52 +184,33 @@ A `[[secret.block]]` entry keeps one thing away from the agent, for a credential
 
 ```sh
 sudo faramir block add --path /etc/luks/volume.key   # this file, on this host
-sudo faramir block add --name '*.htpasswd'           # any file of that name, anywhere
+sudo faramir block add --path ~/.ssh                 # and everything under it
 
 # Each flag given is one entry, and one command writes them all
-sudo faramir block add --name id_rsa --name '*.pem' --name '.env*'
+sudo faramir block add --path ~/.ssh --path ~/.config/sops/age --path ~/.netrc
 
 # A command, for what a tool does rather than for a file it names
 sudo faramir block add --command 'op read' --command 'pass show'
 ```
 
-**Each form has its own flag, and one entry is one form.** A bare argument is refused rather than read as a path. The three forms block different things, and an operator who meant "every file of this name" would otherwise get a rule about one file on this host.
+**Each form has its own flag, and one entry is one form.** A bare argument is refused rather than read as a path. The two forms block different things, and neither is the obvious default.
 
 Form | Covers | Blocks
 --- | --- | ---
-`--path` | The file at that exact path on this host | File tools, the shell, and a brokered command that would read, copy or move it
-`--name` | A pattern matched against the path the agent names | File tools, the shell, and a brokered command that would read, copy or move it
+`--path` | That path on this host, and everything under it | File tools, the shell, and a brokered command that would read, copy or move it
 `--command` | Command text | The shell and a brokered command, a command being nothing a file tool can name
 
-`--path` and `--name` also take [`--strict`](#refusing-every-mention-of-an-entry), which refuses every command naming the entry rather than the ones that would read it.
+`--path` also takes [`--strict`](#refusing-every-mention-of-an-entry), which refuses every command naming the entry rather than the ones that would read it.
 
-The deny rules, the command guard's patterns and the broker's own check are built from one set, so a declared path or name refuses a file tool, `cat` and `faramir run` alike, and `faramir init` re-asserts all of them.
+The deny rules, the command guard's patterns and the broker's own check are built from one set, so a declared path refuses a file tool, `cat` and `faramir run` alike, and `faramir init` re-asserts all of them.
 
-### A path and a name are different rules
-
-A path refuses the file at that path. A name is matched against the path the agent *names*, not against this host's filesystem, which is how it reaches a path the host does not have. A container mounts `/srv/ha/config` as `/config`, the agent names the second, and a rule carrying the first covers nothing it runs. Naming both in one entry is refused rather than answered by picking one.
-
-There are five kinds of name pattern, and which one you get is inferred from the shape; an exact name may carry its parent directory, which is the second row rather than a kind of its own:
-
-Name | Matches
---- | ---
-`auth` | Any file called `auth`, in any directory
-`.storage/auth` | That file inside any directory called `.storage`, and no sibling of it
-`*.htpasswd` | Any file whose name ends that way
-`.env*` | Any file whose name starts that way
-`secrets*.yml` | Any file whose name matches, with the wildcard not crossing a directory
-`.storage/` | Everything under any directory of that name
-
-`block add` prints what it read before writing it. Inferring the kind is safe where inferring path-from-name would not be: these shapes differ only in breadth, so reading one as another refuses more or fewer files of the same kind, while an inferred path could turn a typo into a rule that silently matches nothing.
-
-**The two forms fail in opposite directions.** A mistyped path refuses one file, and the file stays readable until somebody notices. A pattern that matches more than intended refuses a whole class of files at once, and nothing announces it: the agent just meets file tools failing on files nobody discussed. So a pattern that matches everything is refused at load, the way `/` is as a path, and what a pattern will match is printed as it is written.
+**A path covers the directory, so name the directory rather than the files in it.** `--path ~/.ssh` refuses every key under it, including `identity` and whatever an `IdentityFile` line points at. Enumerating `id_rsa`, `id_ecdsa` and `id_ed25519` covers the three you thought of and nothing else.
 
 ### What each form accepts
 
 Form | Rule
 --- | ---
 `path` | Absolute, and in its shortest form. A rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules of which one matches nothing. A path under a home is also refused in the spellings a shell expands to it: `~/`, `$HOME/` and `${HOME}/`, which is how a person and a model both write one. No bare `~`, which nothing expands here. `/` is refused, being every file on the host.
-`name` | A name, suffix, prefix, wildcard name or directory, per the table above. Not absolute, which would be a path. No `~` and no `..`, since nothing resolves either here, and no `**`, since a name already matches in any directory. A pattern with nothing left once the wildcards and separators are removed is refused, being every file on the host.
 `command` | A command the agent's shell may not run, written as it would be typed: `op read`, `sops -d`. The words are literal and the space between them matches any run of whitespace, so there is no pattern to get wrong. It reaches the command guard and no file-tool rules, a command not being a path. A single-character word is refused, since it would match nearly every command line.
 
 **A command rule matches where a command starts**, not wherever the words appear: after a separator, a pipe, a subshell, an assignment, `sudo` and its kin, or a shell's `-c` string. So `pass` is safe to declare on its own, where matching anywhere would have refused every `ansible-playbook --ask-become-pass`, and a `grep` that merely names a declared command is left alone. The cost runs the other way: a command reached through a wrapper the anchor does not know is missed. That is the better error for a list [the design says is not the boundary](design.md#three-layers): it is there to catch an accident, and an accident is typed rather than wrapped.
@@ -238,17 +219,16 @@ Form | Rule
 
 ### How the entries behave
 
-- **An entry carrying a control character is refused, in all three forms.** A rule is one line of a generated file, so a newline would end that rule early and start a second line with the rest. Neither half is the rule that was asked for, both are unbalanced expressions the guard cannot compile, and a rule that will not compile is skipped, so an entry meant to refuse one more file would take the rules protecting the install with it. Other control characters are refused because a listing prints an entry back to a terminal, which obeys what it is sent. `faramir doctor` fails on any rendered rule that will not compile, whatever wrote it.
+- **An entry carrying a control character is refused, in both forms.** A rule is one line of a generated file, so a newline would end that rule early and start a second line with the rest. Neither half is the rule that was asked for, both are unbalanced expressions the guard cannot compile, and a rule that will not compile is skipped, so an entry meant to refuse one more file would take the rules protecting the install with it. Other control characters are refused because a listing prints an entry back to a terminal, which obeys what it is sent. `faramir doctor` fails on any rendered rule that will not compile, whatever wrote it.
 - **A path that is not there is still recorded, and you are told.** The rule costs nothing while the file is absent and takes hold once the volume mounts, which is the case these exist for. A path spelled wrong looks the same, so the message says both.
-- **A name is never asked of the filesystem**, having nothing on this host to be asked about. What it will match is printed instead.
 - **An entry covers the path and everything under it**, whether or not it is a directory today. The filesystem is not consulted: these rules are a function of the config alone, or a key on an unmounted volume would render no subtree rule and gain one when it mounted. The subject is bounded, so `~/.sshrc` is not part of `~/.ssh`.
 - **A path this install occupies cannot be unblocked, and asking fails.** `block rm /etc/faramir/age.key` names a rule the layout renders on every run, not an entry this install carries, so there is nothing to remove and the host goes on blocking it. Reporting that as "nothing removed" would read as the file becoming readable. If an install declared the same path as well, its entry is removed and the directory is named as what still blocks it. Nothing else is unremovable: no rule is compiled in.
 - **A change reloads the daemons.** The broker holds these entries itself and compiles them once, at start, so an entry added into a running install is not refused until it reloads, and one removed goes on being refused. `block add` and `block rm` reload where they changed something, and not where a converge found the host as it should be.
 - **A path that is, or holds, an enrolled tree is refused.** The rules hold wherever the agent works, so such an entry would refuse it every file in the directory it was pointed at.
 - **Removing an entry stops `init` rendering the rule; it does not take the rule out of an agent's file.** A merged rule file is only addable to, so `block rm` and `link rm` print the rule, and the grant where there is one, with what would narrow them.
-- **The form is part of what identifies an entry.** `block rm --name` removes a name entry, so a name is not removed by giving the same string to `--path`.
+- **The form is part of what identifies an entry.** `block rm --command` removes a command entry, so a command is not removed by giving the same string to `--path`.
 - **Both commands are idempotent.** A path already refused is not an error: the entry stands, the rules are rendered again, and `--json` reports `changed: false`. Removing a path this install does not refuse writes nothing.
-- **`faramir block ls` answers "what is blocked here".** It prints the declared entries in a table of kind and entry, and under it the rules faramir carries itself: this install's own directories, and the command rules covering its binary, the files an enrolment installs, and the commands that act on the install rather than through it. The kind is `name`, `path` or `command`, and where a rule is enforced follows from the kind. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges; `--built-in` narrows it to the half faramir renders from its own layout, which no entry names. Neither half can be asked any other way: a refusal names the rule that matched, not the set. Naming both is the default and is refused. The table and each section are sorted by kind and then by entry, and not sorted into each other. `--json` adds two fields that are not columns: `state`, whether a declared path is there today, and `source`, which half a row came from.
+- **`faramir block ls` answers "what is blocked here".** It prints the declared entries in a table of kind and entry, and under it the rules faramir carries itself: this install's own directories, and the command rules covering its binary, the files an enrolment installs, and the commands that act on the install rather than through it. The kind is `path` or `command`, and where a rule is enforced follows from the kind. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges; `--built-in` narrows it to the half faramir renders from its own layout, which no entry names. Neither half can be asked any other way: a refusal names the rule that matched, not the set. Naming both is the default and is refused. The table and each section are sorted by kind and then by entry, and not sorted into each other. `--json` adds two fields that are not columns: `state`, whether a declared path is there today, and `source`, which half a row came from.
 
 `init` reads these entries back before rewriting `config.toml`, so every rule is re-asserted on each run. That is what restores one an agent's settings dropped.
 

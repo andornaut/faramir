@@ -82,9 +82,9 @@ func TestStrictIsRefusedOnACommandEntry(t *testing.T) {
 
 // The two forms that do take it, and the default: absent is the looser reading,
 // which is what every entry written before this key existed means.
-func TestStrictLoadsOnAPathAndAName(t *testing.T) {
+func TestStrictLoadsOnAPathAndDefaultsOff(t *testing.T) {
 	cfg, err := load(t, minimal+"\n[[secret.block]]\npath = \"/home/op/.private\"\n"+
-		"strict = true\n\n[[secret.block]]\nname = \"*.pem\"\n")
+		"strict = true\n\n[[secret.block]]\npath = \"/srv/certs\"\n")
 	if err != nil {
 		t.Fatal(err)
 	}

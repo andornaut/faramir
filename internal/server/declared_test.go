@@ -23,7 +23,6 @@ func linking(links ...config.Link) declaredCheck {
 }
 
 func pathEntry(path string) config.BlockedPath { return config.BlockedPath{Path: path} }
-func nameEntry(name string) config.BlockedPath { return config.BlockedPath{Name: name} }
 
 // The hole this closes. A blocked path is refused to the agent's file tools and
 // to its shell, and neither rule reaches the broker: the guard is a hook over
@@ -115,21 +114,23 @@ func TestTheReadersAreRefusedWhateverTheyAreCalled(t *testing.T) {
 // A name is matched against the path the command names rather than against this
 // host's filesystem, which is how it reaches a file the host does not have at
 // that path.
-func TestABlockedNameIsRefusedWhereverItTurnsUp(t *testing.T) {
-	check := blocking(nameEntry(".env*"))
+func TestADeclaredDirectoryCoversWhatIsUnderIt(t *testing.T) {
+	check := blocking(pathEntry("/home/op/.ssh"))
 
 	for _, cmd := range [][]string{
-		{"cat", "/home/op/project/.env.local"},
-		{"cat", ".env"},
+		{"cat", "/home/op/.ssh/id_rsa"},
+		// The key name no enumeration would have carried, which is what a
+		// directory entry covers and a list of file names does not.
+		{"cat", "/home/op/.ssh/identity"},
+		{"cat", "/home/op/.ssh"},
 	} {
 		if _, refused := check.refuses(cmd, "/home/op/project"); !refused {
-			t.Errorf("%v was allowed by a declared name", cmd)
+			t.Errorf("%v was allowed by a declared directory", cmd)
 		}
 	}
-	// The prefix is a prefix of the name, not of any word: faramir.env holds
-	// refs and is meant to be read.
-	if _, refused := check.refuses([]string{"cat", "/home/op/faramir.env"}, "/tmp"); refused {
-		t.Error("a file the prefix does not name was refused")
+	// A neighbour whose name merely starts the same way is not under it.
+	if _, refused := check.refuses([]string{"cat", "/home/op/.ssh-notes"}, "/tmp"); refused {
+		t.Error("a sibling of the declared directory was refused")
 	}
 }
 

@@ -17,9 +17,9 @@ func TestADeclaredEntryReachesTheCommandRules(t *testing.T) {
 		LibexecDir: "/usr/local/libexec/faramir",
 		Blocked: []config.BlockedPath{
 			{Path: "/etc/luks/volume.key"},
-			{Name: "*.pem"},
-			{Name: "id_rsa"},
-			{Name: ".storage/auth"},
+			{Path: "/srv/certs/server.pem"},
+			{Path: "/home/op/.ssh/id_rsa"},
+			{Path: "/home/op/.storage/auth"},
 		},
 		Links: []config.Link{{Ref: "npm", Path: "/home/op/.npmrc"}},
 	}
@@ -33,15 +33,15 @@ func TestADeclaredEntryReachesTheCommandRules(t *testing.T) {
 		{"cat /etc/luks/volume.key", true, "a declared path, read"},
 		{"rm /etc/luks/volume.key", true, "a declared path, destroyed"},
 		{"echo x > /etc/luks/volume.key", true, "a declared path, written over"},
-		{"base64 certs/server.pem", true, "a declared suffix"},
-		{"cat ~/.ssh/id_rsa", true, "a declared name"},
-		{"cat /config/.storage/auth", true, "a declared name inside a directory"},
+		{"base64 /srv/certs/server.pem", true, "a declared path, re-encoded"},
+		{"cat /home/op/.ssh/id_rsa", true, "a second declared path"},
+		{"cat /home/op/.storage/auth", true, "a declared path inside a directory"},
 		{"cat /home/op/.npmrc", true, "a linked file, which is refused like a declared one"},
 		{"cat /etc/faramir/age.key", true, "this install's own, from the layout"},
 
-		{"cat certs/server.crt", false, "a neighbouring file the suffix does not name"},
-		{"cat ~/.ssh/id_rsa.pub", false, "the public half is not the key"},
-		{"cat /config/.storage/other", false, "a sibling of the declared name"},
+		{"cat /srv/certs/server.crt", false, "a neighbour no entry names"},
+		{"cat /home/op/.ssh/id_rsa.pub", false, "the public half is not the key"},
+		{"cat /home/op/.storage/other", false, "a sibling of the declared path"},
 		{"grep -r TODO .", false, "ordinary work"},
 		{"cat README.md", false, "and an ordinary read"},
 	} {
@@ -77,7 +77,7 @@ func TestAnInstallThatDeclaresNothingRefusesItsOwn(t *testing.T) {
 func TestADeclaredDirectoryCoversItself(t *testing.T) {
 	rules := commandRules(Layout{
 		ConfigDir: "/etc/faramir",
-		Blocked:   []config.BlockedPath{{Name: ".ssh/"}},
+		Blocked:   []config.BlockedPath{{Path: "/home/op/.ssh"}},
 	})
 	for _, tc := range []struct {
 		command string

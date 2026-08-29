@@ -250,13 +250,9 @@ func TestTheListingIsSortedWithinEachHalf(t *testing.T) {
 [[secret.block]]
 path = "/srv/zulu.key"
 [[secret.block]]
-name = "id_rsa"
-[[secret.block]]
 command = "pass show"
 [[secret.block]]
 path = "/srv/alpha.key"
-[[secret.block]]
-name = "*.pem"
 [[secret.block]]
 command = "op read"
 `), 0o644); err != nil {
@@ -309,7 +305,7 @@ func TestABareArgumentToBlockIsRefused(t *testing.T) {
 			t.Errorf("block %s took a positional path", verb)
 			continue
 		}
-		for _, want := range []string{"--path", "--name", "--command"} {
+		for _, want := range []string{"--path", "--command"} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("the refusal does not name %s: %v", want, err)
 			}
@@ -321,14 +317,14 @@ func TestABareArgumentToBlockIsRefused(t *testing.T) {
 	if _, err := f.entries("add", []string{"stray"}); err == nil {
 		t.Error("an argument beside --path was accepted and would be ignored")
 	}
-	// And the three named forms are taken, together, one entry each.
-	f = blockFlags{paths: []string{"/etc/x"}, names: []string{"*.pem"}, commands: []string{"op read"}}
+	// And both named forms are taken, together, one entry each.
+	f = blockFlags{paths: []string{"/etc/x"}, commands: []string{"op read"}}
 	got, err := f.entries("add", nil)
 	if err != nil {
-		t.Fatalf("the three forms together were refused: %v", err)
+		t.Fatalf("the two forms together were refused: %v", err)
 	}
-	if len(got) != 3 {
-		t.Errorf("got %d entries from three forms, want 3", len(got))
+	if len(got) != 2 {
+		t.Errorf("got %d entries from two forms, want 2", len(got))
 	}
 	// Naming none is refused, and says how to name one.
 	if _, err := (&blockFlags{}).entries("add", nil); err == nil {
@@ -432,15 +428,14 @@ func TestAKindWithNoSectionWrittenOutStillGetsOne(t *testing.T) {
 	rows := []blockRow{
 		{Source: sourceBuiltIn, Kind: kindCommand, Entry: `\bfaramir\b`},
 		{Source: sourceBuiltIn, Kind: kindPath, Entry: "/etc/faramir"},
-		{Source: sourceBuiltIn, Kind: kindName, Entry: "*.key"},
 	}
 	got := builtInKinds(rows)
-	want := []string{kindPath, kindCommand, kindName}
+	want := []string{kindPath, kindCommand}
 	if !slices.Equal(got, want) {
 		t.Errorf("kinds = %v, want the named ones first then the rest: %v", got, want)
 	}
-	// And a listing carrying only the kinds it knows names no empty section.
-	if got := builtInKinds(rows[:2]); !slices.Equal(got, []string{kindPath, kindCommand}) {
-		t.Errorf("kinds = %v, want only the two present", got)
+	// And a listing carrying only one kind names no empty section.
+	if got := builtInKinds(rows[:1]); !slices.Equal(got, []string{kindCommand}) {
+		t.Errorf("kinds = %v, want only the one present", got)
 	}
 }

@@ -177,21 +177,21 @@ faramir run --env TOKEN=faramir://svc/token -- printenv TOKEN   # -> «SECRET:sv
 
 ### Naming what this machine should block
 
-**A fresh install blocks its own files and nothing else.** Everything under `<config-dir>`, the managed store, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' directories, at the paths this host uses. That is the whole of it: faramir does not guess at what else you keep, so an SSH private key, a `.pem`, a `.env` or an `~/.aws/credentials` is refused to your agent only once you say so.
+**A fresh install blocks its own files and nothing else.** Everything under `<config-dir>`, the managed store, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' directories, at the paths this host uses. That is the whole of it: faramir does not guess at what else you keep, so `~/.ssh`, `~/.gnupg` and `~/.aws/credentials` are refused to your agent only once you say so.
 
 Say so once, in one command. This one is deliberately broad: delete the lines that do not apply to this machine, and add the ones that do.
 
 ```bash
 sudo faramir block add \
-    --name id_rsa --name id_ecdsa --name id_ed25519 \
-    --name '*.pem' --name '*.key' \
-    --name '.env*' --name credentials --name 'secrets*' \
-    --name '.mozilla/' --name 'chromium/' --name 'google-chrome/' \
-    --path ~/.gnupg --path ~/.local/share/keyrings \
+    --path ~/.ssh --path ~/.gnupg --path ~/.aws \
+    --path ~/.config/sops/age --path ~/.age \
+    --path ~/.local/share/keyrings --path ~/.netrc \
     --command 'op read' --command 'pass show'
 ```
 
-Three forms, each named by its own flag, and they mix in one command. None of them is the default, so a bare argument is refused rather than read as a path.
+Two forms, each named by its own flag, and they mix in one command. Neither is the default, so a bare argument is refused rather than read as a path.
+
+**Name the directory, not the files in it.** `--path ~/.ssh` refuses every key under it, including the one named `identity` and whatever an `IdentityFile` line points at. A list of file names covers the ones you thought of.
 
 For the directory your agent has no business in at all, `--strict` refuses every command *naming* it, not only the ones that would read it:
 
@@ -203,11 +203,10 @@ That covers `ls` and `chmod` as well as `cat`, so nothing converges the path any
 
 Form | Blocks | Matched against
 --- | --- | ---
-`--name` | every file of that name, wherever it turns up | the path your agent asks for, not this filesystem, which is what reaches a file inside a container
 `--path` | one file or directory on this host, and everything under it | the path as written, so it is absolute and in its shortest form
 `--command` | what may not be run, written as it would be typed | where a command starts, so `grep` naming one is left alone
 
-A name and a path reach the agent's file tools and its shell alike; a command is nothing a file tool can name, so it reaches the shell. **The broker holds the same entries**, so a brokered command cannot read, copy or move a declared file either, that being the one route no rule file reaches. What is refused is a vocabulary: the commands that read a file and the ones that move or re-encode it, wherever the declared path appears in the line, and the `< path` and `p=path` spellings that reach one without naming a reader. Anything outside that vocabulary is left alone, writing over the file included. [How that line falls](docs/configuration.md#the-brokered-route).
+A path reaches the agent's file tools and its shell alike; a command is nothing a file tool can name, so it reaches the shell. **The broker holds the same entries**, so a brokered command cannot read, copy or move a declared file either, that being the one route no rule file reaches. What is refused is a vocabulary: the commands that read a file and the ones that move or re-encode it, wherever the declared path appears in the line, and the `< path` and `p=path` spellings that reach one without naming a reader. Anything outside that vocabulary is left alone, writing over the file included. [How that line falls](docs/configuration.md#the-brokered-route).
 
 `faramir block ls` lists everything in force, the rules faramir carries itself included. It is one of the three operator commands that need no root, beside `reader ls` and `link ls`.
 

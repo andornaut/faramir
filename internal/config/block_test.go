@@ -121,61 +121,21 @@ func TestBaseRefusedOnAFileThatIsNotThere(t *testing.T) {
 	}
 }
 
-// A name entry's own rules. The failure this guards runs the other way from a
-// path's: a pattern that matches everything refuses the agent every file it can
-// name, which is the answer "/" gets as a path.
-func TestBlockedNameValidation(t *testing.T) {
-	for name, tc := range map[string]struct{ body, want string }{
-		"both forms":       {"[[secret.block]]\npath = \"/etc/k\"\nname = \"k\"", "an entry is one of them"},
-		"everything":       {"[[secret.block]]\nname = \"*\"", "every file on the host"},
-		"every file again": {"[[secret.block]]\nname = \"*/*\"", "every file on the host"},
-		"an absolute path": {"[[secret.block]]\nname = \"/etc/k\"", "absolute path"},
-		"a tilde":          {"[[secret.block]]\nname = \"~/.ssh/id_rsa\"", "nothing expands"},
-		"a globstar":       {"[[secret.block]]\nname = \"**/k\"", "already matches in"},
-		"a dot segment":    {"[[secret.block]]\nname = \"../k\"", ".. segment"},
-		"padded":           {"[[secret.block]]\nname = \" k \"", "whitespace"},
-		"two of one name": {"[[secret.block]]\nname = \"k\"\n\n[[secret.block]]\nname = \"k\"",
-			"more than one entry"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := load(t, minimal+"\n"+tc.body+"\n")
-			if err == nil {
-				t.Fatalf("loaded, want a refusal naming %q", tc.want)
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("error is %q, want it to name %q", err, tc.want)
-			}
-		})
-	}
-}
-
-// The shapes that load, and the fact that a name and a path may sit beside each
-// other: one entry is one or the other, a config is both.
-func TestBlockedNamesLoad(t *testing.T) {
-	cfg, err := load(t, minimal+`
-[[secret.block]]
-path = "/etc/luks/volume.key"
-
+func TestANameEntryIsRefusedAndSaysWhereTheFormWent(t *testing.T) {
+	_, err := load(t, minimal+`
 [[secret.block]]
 name = "*.htpasswd"
-
-[[secret.block]]
-name = ".storage/"
 `)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("a name entry loaded, and the form no longer renders any rule")
 	}
-	if len(cfg.Secret.Blocked) != 3 {
-		t.Fatalf("refused = %v, want three", cfg.Secret.Blocked)
-	}
-	if got := cfg.Secret.Blocked[1].Name; got != "*.htpasswd" {
-		t.Errorf("second names %q", got)
-	}
-	if got := cfg.Secret.Blocked[1].Blocks(); got != "*.htpasswd" {
-		t.Errorf("Blocks() = %q, want the name", got)
-	}
-	if got := cfg.Secret.Blocked[0].Blocks(); got != "/etc/luks/volume.key" {
-		t.Errorf("Blocks() = %q, want the path", got)
+	// Naming the form is the whole point: rejectUnknownKeys would answer this
+	// with "unknown key", which does not say that a path entry is the
+	// replacement or that the rule it used to render is gone.
+	for _, want := range []string{"*.htpasswd", "removed", "path entry"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal is %q, want it to say %q", err, want)
+		}
 	}
 }
 
@@ -189,16 +149,13 @@ func TestABlockedCommandLoads(t *testing.T) {
 command = "op read"
 
 [[secret.block]]
-name = "*.pem"
-
-[[secret.block]]
 path = "/etc/luks/volume.key"
 `)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Secret.Blocked) != 3 {
-		t.Fatalf("blocked = %v, want three", cfg.Secret.Blocked)
+	if len(cfg.Secret.Blocked) != 2 {
+		t.Fatalf("blocked = %v, want two", cfg.Secret.Blocked)
 	}
 	if got := cfg.Secret.Blocked[0].Command; got != "op read" {
 		t.Errorf("first names command %q", got)
@@ -206,9 +163,9 @@ path = "/etc/luks/volume.key"
 	if got := cfg.Secret.Blocked[0].Blocks(); got != "op read" {
 		t.Errorf("Blocks() = %q, want the command", got)
 	}
-	// And the other two are untouched by the third form existing.
-	if cfg.Secret.Blocked[1].Name != "*.pem" || cfg.Secret.Blocked[2].Path != "/etc/luks/volume.key" {
-		t.Errorf("the other forms did not load: %+v", cfg.Secret.Blocked)
+	// And the path is untouched by the command form existing.
+	if cfg.Secret.Blocked[1].Path != "/etc/luks/volume.key" {
+		t.Errorf("the other form did not load: %+v", cfg.Secret.Blocked)
 	}
 }
 
@@ -227,9 +184,7 @@ func TestEveryBlockedFormRoundTrips(t *testing.T) {
 		want  BlockedPath
 	}{
 		{"path", `path = "/etc/luks/volume.key"`, BlockedPath{Path: "/etc/luks/volume.key"}},
-		{"name", `name = "*.pem"`, BlockedPath{Name: "*.pem"}},
-		{"suffix name", `name = "id_rsa"`, BlockedPath{Name: "id_rsa"}},
-		{"directory name", `name = ".storage/"`, BlockedPath{Name: ".storage/"}},
+		{"directory path", `path = "/home/op/.ssh"`, BlockedPath{Path: "/home/op/.ssh"}},
 		{"command", `command = "op read"`, BlockedPath{Command: "op read"}},
 		{"command with a flag", `command = "sops -d"`, BlockedPath{Command: "sops -d"}},
 	} {
@@ -286,11 +241,9 @@ key = "github.com/oauth_token"
 // file silently takes the rules protecting the install with it.
 func TestAnEntryCarryingAControlCharacterIsRefused(t *testing.T) {
 	for _, blocked := range []BlockedPath{
-		{Name: "aaa\nbbb"},
-		{Name: "aaa\rbbb"},
-		{Name: "aaa\x1bcbbb"},
-		{Name: "aaa\x7fbbb"},
 		{Path: "/tmp/aaa\nbbb"},
+		{Path: "/tmp/aaa\x1bcbbb"},
+		{Path: "/tmp/aaa\x7fbbb"},
 		{Path: "/tmp/aaa\rbbb"},
 		{Command: "opread\nsecondline"},
 		{Command: "op\x1bcread here"},
@@ -310,8 +263,8 @@ func TestNoRuneATerminalActsOnSurvivesValidation(t *testing.T) {
 		if !termsafe.Actionable(r) {
 			continue
 		}
-		if err := ValidateBlocked(BlockedPath{Name: "aa" + string(r) + "bb"}); err == nil {
-			t.Errorf("a name carrying %q was accepted", r)
+		if err := ValidateBlocked(BlockedPath{Path: "/tmp/aa" + string(r) + "bb"}); err == nil {
+			t.Errorf("a path carrying %q was accepted", r)
 		}
 	}
 }
@@ -320,12 +273,8 @@ func TestNoRuneATerminalActsOnSurvivesValidation(t *testing.T) {
 // bytes a rule cannot carry, not about narrowing what may be blocked.
 func TestAnOrdinaryEntryIsStillAccepted(t *testing.T) {
 	for _, blocked := range []BlockedPath{
-		{Name: "*.pem"},
-		{Name: ".env*"},
-		{Name: "secrets*.yml"},
-		{Name: ".storage/"},
-		{Name: "\u65e5\u672c\u8a9e"},
 		{Path: "/etc/luks/volume.key"},
+		{Path: "/home/op/\u65e5\u672c\u8a9e"},
 		{Path: "/tmp/a b"},
 		{Command: "op read"},
 	} {
@@ -339,11 +288,11 @@ func TestAnOrdinaryEntryIsStillAccepted(t *testing.T) {
 // else carries one that prints as nothing, so a message naming only the entry
 // reads as a refusal of text that looks fine.
 func TestTheControlRefusalNamesTheByte(t *testing.T) {
-	err := ValidateBlocked(BlockedPath{Name: "aaa\nbbb"})
+	err := ValidateBlocked(BlockedPath{Path: "/tmp/aaa\nbbb"})
 	if err == nil {
 		t.Fatal("accepted")
 	}
-	for _, want := range []string{`\n`, "offset 3"} {
+	for _, want := range []string{`\n`, "offset 8"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal does not name %s: %v", want, err)
 		}
@@ -387,7 +336,7 @@ func TestTheControlRefusalSaysWhyThatByteIsRefused(t *testing.T) {
 		{0x9b, displays, splits},
 	} {
 		t.Run(strconv.QuoteRune(tc.r), func(t *testing.T) {
-			err := ValidateBlocked(BlockedPath{Name: "aa" + string(tc.r) + "bb"})
+			err := ValidateBlocked(BlockedPath{Path: "/tmp/aa" + string(tc.r) + "bb"})
 			if err == nil {
 				t.Fatal("accepted")
 			}

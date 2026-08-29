@@ -176,13 +176,6 @@ func blockedWarnings(report *Report, refused config.BlockedPath, links []config.
 			config.Shown(refused.Command)))
 		return
 	}
-	if refused.Name != "" {
-		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s refuses %s. Nothing announces a pattern that matches more than it "+
-				"was meant to: the agent meets it as file tools failing on files "+
-				"nobody discussed", config.Shown(refused.Name), BlockedNameMatches(refused.Name)))
-		return
-	}
 	if _, statErr := os.Stat(refused.Path); statErr != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
 			"%s is not there. The rule is written and will hold when it appears, "+
@@ -247,7 +240,7 @@ func foldBlocked(existing,
 // it names. Two entries for one path is what the loader refuses; blockedWith is
 // where the strictness of the one entry is settled.
 func sameBlock(a, b config.BlockedPath) bool {
-	return a.Path == b.Path && a.Name == b.Name && a.Command == b.Command
+	return a.Path == b.Path && a.Command == b.Command
 }
 
 // RemoveBlockedPaths drops entries and re-renders, the counterpart of

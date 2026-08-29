@@ -522,32 +522,6 @@ func (p *project) resolveGroup() error {
 	return nil
 }
 
-// warnMissingAccountRules says so when an agent's account-wide deny rules are
-// not in the agent account's home. Enrolling a tree writes the per-project
-// hook; the rules that hold wherever the agent works are written by `faramir
-// init --agent`.
-// warnUnexpressiblePatterns names the declared patterns this agent's rule file
-// cannot carry, for the one agent whose matcher has no spelling for some of
-// them. Said rather than dropped silently: a file short of what the config
-// declares reads exactly like one that carries all of it, and the operator is
-// the only one who can decide whether to name the path instead.
-//
-// The command guard still refuses these, reading the same list, so what is lost
-// is the file tools rather than the whole rule.
-func warnUnexpressiblePatterns(p *project, target *agentTarget) {
-	if target.familyName() != antigravityFamily {
-		return
-	}
-	missing := agyUnexpressible(ruleLayout(p.opts.ConfigDir))
-	if len(missing) == 0 {
-		return
-	}
-	p.warnf("%s: %v cannot be written as a rule this agent matches, its patterns "+
-		"taking one leading wildcard and no separator after it. Its file tools are "+
-		"not refused those; `cat` and the rest still are. Name the path rather than "+
-		"the pattern to cover both", target.name, missing)
-}
-
 func warnMissingAccountRules(p *project, target *agentTarget) {
 	if len(target.accountFiles) == 0 {
 		return
@@ -735,7 +709,6 @@ func (p *project) agentConfig() error {
 		// operator's own ~/.ssh and ~/.config/sops, which no uid boundary reaches,
 		// the agent running as the operator.
 		warnMissingAccountRules(p, target)
-		warnUnexpressiblePatterns(p, target)
 		// Where the note stands, whether or not this run wrote anything: see
 		// agentTarget.noteStands.
 		if target.note != "" && (made || target.noteStands) {

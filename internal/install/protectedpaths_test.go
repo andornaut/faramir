@@ -37,25 +37,39 @@ var relocated = []string{
 // A credential faramir neither writes nor reads is the operator's to declare,
 // so nothing is compiled in and a bare install does not block it.
 func TestTheRelocatedRulesAreGone(t *testing.T) {
-	bare := jsFragments(Layout{})
-	res := make([]*regexp.Regexp, 0, len(bare))
-	for _, fragment := range bare {
-		res = append(res, regexp.MustCompile(fragment))
+	reads := func(layout Layout, path string) bool {
+		for _, rule := range commandRules(layout) {
+			if regexp.MustCompile("(?i)" + rule).MatchString("cat " + path) {
+				return true
+			}
+		}
+		return false
 	}
+
+	bare := Layout{}
 	for _, path := range relocated {
-		if matchesAnyPath(res, path) {
+		if reads(bare, path) {
 			t.Errorf("%s is refused by a built-in rule, which was relocated", path)
 		}
 	}
-	// And they are refusable by declaring them, which is where they went.
+
+	// And they are refusable by declaring them, which is where they went. A path
+	// covers the hierarchy under it, so the directory answers for every key in
+	// it rather than for the names somebody thought to list.
 	declared := Layout{ConfigDir: "/etc/faramir", Blocked: []config.BlockedPath{
-		{Name: "id_rsa"}, {Name: "*.pem"}, {Name: ".env*"},
+		{Path: "/home/op/.ssh"},
+		{Path: "/srv/tls"},
+		{Path: "/srv/app/.env"},
 	}}
-	for _, fragment := range jsFragments(declared) {
-		res = append(res, regexp.MustCompile(fragment))
-	}
-	for _, path := range []string{"/home/op/.ssh/id_rsa", "/srv/tls/chain.pem", "/srv/app/.env"} {
-		if !matchesAnyPath(res, path) {
+	for _, path := range []string{
+		"/home/op/.ssh/id_rsa",
+		// The name no list would have carried, which is the case a path covers
+		// and an enumeration of file names does not.
+		"/home/op/.ssh/identity",
+		"/srv/tls/chain.pem",
+		"/srv/app/.env",
+	} {
+		if !reads(declared, path) {
 			t.Errorf("%s is not refused by the entry that declares it", path)
 		}
 	}
@@ -97,15 +111,6 @@ func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
 			t.Errorf("the rules carry %q, which this layout moved", unwanted)
 		}
 	}
-}
-
-func matchesAnyPath(res []*regexp.Regexp, path string) bool {
-	for _, re := range res {
-		if re.MatchString(path) {
-			return true
-		}
-	}
-	return false
 }
 
 // The point of the exercise: one list, and every agent that has a rule file
