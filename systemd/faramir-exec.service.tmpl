@@ -140,6 +140,10 @@ RemoveIPC=true
 NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
+# A child's memory holds injected values, and a core dump is that memory
+# written to a file that outlives the crash. Nothing here is debugged from a
+# core on a host that manages credentials.
+LimitCORE=0
 ProtectSystem=strict
 # ProtectSystem=strict makes the hierarchy read-only, so every writable place
 # has to be named. A whole tree rather than one directory: a command runs where
