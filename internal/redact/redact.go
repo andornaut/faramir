@@ -602,7 +602,6 @@ func acrossLines(value string, policy EligibilityPolicy) map[string]bool {
 	}
 	norm := strings.ReplaceAll(value, "\r\n", "\n")
 	for line := range strings.SplitSeq(norm, "\n") {
-		line = strings.Trim(line, "\r")
 		if line == "" || policy.Check(line) != "" {
 			continue
 		}

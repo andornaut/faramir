@@ -36,6 +36,10 @@ func TestAValueSpanningLinesIsRedactedHoweverItsLinesAreSeparated(t *testing.T) 
 		{"only the second line, as sed -n 2p prints it", second},
 		{"only the first line", first},
 		{"CRLF rewrap", first + "\r\n" + second},
+		// A lone CR between the lines, which an old formatter writes. Splitting
+		// on "\n" alone would take such a value for one line and register no
+		// per-line needle at all.
+		{"a lone CR between the lines", first + "\r" + second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out := New([]Secret{{Ref: ref, Value: value}}, EligibilityPolicy{MinLength: 8}).
