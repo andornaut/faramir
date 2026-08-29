@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/execserver"
 	"github.com/andornaut/faramir/internal/ptyutil"
@@ -99,7 +100,7 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		return nil, startErr
 	}
 
-	out := newOutputBuffer(config.MaxOutputBytes)
+	out := audit.NewBounded(config.MaxOutputBytes, audit.Raw)
 	aborted := false
 	// The executor owns the run's cgroup and enforces the timeout; this is the
 	// backstop for it not coming back at all.
@@ -114,7 +115,7 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		if auditSink != nil {
 			auditSink(safe)
 		}
-		out.add(safe)
+		out.Add(safe)
 	}
 
 	// carry holds a trailing partial UTF-8 sequence, so a rune split across two
@@ -200,7 +201,10 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		}
 		exitCode, timedOut, statusUnknown = exitStatus(result, err, !time.Now().Before(deadline))
 	}
-	output, truncated := out.result()
+	output, dropped := out.Result(func(dropped int) string {
+		return truncationMarker(dropped, config.MaxOutputBytes)
+	})
+	truncated := dropped > 0
 	switch {
 	case timedOut:
 		output += fmt.Sprintf("\n[faramir] timed out after %ds; process killed\n", timeoutSec)
@@ -255,30 +259,6 @@ func isClosed(done <-chan struct{}) bool {
 	}
 }
 
-// cutAtRune returns the first limit bytes of s, backing off only far enough not
-// to end on a partial rune. Bounded like decodeUTF8: raw PTY bytes can be
-// invalid anywhere, and must not take the rest of the chunk with them.
-func cutAtRune(s string, limit int) string {
-	if limit <= 0 {
-		return ""
-	}
-	if len(s) <= limit {
-		return s
-	}
-	cut := s[:limit]
-	for i := 1; i < utf8.UTFMax && i <= len(cut); i++ {
-		start := len(cut) - i
-		if !utf8.RuneStart(cut[start]) {
-			continue
-		}
-		if utf8.ValidString(cut[start:]) {
-			return cut // the last rune is whole
-		}
-		return cut[:start]
-	}
-	return cut
-}
-
 // decodeUTF8 returns the valid prefix of b as a string, plus any trailing bytes
 // that are not valid on their own. A byte that can never start a rune is held
 // back too; the caller flushes the remainder at EOF, so that costs a read
@@ -312,98 +292,12 @@ func isEIO(err error) bool {
 // sign of what happened, and the agent no way to find out but to run it again.
 //
 // The same shape audit.Collector keeps a record in, counted in the bytes the
-// response is capped in rather than the bytes a record encodes to. A ring of
-// chunks rather than of bytes: chunks arrive small, and the one that overshoots
-// is trimmed once.
-type outputBuffer struct {
-	budget int
-	head   strings.Builder
-	// headShut is set by the first chunk that goes to the tail. Without it the
-	// head keeps taking whatever still fits, so a chunk too large for the room
-	// left goes to the tail and a smaller one after it lands in the head, ahead
-	// of it: the output then reads out of the order the command wrote it.
-	headShut bool
-	tail     []string
-	tailLen  int
-	dropped  int
-}
-
-func newOutputBuffer(budget int) *outputBuffer {
-	return &outputBuffer{budget: budget}
-}
-
-// half is what each end gets, with room left for the marker between them.
-func (b *outputBuffer) half() int { return max((b.budget-truncationMarkerReserve)/2, 1) }
-
-// add takes one chunk. The caller keeps draining the PTY whatever this does, or
-// a chatty child blocks on a full buffer and never exits.
-func (b *outputBuffer) add(text string) {
-	if text == "" {
-		return
-	}
-	if !b.headShut && b.head.Len() < b.half() {
-		// Cut on a rune boundary, bounded by decodeUTF8: scanning back for the
-		// first valid prefix would drop everything after any invalid byte.
-		keep := cutAtRune(text, b.half()-b.head.Len())
-		if keep != "" {
-			b.head.WriteString(keep)
-			text = text[len(keep):]
-		}
-		if text == "" {
-			return
-		}
-	}
-	b.headShut = true
-	b.tail = append(b.tail, text)
-	b.tailLen += len(text)
-	for b.tailLen > b.half() && len(b.tail) > 1 {
-		b.dropped += len(b.tail[0])
-		b.tailLen -= len(b.tail[0])
-		b.tail = b.tail[1:]
-	}
-	// One chunk longer than the whole tail budget: keep its own tail.
-	if b.tailLen > b.half() {
-		keep := tailAtRune(b.tail[0], b.half())
-		b.dropped += len(b.tail[0]) - len(keep)
-		b.tail[0] = keep
-		b.tailLen = len(keep)
-	}
-}
-
-// result is what was kept, and whether anything was not.
-func (b *outputBuffer) result() (string, bool) {
-	head, tail := b.head.String(), strings.Join(b.tail, "")
-	if b.dropped == 0 {
-		return head + tail, false
-	}
-	return head + truncationMarker(b.dropped, b.budget) + tail, true
-}
-
-// truncationMarkerReserve is the room half() leaves for the marker. Larger than
-// any marker it writes, the count being the only part that varies.
-const truncationMarkerReserve = 128
-
+// truncationMarker says what the response cap dropped. The response is capped
+// in raw bytes rather than the bytes a record encodes to, so it carries its
+// own marker; audit.Bounded is the ring under both.
 func truncationMarker(dropped, budget int) string {
 	return fmt.Sprintf("\n[faramir] %d bytes of output dropped; the head and the "+
 		"tail are kept, at a %d byte cap\n", dropped, budget)
-}
-
-// tailAtRune is cutAtRune from the other end: the last limit bytes of s, moved
-// forward only far enough not to open on a partial rune.
-func tailAtRune(s string, limit int) string {
-	if limit <= 0 {
-		return ""
-	}
-	if len(s) <= limit {
-		return s
-	}
-	cut := s[len(s)-limit:]
-	for i := 0; i < utf8.UTFMax && i < len(cut); i++ {
-		if utf8.RuneStart(cut[i]) {
-			return cut[i:]
-		}
-	}
-	return cut
 }
 
 func round3(v float64) float64 { return float64(int64(v*1000+0.5)) / 1000 }

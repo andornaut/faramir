@@ -133,3 +133,45 @@ func suffixWithin(s string, budget int) string {
 	}
 	return s
 }
+
+// cutAtRune returns the first limit bytes of s, backing off only far enough
+// not to end on a partial rune. Bounded rather than scanned: raw PTY bytes can
+// be invalid anywhere, and must not take the rest of the chunk with them.
+func cutAtRune(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(s) <= limit {
+		return s
+	}
+	cut := s[:limit]
+	for i := 1; i < utf8.UTFMax && i <= len(cut); i++ {
+		start := len(cut) - i
+		if !utf8.RuneStart(cut[start]) {
+			continue
+		}
+		if utf8.ValidString(cut[start:]) {
+			return cut // the last rune is whole
+		}
+		return cut[:start]
+	}
+	return cut
+}
+
+// tailAtRune is cutAtRune from the other end: the last limit bytes of s, moved
+// forward only far enough not to open on a partial rune.
+func tailAtRune(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(s) <= limit {
+		return s
+	}
+	cut := s[len(s)-limit:]
+	for i := 0; i < utf8.UTFMax && i < len(cut); i++ {
+		if utf8.RuneStart(cut[i]) {
+			return cut[i:]
+		}
+	}
+	return cut
+}
