@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
@@ -171,7 +170,7 @@ func (e *Executor) serveConnection(conn net.Conn) {
 
 	peer, err := sockutil.PeerCred(conn)
 	if err != nil || !sockutil.AllowedUser(peer, e.config.Executor.AllowedUser) {
-		_ = sockutil.Send(conn, errorResponse("forbidden", "peer not authorized"))
+		_ = sockutil.Send(conn, sockutil.ErrorResponse("forbidden", "peer not authorized"))
 		return
 	}
 
@@ -182,7 +181,7 @@ func (e *Executor) serveConnection(conn net.Conn) {
 		if slaveFD >= 0 {
 			_ = unix.Close(slaveFD)
 		}
-		_ = sockutil.Send(conn, errorResponse("bad_request", "no usable request"))
+		_ = sockutil.Send(conn, sockutil.ErrorResponse("bad_request", "no usable request"))
 		return
 	}
 	// Before the op and the terminal-fd check both: a caller of another release
@@ -192,7 +191,7 @@ func (e *Executor) serveConnection(conn net.Conn) {
 		if slaveFD >= 0 {
 			_ = unix.Close(slaveFD)
 		}
-		_ = sockutil.Send(conn, errorResponse("bad_request", why))
+		_ = sockutil.Send(conn, sockutil.ErrorResponse("bad_request", why))
 		return
 	}
 	// Before the terminal-fd check: a question about the host carries no PTY. An
@@ -216,12 +215,12 @@ func (e *Executor) serveConnection(conn net.Conn) {
 		if slaveFD >= 0 {
 			_ = unix.Close(slaveFD)
 		}
-		_ = sockutil.Send(conn, errorResponse("bad_request",
+		_ = sockutil.Send(conn, sockutil.ErrorResponse("bad_request",
 			"unknown op "+strconv.Quote(payload.Op)))
 		return
 	}
 	if slaveFD < 0 {
-		_ = sockutil.Send(conn, errorResponse("bad_request", "no terminal fd was passed"))
+		_ = sockutil.Send(conn, sockutil.ErrorResponse("bad_request", "no terminal fd was passed"))
 		return
 	}
 
@@ -230,7 +229,7 @@ func (e *Executor) serveConnection(conn net.Conn) {
 		defer func() { <-e.slots }()
 	default:
 		_ = unix.Close(slaveFD)
-		_ = sockutil.Send(conn, errorResponse("busy", "executor is at its concurrency limit"))
+		_ = sockutil.Send(conn, sockutil.ErrorResponse("busy", "executor is at its concurrency limit"))
 		return
 	}
 
@@ -311,12 +310,12 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	defer closeSlave()
 
 	if len(req.Argv) == 0 {
-		return errorResponse("bad_request", "'argv' must be a non-empty list of strings")
+		return sockutil.ErrorResponse("bad_request", "'argv' must be a non-empty list of strings")
 	}
 	// No fallback: the broker refuses a request that names no directory.
 	cwd := req.Cwd
 	if cwd == "" {
-		return errorResponse("bad_request", "'cwd' must name the directory to run in")
+		return sockutil.ErrorResponse("bad_request", "'cwd' must name the directory to run in")
 	}
 
 	// No allowlist: what bounds a brokered command is the uid it runs as.
@@ -343,7 +342,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	// PTY, which `test -t 1` depends on.
 	devnull, err := os.Open(os.DevNull)
 	if err != nil {
-		return errorResponse("exec_failed", err.Error())
+		return sockutil.ErrorResponse("exec_failed", err.Error())
 	}
 	defer func() { _ = devnull.Close() }()
 
@@ -376,13 +375,13 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	// cgroup is torn down. A host with no delegated cgroup, or a run that cannot
 	// be given one, is refused rather than reaped by process group.
 	if e.cgroupBase == "" {
-		return errorResponse("exec_failed", "this host has no delegated cgroup (needs "+
+		return sockutil.ErrorResponse("exec_failed", "this host has no delegated cgroup (needs "+
 			"cgroup v2, a unit with Delegate=, and a kernel with cgroup.kill >= 5.14); "+
 			"refusing to run a command it cannot confine and reap")
 	}
 	rcg, err := newRunCgroup(e.cgroupBase)
 	if err != nil {
-		return errorResponse("exec_failed", fmt.Sprintf("could not confine this run to a "+
+		return sockutil.ErrorResponse("exec_failed", fmt.Sprintf("could not confine this run to a "+
 			"cgroup (%v); refusing to run it", err))
 	}
 	cmd.SysProcAttr.UseCgroupFD = true
@@ -402,7 +401,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 		if pidfd >= 0 {
 			_ = unix.Close(pidfd)
 		}
-		return errorResponse(startFailure(req.Argv[0], req.Cwd, err))
+		return sockutil.ErrorResponse(startFailure(req.Argv[0], req.Cwd, err))
 	}
 	// As soon as there is a pid to record, which is after the fork: the child is
 	// running by then, so a run that reaches sudo before this line is refused as
@@ -504,10 +503,6 @@ func positive(value, fallback int) int {
 
 func round3(v float64) float64 {
 	return float64(int64(v*1000+0.5)) / 1000
-}
-
-func errorResponse(code, message string) map[string]any {
-	return map[string]any{"error": map[string]string{"code": code, "message": message}}
 }
 
 type ChildResult struct {
@@ -617,22 +612,11 @@ func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 	defer c.Close()
 	_ = c.conn.SetReadDeadline(time.Now().Add(timeout))
 
-	buf := make([]byte, 0, 1024)
-	chunk := make([]byte, 65536)
-	for bytes.IndexByte(buf, '\n') < 0 {
-		n, err := c.conn.Read(chunk)
-		if n > 0 {
-			buf = append(buf, chunk[:n]...)
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("executor: %w", err)
-		}
-	}
-	if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
-		buf = buf[:idx]
+	// Bounded like a request: an executor reply is one small JSON line, so a
+	// reply past the request cap is a fault, not a payload to allocate for.
+	buf, err := sockutil.ReadLine(c.conn, maxRequestBytes)
+	if err != nil {
+		return nil, fmt.Errorf("executor: %w", err)
 	}
 	if len(buf) == 0 {
 		return nil, errors.New("executor closed the connection without responding")

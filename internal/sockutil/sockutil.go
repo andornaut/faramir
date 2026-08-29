@@ -205,34 +205,13 @@ func groupMembers(name string) []string {
 
 // ReadLine reads one newline-terminated JSON payload, up to limit bytes. It
 // returns nil with no error when the peer sent nothing usable.
+//
+// One LineReader read: every caller reads a single payload and then replies or
+// closes, so the bytes a buffered reader may pull in past the newline are
+// bytes nothing was going to read. A caller that needs the connection
+// positioned after the newline keeps its own LineReader instead.
 func ReadLine(conn net.Conn, limit int) ([]byte, error) {
-	buf := make([]byte, 0, 4096)
-	chunk := make([]byte, 65536)
-	for {
-		if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
-			return buf[:idx], nil
-		}
-		n, err := conn.Read(chunk)
-		if n > 0 {
-			buf = append(buf, chunk[:n]...)
-			if len(buf) > limit {
-				return nil, ErrTooLarge
-			}
-		}
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, err
-		}
-	}
-	if before, _, ok := bytes.Cut(buf, []byte{'\n'}); ok {
-		return before, nil
-	}
-	if len(bytes.TrimSpace(buf)) == 0 {
-		return nil, nil
-	}
-	return buf, nil
+	return NewLineReader(conn, limit).Next()
 }
 
 // ErrTooLarge is a payload past the reader's limit, in either direction: the
@@ -282,6 +261,13 @@ func (lr *LineReader) Next() ([]byte, error) {
 		return nil, nil
 	}
 	return buf, nil
+}
+
+// ErrorResponse is the internal sockets' one failure shape: an error object
+// carrying a code and a message. The keeper and the executor both answer with
+// it, so it lives beside the framing they share.
+func ErrorResponse(code, message string) map[string]any {
+	return map[string]any{"error": map[string]string{"code": code, "message": message}}
 }
 
 // Send writes one JSON response followed by a newline.

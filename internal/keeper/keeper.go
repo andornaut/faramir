@@ -467,11 +467,11 @@ func (k *Keeper) serveConnection(conn net.Conn) {
 	peer, err := sockutil.PeerCred(conn)
 	if err != nil {
 		log.Printf("SO_PEERCRED unavailable: %v", err)
-		_ = sockutil.Send(conn, errorResponse("forbidden", "peer not authorized"))
+		_ = sockutil.Send(conn, sockutil.ErrorResponse("forbidden", "peer not authorized"))
 		return
 	}
 	if !sockutil.AllowedUser(peer, k.config.Keeper.AllowedUser) {
-		_ = sockutil.Send(conn, errorResponse("forbidden", "peer not authorized"))
+		_ = sockutil.Send(conn, sockutil.ErrorResponse("forbidden", "peer not authorized"))
 		return
 	}
 	line, err := sockutil.ReadLine(conn, maxRequestBytes)
@@ -493,14 +493,14 @@ func (k *Keeper) serveConnection(conn net.Conn) {
 // Handle dispatches one request.
 func (k *Keeper) Handle(payload map[string]any) map[string]any {
 	if payload == nil {
-		return errorResponse("bad_request", "request must be a JSON object")
+		return sockutil.ErrorResponse("bad_request", "request must be a JSON object")
 	}
 	// Before the op: the broker and the keeper are one binary under two units, so
 	// a caller of another release is one of them left running across the install
 	// that replaced it. Blocked whatever it asked for, and told which.
 	caller, _ := payload["version"].(string)
 	if why := version.Mismatch(caller); why != "" {
-		return errorResponse("bad_request", why)
+		return sockutil.ErrorResponse("bad_request", why)
 	}
 	op, _ := payload["op"].(string)
 	switch op {
@@ -522,14 +522,10 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 			"unresolved_patterns": unresolved, "shadowed_refs": shadowed}
 	default:
 		// Named explicitly, so the error says the key is not obtainable here.
-		return errorResponse("unsupported", fmt.Sprintf(
+		return sockutil.ErrorResponse("unsupported", fmt.Sprintf(
 			"unsupported op %q; the keeper serves 'get_values' and 'get_state' "+
 				"only and has no operation that returns key material", op))
 	}
-}
-
-func errorResponse(code, message string) map[string]any {
-	return map[string]any{"error": map[string]string{"code": code, "message": message}}
 }
 
 func SortedRefs(values map[string]string) []string {
