@@ -30,7 +30,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 	}{
 		{"a relative path", "", "etc/luks.key", "is relative"},
 		{"a home", "", "~/.ssh/id_ed25519", "starts with ~"},
-		{"no path at all", "", "", "path, name or command is required"},
+		{"no path at all", "", "", "path or command is required"},
 		{"an uncleaned path", "", "/etc/./luks.key", "shortest form"},
 		{"the whole filesystem", "", "/", "every file on the host"},
 	} {

@@ -118,7 +118,7 @@ func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.C
 		report.addf(name, StatusOK, "no [[secret.link]] entries are configured")
 		return
 	}
-	denyRuleCoverage(report, opts, name, linkedFilesCheck, links, nil)
+	denyRuleCoverage(report, opts, name, linkedFilesCheck, links)
 }
 
 // diagnoseAgentCode: the plugin, extension and hook files under a home are
@@ -246,7 +246,7 @@ var blockedPathsCheck = coverageCheck{
 // rules with paths, reporting under the check's own phrasing. The three checks
 // that ask this differ only in that phrasing and in their failure line.
 func denyRuleCoverage(report *DoctorReport, opts DoctorOptions, name string,
-	check coverageCheck, paths []string, expressible func(file, subject string) bool) {
+	check coverageCheck, paths []string) {
 	counted := fmt.Sprintf(check.noun, len(paths))
 	if opts.AgentUser == "" {
 		report.unaskedf(name, len(paths), "the agent account is not named, so the "+
@@ -261,15 +261,15 @@ func denyRuleCoverage(report *DoctorReport, opts DoctorOptions, name string,
 			"rules were not compared with the %s", opts.AgentUser, counted)
 		return
 	}
-	check.report(report, name, home, paths, expressible)
+	check.report(report, name, home, paths)
 }
 
 // report is the check against a home already resolved, so a test can put one
 // somewhere other than a real account's.
 func (c coverageCheck) report(report *DoctorReport, name, home string,
-	paths []string, expressible func(file, subject string) bool) {
+	paths []string) {
 	counted := fmt.Sprintf(c.noun, len(paths))
-	files, uncovered, unread := uncoveredIn(home, paths, expressible)
+	files, uncovered, unread := uncoveredIn(home, paths)
 	// Before the coverage verdict: a rule file that could not be read is not
 	// one anything vouched for, and a pass beside it would claim it.
 	if len(unread) > 0 {
@@ -301,10 +301,7 @@ func (c coverageCheck) report(report *DoctorReport, name, home string,
 // agent with no rule file of its own is refused by the guard instead, which
 // reads the same paths out of the rendered deny list, so the callers report
 // that case as unasked and name the check that does cover it.
-// expressible, where non-nil, says whether one file has a spelling for one
-// subject at all: a path a file cannot be given a rule for is not missing from
-// it, the enrolment having reported it unexpressible instead.
-func uncoveredIn(home string, paths []string, expressible func(file, subject string) bool) (files int, uncovered, unread []string) {
+func uncoveredIn(home string, paths []string) (files int, uncovered, unread []string) {
 	// One file two agents read is one file to check: the Antigravity family
 	// shares its account-wide hook, and reporting it twice reads as two files
 	// short of what they should carry.
@@ -337,9 +334,6 @@ func uncoveredIn(home string, paths []string, expressible func(file, subject str
 			files++
 			var missing []string
 			for _, want := range paths {
-				if expressible != nil && !expressible(file.path, want) {
-					continue
-				}
 				if !named(entries, want) {
 					missing = append(missing, want)
 				}
@@ -378,13 +372,14 @@ func diagnoseInstallRules(report *DoctorReport, opts DoctorOptions) {
 	// not use.
 	layout := ruleLayout(opts.ConfigDir)
 	paths := append(installDirs(layout), perInstallPaths(layout)...)
-	denyRuleCoverage(report, opts, name, installRulesCheck, paths, nil)
+	denyRuleCoverage(report, opts, name, installRulesCheck, paths)
 }
 
 // diagnoseBlockedPaths asks whether the account-wide deny rules carry every
-// [[secret.block]] entry, by path and by name alike. The rule is the entire
-// content of one of these entries, so an entry the rules do not carry is an
-// entry doing nothing at all.
+// [[secret.block]] path entry. The rule is the entire content of one of these
+// entries, so an entry the rules do not carry is an entry doing nothing at all.
+// A command entry is not asked about: it reaches the command guard and no
+// agent's rule file, so it is not something these files could be short of.
 //
 // Failed rather than a warning, for the reason the linked-file check fails: a
 // stale rule refuses more than the list asks for, while this refuses less.
@@ -405,13 +400,10 @@ func diagnoseBlockedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.
 		report.addf(name, StatusOK, "no [[secret.block]] entries are configured")
 		return
 	}
-	// Every agent can be given a rule for a path, so nothing an entry declares
-	// is beyond one of them now.
-	expressible := func(_, _ string) bool { return true }
 	// Whether the path is there is not asked. An entry for a key on an unmounted
 	// volume is doing its job by being in the rules, and a check that failed on
 	// the absence would fail every time the volume was unmounted.
-	denyRuleCoverage(report, opts, name, blockedPathsCheck, paths, expressible)
+	denyRuleCoverage(report, opts, name, blockedPathsCheck, paths)
 }
 
 // ruleLayout is what an agent's rule file is rendered against: this install's

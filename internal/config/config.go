@@ -698,7 +698,7 @@ var sectionKeys = map[string][]string{
 // The entry tables inside [secret], which are not sections of their own.
 var (
 	linkKeys  = []string{"ref", keyPath, "type", keyKey, keyStrict}
-	blockKeys = []string{keyPath, "name", keyCommand, keyStrict}
+	blockKeys = []string{keyPath, keyCommand, keyStrict}
 )
 
 func fromMap(raw map[string]any, path string) (*Config, error) {
@@ -973,18 +973,10 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 	seen := map[string]bool{}
 	for i, entry := range entries {
 		at := fmt.Sprintf("%s: [[secret.block]] #%d", where, i+1)
-		if err := rejectUnknownKeys(entry, blockKeys, at); err != nil {
-			return nil, err
-		}
-		refused := BlockedPath{}
-		var err error
-		if refused.Path, err = str(entry["path"], at, ""); err != nil {
-			return nil, err
-		}
-		// CLEANUP (added 2026-08-29): the name form is gone, and this refuses a
-		// config still carrying one rather than letting rejectUnknownKeys answer
-		// with "unknown key", which says nothing about where the form went.
-		// Remove once no config on this host declares one.
+		// CLEANUP (added 2026-08-29): the name form is gone. Answered here, ahead
+		// of rejectUnknownKeys and without "name" among the keys it advertises, so
+		// that an operator is never shown the form as valid and then refused for
+		// writing it. Remove once no config on this host declares one.
 		if removed, err := str(entry["name"], at, ""); err != nil {
 			return nil, err
 		} else if removed != "" {
@@ -993,6 +985,14 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 				"refused ordinary files and missed credential ones. Declare the "+
 				"file or the directory with a path entry instead, which is exact",
 				at, Shown(removed))
+		}
+		if err := rejectUnknownKeys(entry, blockKeys, at); err != nil {
+			return nil, err
+		}
+		refused := BlockedPath{}
+		var err error
+		if refused.Path, err = str(entry["path"], at, ""); err != nil {
+			return nil, err
 		}
 		if refused.Command, err = str(entry[keyCommand], at, ""); err != nil {
 			return nil, err
@@ -1003,10 +1003,10 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		if err := validateBlocked(refused, at); err != nil {
 			return nil, err
 		}
-		// Two entries naming one path or one pattern render one rule, so the
-		// second is an operator who thinks something more was added. Keyed on the
-		// form as well as the value: a path and a name that read alike are two
-		// different rules.
+		// Two entries naming one path render one rule, so the second is an
+		// operator who thinks something more was added. Keyed on the form as well
+		// as the value: a path and a command that read alike are two different
+		// rules.
 		key := "path\x00" + refused.Path
 		if refused.Command != "" {
 			key = "command\x00" + refused.Command
@@ -1149,7 +1149,7 @@ func validateBlockedCommand(command, at string) error {
 
 func validateBlockedPath(refused BlockedPath, at string) error {
 	if refused.Path == "" {
-		return fmt.Errorf("%s: path, name or command is required; one of them is "+
+		return fmt.Errorf("%s: path or command is required; one of them is "+
 			"the whole of the entry", at)
 	}
 	if strings.HasPrefix(refused.Path, "~") {

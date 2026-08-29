@@ -524,7 +524,7 @@ guard_says "cat /etc/hostname" | grep -q '"permissionDecision":"deny"' \
   || ok "and an ordinary read is left alone"
 
 out=$(block ls)
-grep -qE '^(path|name|command) ' <<<"$out" \
+grep -qE '^(path|command) ' <<<"$out" \
   && ok "block ls lists what the config declares" \
   || bad "block ls carries no declared entry: ${out:0:200}"
 grep -qE '^[0-9]+ built-in command rule\(s\):' <<<"$out" \
@@ -539,12 +539,12 @@ rows=$(sed -n '2,/^$/p' <<<"$out" | sed '/^$/d')
 [ "$rows" = "$(LC_ALL=C sort <<<"$rows")" ] \
   && ok "and the table is sorted from its first row to its last" \
   || bad "block ls is out of order: $(diff <(echo "$rows") <(LC_ALL=C sort <<<"$rows") | head -c 200)"
-# A row is one of three kinds and nothing else: a suffix and a prefix are
-# spellings of a name, and the entry shows which. Where a rule is enforced
-# follows from the kind rather than being carried in a column beside it.
-grep -qE '^(suffix|prefix|dir|glob) ' <<<"$out" \
-  && bad "block ls still reports a shape as a kind: ${out:0:200}" \
-  || ok "and every row is a name, a path or a command"
+# A row is a path or a command and nothing else. Where a rule is enforced
+# follows from the kind rather than being carried in a column beside it, and a
+# rendering shape is never a kind.
+grep -qE '^(suffix|prefix|dir|glob|name) ' <<<"$out" \
+  && bad "block ls reports a shape or a name as a kind: ${out:0:200}" \
+  || ok "and every row is a path or a command"
 grep -q 'file tools, commands' <<<"$out" \
   && bad "block ls still carries a covers column: ${out:0:200}" \
   || ok "and carries no column for where a rule is enforced"
@@ -587,7 +587,7 @@ out=$(block ls --declared --built-in 2>&1); code=$?
   && ok "and naming both halves is refused, being the default" \
   || bad "--declared --built-in: exit $code [${out:0:120}]"
 
-# A command entry: the third form, which reaches the guard and no rule file.
+# A command entry: the other form, which reaches the guard and no rule file.
 out=$(block add --command 'e2e-probe read')
 grep -q 'blocked e2e-probe read' <<<"$out" \
   && ok "block add --command writes an entry" \

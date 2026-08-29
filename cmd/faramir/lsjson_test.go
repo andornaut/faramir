@@ -422,20 +422,27 @@ func TestNoBuiltInRuleIsDroppedFromTheTextListing(t *testing.T) {
 	}
 }
 
-// A kind with no section written out for it still gets one, so the listing
-// does not quietly narrow to the kinds that existed when it was written.
+// A kind with no section written out for it still gets one, so the listing does
+// not quietly narrow to the kinds that existed when it was written.
+//
+// The third kind is a literal rather than one of the constants, because the
+// point is a kind builtInKinds has never heard of: a row carrying one is what a
+// later form would produce before anybody thought to name it here, and it has
+// to reach the listing rather than vanish from it.
 func TestAKindWithNoSectionWrittenOutStillGetsOne(t *testing.T) {
+	const unnamed = "future"
 	rows := []blockRow{
 		{Source: sourceBuiltIn, Kind: kindCommand, Entry: `\bfaramir\b`},
 		{Source: sourceBuiltIn, Kind: kindPath, Entry: "/etc/faramir"},
+		{Source: sourceBuiltIn, Kind: unnamed, Entry: "something later"},
 	}
 	got := builtInKinds(rows)
-	want := []string{kindPath, kindCommand}
+	want := []string{kindPath, kindCommand, unnamed}
 	if !slices.Equal(got, want) {
 		t.Errorf("kinds = %v, want the named ones first then the rest: %v", got, want)
 	}
-	// And a listing carrying only one kind names no empty section.
-	if got := builtInKinds(rows[:1]); !slices.Equal(got, []string{kindCommand}) {
-		t.Errorf("kinds = %v, want only the one present", got)
+	// And a listing carrying only the kinds it knows names no empty section.
+	if got := builtInKinds(rows[:2]); !slices.Equal(got, []string{kindPath, kindCommand}) {
+		t.Errorf("kinds = %v, want only the two present", got)
 	}
 }

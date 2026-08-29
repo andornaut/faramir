@@ -363,9 +363,9 @@ func BuiltInRuleError(configDir string, refused config.BlockedPath) error {
 
 // builtInRuleError is the rule half of the question, with no config in it.
 //
-// A path is answered as well as a pattern: "stop refusing ~/.ssh/id_rsa" and
-// "stop refusing the id_rsa rule" are one request, and only one of them names
-// a rule.
+// The question is about the rule rather than the entry: "stop refusing
+// ~/.ssh/id_rsa" is answered by what renders that rule, which may be a
+// directory this install occupies rather than anything the config declares.
 func builtInRuleError(configDir string, refused config.BlockedPath) error {
 	dir, ok := InstalledDirCovering(configDir, refused.Path)
 	if !ok {

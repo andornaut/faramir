@@ -213,7 +213,7 @@ func TestDoctorPassesWhenARefusedPathIsRefused(t *testing.T) {
 	  ]}
 	}`)
 	var report DoctorReport
-	blockedPathsCheck.report(&report, "blocked paths", home, []string{"/etc/luks/volume.key"}, nil)
+	blockedPathsCheck.report(&report, "blocked paths", home, []string{"/etc/luks/volume.key"})
 
 	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusOK {
@@ -229,7 +229,7 @@ func TestDoctorFailsWhenARefusedPathIsNotRefused(t *testing.T) {
 	  "permissions": {"deny": ["Read(**/*.pem)"]}
 	}`)
 	var report DoctorReport
-	blockedPathsCheck.report(&report, "blocked paths", home, []string{"/etc/luks/volume.key"}, nil)
+	blockedPathsCheck.report(&report, "blocked paths", home, []string{"/etc/luks/volume.key"})
 
 	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusFailed {
@@ -246,7 +246,7 @@ func TestDoctorFailsWhenARefusedPathIsNotRefused(t *testing.T) {
 // refuses nothing, and reporting OK would say the opposite.
 func TestDoctorDoesNotClaimARefusedPathIsCoveredWithNoRuleFile(t *testing.T) {
 	var report DoctorReport
-	blockedPathsCheck.report(&report, "blocked paths", t.TempDir(), []string{"/etc/luks/volume.key"}, nil)
+	blockedPathsCheck.report(&report, "blocked paths", t.TempDir(), []string{"/etc/luks/volume.key"})
 
 	finding := findingFor(t, report, "blocked paths")
 	if finding.Status == StatusOK {
@@ -262,7 +262,7 @@ func TestDoctorDoesNotAskWhetherARefusedPathExists(t *testing.T) {
 	  "permissions": {"deny": ["Read(`+absent+`)"]}
 	}`)
 	var report DoctorReport
-	blockedPathsCheck.report(&report, "blocked paths", home, []string{absent}, nil)
+	blockedPathsCheck.report(&report, "blocked paths", home, []string{absent})
 
 	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusOK {
@@ -319,7 +319,7 @@ func TestAPathRuleDoesNotCoverANameItEndsWith(t *testing.T) {
 	  ]}
 	}`)
 	var report DoctorReport
-	blockedPathsCheck.report(&report, "blocked paths", home, []string{".env"}, nil)
+	blockedPathsCheck.report(&report, "blocked paths", home, []string{".env"})
 
 	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusFailed {
@@ -328,31 +328,6 @@ func TestAPathRuleDoesNotCoverANameItEndsWith(t *testing.T) {
 	}
 }
 
-// The agy settings file cannot express four of the five name-pattern kinds,
-// and the enrolment reports them unexpressible rather than rendering a wrong
-// rule; the coverage check must not fail forever over a file that cannot be
-// given the rule it is asked about.
-func TestAnUnexpressibleAgyPatternIsNotMissingFromItsFile(t *testing.T) {
-	home := writeRules(t, agySettingsFile, `{
-	  "permissions": {"deny": ["read_file(*.pem)", "write_file(*.pem)"]}
-	}`)
-	var report DoctorReport
-	expressible := func(file, subject string) bool {
-		return file != agySettingsFile || subject != "id_rsa"
-	}
-	blockedPathsCheck.report(&report, "blocked paths", home,
-		[]string{"id_rsa", "*.pem"}, expressible)
-
-	finding := findingFor(t, report, "blocked paths")
-	if finding.Status != StatusOK {
-		t.Errorf("status = %v, want OK: an unexpressible name failed its own "+
-			"absence: %s", finding.Status, finding.Detail)
-	}
-}
-
-// The plugin is the whole of what refuses file tools on its hosts, and the
-// agent runs as the account that owns it: a rewrite that guts one must not
-// pass on the strength of the file existing.
 func TestAgentCodeReportsAGuttedPlugin(t *testing.T) {
 	home := t.TempDir()
 	configDir := t.TempDir()

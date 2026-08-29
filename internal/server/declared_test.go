@@ -111,9 +111,8 @@ func TestTheReadersAreRefusedWhateverTheyAreCalled(t *testing.T) {
 	}
 }
 
-// A name is matched against the path the command names rather than against this
-// host's filesystem, which is how it reaches a file the host does not have at
-// that path.
+// A declared directory covers everything under it, which is what reaches a key
+// under a name no list of key names would carry.
 func TestADeclaredDirectoryCoversWhatIsUnderIt(t *testing.T) {
 	check := blocking(pathEntry("/home/op/.ssh"))
 

@@ -150,7 +150,7 @@ func TestDoctorPassesWhenALinkedFileIsRefused(t *testing.T) {
 	  ]}
 	}`)
 	var report DoctorReport
-	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.config/gh/hosts.yml"}, nil)
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.config/gh/hosts.yml"})
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status != StatusOK {
@@ -166,7 +166,7 @@ func TestDoctorFailsWhenALinkedFileIsNotRefused(t *testing.T) {
 	  "permissions": {"deny": ["Read(**/*.key)"]}
 	}`)
 	var report DoctorReport
-	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"}, nil)
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"})
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status != StatusFailed {
@@ -183,7 +183,7 @@ func TestDoctorFailsWhenALinkedFileIsNotRefused(t *testing.T) {
 // refuses nothing, and reporting OK would say the opposite.
 func TestDoctorDoesNotClaimCoverageWithNoRuleFile(t *testing.T) {
 	var report DoctorReport
-	linkedFilesCheck.report(&report, "linked files", t.TempDir(), []string{"/home/operator/.npmrc"}, nil)
+	linkedFilesCheck.report(&report, "linked files", t.TempDir(), []string{"/home/operator/.npmrc"})
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status == StatusOK {
@@ -340,7 +340,7 @@ func TestAnAllowRuleDoesNotCountAsCoverage(t *testing.T) {
 	  "permissions": {"allow": ["Read(/home/operator/.npmrc)"], "deny": []}
 	}`)
 	var report DoctorReport
-	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"}, nil)
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"})
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status != StatusFailed {
@@ -355,7 +355,7 @@ func TestAnAllowRuleDoesNotCountAsCoverage(t *testing.T) {
 func TestAnUnparseableRuleFileFailsCoverage(t *testing.T) {
 	home := writeRules(t, ".claude/settings.json", `{"permissions": {"deny": [,]}}`)
 	var report DoctorReport
-	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"}, nil)
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"})
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status != StatusFailed {
@@ -373,7 +373,7 @@ func TestARuleAboutALongerNameDoesNotVouchForItsSuffix(t *testing.T) {
 	  "permissions": {"deny": ["Read(**/my.env)"]}
 	}`)
 	var report DoctorReport
-	linkedFilesCheck.report(&report, "linked files", home, []string{".env"}, nil)
+	linkedFilesCheck.report(&report, "linked files", home, []string{".env"})
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status != StatusFailed {
