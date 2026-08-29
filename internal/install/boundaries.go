@@ -1,9 +1,14 @@
 package install
 
 import (
+	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -13,10 +18,12 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/redact"
-	"github.com/andornaut/faramir/internal/secretref"
+	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // The boundary checks: what each account can and cannot reach on a real host.
@@ -35,7 +42,10 @@ func asUser(account string, args ...string) (string, error) {
 	if account == "" {
 		return "", errors.New("no account named, so there is nobody to ask")
 	}
-	return command("runuser", append([]string{"-u", account, "--"}, args...)...)
+	// Bounded: a probe is a question, and one that hangs holds the whole
+	// examination on the host being diagnosed. Generous, a brokered probe
+	// carrying a real command inside it.
+	return commandWithin(2*time.Minute, "runuser", append([]string{"-u", account, "--"}, args...)...)
 }
 
 // asOperator runs a command as the account the broker's socket admits, root not
@@ -141,7 +151,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		func() { diagnoseConfigWritable(report, opts) },
 		func() { diagnoseInstalledFiles(report, opts) },
 		func() { diagnoseProtectProc(report) },
-		func() { diagnoseBrokered(report, opts, serves) },
+		func() { diagnoseBrokered(report, opts, cfg, serves) },
 	}
 	checks := append(append([]func(){}, aboutTheHost...), aboutTheOperator...)
 	if os.Geteuid() != 0 {
@@ -1395,7 +1405,7 @@ func diagnoseProtectProc(report *DoctorReport) {
 // diagnoseBrokered asks the broker to run something: the one place the answer
 // is what a brokered command actually gets. As the operator, the broker
 // checking the peer's credentials and root not being in the shared group.
-func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerServes) {
+func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, cfg *config.Config, serves brokerServes) {
 	// Three states where the command is not sent, each reported as unasked: a
 	// broker that refuses it, one whose value set --check did not establish, and
 	// one that is not running. Sent anyway, a refusal or an outage would come
@@ -1476,41 +1486,122 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 	}
 	report.addf("brokered command", StatusOK, "runs as %s, and the age key reaches it "+
 		"through neither the environment nor a credential", opts.ExecUser)
-	diagnoseRedaction(report, opts)
+	diagnoseRedaction(report, opts, cfg)
 }
 
-// diagnoseRedaction is the end-to-end claim: a managed value injected into a
-// real command comes back as its token. A failure means the plaintext is in
-// that output, so what is reported is that no token appeared.
-func diagnoseRedaction(report *DoctorReport, opts DoctorOptions) {
+// diagnoseRedaction is the end-to-end claim, made with a value of its own: a
+// synthetic secret is sealed into the store, refreshed in, injected into a
+// real command and expected back as exactly its token, then removed and
+// refreshed out. A dedicated value rather than one of the operator's, so a
+// host whose redaction is broken leaks a random string into its own audit log
+// and nothing else.
+func diagnoseRedaction(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
+	const name = "redaction"
+	if cfg == nil {
+		report.unaskedf(name, 1, "the config did not load, so no probe value was sealed")
+		return
+	}
+	sops, err := exec.LookPath("sops")
+	if err != nil {
+		report.unaskedf(name, 1, "sops is not on this PATH, so no probe value "+
+			"could be sealed and redaction was not exercised")
+		return
+	}
+	target := filepath.Join(opts.ConfigDir, "secrets", "doctor-probe.sops.yml")
+	if exists(target) {
+		report.unaskedf(name, 1, "%s already exists, so no probe was written over it", target)
+		return
+	}
+	value := make([]byte, 16)
+	if _, err := cryptorand.Read(value); err != nil {
+		report.unaskedf(name, 1, "no randomness for a probe value: %v", err)
+		return
+	}
+	plainDir, err := os.MkdirTemp("", "faramir-doctor")
+	if err != nil {
+		report.unaskedf(name, 1, "no directory for the probe's plaintext: %v", err)
+		return
+	}
+	defer func() { _ = os.RemoveAll(plainDir) }()
+	plain := filepath.Join(plainDir, "probe.yml")
+	body := "doctor:\n  probe: " + hex.EncodeToString(value) + "\n"
+	if err := os.WriteFile(plain, []byte(body), 0o600); err != nil {
+		report.unaskedf(name, 1, "could not write the probe's plaintext: %v", err)
+		return
+	}
+	sealed, err := commandWithin(time.Minute, sops,
+		"--config", filepath.Join(opts.ConfigDir, ".sops.yaml"),
+		"--encrypt", "--filename-override", target, plain)
+	if err != nil {
+		report.unaskedf(name, 1, "could not seal a probe value (%v), so redaction "+
+			"was not exercised; `sops config` and `rule coverage` say why sealing fails", err)
+		return
+	}
+	// 0640 into the setgid store, which hands the keeper's group over, exactly
+	// as a managed file is written.
+	if err := os.WriteFile(target, []byte(sealed), 0o640); err != nil { //nolint:gosec // G306: the store's own mode; the file is ciphertext and the keeper's group must read it
+		report.unaskedf(name, 1, "could not write the probe into the store: %v", err)
+		return
+	}
+	// Removed and refreshed out whatever happens below, so the probe never
+	// outlives the examination.
+	defer func() {
+		_ = os.Remove(target)
+		_ = refreshStore(cfg.Server.SocketPath)
+	}()
+	if why := refreshStore(cfg.Server.SocketPath); why != "" {
+		report.unaskedf(name, 1, "the broker did not take the probe value: %s", why)
+		return
+	}
 	faramir := filepath.Join(DefaultBinDir, "faramir")
-	out, err := asOperator(opts, faramir, "refs")
-	if err != nil {
-		report.addf("redaction", StatusFailed, "could not list the refs to probe with: %v", err)
-		return
-	}
-	ref := strings.TrimSpace(strings.SplitN(strings.TrimSpace(out), "\n", 2)[0])
-	if ref == "" {
-		report.unaskedf("redaction", 1, "no managed refs to probe with, so nothing "+
-			"here proves redaction runs")
-		return
-	}
 	probe, err := asOperator(opts, faramir, "run", "--quiet",
-		"--env", "FARAMIR_DOCTOR_PROBE="+ref, "--", "printenv", "FARAMIR_DOCTOR_PROBE")
+		"--env", "FARAMIR_DOCTOR_PROBE=faramir://doctor/probe", "--",
+		"printenv", "FARAMIR_DOCTOR_PROBE")
 	if err != nil {
-		report.addf("redaction", StatusFailed, "could not run the probe: %v", err)
+		report.addf(name, StatusFailed, "could not run the probe: %v", err)
 		return
 	}
-	// The whole output has to be the injected ref's own token: a substring
-	// match would pass a value redacted in part, with the remainder in the
-	// probe's output and its audit record in the clear.
-	if strings.TrimSpace(probe) != redact.TokenFor(secretref.Bare(ref)) {
-		report.addf("redaction", StatusFailed, "a command printing %s returned something "+
-			"other than its token, so some or all of the value is in that output "+
-			"and its audit record. Not quoted here", ref)
+	// The whole output has to be the probe's own token: a substring match
+	// would pass a value redacted in part.
+	if strings.TrimSpace(probe) != redact.TokenFor("doctor/probe") {
+		report.addf(name, StatusFailed, "a command printing the sealed probe value "+
+			"returned something other than its token, so injected values reach "+
+			"output unredacted. The probe value is synthetic and already removed")
 		return
 	}
-	report.addf("redaction", StatusOK, "an injected value comes back as its token")
+	report.addf(name, StatusOK, "a sealed probe value came back as exactly its token")
+}
+
+// refreshStore asks the running broker to re-read the managed store, the same
+// op `faramir vault` sends, and returns why it did not, empty on success.
+func refreshStore(socketPath string) string {
+	conn, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(
+		context.Background(), "unix", socketPath)
+	if err != nil {
+		return fmt.Sprintf("the broker could not be reached at %s: %v", socketPath, err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
+	if err := sockutil.Send(conn, map[string]any{
+		"op": "refresh", "version": version.Version}); err != nil {
+		return fmt.Sprintf("the refresh could not be sent: %v", err)
+	}
+	line, err := sockutil.ReadLine(conn, 1<<20)
+	if err != nil || len(line) == 0 {
+		return "the broker did not answer the refresh"
+	}
+	var response struct {
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(line, &response); err != nil {
+		return "the refresh answer was not readable"
+	}
+	if response.Error != nil {
+		return response.Error.Message
+	}
+	return ""
 }
 
 // ownerName is the account a file belongs to, or the numeric uid.
@@ -1578,7 +1669,7 @@ func passwordlessSudo(account string) (string, bool) {
 	// entries, which is the healthy default and prints the same output as an
 	// account whose entries all authenticate. What is read is the listing
 	// itself, which names the account whenever it ran.
-	out, _ := command("sudo", "-l", "-U", account)
+	out, _ := commandWithin(30*time.Second, "sudo", "-l", "-U", account)
 	return noPasswdEntry(out, account)
 }
 

@@ -134,8 +134,13 @@ done
 sed -i 's/^agent_user = .*/agent_user = "nosuchuser-e2e"/' /etc/faramir/config.toml
 out=$(/usr/local/bin/faramir doctor --json 2>/dev/null)
 n=$(jq '.findings|length' <<<"$out" 2>/dev/null)
-[ "$n" = 1 ] && ok "an account that is not there stops the examination" \
+# Two findings: the refusal, and the line accounting for the abandoned rest of
+# the examination, so one failure cannot read as a host where all else passed.
+[ "$n" = 2 ] && ok "an account that is not there stops the examination" \
   || bad "doctor made $n finding(s) about an account that does not exist"
+jq -r '.findings[1].detail' <<<"$out" 2>/dev/null | grep -q 'every other check' \
+  && ok "  and the abandoned examination is accounted for" \
+  || bad "  nothing says the rest was not run: $(jq -r '.findings[1].detail // ""' <<<"$out" | head -c 100)"
 jq -r '.findings[0].detail' <<<"$out" 2>/dev/null | grep -q 'nosuchuser-e2e' \
   && ok "  and the refusal names it" \
   || bad "  the refusal does not name the account: $(jq -r '.findings[0].detail // ""' <<<"$out" | head -c 100)"
@@ -323,7 +328,9 @@ snap
 # Every other check reads the config, so one finding and a stop is the answer:
 # thirty findings derived from a file that is not there would each be wrong in
 # its own way.
-[ "$(jq '.findings|length' $JSON)" -eq 1 ] && ok "and it is the only finding, the rest having nothing to read" \
+# The refusal plus the abandoned-examination line, and nothing derived from a
+# file that is not there.
+[ "$(jq '.findings|length' $JSON)" -eq 2 ] && ok "and only the abandoned-examination line stands beside it" \
   || bad "$(jq '.findings|length' $JSON) findings with no config"
 crash=$(/usr/local/bin/faramir doctor 2>&1 >/dev/null | grep -ci 'panic\|goroutine')
 [ "$crash" -eq 0 ] && ok "without a panic" || bad "doctor panicked with no config"
@@ -516,7 +523,7 @@ repaired=$(jq -r '[.findings[]|select(.status=="failed")|.check]|sort|join(",")'
   || bad "failed set went [$withFault] -> [$repaired]"
 
 # not_asked is the operator's cue that the totals are partial.
-runuser -u "$OP" -- /usr/local/bin/faramir doctor 2>/dev/null | tail -3 | grep -qi 'not made\|not the whole' \
+runuser -u "$OP" -- /usr/local/bin/faramir doctor 2>/dev/null | tail -6 | grep -qi 'not made\|not the whole' \
   && ok "the text report says the totals are partial when checks went unasked" \
   || bad "a partial examination does not say so"
 

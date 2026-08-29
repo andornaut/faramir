@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/version"
@@ -958,8 +959,22 @@ func (r *runner) warnf(format string, args ...any) {
 // capture would make every report unparseable. stderr is carried in the
 // error.
 func command(name string, args ...string) (string, error) {
+	return commandWithin(0, name, args...)
+}
+
+// commandWithin is command under a deadline, for doctor's probes: a hung
+// systemctl or broker hangs the one command an operator runs when the host is
+// already misbehaving. Zero is no deadline, which is init's own paths: a step
+// that takes long is a step to wait for, not one to abandon half-made.
+func commandWithin(within time.Duration, name string, args ...string) (string, error) {
+	ctx := context.Background()
+	if within > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, within)
+		defer cancel()
+	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(context.Background(), name, args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {

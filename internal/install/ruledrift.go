@@ -1,6 +1,7 @@
 package install
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -118,6 +119,97 @@ func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.C
 		return
 	}
 	denyRuleCoverage(report, opts, name, linkedFilesCheck, links, nil)
+}
+
+// diagnoseAgentCode: the plugin, extension and hook files under a home are
+// what routes and refuses for the agents that have no enforcing rule file, and
+// until now only their existence was asked. They are the operator's files and
+// the agent runs as the operator, so one rewritten to nothing silently ends
+// routing; compared against their own render, the way the deny patterns are.
+func diagnoseAgentCode(report *DoctorReport, opts DoctorOptions) {
+	const name = "agent code"
+	if opts.AgentUser == "" {
+		report.unaskedf(name, 1, "the agent account is not named, so whether its "+
+			"plugin and hook files carry what `faramir init` writes was not asked: "+
+			"run through sudo so SUDO_USER carries it, or record the account with "+
+			"`faramir init --agent-user`")
+		return
+	}
+	home, err := agentHomeFor(opts.AgentUser)
+	if err != nil || home == "" {
+		report.unaskedf(name, 1, "could not read %s's home, so its plugin and "+
+			"hook files were not compared with what `faramir init` writes", opts.AgentUser)
+		return
+	}
+	reportAgentCode(report, home, opts.ConfigDir)
+}
+
+// reportAgentCode is diagnoseAgentCode against a home already resolved.
+func reportAgentCode(report *DoctorReport, home, configDir string) {
+	const name = "agent code"
+	layout := ruleLayout(configDir)
+	seen := map[string]bool{}
+	checked := 0
+	var drifted, unread []string
+	for _, agent := range knownAgents() {
+		target := agentTargets[agent]
+		for _, file := range target.accountFiles {
+			// Exactly the files the rule checks skip: a registration or a program
+			// rather than a rule list. Absent is `agent rules`' finding.
+			if !file.noRules || seen[file.path] {
+				continue
+			}
+			seen[file.path] = true
+			path := filepath.Join(home, file.path)
+			if !exists(path) {
+				continue
+			}
+			onDisk, err := os.ReadFile(path)
+			if err != nil {
+				unread = append(unread, "~/"+file.path)
+				continue
+			}
+			ours, err := renderData(file.asset, pluginData{
+				BinDir:        DefaultBinDir,
+				Agent:         target.name,
+				Family:        target.familyName(),
+				Path:          file.path,
+				DefaultExport: file.defaultExport,
+				Layout:        layout,
+			})
+			if err != nil {
+				unread = append(unread, "~/"+file.path)
+				continue
+			}
+			checked++
+			same := bytes.Equal(onDisk, ours)
+			if !same && file.merge {
+				if merged, err := mergeJSON(onDisk, ours, readWrittenRules(configDir)[path]); err == nil {
+					same = sameDocument(merged, onDisk)
+				}
+			}
+			if !same {
+				drifted = append(drifted, "~/"+file.path)
+			}
+		}
+	}
+	sort.Strings(drifted)
+	sort.Strings(unread)
+	switch {
+	case len(unread) > 0:
+		report.addf(name, StatusFailed, "%s could not be read or rendered, so "+
+			"whether it still carries what `faramir init` writes is unknown",
+			strings.Join(unread, ", "))
+	case len(drifted) > 0:
+		report.addf(name, StatusFailed, "%d file(s) no longer carry what `faramir "+
+			"init` writes, and each is the whole of what routes or refuses for its "+
+			"agent: %s. Re-run `sudo faramir init`", len(drifted), strings.Join(drifted, ", "))
+	case checked > 0:
+		report.addf(name, StatusOK, "%d plugin and hook file(s) carry what "+
+			"`faramir init` writes", checked)
+	default:
+		report.addf(name, StatusOK, "no plugin or hook files are installed here")
+	}
 }
 
 // coverageCheck is the phrasing of one deny-rule coverage check; the mechanics

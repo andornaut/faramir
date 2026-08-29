@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // sockets are what gets enabled, not services: all three are socket activated,
@@ -234,7 +235,7 @@ func unitProperty(unit, property string) (string, bool) {
 	if !systemdRunning() {
 		return "", false
 	}
-	out, err := command("systemctl", "show", unit, "-p", property, "--value")
+	out, err := commandWithin(30*time.Second, "systemctl", "show", unit, "-p", property, "--value")
 	if err != nil {
 		return "", false
 	}

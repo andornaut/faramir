@@ -334,3 +334,46 @@ func TestAnUnexpressibleAgyPatternIsNotMissingFromItsFile(t *testing.T) {
 			"absence: %s", finding.Status, finding.Detail)
 	}
 }
+
+// The plugin is the whole of what refuses file tools on its hosts, and the
+// agent runs as the account that owns it: a rewrite that guts one must not
+// pass on the strength of the file existing.
+func TestAgentCodeReportsAGuttedPlugin(t *testing.T) {
+	home := t.TempDir()
+	configDir := t.TempDir()
+	rel := ".config/opencode/plugin/faramir.js"
+	path := filepath.Join(home, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("export default {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	var report DoctorReport
+	reportAgentCode(&report, home, configDir)
+	finding := findingFor(t, report, "agent code")
+	if finding.Status != StatusFailed {
+		t.Errorf("status = %v, want Failed for a gutted plugin: %s", finding.Status, finding.Detail)
+	}
+	if !strings.Contains(finding.Detail, rel) {
+		t.Errorf("the failure does not name the file: %s", finding.Detail)
+	}
+
+	// The render itself passes: what init writes is what carries.
+	ours, err := renderData("agent/plugin.js.tmpl", pluginData{
+		BinDir: DefaultBinDir, Agent: "opencode", Path: rel, Layout: ruleLayout(configDir),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, ours, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	report = DoctorReport{}
+	reportAgentCode(&report, home, configDir)
+	finding = findingFor(t, report, "agent code")
+	if finding.Status != StatusOK {
+		t.Errorf("status = %v, want OK for the rendered plugin: %s", finding.Status, finding.Detail)
+	}
+}

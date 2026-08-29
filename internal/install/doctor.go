@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/config"
@@ -77,7 +78,7 @@ func SampleSockets() map[string]string {
 	}
 	states := make(map[string]string, len(sockets))
 	for _, socket := range sockets {
-		out, err := command("systemctl", "is-active", socket)
+		out, err := commandWithin(30*time.Second, "systemctl", "is-active", socket)
 		state := strings.TrimSpace(out)
 		// systemctl prints the state even when it exits non-zero, so an empty
 		// answer is systemctl itself having failed, as is an error alongside
@@ -256,6 +257,8 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	diagnoseGroup(&report, opts)
 	diagnoseLogRotation(&report, cfg)
 	diagnoseUnits(&report, opts)
+	diagnoseSocketEnablement(&report)
+	diagnoseDropIns(&report)
 	diagnoseMemoryBounds(&report)
 	diagnoseBrokerMemory(&report)
 	diagnoseSSHAgent(&report, opts, cfg, serves)
@@ -268,12 +271,14 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	report.merge(brokerReport)
 	diagnoseSopsConfig(&report, opts)
 	diagnoseAgentRules(&report, opts)
+	diagnoseAgentCode(&report, opts)
 	diagnoseAgentRuleDrift(&report, opts)
 	diagnoseLinkedFiles(&report, opts, cfg)
 	diagnoseInstallRules(&report, opts)
 	diagnoseBlockedPaths(&report, opts, cfg)
 	diagnoseLinkedAccess(&report, opts, cfg)
 	diagnoseTreeConfig(&report, opts)
+	diagnoseTreeModes(&report, opts)
 	diagnoseEditableFiles(&report, opts)
 	return report
 }
@@ -891,6 +896,58 @@ func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 	}
 }
 
+// diagnoseSocketEnablement: enabled as well as active. A socket somebody
+// disabled keeps listening until the next reboot, which is when nothing starts
+// and every brokered command meets a dead socket with nothing in this report
+// having said so.
+func diagnoseSocketEnablement(report *DoctorReport) {
+	if !systemdRunning() {
+		return
+	}
+	for _, socket := range sockets {
+		out, err := commandWithin(30*time.Second, "systemctl", "is-enabled", socket)
+		state := strings.TrimSpace(out)
+		// is-enabled exits non-zero for disabled while still printing the state;
+		// only an empty answer is systemctl failing.
+		if state == "" {
+			if err != nil {
+				report.unaskedf("sockets", 1, "systemctl could not report whether "+
+					"%s is enabled, so what happens at the next boot was not asked", socket)
+			}
+			continue
+		}
+		if state != "enabled" {
+			report.addf("sockets", StatusWarn, "%s is %s, so it does not come back "+
+				"at the next boot: `sudo systemctl enable %s`", socket, state, socket)
+		}
+	}
+}
+
+// diagnoseDropIns names any drop-in overriding a faramir unit: a
+// units.d/override.conf can change User=, drop ProtectSystem= or repoint the
+// config, and until now nothing in this report said a file did it. Warned, not
+// failed: a drop-in is the operator's own arrangement, and what this buys is
+// that it is named next to the checks that read the resolved values.
+func diagnoseDropIns(report *DoctorReport) {
+	if !systemdRunning() {
+		return
+	}
+	var dropIns []string
+	for _, unit := range []string{brokerUnit, keeperUnit, execUnit,
+		"faramir-broker.socket", "faramir-keeper.socket", "faramir-exec.socket"} {
+		if paths, ok := unitProperty(unit, "DropInPaths"); ok && paths != "" {
+			dropIns = append(dropIns, unit+" ("+paths+")")
+		}
+	}
+	if len(dropIns) == 0 {
+		report.addf("unit drop-ins", StatusOK, "no drop-in overrides a faramir unit")
+		return
+	}
+	report.addf("unit drop-ins", StatusWarn, "%d faramir unit(s) carry a drop-in, "+
+		"so what runs is not what the installed unit says: %s. The values the "+
+		"other checks read are the resolved ones", len(dropIns), strings.Join(dropIns, "; "))
+}
+
 // gib renders a byte count the way an operator sizes one of these: the config
 // key is in MB and the unit resolves to bytes, and neither reads at a glance.
 func gib(bytes int64) string {
@@ -1068,7 +1125,9 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// Read the report before the exit code is judged. --check exits non-zero on
 	// every state below, so trusting the status alone would report all of them
 	// as one unexplained failure.
-	out, checkErr := command("runuser", "-u", brokerUser, "--",
+	// Ten minutes: --check decrypts the whole store, which has its own five
+	// minute budget inside, and a broker past this is hung rather than slow.
+	out, checkErr := commandWithin(10*time.Minute, "runuser", "-u", brokerUser, "--",
 		"env", "FARAMIR_CONFIG="+configFile,
 		filepath.Join(DefaultBinDir, "faramir"), "broker", "--check")
 	var check checkReport

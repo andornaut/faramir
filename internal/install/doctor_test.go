@@ -663,7 +663,7 @@ func TestTheBrokeredCommandIsSkippedWhenItCannotBeSent(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var report DoctorReport
-			diagnoseBrokered(&report, DoctorOptions{BrokerVersion: tc.version}, tc.serves)
+			diagnoseBrokered(&report, DoctorOptions{BrokerVersion: tc.version}, &config.Config{}, tc.serves)
 			if len(report.Findings) != 1 || report.Findings[0].Status != StatusWarn {
 				t.Fatalf("got %+v", report.Findings)
 			}

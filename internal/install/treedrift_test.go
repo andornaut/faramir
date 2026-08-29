@@ -369,3 +369,49 @@ func TestTreeConfigAcceptsAnUnsortedButIntactFile(t *testing.T) {
 		t.Errorf("findings = %+v, want one OK: form is not drift", got)
 	}
 }
+
+// The mode and the sticky bit are the precondition for the substitution the
+// tree check catches only after the fact: group write on an enforcing file is
+// the client group rewriting what refuses it, and a directory without sticky
+// lets a brokered command rename the file aside whatever its mode.
+func TestTreeModesReportsWritableFilesAndUnstickyDirectories(t *testing.T) {
+	configDir := t.TempDir()
+	tree := enrolTree(t, configDir, "claude")
+	settings := filepath.Join(tree, ".claude", "settings.local.json")
+	if err := os.Chmod(filepath.Join(tree, ".claude"), 0o770|os.ModeSetgid|os.ModeSticky); err != nil {
+		t.Fatal(err)
+	}
+
+	var report DoctorReport
+	diagnoseTreeModes(&report, DoctorOptions{ConfigDir: configDir})
+	got := findings(report, "tree modes")
+	if len(got) != 1 || got[0].Status != StatusOK {
+		t.Fatalf("findings = %+v, want one OK on an intact tree", got)
+	}
+
+	if err := os.Chmod(settings, 0o660); err != nil {
+		t.Fatal(err)
+	}
+	report = DoctorReport{}
+	diagnoseTreeModes(&report, DoctorOptions{ConfigDir: configDir})
+	got = findings(report, "tree modes")
+	if len(got) != 1 || got[0].Status != StatusFailed {
+		t.Fatalf("findings = %+v, want a failure on a group-writable hook file", got)
+	}
+	if !strings.Contains(got[0].Detail, settings) {
+		t.Errorf("the failure does not name the file: %s", got[0].Detail)
+	}
+
+	if err := os.Chmod(settings, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(tree, ".claude"), 0o770|os.ModeSetgid); err != nil {
+		t.Fatal(err)
+	}
+	report = DoctorReport{}
+	diagnoseTreeModes(&report, DoctorOptions{ConfigDir: configDir})
+	got = findings(report, "tree modes")
+	if len(got) != 1 || got[0].Status != StatusWarn {
+		t.Fatalf("findings = %+v, want a warning on a directory without sticky", got)
+	}
+}

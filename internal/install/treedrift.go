@@ -3,6 +3,7 @@ package install
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -168,23 +169,115 @@ func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir str
 	if err != nil {
 		return false, err
 	}
-	if bytes.Equal(merged, onDisk) {
-		return true, nil
+	return sameDocument(merged, onDisk), nil
+}
+
+// sameDocument compares two JSON renderings as documents. Not in the merge's
+// normal form is not drift: a hand edit that appended a key leaves the file
+// unsorted, and warning that the hook or the rules are missing over key order
+// sends an operator hunting for a loss that did not happen.
+func sameDocument(a, b []byte) bool {
+	if bytes.Equal(a, b) {
+		return true
 	}
-	// Not in the merge's normal form is not drift: a hand edit that appended a
-	// key leaves the file unsorted, and warning that the hook or the rules are
-	// missing over key order sends an operator hunting for a loss that did not
-	// happen. Parsed and compared as documents instead.
-	var mergedDoc, onDiskDoc any
-	if err := json.Unmarshal(merged, &mergedDoc); err != nil {
-		return false, err
+	var aDoc, bDoc any
+	if json.Unmarshal(a, &aDoc) != nil || json.Unmarshal(b, &bDoc) != nil {
+		return false
 	}
-	// The on-disk bytes already survived the merge above, so this cannot fail;
-	// treated as drift rather than an error if it somehow does.
-	if err := json.Unmarshal(onDisk, &onDiskDoc); err != nil {
-		return false, nil //nolint:nilerr // unparseable is drift, not a fault to stop on
+	return reflect.DeepEqual(aDoc, bDoc)
+}
+
+// diagnoseTreeModes: the files an enrolment writes keep their own mode and
+// their directory the sticky bit. Group-writable is what the enforcing files
+// must never be, the client group holding the executor; sticky is what keeps a
+// brokered command from renaming one aside. Both are the precondition for the
+// substitution the tree check above catches only after the fact.
+func diagnoseTreeModes(report *DoctorReport, opts DoctorOptions) {
+	trees, why := readEnrolledWhy(opts.ConfigDir)
+	// The record's own state is tree config's finding, reported once.
+	if why != "" || len(trees) == 0 {
+		return
 	}
-	return reflect.DeepEqual(mergedDoc, onDiskDoc), nil
+	examined := 0
+	var writable, unsticky []string
+	stickySeen := map[string]bool{}
+	for _, tree := range trees {
+		if !exists(tree.Dir) {
+			continue
+		}
+		examined++
+		var enforcing, kept []string
+		kept = append(kept, treeInstructionsRel(tree.Dir)...)
+		for _, name := range tree.Agents {
+			target, known := agentTargets[name]
+			if !known {
+				continue
+			}
+			enforcing = append(enforcing, editedPaths(target, true, "")...)
+			if rules := target.treeInstructions; rules.path != "" {
+				kept = append(kept, rules.path)
+			}
+		}
+		// The enforcing files carry the hook and the rules, and the enrolment
+		// writes them 0640: group write there is the client group rewriting what
+		// refuses it. An instructions file keeps whatever mode the operator's
+		// own file had, so only its directory is asked about.
+		for _, rel := range enforcing {
+			path := filepath.Join(tree.Dir, rel)
+			info, err := os.Lstat(path)
+			if err != nil {
+				continue
+			}
+			if info.Mode().Perm()&0o022 != 0 {
+				writable = append(writable, fmt.Sprintf("%s (%04o)", path, info.Mode().Perm()))
+			}
+		}
+		for _, rel := range append(append([]string{}, enforcing...), kept...) {
+			dir := filepath.Dir(filepath.Clean(rel))
+			if dir == "." {
+				// The tree root is deliberately not sticky; see sharetree.
+				continue
+			}
+			parent := filepath.Join(tree.Dir, dir)
+			if stickySeen[parent] {
+				continue
+			}
+			stickySeen[parent] = true
+			info, err := os.Stat(parent)
+			if err != nil {
+				continue
+			}
+			if info.Mode()&os.ModeSticky == 0 {
+				unsticky = append(unsticky, parent)
+			}
+		}
+	}
+	sort.Strings(writable)
+	sort.Strings(unsticky)
+	switch {
+	case len(writable) > 0:
+		report.addf("tree modes", StatusFailed, "%d enrolment-written file(s) are "+
+			"group- or world-writable, so the accounts the tree is shared with can "+
+			"rewrite what refuses them: %s. `chmod go-w` each, or re-run `sudo "+
+			"faramir init-project` in the tree", len(writable), strings.Join(writable, "; "))
+	case len(unsticky) > 0:
+		report.addf("tree modes", StatusWarn, "%d directory(ies) holding an "+
+			"enrolment-written file lost the sticky bit, so a brokered command may "+
+			"rename the file aside whatever its mode: %s. `chmod +t` each",
+			len(unsticky), strings.Join(unsticky, "; "))
+	case examined > 0:
+		report.addf("tree modes", StatusOK, "%d enrolled tree(s) keep their agent "+
+			"files closed to group write, in sticky directories", examined)
+	}
+}
+
+// treeInstructionsRel is the tree's own instructions file as a relative path,
+// for the checks that collect paths that way.
+func treeInstructionsRel(dir string) []string {
+	if rel, err := filepath.Rel(dir, treeInstructionsFile(dir)); err == nil {
+		return []string{rel}
+	}
+	return nil
 }
 
 // diagnoseEditableFiles asks what `init` and `init-project` would refuse to
