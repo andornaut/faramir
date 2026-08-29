@@ -40,7 +40,7 @@ const maxEscapeLen = 64
 // stripANSI removes escape sequences and normalises CRLF. Not stream-safe on
 // its own; see stripANSIStream.
 func stripANSI(text string) string {
-	clean, _ := stripANSIView(text)
+	clean, _, _ := stripANSIViewSrc(text)
 	return clean
 }
 
@@ -84,15 +84,9 @@ func needsStrip(text string) bool {
 	return false
 }
 
-// stripANSIView removes escape sequences and normalises CRLF, and builds the
-// view above in the same walk so the two cannot drift.
-func stripANSIView(text string) (string, *escapeView) {
-	clean, ev, _ := stripANSIViewSrc(text)
-	return clean, ev
-}
-
-// stripANSIViewSrc is stripANSIView plus src, which maps each byte of the
-// stripped text back to the byte offset in text of the source byte that
+// stripANSIViewSrc removes escape sequences and normalises CRLF, and builds
+// the view above in the same walk so the two cannot drift. src maps each byte
+// of the stripped text back to the byte offset in text of the source byte that
 // produced it, with one final entry mapping the end. A nil src means no
 // stripping was needed and the stripped text is text itself, so the mapping is
 // the identity.

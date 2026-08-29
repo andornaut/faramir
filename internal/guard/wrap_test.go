@@ -198,7 +198,6 @@ func TestTheCommandRunsInTheCallersOwnShell(t *testing.T) {
 func TestADeniedCommandIsStillDenied(t *testing.T) {
 	for _, command := range []string{
 		"cat /etc/faramir/age.key",
-		"cat /etc/faramir/age.key",
 	} {
 		hook := hookOutput(t, bashPayload(t, command))
 		if hook == nil {

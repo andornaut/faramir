@@ -76,8 +76,8 @@ func TestTheStrippedHalfIsUnchanged(t *testing.T) {
 		"\x1b[\x1b[\x1b[", "é\x1b[32mé", "\x1b[999999999m",
 	}
 	for _, text := range corpus {
-		if got, _ := stripANSIView(text); got != want(text) {
-			t.Errorf("stripANSIView(%q) = %q, want %q", text, got, want(text))
+		if got, _, _ := stripANSIViewSrc(text); got != want(text) {
+			t.Errorf("stripANSIViewSrc(%q) = %q, want %q", text, got, want(text))
 		}
 	}
 	// And on bytes nobody chose, where a sequence lands where it likes.
@@ -95,8 +95,8 @@ func TestTheStrippedHalfIsUnchanged(t *testing.T) {
 			b[i] = next()
 		}
 		text := string(b)
-		if got, _ := stripANSIView(text); got != want(text) {
-			t.Fatalf("stripANSIView(%q) = %q, want %q", text, got, want(text))
+		if got, _, _ := stripANSIViewSrc(text); got != want(text) {
+			t.Fatalf("stripANSIViewSrc(%q) = %q, want %q", text, got, want(text))
 		}
 	}
 }
@@ -107,7 +107,7 @@ func TestTheViewIndexCoversEveryByteAndTheEnd(t *testing.T) {
 	for _, text := range []string{
 		"\x1b[32mgreen\x1b[0m", "\x1b[value", "a\r\n\x1b[b", "", "\x1b[\x1b[x",
 	} {
-		clean, v := stripANSIView(text)
+		clean, v, _ := stripANSIViewSrc(text)
 		if v == nil {
 			continue // nothing to strip, so there is no view and no map
 		}

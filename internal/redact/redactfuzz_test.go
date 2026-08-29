@@ -127,7 +127,6 @@ func FuzzNeitherOfTwoOverlappingValuesSurvives(f *testing.F) {
 		if !isPrintableRun(short) || !isPrintableRun(long) {
 			t.Skip()
 		}
-		r := New([]Secret{{Ref: "a/short", Value: short}, {Ref: "b/long", Value: long}}, p)
 		for _, text := range []string{prefix + short + suffix, prefix + long + suffix} {
 			got := stream(New([]Secret{{Ref: "a/short", Value: short}, {Ref: "b/long", Value: long}}, p),
 				chunks(text, seed))
@@ -135,6 +134,5 @@ func FuzzNeitherOfTwoOverlappingValuesSurvives(f *testing.F) {
 				t.Fatalf("a value survived: %q from %q", got, text)
 			}
 		}
-		_ = r
 	})
 }

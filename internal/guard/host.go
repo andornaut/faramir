@@ -12,8 +12,6 @@ import (
 // than sniffed: the wrong dialect fails open, a document the host does not
 // understand being a command it runs unredacted.
 type host struct {
-	name string
-
 	// shellTools name the tools this host runs commands through; anything else is
 	// left alone. wrapTool is the one whose input is rewritten; Claude Code's
 	// second tool reads a running command's buffer, recognised so it can be
@@ -73,12 +71,17 @@ const rewriteReason = "faramir: output redacted; the deny list is what refuses a
 // host added later cannot spell it differently and fail open.
 const denyDecision = "deny"
 
+// denyPlain is the refusal the plugin and Antigravity dialects share: the
+// decision and the reason, nothing else.
+func denyPlain(reason string) map[string]any {
+	return map[string]any{"decision": denyDecision, "reason": reason}
+}
+
 var hosts = map[string]*host{
 	// The allow is load-bearing: a rewritten command matches no permission rule,
 	// so without it every command would prompt with nothing able to
 	// pre-approve.
 	"claude": {
-		name:       "claude",
 		shellTools: []string{"Bash", "BashOutput"},
 		wrapTool:   "Bash",
 		deny: func(reason string) map[string]any {
@@ -101,19 +104,19 @@ var hosts = map[string]*host{
 	// opencode and Kilo Code extend through in-process plugins rather than a hook
 	// that runs a program, so the plugin faramir installs applies the decision
 	// itself. Two names for one contract, so a divergence has somewhere to go.
-	"opencode": pluginHost("opencode"),
+	"opencode": pluginHost(),
 	// pi speaks the same dialect: its extension turns a deny into a blocked tool
 	// call and a rewrite into a mutation of the call's own input.
-	"pi":       pluginHost("pi"),
-	"kilocode": pluginHost("kilocode"),
+	"pi":       pluginHost(),
+	"kilocode": pluginHost(),
 
 	// The Antigravity family: the CLI and the IDE ship one hook contract and one
 	// language server between them, so they speak one dialect under two names,
 	// the way the plugin hosts do. Named separately because the enrolments
 	// differ: the CLI takes account-wide deny rules and the IDE has nowhere to
 	// put any.
-	"agy":         antigravityHost("agy"),
-	"antigravity": antigravityHost("antigravity"),
+	"agy":         antigravityHost(),
+	"antigravity": antigravityHost(),
 }
 
 // antigravityHost is the dialect Antigravity's PreToolUse hook speaks. Two
@@ -131,9 +134,8 @@ var hosts = map[string]*host{
 // rewritten command matches no permission rule. It is not a substitute for one.
 // The permission check runs before the hook, so a call with no allow rule is
 // refused and this is never asked.
-func antigravityHost(name string) *host {
+func antigravityHost() *host {
 	return &host{
-		name:       name,
 		shellTools: []string{runCommandTool},
 		wrapTool:   runCommandTool,
 		decode:     decodeToolCall,
@@ -143,9 +145,7 @@ func antigravityHost(name string) *host {
 		refusesPaths: true,
 		commandKey:   "CommandLine",
 		mergesInput:  true,
-		deny: func(reason string) map[string]any {
-			return map[string]any{"decision": denyDecision, "reason": reason}
-		},
+		deny:         denyPlain,
 		rewrite: func(updated map[string]any) map[string]any {
 			return map[string]any{
 				"decision":  "allow",
@@ -163,22 +163,15 @@ const runCommandTool = "run_command"
 // pluginHost is the dialect spoken to faramir's own plugin: "deny" with the
 // reason, "rewrite" with the tool input, nothing at all for a call left alone.
 // An unrecognised decision fails closed.
-func pluginHost(name string) *host {
+func pluginHost() *host {
 	return &host{
-		name: name,
-		// Named for the message and for the wrap, not as a gate: see
-		// anyShellTool.
 		anyShellTool: true,
 		// These hosts' own rule files are prompts rather than refusals, so a path
 		// is refused here. Asked of the guard rather than applied in the plugin:
 		// the plugin decides nothing, and one implementation of a rule cannot
 		// drift from another.
 		refusesPaths: true,
-		shellTools:   []string{"bash", "shell", "exec"},
-		wrapTool:     "bash",
-		deny: func(reason string) map[string]any {
-			return map[string]any{"decision": denyDecision, "reason": reason}
-		},
+		deny:         denyPlain,
 		rewrite: func(updated map[string]any) map[string]any {
 			return map[string]any{"decision": "rewrite", "tool_input": updated}
 		},

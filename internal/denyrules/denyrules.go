@@ -42,7 +42,7 @@ const (
 		`chmod|chown|chgrp|setfacl|ln|sops|age|ansible-vault|install|split|` +
 		`csplit|cpio|gzip|bzip2|xz|zstd))\b`
 
-	// MoveCommands is the rest of what puts a file's contents somewhere else:
+	// moveCommands is the rest of what puts a file's contents somewhere else:
 	// under another name, at another path, or in another encoding. Every other
 	// way of doing that is a reader already -- cp, tee, dd, tar, cpio, split and
 	// the decryption tools are in both vocabularies -- so this is what is left.
@@ -55,7 +55,7 @@ const (
 	// there, and it prints a file as surely as cat does: `sed -n p key`. The
 	// compressors re-encode in place, which walks a declared path out from under
 	// a rule that named it.
-	MoveCommands = `\b(?-i:` + gnuPrefix + `(?:mv|ln|sed|gzip|bzip2|xz|zstd))\b`
+	moveCommands = `\b(?-i:` + gnuPrefix + `(?:mv|ln|sed|gzip|bzip2|xz|zstd))\b`
 )
 
 // gnuPrefix takes the name a tool has where it is not the default one. Ubuntu
@@ -99,11 +99,11 @@ func NormalizePaths(command string) string {
 }
 
 // pathWord is a run of characters holding a "/" and stopping where a shell word
-// stops. The class matches PathEnd's, so what counts as the end of a path is
+// stops. The class matches pathEnd's, so what counts as the end of a path is
 // one answer rather than two.
 var pathWord = regexp.MustCompile(`[^\s"';&|()]*/[^\s"';&|()]*`)
 
-// Binding is a path bound to a shell variable, by an assignment or by the list
+// binding is a path bound to a shell variable, by an assignment or by the list
 // of a for loop. The rules above read left to right, so a command has to appear
 // before the path it reaches: `cat ~/.ssh/id_rsa` is refused and
 // `p=~/.ssh/id_rsa; cat $p` is not, the reader arriving after the only mention
@@ -120,7 +120,7 @@ var pathWord = regexp.MustCompile(`[^\s"';&|()]*/[^\s"';&|()]*`)
 // while the read rules a few lines up cross the same space with ArgSpan.
 // "Local Storage" is such a path, and the reason the bare form is not enough.
 //
-// What keeps the quoted form from reaching prose is PathStartBound rather than
+// What keeps the quoted form from reaching prose is pathStartBound rather than
 // anything here: a name may not open after a space, so a sentence that says one
 // is left alone while a path anywhere inside the quotes is not.
 //
@@ -131,19 +131,19 @@ var pathWord = regexp.MustCompile(`[^\s"';&|()]*/[^\s"';&|()]*`)
 // matched at "file=" and a flag was refused as though it bound a variable. The
 // separators and the quotes are there because an assignment follows each of
 // them, and the hyphen is the one thing that has to be left out.
-const Binding = `(?:` + assignStart + `[A-Za-z_][A-Za-z0-9_]*=(?:["'][^"']*|\S*)` +
+const binding = `(?:` + assignStart + `[A-Za-z_][A-Za-z0-9_]*=(?:["'][^"']*|\S*)` +
 	`|\bfor\s+[A-Za-z_][A-Za-z0-9_]*\s+in\s+[^;&|]*)`
 
 // assignStart is where a shell word may begin: the start of the line, or after
 // whitespace, a separator or a quote.
 const assignStart = `(?:^|[\s;&|("'])`
 
-// PathEnd is what may follow a path in a command line: whitespace, a quote, a
+// pathEnd is what may follow a path in a command line: whitespace, a quote, a
 // separator, or the end of it. A class rather than \b, and shared so the two
 // sides bound a path the same way: "\b" holds beside a hyphen, so a rule for
 // /opt/faramir would match /opt/faramir-notes.md and refuse a sibling that
 // merely starts the same way.
-const PathEnd = `[\s"';&|)]|$`
+const pathEnd = `[\s"';&|)]|$`
 
 // ArgSpan is what a rule crosses between a command and a path it reaches: the
 // arguments in between.
@@ -154,25 +154,24 @@ const PathEnd = `[\s"';&|)]|$`
 // inside an argument too, so `cat 'a|b' k` reached nothing.
 const ArgSpan = `[\s\S]*`
 
-// PathStart is what may precede a name inside a command line: a separator, a
-// quote, or the start of it. Shared with the renderer, so both sides bound a
-// name the same way.
-const PathStart = `(^|[\s/=:'"])`
+// pathStart is what may precede a name inside a command line: a separator, a
+// quote, or the start of it.
+const pathStart = `(^|[\s/=:'"])`
 
-// PathStartBound is PathStart without the whitespace, and it exists for the
+// pathStartBound is pathStart without the whitespace, and it exists for the
 // binding rule alone. An assignment's value ends at a space, so a subject that
 // may open with one reaches past the value into the word after it: with
-// PathStart, `msg=hello secrets` is refused for a sentence that names no file.
+// pathStart, `msg=hello secrets` is refused for a sentence that names no file.
 // Every other rule spans arguments and wants the whitespace.
-const PathStartBound = `(^|[/=:'"])`
+const pathStartBound = `(^|[/=:'"])`
 
 // Dir is a directory as a subject: the directory itself, or anything under it,
 // and nothing that merely begins with its name.
 func Dir(dir string) string {
-	return regexp.QuoteMeta(dir) + `(?:/|` + PathEnd + `)`
+	return regexp.QuoteMeta(dir) + `(?:/|` + pathEnd + `)`
 }
 
-// HomeSpellings is the ways a command line names a file under a home: the
+// homeSpellings is the ways a command line names a file under a home: the
 // absolute path, and the three prefixes a shell expands to it. A path rule is a
 // literal, so `cat ~/.private/x` reaches a file that `cat /home/op/.private/x`
 // is refused, and the tilde is how a person and a model both write a home path.
@@ -185,7 +184,7 @@ func Dir(dir string) string {
 // The list is what a shell expands, not every string that could reach the same
 // file: a command may build a path a way no rule can enumerate, and this is the
 // list that catches an accident rather than the boundary.
-func HomeSpellings(home, path string) []string {
+func homeSpellings(home, path string) []string {
 	rest, under := strings.CutPrefix(path, strings.TrimSuffix(home, "/")+"/")
 	if home == "" || home == "/" || !under || rest == "" {
 		return []string{regexp.QuoteMeta(path)}
@@ -202,11 +201,11 @@ func HomeSpellings(home, path string) []string {
 // DirUnder is Dir for a path that may sit under a home, bounded the same way
 // and matching each spelling of it.
 func DirUnder(home, dir string) string {
-	spellings := HomeSpellings(home, dir)
+	spellings := homeSpellings(home, dir)
 	if len(spellings) == 1 {
-		return spellings[0] + `(?:/|` + PathEnd + `)`
+		return spellings[0] + `(?:/|` + pathEnd + `)`
 	}
-	return `(?:` + strings.Join(spellings, `|`) + `)(?:/|` + PathEnd + `)`
+	return `(?:` + strings.Join(spellings, `|`) + `)(?:/|` + pathEnd + `)`
 }
 
 // For is the five rules that refuse a set of subjects: reading one, writing
@@ -296,20 +295,20 @@ func fragments(subjects []string) (ruleSet, bool) {
 	}
 	alternation := `(` + strings.Join(subjects, `|`) + `)`
 	// The binding rule takes the subjects with the whitespace dropped from
-	// what may precede a name; see PathStartBound. A subject that does not
+	// what may precede a name; see pathStartBound. A subject that does not
 	// open that way is carried through unchanged.
 	bound := make([]string, 0, len(subjects))
 	for _, subject := range subjects {
-		bound = append(bound, strings.Replace(subject, PathStart, PathStartBound, 1))
+		bound = append(bound, strings.Replace(subject, pathStart, pathStartBound, 1))
 	}
 	boundAlternation := `(` + strings.Join(bound, `|`) + `)`
 	return ruleSet{
 		read:     ReadCommands + ArgSpan + alternation,
-		move:     MoveCommands + ArgSpan + alternation,
+		move:     moveCommands + ArgSpan + alternation,
 		input:    `<\s*\S*` + alternation,
 		write:    WriteCommands + ArgSpan + alternation,
 		redirect: `>\s*\S*` + alternation,
-		binding:  Binding + boundAlternation,
+		binding:  binding + boundAlternation,
 	}, true
 }
 
@@ -369,21 +368,21 @@ func NameSubject(name string) string {
 	// the start of the word rather than the start of the line. Named here rather
 	// than written twice: it is both the shape KindExact takes and the reading a
 	// kind Name does not return would get.
-	exact := PathStart + q + `(` + PathEnd + `)`
+	exact := pathStart + q + `(` + pathEnd + `)`
 	switch kind {
 	case KindSuffix:
-		return q + `(` + PathEnd + `)`
+		return q + `(` + pathEnd + `)`
 	case KindPrefix:
 		// No end: a prefix is open by definition, ".env" covering ".env.local".
-		return PathStart + q
+		return pathStart + q
 	case KindGlob:
-		return PathStart + strings.ReplaceAll(q, regexp.QuoteMeta("*"), `[^/\s]*`) + `(` + PathEnd + `)`
+		return pathStart + strings.ReplaceAll(q, regexp.QuoteMeta("*"), `[^/\s]*`) + `(` + pathEnd + `)`
 	case KindDir:
 		// The directory itself as well as what is under it. Matching only the form
 		// with the separator left `rm -rf ~/.ssh` allowed while `rm -rf ~/.ssh/`
 		// was refused, which is a rule a keystroke walks around and a deletion
 		// that destroys everything the rule was protecting.
-		return PathStart + strings.TrimSuffix(q, `/`) + `(/|` + PathEnd + `)`
+		return pathStart + strings.TrimSuffix(q, `/`) + `(/|` + pathEnd + `)`
 	case KindExact:
 		return exact
 	}

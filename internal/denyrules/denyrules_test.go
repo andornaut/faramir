@@ -147,7 +147,7 @@ func TestTheRulesLeaveAloneWhatDoesNotReachTheSubject(t *testing.T) {
 		// "grep" is in neither vocabulary, so naming a path in a search stands.
 		"grep secret /etc/faramir/config.toml",
 		"ls /etc/faramir",
-		// PathEnd bounds the subject, so a sibling is not caught by it.
+		// pathEnd bounds the subject, so a sibling is not caught by it.
 		"cat /etc/faramirx",
 		"cat /opt/faramir-notes.md",
 		// The command names are case-sensitive inside a case-insensitive rule:
