@@ -28,10 +28,6 @@ import (
 	"github.com/andornaut/faramir/internal/escalation"
 )
 
-// cmdPamEscalate runs pam-escalate on its own, which is how the tests reach
-// it.
-func cmdPamEscalate(args []string) int { return runPamEscalateCommand(args) }
-
 // runPamEscalateCommand applies the rule that nothing but a real escalation
 // exits 0. PAM reads the status as an auth pass, and --help and a usage error
 // both leave cobra with 0, so the status is taken from whether an escalation

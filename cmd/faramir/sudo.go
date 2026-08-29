@@ -59,13 +59,6 @@ func requireRootToAnswer(command string) bool {
 	return false
 }
 
-// These run one command on its own, which is how the tests reach them without
-// going through the root command.
-func cmdSudoList(args []string) int  { return runCommand(newSudoListCmd(), args) }
-func cmdSudoWatch(args []string) int { return runCommand(newSudoWatchCmd(), args) }
-func cmdApprove(args []string) int   { return runCommand(newApproveCmd(), args) }
-func cmdReject(args []string) int    { return runCommand(newRejectCmd(), args) }
-
 // newSudoCmd groups everything about a brokered command asking to become root:
 // what is waiting, and the three ways an operator answers it.
 //

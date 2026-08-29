@@ -22,7 +22,7 @@ func pamEscalate(t *testing.T, env map[string]string, args ...string) int {
 	for name, value := range env {
 		t.Setenv(name, value)
 	}
-	return cmdPamEscalate(args)
+	return runPamEscalateCommand(args)
 }
 
 // The helper asks the installed broker and nothing else. It runs inside the
@@ -85,7 +85,7 @@ func TestASudoUnderNoBrokeredCommandIsRefused(t *testing.T) {
 // question expiring. A helper that failed open here would make stopping the
 // broker the way to sudo.
 //
-// Asked of askBrokerToApprove rather than through cmdPamEscalate, so the subject
+// Asked of askBrokerToApprove rather than through runPamEscalateCommand, so the subject
 // is the answer to an unreachable broker rather than the walk above it.
 func TestAnUnreachableBrokerRefuses(t *testing.T) {
 	approved, _, err := askBrokerToApprove(noBroker, []int{os.Getpid()})
@@ -104,8 +104,8 @@ func TestAnUnreachableBrokerRefuses(t *testing.T) {
 func TestNoFlagPathAuthenticates(t *testing.T) {
 	t.Setenv("PAM_TYPE", "auth")
 	for _, args := range [][]string{{"--no-such-flag"}, {"--help"}, {"-h"}} {
-		if code := cmdPamEscalate(args); code == 0 {
-			t.Errorf("cmdPamEscalate(%v) returned 0: a flag-parsing exit authenticated a sudo", args)
+		if code := runPamEscalateCommand(args); code == 0 {
+			t.Errorf("runPamEscalateCommand(%v) returned 0: a flag-parsing exit authenticated a sudo", args)
 		}
 	}
 }

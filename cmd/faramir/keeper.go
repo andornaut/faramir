@@ -90,11 +90,7 @@ func runKeeper(f keeperFlags) int {
 	}()
 
 	sockutil.NotifyReady()
-	return keeperErrCode(k.Serve())
-}
-
-func keeperErrCode(err error) int {
-	if err != nil {
+	if err := k.Serve(); err != nil {
 		log.Printf("%v", err)
 		return 1
 	}

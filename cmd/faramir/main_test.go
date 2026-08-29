@@ -525,23 +525,23 @@ func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
 // root check rather than dialling a socket, which is enough to tell a usage
 // error from an argument that was accepted.
 func TestRejectNeedsNoIDAndApproveDoes(t *testing.T) {
-	if code := cmdReject(nil); code == 2 {
+	if code := runCommand(newRejectCmd(), nil); code == 2 {
 		t.Error("faramir sudo reject = 2, want it accepted without an id")
 	}
-	if code := cmdReject([]string{"9f2a1c"}); code == 2 {
+	if code := runCommand(newRejectCmd(), []string{"9f2a1c"}); code == 2 {
 		t.Error("faramir sudo reject ID = 2, want an id accepted too")
 	}
-	if code := cmdApprove(nil); code != 2 {
+	if code := runCommand(newApproveCmd(), nil); code != 2 {
 		t.Errorf("faramir sudo approve = %d, want 2: a yes has to name the command it is for", code)
 	}
-	if code := cmdApprove([]string{"9f2a1c"}); code == 2 {
+	if code := runCommand(newApproveCmd(), []string{"9f2a1c"}); code == 2 {
 		t.Error("faramir sudo approve ID = 2, want it accepted")
 	}
 	// Listing and watching take no id at all: the verbs are their own commands.
-	if code := cmdSudoList([]string{"9f2a1c"}); code != 2 {
+	if code := runCommand(newSudoListCmd(), []string{"9f2a1c"}); code != 2 {
 		t.Errorf("faramir sudo ls ID = %d, want 2: it lists and answers nothing", code)
 	}
-	if code := cmdSudoWatch([]string{"9f2a1c"}); code != 2 {
+	if code := runCommand(newSudoWatchCmd(), []string{"9f2a1c"}); code != 2 {
 		t.Errorf("faramir sudo watch ID = %d, want 2: it answers from the terminal", code)
 	}
 }
