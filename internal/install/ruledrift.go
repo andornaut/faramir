@@ -555,12 +555,12 @@ func denyEntries(data []byte) (map[string]bool, error) {
 		case map[string]any:
 			for key, child := range value {
 				if decision, isString := child.(string); isString {
-					if decision == "deny" {
+					if decision == decisionDeny {
 						out[key] = true
 					}
 					continue
 				}
-				walk(child, underDeny || key == "deny")
+				walk(child, underDeny || key == decisionDeny)
 			}
 		}
 	}
@@ -571,7 +571,11 @@ func denyEntries(data []byte) (map[string]bool, error) {
 // decisions are the verdicts these files spell, and what tells a rule from
 // ordinary configuration. "ask" and "allow" are here although faramir writes
 // neither, what is read being somebody else's file as well as faramir's.
-var decisions = []string{"deny", "allow", "ask"}
+var decisions = []string{decisionDeny, "allow", "ask"}
+
+// decisionDeny is the one verdict coverage counts; the other two are read only
+// to tell a rule from ordinary configuration.
+const decisionDeny = "deny"
 
 // isDecision reports whether a value is a permission verdict rather than
 // ordinary configuration, which is what makes its key a rule.
