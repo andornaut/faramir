@@ -185,7 +185,7 @@ func (d *DoctorReport) merge(other DoctorReport) {
 // one line under the totals, so a report holding a single failure cannot read
 // as a host where everything else passed. The count is the checks the full
 // examination reports, held to reality by a test rather than recounted here.
-const remainingChecks = 40
+const remainingChecks = 41
 
 func abandoned(report *DoctorReport, why string) {
 	report.unaskedf("examination", remainingChecks, "every other check was not "+
@@ -271,6 +271,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	report.merge(brokerReport)
 	diagnoseSopsConfig(&report, opts)
 	diagnoseAgentRules(&report, opts)
+	diagnoseCodexTrust(&report, opts)
 	diagnoseAgentCode(&report, opts)
 	diagnoseAgentRuleDrift(&report, opts)
 	diagnoseLinkedFiles(&report, opts, cfg)

@@ -194,11 +194,10 @@ const (
 // and it holds at both scopes: the account-wide hook and a tree's are inert
 // under either of them.
 //
-// Said on every run rather than only on the one that wrote the files. Neither
-// condition is something a later run can check: trust is Codex's own state, and
-// how Codex was started is not this command's to know. What both have in common
-// is that they fail quietly, which is why they are said rather than left to be
-// discovered.
+// Said on every run rather than only on the one that wrote the files. Both fail
+// quietly, so neither is safe to leave to be discovered. Trust is reported
+// afterwards as well, `doctor` failing on a hook Codex will not run; how Codex
+// was started is not something a later run can know, and is said here alone.
 const codexNote = "Codex does not run a hook it has not been told to trust, and says nothing when " +
 	"it skips one, so until you start Codex once and trust this hook nothing here is " +
 	"routed or refused. Codex must also run without its own sandbox " +

@@ -80,19 +80,22 @@ echo "baseline: $(jq -r '[.findings[]|.status]|group_by(.)|map("\(length) \(.[0]
 head_ "1. a healthy install"
 #
 # "Healthy" here means every fault this host has is one the fixture put there on
-# purpose. bootstrap.sh writes short/pin under [secret] min_length, which doctor
-# fails on: a ref the config names and the redactor cannot cover is a degraded
-# host. So the claim is that the failures are exactly that one, which still
-# fails on any other check breaking and on this one ceasing to fire.
+# purpose, and there are two. bootstrap.sh writes short/pin under [secret]
+# min_length, which doctor fails on: a ref the config names and the redactor
+# cannot cover is a degraded host. And check-project enrolled a tree for Codex
+# on a box where Codex has never been started, so its hook is untrusted and
+# therefore inert; section 6 is that check on its own. So the claim is that the
+# failures are exactly those two, which still fails on any other check breaking
+# and on either of these ceasing to fire.
 
 snap
 failed=$(jq -r '[.findings[]|select(.status=="failed")|.check]|sort|join(",")' $JSON)
-if [ "$failed" = "refused refs" ]; then
-  ok "an install straight from init fails on the fixture's short ref and nothing else"
+if [ "$failed" = "codex hook trust,refused refs" ]; then
+  ok "an install straight from init fails on the fixture's two known faults and nothing else"
 else
-  bad "failed checks are [$failed], want [refused refs]: $(jq -r '[.findings[]|select(.status=="failed")|"\(.check): \(.detail)"]|join(" | ")' $JSON | head -c 400)"
+  bad "failed checks are [$failed], want [codex hook trust,refused refs]: $(jq -r '[.findings[]|select(.status=="failed")|"\(.check): \(.detail)"]|join(" | ")' $JSON | head -c 400)"
 fi
-# The exit code follows the report, so it is non-zero for the same one reason.
+# The exit code follows the report, so it is non-zero for the same reasons.
 if /usr/local/bin/faramir doctor >/dev/null 2>&1; then
   bad "doctor exits 0 on a host holding a ref it cannot redact"
 else
@@ -437,7 +440,78 @@ grep -q '^min_length = 8' $CFG && ok "(init rewrote config.toml, as it does)" \
   || bad "init did not rewrite the config"
 
 # --------------------------------------------------------------------------
-head_ "6. a check that cannot be made is never ok"
+head_ "6. a Codex hook nothing has been told to trust"
+#
+# The one failure in the whole arrangement with no signal of its own. Codex
+# skips a hook it has not been told to trust and says nothing when it does, so
+# an unguarded Codex runs normally and looks like a guarded one from every
+# direction. Nobody has ever started Codex on this box, so every hook the
+# enrolments wrote is untrusted, which is what section 1 counts as the second
+# known fault.
+#
+# The trust is a hash of the hook as Codex parses it rather than of the file, so
+# the same value serves wherever the file sits, and the routing hook's is what
+# an enrolled tree carries.
+CODEX_HOOK=/home/op/p-codex/.codex/hooks.json
+CODEX_CFG=/home/op/.codex/config.toml
+CODEX_ROUTING_HASH=sha256:1c5598a904eb33a91c90a8790392a5d43d5df6c5a89dc0b9d407f8215db99234
+CODEX_KEY="$CODEX_HOOK:pre_tool_use:0:0"
+
+# Nothing else writes this file: Codex is not installed here. Kept aside anyway,
+# so a later suite reads the home it would have read.
+[ -e "$CODEX_CFG" ] && mv "$CODEX_CFG" "$CODEX_CFG.aside"
+[ -e "$CODEX_HOOK" ] || bad "check-project did not leave a Codex hook at $CODEX_HOOK"
+
+snap
+[ "$(st 'codex hook trust')" = failed ] \
+  && ok "a hook nothing has trusted fails rather than passing quietly" \
+  || bad "codex hook trust is [$(st 'codex hook trust')] on a box that has never run Codex"
+dt 'codex hook trust' | grep -qF "$CODEX_HOOK" \
+  && ok "  and names the tree whose hook is inert" \
+  || bad "  without naming $CODEX_HOOK: $(dt 'codex hook trust' | head -c 160)"
+dt 'codex hook trust' | grep -qi 'says nothing' \
+  && ok "  and says why nothing else would report it" \
+  || bad "  without saying it fails silently: $(dt 'codex hook trust' | head -c 160)"
+
+# Granted, against the identity Codex computes for the hook that is installed.
+# This is the whole claim: faramir's hash of a hook it rendered is the one Codex
+# recorded, or every trusted hook on every host reads as modified.
+mkdir -p "$(dirname "$CODEX_CFG")"
+printf '[hooks.state."%s"]\ntrusted_hash = "%s"\n' "$CODEX_KEY" "$CODEX_ROUTING_HASH" > "$CODEX_CFG"
+chown -R op:op "$(dirname "$CODEX_CFG")"
+snap
+dt 'codex hook trust' | grep -qF "$CODEX_HOOK" \
+  && bad "  a hook trusted at its recorded identity is still reported: $(dt 'codex hook trust' | head -c 160)" \
+  || ok "  and the trust granted at that identity drops it from the report"
+
+# A release that rewrites the hook leaves the trust behind, which is the case
+# that has no first run to blame. It has to read differently from one never
+# granted, the two having different remedies.
+printf '[hooks.state."%s"]\ntrusted_hash = "sha256:0000"\n' "$CODEX_KEY" > "$CODEX_CFG"
+chown op:op "$CODEX_CFG"
+snap
+dt 'codex hook trust' | grep -qi 'different hook' \
+  && ok "and a hook trusted at an identity it no longer has is reported as changed" \
+  || bad "a stale trust reads as never granted: $(dt 'codex hook trust' | head -c 160)"
+
+# A hook Codex loads and will not run is the same silence by another route.
+printf '[hooks.state."%s"]\ntrusted_hash = "%s"\nenabled = false\n' \
+  "$CODEX_KEY" "$CODEX_ROUTING_HASH" > "$CODEX_CFG"
+chown op:op "$CODEX_CFG"
+snap
+dt 'codex hook trust' | grep -qi 'turned off' \
+  && ok "and a trusted hook turned off is reported too" \
+  || bad "a disabled hook passes: $(dt 'codex hook trust' | head -c 160)"
+
+rm -f "$CODEX_CFG"
+[ -e "$CODEX_CFG.aside" ] && mv "$CODEX_CFG.aside" "$CODEX_CFG"
+snap
+[ "$(st 'codex hook trust')" = failed ] \
+  && ok "and revoking it puts the finding back, so the check reads the live state" \
+  || bad "codex hook trust stayed [$(st 'codex hook trust')] once the trust was removed"
+
+# --------------------------------------------------------------------------
+head_ "7. a check that cannot be made is never ok"
 #
 # The claim the whole report rests on. Each fault below is real while the
 # question is put to a caller that cannot ask it.
@@ -493,7 +567,7 @@ fi
 snap
 
 # --------------------------------------------------------------------------
-head_ "7. what the report itself promises"
+head_ "8. what the report itself promises"
 
 snap
 total=$(jq '.findings|length' $JSON)
@@ -528,7 +602,7 @@ runuser -u "$OP" -- /usr/local/bin/faramir doctor 2>/dev/null | tail -6 | grep -
   || bad "a partial examination does not say so"
 
 # --------------------------------------------------------------------------
-head_ "8. uninstall keeps what cannot be recreated"
+head_ "9. uninstall keeps what cannot be recreated"
 
 # From a settled host: everything above injected faults, and an uninstall read
 # against that residue would report this group's findings for another group's
@@ -568,7 +642,7 @@ out=$(/usr/local/bin/faramir uninstall 2>&1); code=$?
 [ $code -eq 0 ] && ok "a second uninstall is not an error" || bad "second uninstall exit $code: $(head -c 150 <<<"$out")"
 
 # --------------------------------------------------------------------------
-head_ "9. and the secrets survive the round trip"
+head_ "10. and the secrets survive the round trip"
 
 install -m0755 /tmp/faramir.kept /usr/local/bin/faramir
 if /usr/local/bin/faramir init --agent-user "$OP" >/tmp/reinit.log 2>&1; then
@@ -595,10 +669,10 @@ grep -q '«SECRET:db/password»' <<<"$out" && ok "and a brokered command still g
   || bad "a brokered command after the round trip: [$out]"
 
 snap
-# Back to the baseline of section 1: the fixture's short ref and nothing else.
-# broker is excluded for the reason it always was, --check exiting non-zero over
-# that same ref.
-[ "$(jq -r '[.findings[]|select(.status=="failed" and .check!="broker" and .check!="refused refs")]|length' $JSON)" -eq 0 ] \
+# Back to the baseline of section 1: the fixture's two known faults and nothing
+# else. broker is excluded for the reason it always was, --check exiting
+# non-zero over that same short ref.
+[ "$(jq -r '[.findings[]|select(.status=="failed" and .check!="broker" and .check!="refused refs" and .check!="codex hook trust")]|length' $JSON)" -eq 0 ] \
   && ok "and doctor is back to the fixture's one known fault on the rebuilt host" \
   || bad "after the round trip: $(jq -r '[.findings[]|select(.status=="failed")|.check]|join(",")' $JSON)"
 
