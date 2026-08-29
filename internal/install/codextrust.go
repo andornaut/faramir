@@ -373,8 +373,22 @@ func reportCodexTrust(report *DoctorReport, home string, trees []EnrolledTree) {
 			"`enabled = false` entry, or re-enable the hook from Codex",
 			len(disabled), configFile, strings.Join(disabled, ", "))
 	}
-	if len(untrusted) == 0 && len(modified) == 0 && len(disabled) == 0 && len(unread) == 0 {
-		report.addf(label, StatusOK, "Codex trusts the %d hook(s) this install "+
-			"wrote", len(trusted))
+	if len(untrusted) > 0 || len(modified) > 0 || len(disabled) > 0 || len(unread) > 0 {
+		return
 	}
+	// Every hook file was there and readable and none of them carried a guard
+	// hook, so there was nothing to be trusted and nothing was. "Codex trusts the
+	// 0 hooks this install wrote" is true and reads as a pass, which is the wrong
+	// answer for a host whose hooks have all been clobbered. Which file drifted is
+	// `agent code`'s and `tree config`'s finding; this one says only that it has
+	// no subject left.
+	if len(trusted) == 0 {
+		report.addf(label, StatusFailed, "%d Codex hook file(s) are installed and "+
+			"none of them carries the guard hook, so there is nothing here for Codex "+
+			"to trust and nothing is routed or refused. Re-run the enrolment that "+
+			"wrote them", len(files))
+		return
+	}
+	report.addf(label, StatusOK, "Codex trusts the %d hook(s) this install wrote",
+		len(trusted))
 }

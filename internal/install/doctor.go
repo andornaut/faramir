@@ -370,13 +370,19 @@ func hookReachFiles(home string, dirs []string) []string {
 }
 
 // hookMatchers is the matcher of every PreToolUse group in one settings file
-// that runs faramir's guard. A file that is absent, unreadable or not JSON
-// returns nothing: what that file says is diagnoseAgentRules' question, and two
-// checks reporting one missing file is one report too many.
-func hookMatchers(path string) []string {
+// that runs faramir's guard, and whether the file could be read at all.
+//
+// An absent file returns nothing and read=true: what a missing file says is
+// diagnoseAgentRules' question, and two checks reporting one missing file is one
+// report too many. A file that is there and cannot be opened or parsed returns
+// read=false, which is not the same answer and must not be reported as one: a
+// run without sudo against another account's home reaches every settings file
+// this way, and calling that a pass would pass the very host this check exists
+// to catch.
+func hookMatchers(path string) (matchers []string, read bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return nil, os.IsNotExist(err)
 	}
 	var doc struct {
 		Hooks struct {
@@ -389,7 +395,7 @@ func hookMatchers(path string) []string {
 		} `json:"hooks"`
 	}
 	if json.Unmarshal(data, &doc) != nil {
-		return nil
+		return nil, false
 	}
 	var out []string
 	for _, group := range doc.Hooks.PreToolUse {
@@ -405,7 +411,7 @@ func hookMatchers(path string) []string {
 			break
 		}
 	}
-	return out
+	return out, true
 }
 
 // diagnoseHookReach asks which tools the registered hook is invoked for.
@@ -432,13 +438,28 @@ func diagnoseHookReach(report *DoctorReport, opts DoctorOptions) {
 			dirs = append(dirs, tree.Dir)
 		}
 	}
-	var narrow []string
+	var narrow, unread []string
 	for _, path := range hookReachFiles(home, dirs) {
-		for _, matcher := range hookMatchers(path) {
+		matchers, read := hookMatchers(path)
+		if !read {
+			unread = append(unread, path)
+			continue
+		}
+		for _, matcher := range matchers {
 			if matcher != "*" {
 				narrow = append(narrow, fmt.Sprintf("%s (%q)", path, matcher))
 			}
 		}
+	}
+	// Before the pass, and not folded into it. A file that is there and could not
+	// be read is the case this check exists for, seen from the outside: a stale
+	// registration and an unreadable one look identical from here, and reporting
+	// the second as the first is how a host that needs re-enrolling reads as done.
+	if len(unread) > 0 && len(narrow) == 0 {
+		report.unaskedf("hook reach", len(unread), "could not read %s, so which tools "+
+			"the guard answers for was not asked: run through sudo, or as the account "+
+			"that owns them", strings.Join(unread, ", "))
+		return
 	}
 	if len(narrow) == 0 {
 		report.addf("hook reach", StatusOK, "every registration of the guard answers "+

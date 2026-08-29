@@ -44,15 +44,36 @@ func TestHookMatchersReadsTheGuardsRegistration(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if got := hookMatchers(path); !slices.Equal(got, tc.want) {
+			if got, _ := hookMatchers(path); !slices.Equal(got, tc.want) {
 				t.Errorf("hookMatchers = %q, want %q", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestHookMatchersSaysNothingAboutAMissingFile(t *testing.T) {
-	if got := hookMatchers(filepath.Join(t.TempDir(), "absent.json")); got != nil {
+// Absent and unreadable are different answers, and the check reports them
+// differently: a missing file is diagnoseAgentRules' question, while a file that
+// is there and cannot be opened is this check's own case seen from the outside,
+// where a stale registration and an unreadable one look identical.
+func TestHookMatchersTellsAbsentFromUnreadable(t *testing.T) {
+	dir := t.TempDir()
+
+	got, read := hookMatchers(filepath.Join(dir, "absent.json"))
+	if got != nil {
 		t.Errorf("a file that is not there should report nothing, got %q", got)
+	}
+	if !read {
+		t.Error("an absent file is answered, not unread: nothing there is nothing to report")
+	}
+
+	// Unparseable, which is the same non-answer as unopenable and must not read
+	// as a pass.
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, read := hookMatchers(bad); read {
+		t.Error("a file that would not parse was reported as read, so a host whose " +
+			"settings are unreadable would pass this check")
 	}
 }
