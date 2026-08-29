@@ -54,7 +54,7 @@ func askBroker(socketPath string) status {
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	if err := sockutil.Send(conn, map[string]any{
-		"op": "status", "version": version.Version}); err != nil {
+		"op": opStatus, "version": version.Version}); err != nil {
 		return status{}
 	}
 	// The write half stays open. The broker reads this connection for the whole

@@ -233,6 +233,18 @@ func newRunCmd() *cobra.Command {
 // how the wrong credential reaches a host: those are refused, the same as a
 // name given twice inside one file. Its own function so the rule can be asserted
 // without a broker to run a command against.
+// noConflict records name=uri unless the map already carries the name with a
+// different ref. Not last-wins: silently picking one of two is how the wrong
+// credential reaches a host. An identical repeat is a merge artefact, so it
+// passes. where prefixes the refusal with the place the caller is reading.
+func noConflict(refs map[string]string, where, name, uri string) error {
+	if existing, seen := refs[name]; seen && existing != uri {
+		return fmt.Errorf("%s%s is given twice, as %s and %s", where, name, existing, uri)
+	}
+	refs[name] = uri
+	return nil
+}
+
 func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 	refs := map[string]string{}
 	for _, path := range envFiles {
@@ -241,11 +253,9 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 			return nil, err
 		}
 		for name, uri := range pairs {
-			if existing, seen := refs[name]; seen && existing != uri {
-				return nil, fmt.Errorf("--env-file: %s is given twice, as %s and %s",
-					name, existing, uri)
+			if err := noConflict(refs, "--env-file: ", name, uri); err != nil {
+				return nil, err
 			}
-			refs[name] = uri
 		}
 	}
 	// The flags are their own layer: they override a file, but among themselves
@@ -263,11 +273,9 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 		if err := checkRef(name, uri); err != nil {
 			return nil, fmt.Errorf("--env %w", err)
 		}
-		if existing, seen := flags[name]; seen && existing != uri {
-			return nil, fmt.Errorf("--env %s is given twice, as %s and %s",
-				name, existing, uri)
+		if err := noConflict(flags, "--env ", name, uri); err != nil {
+			return nil, err
 		}
-		flags[name] = uri
 	}
 	maps.Copy(refs, flags)
 	return refs, nil
@@ -368,13 +376,9 @@ func readEnvFile(path string) (map[string]string, error) {
 		if err := checkRef(name, uri); err != nil {
 			return nil, fmt.Errorf("%s:%d: %w", path, i+1, err)
 		}
-		// Not last-wins: silently picking one of two is how the wrong credential
-		// reaches a host. An identical repeat is a merge artefact, so it passes.
-		if existing, seen := refs[name]; seen && existing != uri {
-			return nil, fmt.Errorf("%s:%d: %s is given twice, as %s and %s",
-				path, i+1, name, existing, uri)
+		if err := noConflict(refs, fmt.Sprintf("%s:%d: ", path, i+1), name, uri); err != nil {
+			return nil, err
 		}
-		refs[name] = uri
 	}
 	return refs, nil
 }
@@ -706,19 +710,20 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 	return response.Output, nil
 }
 
-// newCallCmd builds a subcommand that takes no arguments and asks the broker
-// one question. op is the wire name; the command is spelled with dashes.
-func newCallCmd(op, short string) *cobra.Command {
-	name := strings.ReplaceAll(op, "_", "-")
+// opStatus is the wire name and the command name both.
+const opStatus = "status"
+
+// newStatusCmd asks the broker the one no-argument question it serves.
+func newStatusCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
-		Use:     name,
-		Short:   short,
+		Use:     opStatus,
+		Short:   "Show what the broker loaded and what it can reach",
 		GroupID: groupOperator,
 		Args:    noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			// Only run has --quiet.
-			return codeErr(send(name, socketDefault(), map[string]any{"op": op}, o.json, true))
+			return codeErr(send(opStatus, socketDefault(), map[string]any{"op": opStatus}, o.json, true))
 		},
 	}
 	o.add(c)

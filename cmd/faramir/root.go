@@ -124,7 +124,7 @@ func newRootCmd() *cobra.Command {
 		newRedactCmd(),
 		newRefsCmd(),
 		newRunCmd(),
-		newCallCmd("status", "Show what the broker loaded and what it can reach"),
+		newStatusCmd(),
 		// `faramir version` as well as --version, the subcommand being what the
 		// docs name.
 		&cobra.Command{
