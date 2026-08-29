@@ -117,7 +117,7 @@ func (r *runner) stepSudoGrant() error {
 	// The account authenticates through the broker and never with a password, so
 	// a usable hash would be a second way in that the broker is not asked about.
 	// Re-asserted every run.
-	if _, err := r.command("usermod", "-L", r.layout.ExecUser); err != nil {
+	if _, err := command("usermod", "-L", r.layout.ExecUser); err != nil {
 		r.warnf("could not lock %s's password (%v); it authenticates through the "+
 			"broker and should hold no password of its own: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
@@ -214,7 +214,7 @@ func (r *runner) revokeSudoGrant() error {
 	}
 	// Locking rather than clearing: an account with an empty password field is one
 	// some PAM stacks let in without asking.
-	if _, err := r.command("usermod", "-L", r.layout.ExecUser); err != nil {
+	if _, err := command("usermod", "-L", r.layout.ExecUser); err != nil {
 		r.warnf("could not lock %s's password (%v); the grant is gone, so nothing "+
 			"can sudo, but lock it by hand: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)

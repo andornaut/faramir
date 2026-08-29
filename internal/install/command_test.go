@@ -11,8 +11,7 @@ import (
 // The broker prints its --check report on stdout and logs on stderr on every
 // load, so a combined capture makes every report unparseable.
 func TestCommandReturnsStdoutOnly(t *testing.T) {
-	run := &runner{}
-	out, err := run.command("sh", "-c", `echo "loaded 3 vault refs" >&2; echo '{"ok":true}'`)
+	out, err := command("sh", "-c", `echo "loaded 3 vault refs" >&2; echo '{"ok":true}'`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,8 +31,7 @@ func TestCommandReturnsStdoutOnly(t *testing.T) {
 
 // A failure has to carry stderr, which is where the reason is.
 func TestCommandErrorCarriesStderr(t *testing.T) {
-	run := &runner{}
-	_, err := run.command("sh", "-c", `echo "the reason" >&2; exit 3`)
+	_, err := command("sh", "-c", `echo "the reason" >&2; exit 3`)
 	if err == nil {
 		t.Fatal("no error from a command that exited 3")
 	}

@@ -51,10 +51,9 @@ func Uninstall(configDir string) ([]string, error) {
 	// here would leave a host with its units gone and no daemon-reload.
 	var leftBehind []string
 	if systemdRunning() {
-		run := &runner{}
 		units := append(append([]string{"disable", "--now"}, sockets...), services...)
 		// Not fatal: a unit already gone is the state this is reaching for.
-		_, _ = run.command("systemctl", units...)
+		_, _ = command("systemctl", units...)
 	}
 	for _, name := range unitNames() {
 		if err := os.Remove(filepath.Join(systemUnitDir, name)); err != nil &&
@@ -87,8 +86,7 @@ func Uninstall(configDir string) ([]string, error) {
 			err.Error())
 	}
 	if systemdRunning() {
-		run := &runner{}
-		if _, err := run.command("systemctl", "daemon-reload"); err != nil {
+		if _, err := command("systemctl", "daemon-reload"); err != nil {
 			return nil, err
 		}
 	}

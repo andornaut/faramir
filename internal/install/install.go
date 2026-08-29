@@ -957,7 +957,7 @@ func (r *runner) warnf(format string, args ...any) {
 // broker prints its --check report there and logs on stderr, so a combined
 // capture would make every report unparseable. stderr is carried in the
 // error.
-func (r *runner) command(name string, args ...string) (string, error) {
+func command(name string, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(context.Background(), name, args...)
 	cmd.Stdout = &stdout
@@ -971,7 +971,7 @@ func (r *runner) command(name string, args ...string) (string, error) {
 
 // commandCombined is command for the programs whose answer is on stderr.
 // systemd-analyze verify reports there and exits 0 either way.
-func (r *runner) commandCombined(name string, args ...string) (string, error) {
+func commandCombined(name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(context.Background(), name, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -66,7 +66,7 @@ func (r *runner) stepAccounts() error {
 	// shadow refuses to create an account whose group name is taken.
 	if !groupExists(r.layout.ClientGroup) {
 		if !r.opts.DryRun {
-			if _, err := r.command("groupadd", r.layout.ClientGroup); err != nil {
+			if _, err := command("groupadd", r.layout.ClientGroup); err != nil {
 				return err
 			}
 		}
@@ -83,7 +83,7 @@ func (r *runner) stepAccounts() error {
 	// was not named after it. -r puts it in the system range below GID_MIN.
 	if !groupExists(r.layout.SecretsGroup) {
 		if !r.opts.DryRun {
-			if _, err := r.command("groupadd", "-r", r.layout.SecretsGroup); err != nil {
+			if _, err := command("groupadd", "-r", r.layout.SecretsGroup); err != nil {
 				return err
 			}
 		}
@@ -149,7 +149,7 @@ func (r *runner) ensureInGroup(account, group string) (bool, error) {
 		return false, err
 	}
 	if !r.opts.DryRun {
-		if _, err := r.command("usermod", "-aG", group, account); err != nil {
+		if _, err := command("usermod", "-aG", group, account); err != nil {
 			return false, err
 		}
 	}
@@ -166,7 +166,7 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 		}
 		argv = append(argv, "-s", "/usr/sbin/nologin", account.name)
 		if !r.opts.DryRun {
-			if _, err := r.command(argv[0], argv[1:]...); err != nil {
+			if _, err := command(argv[0], argv[1:]...); err != nil {
 				return false, err
 			}
 		}
@@ -179,7 +179,7 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 			}
 			if !in {
 				if !r.opts.DryRun {
-					if _, err := r.command("usermod", "-aG", r.layout.ClientGroup, account.name); err != nil {
+					if _, err := command("usermod", "-aG", r.layout.ClientGroup, account.name); err != nil {
 						return false, err
 					}
 				}
@@ -190,7 +190,7 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 		// holds the SSH keys while StateDirectory= names the new one.
 		if current, err := homeDir(account.name); err == nil && current != account.home {
 			if !r.opts.DryRun {
-				if _, err := r.command("usermod", "-d", account.home, account.name); err != nil {
+				if _, err := command("usermod", "-d", account.home, account.name); err != nil {
 					return false, err
 				}
 			}
@@ -233,7 +233,7 @@ func (r *runner) joinOperatorToGroup() (bool, error) {
 	if r.opts.DryRun {
 		return true, nil
 	}
-	if _, err := r.command("usermod", "-aG", r.layout.ClientGroup, r.opts.AgentUser); err != nil {
+	if _, err := command("usermod", "-aG", r.layout.ClientGroup, r.opts.AgentUser); err != nil {
 		return false, err
 	}
 	// New group membership does not reach a session that is already open.

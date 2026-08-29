@@ -165,7 +165,7 @@ func (r *runner) stepValidate() error {
 		return nil
 	}
 	broker := filepath.Join(r.layout.BinDir, "faramir")
-	out, checkErr := r.command("runuser", "-u", r.layout.BrokerUser, "--",
+	out, checkErr := command("runuser", "-u", r.layout.BrokerUser, "--",
 		"env", "FARAMIR_CONFIG="+r.layout.ConfigFile, broker, "broker", "--check")
 	// Read before the exit code is judged: what the broker could not load decides
 	// whether this is a failure or a host without its secrets yet.
@@ -291,7 +291,7 @@ func (r *runner) stepValidate() error {
 		r.step("broker ssh agent", false, "not asked")
 	}
 	if r.sshKey != "" && report.serves() {
-		out, agentErr := r.command(filepath.Join(r.layout.BinDir, "faramir"),
+		out, agentErr := command(filepath.Join(r.layout.BinDir, "faramir"),
 			"run", "--quiet", "--", "ssh-add", "-l")
 		// The error carries stderr, where the reason is; dropping it reports every
 		// failure as "holds no usable key ()".

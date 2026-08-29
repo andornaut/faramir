@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -159,10 +160,10 @@ func (r *runner) stepSystemd() error {
 		r.skip("systemd", "not running")
 		return nil
 	}
-	if _, err := r.command("systemctl", "daemon-reload"); err != nil {
+	if _, err := command("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
-	if _, err := r.command("systemd-tmpfiles", "--create", "/etc/tmpfiles.d/faramir.conf"); err != nil {
+	if _, err := command("systemd-tmpfiles", "--create", "/etc/tmpfiles.d/faramir.conf"); err != nil {
 		return err
 	}
 	// The keeper reads the age key at startup and exits without one.
@@ -172,7 +173,7 @@ func (r *runner) stepSystemd() error {
 		r.skip("systemd", "no age key")
 		return nil
 	}
-	if _, err := r.command("systemctl", append([]string{"enable", "--now"}, sockets...)...); err != nil {
+	if _, err := command("systemctl", append([]string{"enable", "--now"}, sockets...)...); err != nil {
 		return err
 	}
 
@@ -181,7 +182,7 @@ func (r *runner) stepSystemd() error {
 	restart := r.needsRestart
 	if !restart {
 		for _, socket := range sockets {
-			out, err := r.command("systemctl", "is-active", socket)
+			out, err := command("systemctl", "is-active", socket)
 			if err != nil || strings.TrimSpace(out) != unitActive {
 				restart = true
 				break
@@ -191,11 +192,11 @@ func (r *runner) stepSystemd() error {
 	if restart {
 		// Restart, not enable --now: an already-active socket keeps whatever
 		// ownership its file was left with.
-		if _, err := r.command("systemctl", append([]string{"restart"}, sockets...)...); err != nil {
+		if _, err := command("systemctl", append([]string{"restart"}, sockets...)...); err != nil {
 			return err
 		}
 		for _, service := range services {
-			if _, err := r.command("systemctl", "restart", service); err != nil {
+			if _, err := command("systemctl", "restart", service); err != nil {
 				return err
 			}
 		}
@@ -204,7 +205,7 @@ func (r *runner) stepSystemd() error {
 	// anyway, so a misspelled hardening key is silent. verify exits 0 either
 	// way, so the output is what is checked.
 	for _, service := range services {
-		out, _ := r.commandCombined("systemd-analyze", "verify", service)
+		out, _ := commandCombined("systemd-analyze", "verify", service)
 		for line := range strings.Lines(out) {
 			// verify reports on everything the unit pulls in transitively, so an
 			// unrelated unit's typo would otherwise abort the install.
@@ -227,6 +228,31 @@ func (r *runner) stepSystemd() error {
 	return nil
 }
 
+// unitProperty reads one property off a unit through `systemctl show`, trimmed.
+// false where systemd is not running or the ask failed.
+func unitProperty(unit, property string) (string, bool) {
+	if !systemdRunning() {
+		return "", false
+	}
+	out, err := command("systemctl", "show", unit, "-p", property, "--value")
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(out), true
+}
+
+// unitInt is unitProperty for the numeric ones. "infinity" is systemd saying
+// there is no limit, which parses as neither a number nor an error worth
+// reporting: it is a bound nobody set.
+func unitInt(unit, property string) (int64, bool) {
+	out, ok := unitProperty(unit, property)
+	if !ok {
+		return 0, false
+	}
+	value, err := strconv.ParseInt(out, 10, 64)
+	return value, err == nil
+}
+
 // parseInstalledConfig asks the broker's own uid whether the installed config
 // loads, which is the account that will have to load it.
 //
@@ -234,7 +260,7 @@ func (r *runner) stepSystemd() error {
 // load this, not whether every managed value can be read. --check also fails
 // for a ref shorter than [secret] min_length, which is a value to lengthen
 // rather than a reason to refuse a restart.
-func parseInstalledConfig(run *runner) error {
+func parseInstalledConfig() error {
 	unit := UnitPath(brokerUnit)
 	configFile := UnitConfigFile(unit)
 	if configFile == "" {
@@ -249,7 +275,7 @@ func parseInstalledConfig(run *runner) error {
 	// FARAMIR_CONFIG rather than a flag: no faramir command takes a config path,
 	// and runuser clears the environment, so the variable has to be set on the
 	// far side of it. The same variable the units give the daemons.
-	out, err := run.command("runuser", "-u", brokerUser, "--",
+	out, err := command("runuser", "-u", brokerUser, "--",
 		"env", "FARAMIR_CONFIG="+configFile,
 		filepath.Join(DefaultBinDir, "faramir"), "broker", "--parse-only")
 	if err != nil {
@@ -273,20 +299,19 @@ func Reload() error {
 	if !systemdRunning() {
 		return errors.New("systemd is not running here")
 	}
-	run := &runner{}
-	if err := parseInstalledConfig(run); err != nil {
+	if err := parseInstalledConfig(); err != nil {
 		return err
 	}
-	if _, err := run.command("systemctl", "daemon-reload"); err != nil {
+	if _, err := command("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
 	// Stop rather than restart: all three are socket activated, so the next
 	// brokered command starts them on the new config.
-	if _, err := run.command("systemctl", append([]string{"stop"}, services...)...); err != nil {
+	if _, err := command("systemctl", append([]string{"stop"}, services...)...); err != nil {
 		return err
 	}
 	// The sockets are what activates them again; already listening is a no-op.
-	if _, err := run.command("systemctl", append([]string{"start"}, sockets...)...); err != nil {
+	if _, err := command("systemctl", append([]string{"start"}, sockets...)...); err != nil {
 		return err
 	}
 	return nil

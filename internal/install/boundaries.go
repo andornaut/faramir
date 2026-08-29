@@ -31,8 +31,7 @@ func asUser(account string, args ...string) (string, error) {
 	if account == "" {
 		return "", errors.New("no account named, so there is nobody to ask")
 	}
-	run := &runner{}
-	return run.command("runuser", append([]string{"-u", account, "--"}, args...)...)
+	return command("runuser", append([]string{"-u", account, "--"}, args...)...)
 }
 
 // asOperator runs a command as the account the broker's socket admits, root not
@@ -40,8 +39,7 @@ func asUser(account string, args ...string) (string, error) {
 // root.
 func asOperator(opts DoctorOptions, args ...string) (string, error) {
 	if os.Geteuid() != 0 || opts.AgentUser == "" {
-		run := &runner{}
-		return run.command(args[0], args[1:]...)
+		return command(args[0], args[1:]...)
 	}
 	return asUser(opts.AgentUser, args...)
 }
@@ -1218,15 +1216,8 @@ func diagnoseCgroupDelegation(report *DoctorReport, _ DoctorOptions, _ *config.C
 // reads the unit whether or not it is running, the executor being
 // socket-activated and usually idle.
 func execUnitDelegates() (delegates, known bool) {
-	if !systemdRunning() {
-		return false, false
-	}
-	run := &runner{}
-	out, err := run.command("systemctl", "show", execUnit, "-p", "Delegate", "--value")
-	if err != nil {
-		return false, false
-	}
-	return strings.TrimSpace(out) == "yes", true
+	out, ok := unitProperty(execUnit, "Delegate")
+	return out == "yes", ok
 }
 
 // pamStackProblem names what is wrong with the authentication stack, or "".
@@ -1306,15 +1297,10 @@ func diagnoseProtectProc(report *DoctorReport, opts DoctorOptions) {
 
 // mainPID asks systemd rather than matching a process name.
 func mainPID(unit string) string {
-	if !systemdRunning() {
+	pid, ok := unitProperty(unit, "MainPID")
+	if !ok {
 		return ""
 	}
-	run := &runner{}
-	out, err := run.command("systemctl", "show", unit, "-p", "MainPID", "--value")
-	if err != nil {
-		return ""
-	}
-	pid := strings.TrimSpace(out)
 	if n, err := strconv.Atoi(pid); err != nil || n <= 0 {
 		return ""
 	}
@@ -1487,11 +1473,10 @@ func passwordlessSudo(account string) (string, bool) {
 		// No sudo on the host at all: nothing to grant and nothing to check.
 		return "", true
 	}
-	run := &runner{}
 	// The exit status is not read: sudo exits non-zero for an account with no
 	// entries, which is the healthy default and prints the same output as an
 	// account whose entries all authenticate.
-	out, _ := run.command("sudo", "-l", "-U", account)
+	out, _ := command("sudo", "-l", "-U", account)
 	for line := range strings.Lines(out) {
 		if strings.Contains(line, "NOPASSWD") {
 			return strings.TrimSpace(line), true

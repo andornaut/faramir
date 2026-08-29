@@ -63,10 +63,9 @@ func SampleSockets() map[string]string {
 	if !systemdRunning() {
 		return nil
 	}
-	run := &runner{}
 	states := make(map[string]string, len(sockets))
 	for _, socket := range sockets {
-		out, err := run.command("systemctl", "is-active", socket)
+		out, err := command("systemctl", "is-active", socket)
 		state := strings.TrimSpace(out)
 		// systemctl prints the state even when it exits non-zero, so an empty
 		// answer is systemctl itself having failed, as is an error alongside
@@ -867,19 +866,8 @@ func diagnoseMemoryBounds(report *DoctorReport) {
 			"executor's memory limits resolve to was not asked")
 		return
 	}
-	run := &runner{}
-	limit := func(property string) (int64, bool) {
-		out, err := run.command("systemctl", "show", execUnit, "-p", property, "--value")
-		if err != nil {
-			return 0, false
-		}
-		value, convErr := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
-		// "infinity" is systemd saying there is no limit, which parses as neither
-		// a number nor an error worth reporting: it is a bound nobody set.
-		return value, convErr == nil
-	}
-	maxMemory, haveMax := limit("MemoryMax")
-	perProcess, havePer := limit("LimitDATA")
+	maxMemory, haveMax := unitInt(execUnit, "MemoryMax")
+	perProcess, havePer := unitInt(execUnit, "LimitDATA")
 	reportMemoryBounds(report, perProcess, havePer, maxMemory, haveMax)
 }
 
@@ -929,19 +917,8 @@ func diagnoseBrokerMemory(report *DoctorReport) {
 			"broker's memory limit resolves to was not asked")
 		return
 	}
-	run := &runner{}
-	value := func(property string) (int64, bool) {
-		out, err := run.command("systemctl", "show", brokerUnit, "-p", property, "--value")
-		if err != nil {
-			return 0, false
-		}
-		n, convErr := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
-		// "infinity" is systemd saying there is no limit, which parses as neither
-		// a number nor an error worth reporting: it is a bound nobody set.
-		return n, convErr == nil
-	}
-	limit, haveLimit := value("MemoryMax")
-	used, haveUsed := value("MemoryCurrent")
+	limit, haveLimit := unitInt(brokerUnit, "MemoryMax")
+	used, haveUsed := unitInt(brokerUnit, "MemoryCurrent")
 	reportBrokerMemory(report, used, haveUsed, limit, haveLimit)
 }
 
@@ -1032,11 +1009,10 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			"the broker's", brokerUser)
 		return servesUnknown
 	}
-	run := &runner{}
 	// Read the report before the exit code is judged. --check exits non-zero on
 	// every state below, so trusting the status alone would report all of them
 	// as one unexplained failure.
-	out, checkErr := run.command("runuser", "-u", brokerUser, "--",
+	out, checkErr := command("runuser", "-u", brokerUser, "--",
 		"env", "FARAMIR_CONFIG="+configFile,
 		filepath.Join(DefaultBinDir, "faramir"), "broker", "--check")
 	var check checkReport
