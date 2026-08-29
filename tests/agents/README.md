@@ -127,6 +127,14 @@ An agent reaching a model it is not entitled to fails at the first call and
 produces no report. `kilo` answers `PAID_MODEL_AUTH_REQUIRED` until the account
 is signed in, which is a `kilo auth login` and not something the runner can do.
 
+Each agent gets `$FARAMIR_AGENT_TIMEOUT`, 20 minutes by default. The runs that
+finished took around twelve, so this is headroom over a working run rather than a
+target: what it is for is an agent that wedges, which otherwise holds its slot
+until something stops it, and in an `all` run six start at once. A run killed
+this way says so in its log, which matters because an agent that buffers its
+output prints nothing when killed, leaving a truncated run and a broken one
+looking alike.
+
 An agent's exit code is not the verdict. `agy`, `codex` and `pi` have each
 returned 2 from a run that finished and wrote a full report, so what says a run
 succeeded is a report.

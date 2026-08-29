@@ -14,6 +14,14 @@ set -uo pipefail
 
 AGENTS="claude codex agy opencode kilo pi"
 
+# How long one agent gets. The suite asks for 40 to 60 cases, and the runs that
+# finished took around twelve minutes, so this is headroom over a working run
+# rather than a target. What it is really for is the other end: an agent that
+# wedges holds a slot until something stops it, and in an `all` run six start at
+# once. agy is given the same figure through its own flag, its default being 90
+# minutes, which is long enough to spend an afternoon producing nothing.
+TIMEOUT=${FARAMIR_AGENT_TIMEOUT:-20m}
+
 # Reports live outside /tmp/faramir-agent-test-*, which is the scratch namespace
 # every agent is told to delete at the end of its run and which teardown.sh
 # removes wholesale. A report directory inside it is deleted by the first agent
@@ -80,7 +88,8 @@ modelfor() {
 #
 #   opencode, kilo   auto-reject every permission request without --auto, and
 #                    the run ends on the first tool call
-#   agy              gives up at --print-timeout, five minutes by default
+#   agy              gives up at --print-timeout, five minutes by default,
+#                    so it is given $TIMEOUT there as well as around it
 #   codex            has to be unsandboxed, or the guard's rewrite cannot run
 #   claude           has no prompt to answer in print mode, so the permission
 #                    mode is the whole of its configuration here
@@ -96,18 +105,24 @@ one() {
     echo "=== $slug: starting $(date -Is) on $model ===" >"$log"
     cd "$tree" || return 1
     case $slug in
-    claude) claude -p "$prompt" --model "$model" --permission-mode bypassPermissions >>"$log" 2>&1 ;;
-    codex) codex exec --dangerously-bypass-approvals-and-sandbox -m "$model" "$prompt" >>"$log" 2>&1 ;;
-    agy) agy -p "$prompt" --model "$model" --dangerously-skip-permissions --print-timeout 90m >>"$log" 2>&1 ;;
-    opencode) opencode run --auto --dir "$tree" -m "$model" "$prompt" >>"$log" 2>&1 ;;
-    kilo) kilo run --auto -m "$model" "$prompt" >>"$log" 2>&1 ;;
-    pi) pi -p --model "$model" "$prompt" >>"$log" 2>&1 ;;
+    claude) timeout "$TIMEOUT" claude -p "$prompt" --model "$model" --permission-mode bypassPermissions >>"$log" 2>&1 ;;
+    codex) timeout "$TIMEOUT" codex exec --dangerously-bypass-approvals-and-sandbox -m "$model" "$prompt" >>"$log" 2>&1 ;;
+    agy) timeout "$TIMEOUT" agy -p "$prompt" --model "$model" --dangerously-skip-permissions --print-timeout "$TIMEOUT" >>"$log" 2>&1 ;;
+    opencode) timeout "$TIMEOUT" opencode run --auto --dir "$tree" -m "$model" "$prompt" >>"$log" 2>&1 ;;
+    kilo) timeout "$TIMEOUT" kilo run --auto -m "$model" "$prompt" >>"$log" 2>&1 ;;
+    pi) timeout "$TIMEOUT" pi -p --model "$model" "$prompt" >>"$log" 2>&1 ;;
     *)
         echo "$0: unknown agent: $slug" >&2
         return 2
         ;;
     esac
     rc=$?
+    # 124 is what `timeout` returns when it fired, which is worth saying: an
+    # agent that buffers its output prints nothing when killed, so a truncated
+    # run and a broken one leave the same empty log.
+    if [ "$rc" -eq 124 ]; then
+        echo "=== $slug: killed at the $TIMEOUT timeout ===" >>"$log"
+    fi
     echo "=== $slug: exit $rc at $(date -Is) ===" >>"$log"
 
     # The exit code is not the verdict. agy, codex and pi have each returned 2
