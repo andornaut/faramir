@@ -804,6 +804,32 @@ func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
 // cannot be recorded is not run, and the agent can reach that state by printing
 // enough to fill the filesystem. Nothing is recorded here, there being nowhere
 // to record it: the refusal goes back to the caller and to the daemon log.
+// privateTmpDirs are the directories every unit gets a private copy of, so a
+// path under one is the daemon's own and not the caller's.
+var privateTmpDirs = []string{"/tmp", "/var/tmp", "/dev/shm"}
+
+// cwdMissing explains a working directory the broker cannot find, and names the
+// one reason it goes missing while the caller is looking straight at it: every
+// faramir unit runs with PrivateTmp=true, so the daemon's /tmp, /var/tmp and
+// /dev/shm are its own and hold nothing the caller put there.
+//
+// Without this the message is "cwd does not exist" about a directory the caller
+// just made and can list, which reads as a bug in the broker rather than as the
+// boundary it is. Scratch under /tmp is the obvious place to put a working
+// directory, so this is met by anyone who tries it.
+func cwdMissing(cwd string) string {
+	for _, private := range privateTmpDirs {
+		if cwd != private && !strings.HasPrefix(cwd, private+"/") {
+			continue
+		}
+		return "cwd does not exist for this daemon: " + cwd + ". Every faramir unit " +
+			"runs with PrivateTmp=true, so " + private + " here is the daemon's own " +
+			"and holds nothing you put in yours. Name a directory outside " +
+			strings.Join(privateTmpDirs, ", ") + "."
+	}
+	return "cwd does not exist: " + cwd
+}
+
 func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
 	reason := s.Audit.Unwritable()
 	if reason == "" {
@@ -972,7 +998,8 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	}
 	// Fails early with a clear message; it enforces nothing. Permission is left
 	// to the executor, whose uid may hold traversal the broker does not. Absence
-	// is refused here, being knowable from any uid.
+	// is refused here, being knowable from any uid, though not from every mount
+	// namespace: see cwdMissing.
 	info, statErr := os.Stat(cwd)
 	switch {
 	case statErr == nil && !info.IsDir():
@@ -980,7 +1007,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	case os.IsPermission(statErr):
 		// The executor decides.
 	case statErr != nil:
-		return s.refuse("bad_request", "cwd does not exist: "+cwd, logID, peer, cmd, cwd)
+		return s.refuse("bad_request", cwdMissing(cwd), logID, peer, cmd, cwd)
 	}
 
 	// Before the program is resolved and before a slot is taken: this is a

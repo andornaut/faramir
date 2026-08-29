@@ -8,11 +8,17 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 
 	"github.com/andornaut/faramir/internal/execserver"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
 )
+
+// childUmask is what a brokered command creates files under: 0600 for a file
+// and 0700 for a directory, so an artifact left behind is not readable by the
+// account that asked for the command. See the note at the call.
+const childUmask = 0o077
 
 // cmdExec is the executor daemon, which forks brokered commands and holds
 // nothing. To run one, use `faramir run`, which asks the broker, which asks
@@ -52,6 +58,24 @@ func runExec(f execFlags) int {
 		log.Printf("%v", err)
 		return 2
 	}
+
+	// Every brokered command inherits this, and what it decides is whether an
+	// artifact one leaves behind can be read by the agent that asked for it.
+	//
+	// It can otherwise, because the executor writes where the agent reads. Only
+	// /tmp and /var/tmp are private per unit: /dev/shm is shared with the caller.
+	// And the executor is in the operator's group so that brokered work can build
+	// in the project tree, which means it can leave a file there too. Reading back
+	// a file a command just rendered is ordinary work, and a file tool's output
+	// goes through no redactor.
+	//
+	// A default rather than a cap: a command that means to publish its output says
+	// `umask` and overrides this. Set here rather than in execserver.New so that
+	// constructing an Executor in a test does not change the test process's own.
+	//
+	// After loadDaemonConfig and before Listen, which sets and restores a umask of
+	// its own around the bind.
+	unix.Umask(childUmask)
 
 	e := execserver.New(cfg)
 	if _, err := e.Listen(); err != nil {

@@ -307,8 +307,13 @@ func checkRef(name, uri string) error {
 		return fmt.Errorf("%q is not a usable environment variable name", name)
 	}
 	if !strings.HasPrefix(uri, "faramir://") {
+		// The example is written out rather than built from what arrived. What
+		// arrived is either a bare ref, which the example already shows how to
+		// spell, or a pasted value, and quoting that back would put it in the
+		// output this exists to keep it out of.
 		return fmt.Errorf("%s must be a faramir:// reference; "+
-			"secrets are named here, never pasted", name)
+			"secrets are named here, never pasted. The shape is "+
+			"--env %s=faramir://<ref>, and `faramir refs` lists the refs", name, name)
 	}
 	// The ref itself, not only the scheme. The two namespaces are not the same
 	// shape: an environment variable may open with an underscore and a ref may
