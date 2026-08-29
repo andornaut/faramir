@@ -117,7 +117,7 @@ func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.C
 		report.addf(name, StatusOK, "no [[secret.link]] entries are configured")
 		return
 	}
-	denyRuleCoverage(report, opts, name, linkedFilesCheck, links)
+	denyRuleCoverage(report, opts, name, linkedFilesCheck, links, nil)
 }
 
 // coverageCheck is the phrasing of one deny-rule coverage check; the mechanics
@@ -153,7 +153,8 @@ var blockedPathsCheck = coverageCheck{
 // denyRuleCoverage resolves the agent's home and compares the account-wide deny
 // rules with paths, reporting under the check's own phrasing. The three checks
 // that ask this differ only in that phrasing and in their failure line.
-func denyRuleCoverage(report *DoctorReport, opts DoctorOptions, name string, check coverageCheck, paths []string) {
+func denyRuleCoverage(report *DoctorReport, opts DoctorOptions, name string,
+	check coverageCheck, paths []string, expressible func(file, subject string) bool) {
 	counted := fmt.Sprintf(check.noun, len(paths))
 	if opts.AgentUser == "" {
 		report.unaskedf(name, len(paths), "the agent account is not named, so the "+
@@ -168,14 +169,23 @@ func denyRuleCoverage(report *DoctorReport, opts DoctorOptions, name string, che
 			"rules were not compared with the %s", opts.AgentUser, counted)
 		return
 	}
-	check.report(report, name, home, paths)
+	check.report(report, name, home, paths, expressible)
 }
 
 // report is the check against a home already resolved, so a test can put one
 // somewhere other than a real account's.
-func (c coverageCheck) report(report *DoctorReport, name, home string, paths []string) {
+func (c coverageCheck) report(report *DoctorReport, name, home string,
+	paths []string, expressible func(file, subject string) bool) {
 	counted := fmt.Sprintf(c.noun, len(paths))
-	files, uncovered := uncoveredIn(home, paths)
+	files, uncovered, unread := uncoveredIn(home, paths, expressible)
+	// Before the coverage verdict: a rule file that could not be read is not
+	// one anything vouched for, and a pass beside it would claim it.
+	if len(unread) > 0 {
+		report.addf(name, StatusFailed, "%s could not be read or parsed, so what "+
+			"it refuses is unknown and the %s were not established there. Fix the "+
+			"file, or re-run `sudo faramir init`", strings.Join(unread, ", "), counted)
+		return
+	}
 	switch {
 	case files == 0:
 		report.unaskedf(name, len(paths), "no agent under %s keeps rules of its own, so "+
@@ -199,7 +209,10 @@ func (c coverageCheck) report(report *DoctorReport, name, home string, paths []s
 // agent with no rule file of its own is refused by the guard instead, which
 // reads the same paths out of the rendered deny list, so the callers report
 // that case as unasked and name the check that does cover it.
-func uncoveredIn(home string, paths []string) (files int, uncovered []string) {
+// expressible, where non-nil, says whether one file has a spelling for one
+// subject at all: a path a file cannot be given a rule for is not missing from
+// it, the enrolment having reported it unexpressible instead.
+func uncoveredIn(home string, paths []string, expressible func(file, subject string) bool) (files int, uncovered, unread []string) {
 	// One file two agents read is one file to check: the Antigravity family
 	// shares its account-wide hook, and reporting it twice reads as two files
 	// short of what they should carry.
@@ -218,15 +231,23 @@ func uncoveredIn(home string, paths []string) (files int, uncovered []string) {
 			}
 			onDisk, err := os.ReadFile(path)
 			if err != nil {
+				// A rule file that cannot be read is not one vouched for by its
+				// siblings: what it refuses is unknown, which the caller reports
+				// rather than skipping past.
+				unread = append(unread, "~/"+file.path)
 				continue
 			}
-			entries, err := ruleEntries(onDisk)
+			entries, err := denyEntries(onDisk)
 			if err != nil {
+				unread = append(unread, "~/"+file.path)
 				continue
 			}
 			files++
 			var missing []string
 			for _, want := range paths {
+				if expressible != nil && !expressible(file.path, want) {
+					continue
+				}
 				if !named(entries, want) {
 					missing = append(missing, want)
 				}
@@ -240,7 +261,7 @@ func uncoveredIn(home string, paths []string) (files int, uncovered []string) {
 			}
 		}
 	}
-	return files, uncovered
+	return files, uncovered, unread
 }
 
 // diagnoseInstallRules asks whether the account-wide deny rules still carry the
@@ -259,14 +280,13 @@ func uncoveredIn(home string, paths []string) (files int, uncovered []string) {
 // still passed.
 func diagnoseInstallRules(report *DoctorReport, opts DoctorOptions) {
 	const name = "install rules"
-	layout := Layout{
-		ConfigDir:  opts.ConfigDir,
-		BrokerUser: opts.BrokerUser,
-		KeeperUser: opts.KeeperUser,
-		ExecUser:   opts.ExecUser,
-	}
+	// The same layout the rules were rendered from, ruleLayout reading the
+	// units, the config and its entries: a hand-built one left the per-install
+	// half empty, so a moved audit log was asked about at a directory it does
+	// not use.
+	layout := ruleLayout(opts.ConfigDir)
 	paths := append(installDirs(layout), perInstallPaths(layout)...)
-	denyRuleCoverage(report, opts, name, installRulesCheck, paths)
+	denyRuleCoverage(report, opts, name, installRulesCheck, paths, nil)
 }
 
 // diagnoseBlockedPaths asks whether the account-wide deny rules carry every
@@ -294,10 +314,26 @@ func diagnoseBlockedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.
 		report.addf(name, StatusOK, "no [[secret.block]] entries are configured")
 		return
 	}
+	// The CLI's own settings file cannot express four of the five name-pattern
+	// kinds, which the enrolment reports as unexpressible rather than rendering
+	// a rule that refuses a different set: a subject it cannot be given is not
+	// missing from it.
+	agyDropped := map[string]bool{}
+	for _, entry := range cfg.Secret.Blocked {
+		if entry.Name == "" {
+			continue
+		}
+		if blockedNameRule(entry.Name).kind != kindSuffix {
+			agyDropped[entry.Blocks()] = true
+		}
+	}
+	expressible := func(file, subject string) bool {
+		return file != agySettingsFile || !agyDropped[subject]
+	}
 	// Whether the path is there is not asked. An entry for a key on an unmounted
 	// volume is doing its job by being in the rules, and a check that failed on
 	// the absence would fail every time the volume was unmounted.
-	denyRuleCoverage(report, opts, name, blockedPathsCheck, paths)
+	denyRuleCoverage(report, opts, name, blockedPathsCheck, paths, expressible)
 }
 
 // ruleLayout is what an agent's rule file is rendered against: this install's
@@ -387,21 +423,32 @@ func configuredBlocked(configDir string) []config.BlockedPath {
 // the second must not report the first as refused.
 func named(entries map[string]bool, path string) bool {
 	for entry := range entries {
-		_, rest, found := strings.Cut(entry, path)
-		if !found {
-			continue
-		}
-		// The subtree spelling of this same path. A directory is rendered as
-		// "<dir>/**" for Claude Code and "<dir>/*" for the plugin hosts, and
-		// without this both read as a longer path and the rule that is there
-		// reports as missing. A wildcard is what separates them from a sibling:
-		// "/secrets/**" after "/etc/faramir" is a different directory and stays
-		// unmatched, and "-notes" after it is stopped by isPathRune already.
-		if strings.HasPrefix(rest, "/*") {
-			return true
-		}
-		if rest == "" || !isPathRune(rune(rest[0])) {
-			return true
+		for start := 0; ; {
+			i := strings.Index(entry[start:], path)
+			if i < 0 {
+				break
+			}
+			i += start
+			start = i + 1
+			// Anchored on the left as well as the right: a path character before
+			// the match means a rule about a longer name, so "**/my.env" must not
+			// vouch for ".env" any more than ".npmrc-work" vouches for ".npmrc".
+			if i > 0 && isPathRune(rune(entry[i-1])) {
+				continue
+			}
+			rest := entry[i+len(path):]
+			// The subtree spelling of this same path. A directory is rendered as
+			// "<dir>/**" for Claude Code and "<dir>/*" for the plugin hosts, and
+			// without this both read as a longer path and the rule that is there
+			// reports as missing. A wildcard is what separates them from a sibling:
+			// "/secrets/**" after "/etc/faramir" is a different directory and stays
+			// unmatched, and "-notes" after it is stopped by isPathRune already.
+			if strings.HasPrefix(rest, "/*") {
+				return true
+			}
+			if rest == "" || !isPathRune(rune(rest[0])) {
+				return true
+			}
 		}
 	}
 	return false
@@ -478,6 +525,46 @@ func ruleEntries(data []byte) (map[string]bool, error) {
 		}
 	}
 	walk(root)
+	return out, nil
+}
+
+// denyEntries is the rules that refuse: strings inside an array under a "deny"
+// key, and keys whose own value is "deny". ruleEntries above stays the wide
+// set for staleRules, which asks about presence rather than direction;
+// coverage asked with the wide set read an operator's own allow entry as a
+// refusal of the path it grants.
+func denyEntries(data []byte) (map[string]bool, error) {
+	var root any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	var walk func(node any, underDeny bool)
+	walk = func(node any, underDeny bool) {
+		switch value := node.(type) {
+		case []any:
+			for _, element := range value {
+				if text, isString := element.(string); isString {
+					if underDeny {
+						out[text] = true
+					}
+					continue
+				}
+				walk(element, underDeny)
+			}
+		case map[string]any:
+			for key, child := range value {
+				if decision, isString := child.(string); isString {
+					if decision == "deny" {
+						out[key] = true
+					}
+					continue
+				}
+				walk(child, underDeny || key == "deny")
+			}
+		}
+	}
+	walk(root, false)
 	return out, nil
 }
 

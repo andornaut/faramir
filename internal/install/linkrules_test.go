@@ -150,7 +150,7 @@ func TestDoctorPassesWhenALinkedFileIsRefused(t *testing.T) {
 	  ]}
 	}`)
 	var report DoctorReport
-	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.config/gh/hosts.yml"})
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.config/gh/hosts.yml"}, nil)
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status != StatusOK {
@@ -166,7 +166,7 @@ func TestDoctorFailsWhenALinkedFileIsNotRefused(t *testing.T) {
 	  "permissions": {"deny": ["Read(**/*.key)"]}
 	}`)
 	var report DoctorReport
-	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"})
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"}, nil)
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status != StatusFailed {
@@ -183,7 +183,7 @@ func TestDoctorFailsWhenALinkedFileIsNotRefused(t *testing.T) {
 // refuses nothing, and reporting OK would say the opposite.
 func TestDoctorDoesNotClaimCoverageWithNoRuleFile(t *testing.T) {
 	var report DoctorReport
-	linkedFilesCheck.report(&report, "linked files", t.TempDir(), []string{"/home/operator/.npmrc"})
+	linkedFilesCheck.report(&report, "linked files", t.TempDir(), []string{"/home/operator/.npmrc"}, nil)
 
 	finding := findingFor(t, report, "linked files")
 	if finding.Status == StatusOK {
@@ -330,5 +330,54 @@ func TestAConfigThatWouldNotLoadIsNotWritten(t *testing.T) {
 				t.Errorf("the install that was there was replaced:\n%s", body)
 			}
 		})
+	}
+}
+
+// An allow entry names the path and refuses nothing: coverage read with the
+// wide entry set reported a file as refused that a rule explicitly grants.
+func TestAnAllowRuleDoesNotCountAsCoverage(t *testing.T) {
+	home := writeRules(t, ".claude/settings.json", `{
+	  "permissions": {"allow": ["Read(/home/operator/.npmrc)"], "deny": []}
+	}`)
+	var report DoctorReport
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"}, nil)
+
+	finding := findingFor(t, report, "linked files")
+	if finding.Status != StatusFailed {
+		t.Errorf("status = %v, want Failed: an allow vouched for a deny: %s",
+			finding.Status, finding.Detail)
+	}
+}
+
+// A rule file that does not parse is not vouched for by its siblings: what it
+// refuses is unknown, which is a failure naming the file rather than a silent
+// skip that leaves coverage to whatever else is present.
+func TestAnUnparseableRuleFileFailsCoverage(t *testing.T) {
+	home := writeRules(t, ".claude/settings.json", `{"permissions": {"deny": [,]}}`)
+	var report DoctorReport
+	linkedFilesCheck.report(&report, "linked files", home, []string{"/home/operator/.npmrc"}, nil)
+
+	finding := findingFor(t, report, "linked files")
+	if finding.Status != StatusFailed {
+		t.Errorf("status = %v, want Failed: %s", finding.Status, finding.Detail)
+	}
+	if !strings.Contains(finding.Detail, ".claude/settings.json") {
+		t.Errorf("the failure does not name the broken file: %s", finding.Detail)
+	}
+}
+
+// Anchored on the left as well as the right: a rule about a longer name must
+// not vouch for a shorter one it happens to end with.
+func TestARuleAboutALongerNameDoesNotVouchForItsSuffix(t *testing.T) {
+	home := writeRules(t, ".claude/settings.json", `{
+	  "permissions": {"deny": ["Read(**/my.env)"]}
+	}`)
+	var report DoctorReport
+	linkedFilesCheck.report(&report, "linked files", home, []string{".env"}, nil)
+
+	finding := findingFor(t, report, "linked files")
+	if finding.Status != StatusFailed {
+		t.Errorf("status = %v, want Failed: **/my.env vouched for .env: %s",
+			finding.Status, finding.Detail)
 	}
 }

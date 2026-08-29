@@ -146,6 +146,11 @@ type agentFile struct {
 // family the enrolment named.
 const antigravityFamily = "antigravity"
 
+// agySettingsFile is the CLI's own deny-rules file, named here as well as in
+// its target because the coverage check has to know which file cannot express
+// four of the five name-pattern kinds.
+const agySettingsFile = ".gemini/antigravity-cli/settings.json"
+
 // The files an Antigravity enrolment writes into a tree. Named once: a path
 // spelled two ways is a second file the agent does not read.
 const (
@@ -310,7 +315,7 @@ var agentTargets = map[string]*agentTarget{
 		// refresh; one agent's file marking another is not.
 		[]string{".gemini/antigravity-cli"},
 		[]agentFile{
-			{path: ".gemini/antigravity-cli/settings.json", asset: "agent/agy/settings.json", mode: 0o640, merge: true},
+			{path: agySettingsFile, asset: "agent/agy/settings.json", mode: 0o640, merge: true},
 		},
 	),
 
