@@ -166,14 +166,14 @@ func newApproveCmd() *cobra.Command {
 			if !requireRootToAnswer("sudo approve") {
 				return codeErr(1)
 			}
-			return codeErr(answer("approve", socketDefault(), args[0], true, o.json))
+			return codeErr(answer("sudo approve", socketDefault(), args[0], true, o.json))
 		},
 	}
 	o.add(c)
 	return c
 }
 
-// newDenyCmd says no. The id is optional, unlike approving: only one question
+// newRejectCmd says no. The id is optional, unlike approving: only one question
 // is ever outstanding, and refusing something unseen is safe in a way approving
 // it is not, a refusal costing a re-run.
 func newRejectCmd() *cobra.Command {
@@ -190,7 +190,7 @@ func newRejectCmd() *cobra.Command {
 				return codeErr(1)
 			}
 			if len(args) == 1 && args[0] != "" {
-				return codeErr(answer("reject", socketDefault(), args[0], false, o.json))
+				return codeErr(answer("sudo reject", socketDefault(), args[0], false, o.json))
 			}
 			paint, bad := paletteFor("sudo reject", when)
 			if bad != 0 {
@@ -217,7 +217,7 @@ func rejectWaiting(socketPath string, asJSON bool, paint palette) int {
 	if !asJSON {
 		printQuestion(questions[0], paint)
 	}
-	return answer("deny", socketPath, questions[0].ID, false, asJSON)
+	return answer("sudo reject", socketPath, questions[0].ID, false, asJSON)
 }
 
 // waiting is the question outstanding, or nil and the status to exit with: 69
@@ -338,7 +338,7 @@ func watchEscalations(socketPath string, paint palette) int {
 			// 1 is the broker answering no to the answer -- the question expired while
 			// it was read, or the yes was refused for want of a quiet host -- so it is
 			// settled and gone and watching continues.
-			switch code := answer("approve", socketPath, question.ID, approve, false); code {
+			switch code := answer("sudo approve", socketPath, question.ID, approve, false); code {
 			case 0:
 				// Named, like the ending that follows it: that one arrives after the
 				// terminal has moved on, so the two are read together only if both say
