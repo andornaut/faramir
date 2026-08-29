@@ -65,7 +65,7 @@ func TestALinkedValueJoinsTheValueSet(t *testing.T) {
 	}
 	// The redactor is handed both, which is the point of linking at all.
 	var linked bool
-	for _, pair := range s.Pairs() {
+	for _, pair := range s.pairs() {
 		if pair.Ref == "gh/token" && pair.Value == "gho_linked_example" {
 			linked = true
 		}
@@ -91,7 +91,7 @@ func TestAnUnreadableLinkRefusesItsOwnRefAlone(t *testing.T) {
 	if reason := s.Unreadable(); reason != "" {
 		t.Fatalf("a link that would not parse stopped the broker: %s", reason)
 	}
-	degraded := s.DegradedLinks()
+	degraded := s.degradedLinks
 	if _, named := degraded["gh/token"]; !named {
 		t.Errorf("the broken link is not reported: %v", degraded)
 	}
@@ -126,7 +126,7 @@ func TestALinkNamingNothingIsReportedAndNotFatal(t *testing.T) {
 	if reason := s.Unreadable(); reason != "" {
 		t.Errorf("an absent link refused the store: %s", reason)
 	}
-	degraded := s.DegradedLinks()
+	degraded := s.degradedLinks
 	if got := degraded["gh/token"]; !strings.Contains(got, "not there") {
 		t.Errorf("an absent link is reported as %q, want the case named", got)
 	}
@@ -213,9 +213,9 @@ func TestALinkShadowingAManagedRefIsRefused(t *testing.T) {
 	}
 	// Not reported as a ref that answers nothing: it answers, and what it answers
 	// with is the managed value.
-	if _, named := s.DegradedLinks()["a/b"]; named {
+	if _, named := s.degradedLinks["a/b"]; named {
 		t.Errorf("a shadowed ref is reported as a link that did not load: %v",
-			s.DegradedLinks())
+			s.degradedLinks)
 	}
 	// The managed value wins, so the redactor still covers what sops holds.
 	if got, err := s.Value("a/b"); err != nil || got != "hunter2-correct-horse" {

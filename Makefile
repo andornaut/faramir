@@ -11,7 +11,6 @@ BIN := bin
 # One binary. The three daemons and the guard are subcommands of it; what
 # separates them is User= in the units, not main(). Only the guard's deny list
 # and wrap script go to /usr/local/libexec.
-CMDS := faramir
 LDFLAGS := -s -w
 # CGO_ENABLED=0 is the point of the port: a static binary with no libc and no
 # interpreter runs on a host whose Python is older than 3.11.
@@ -84,9 +83,7 @@ all: build
 ## build: a static binary, stripped
 build:
 	@mkdir -p $(BIN)
-	@for c in $(CMDS); do \
-		go build -ldflags="$(LDFLAGS)" -trimpath -o $(BIN)/$$c ./cmd/$$c || exit 1; \
-	done
+	@go build -ldflags="$(LDFLAGS)" -trimpath -o $(BIN)/faramir ./cmd/faramir
 
 ## test: everything that tests this, the Go suite and the end-to-end suites
 ## alike, so that `make test` means the same here as in a repository whose
@@ -189,15 +186,11 @@ e2e:
 ## it. This installs the programs; `faramir init` provisions the host.
 install: build
 	sudo mkdir -p "$(DESTDIR)$(BINPREFIX)"
-	@for c in $(CMDS); do \
-		sudo cp -pf $(BIN)/$$c "$(DESTDIR)$(BINPREFIX)/" || exit 1; \
-	done
+	@sudo cp -pf $(BIN)/faramir "$(DESTDIR)$(BINPREFIX)/"
 
 ## uninstall: remove what install copied
 uninstall:
-	@for c in $(CMDS); do \
-		sudo rm -f "$(DESTDIR)$(BINPREFIX)/$$c"; \
-	done
+	@sudo rm -f "$(DESTDIR)$(BINPREFIX)/faramir"
 
 clean:
 	rm -rf $(BIN) dist

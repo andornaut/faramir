@@ -419,8 +419,8 @@ func (s *Store) Redactor() *redact.Redactor {
 	return s.compiled.Redactor()
 }
 
-// pairsOf is Pairs over a map the caller already holds, for the compile above:
-// Pairs takes the read lock, which Reload holds for writing.
+// pairsOf is pairs over a map the caller already holds, for the compile above:
+// pairs takes the read lock, which Reload holds for writing.
 func pairsOf(values map[string]string) []redact.Secret {
 	out := make([]redact.Secret, 0, len(values))
 	for _, ref := range sortedKeys(values) {
@@ -429,9 +429,9 @@ func pairsOf(values map[string]string) []redact.Secret {
 	return out
 }
 
-// Pairs is every (ref, value) pair: the input to the redactor's value set. The
+// pairs is every (ref, value) pair: the input to the redactor's value set. The
 // age key is absent, no child being able to obtain it.
-func (s *Store) Pairs() []redact.Secret {
+func (s *Store) pairs() []redact.Secret {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]redact.Secret, 0, len(s.values))
@@ -517,19 +517,6 @@ func (s *Store) DescribeForOperator() map[string]any {
 	// out.
 	out["degraded_link_detail"] = append([]string{}, s.linkDetail...)
 	return out
-}
-
-// DegradedLinks is the [[secret.link]] entries that did not load, by ref, with
-// the reason each is refused. Empty when every link resolved.
-//
-// Not part of Unreadable: what is missing is known by name, so it refuses that
-// ref and leaves the broker serving. `faramir status` and `sudo faramir doctor`
-// are what fail on it, this being a fault nothing else would surface until a
-// command asked for the ref.
-func (s *Store) DegradedLinks() map[string]string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return maps.Clone(s.degradedLinks)
 }
 
 // Degraded reports why this store is not doing the whole job the config asks
@@ -660,7 +647,7 @@ func (s *Store) Count() int {
 //
 // A [[secret.link]] entry that did not load is not this. It is one ref the
 // broker can name, so it refuses that ref and serves the rest rather than
-// withholding the output of every command on the host; see DegradedLinks. The
+// withholding the output of every command on the host; see degradedLinks. The
 // distinction is what the two hold: a managed file names none of its refs until
 // it decrypts, so a file that went unread leaves the broker knowing values are
 // missing and not which.

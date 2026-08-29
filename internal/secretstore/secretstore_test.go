@@ -293,7 +293,7 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 	}
 }
 
-// Pairs is the redactor's input: every managed value, not just injected ones.
+// pairs is the redactor's input: every managed value, not just injected ones.
 func TestPairsCarriesEveryLoadedValue(t *testing.T) {
 	k := keepertest.New(t, map[string]string{
 		"a": "hunter2-correct-horse", "b": "another-good-value", "tiny": "abc",
@@ -301,7 +301,7 @@ func TestPairsCarriesEveryLoadedValue(t *testing.T) {
 	s := newStore(t, k)
 	s.Reload()
 
-	pairs := s.Pairs()
+	pairs := s.pairs()
 	if len(pairs) != 2 {
 		t.Fatalf("pairs = %v", pairs)
 	}

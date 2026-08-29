@@ -8,12 +8,6 @@ coverage.txt
 # source instead, where nothing above reaches it.
 /cmd/faramir/faramir
 
-# opencode.json is a common entry in a personal ignore file, where it means the
-# opencode config of whatever tree you are in.  Here it is an installed asset,
-# named by internal/install/agents.go and embedded from this directory, so an
-# ignore that reaches it leaves the enrolment failing on a host.
-!agent/opencode/opencode.json
-
 # The suites copy these into the image's build context; see tests/e2e/README.md.
 /tests/e2e/faramir
 /tests/e2e/faramir-skew
