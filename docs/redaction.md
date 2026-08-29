@@ -51,12 +51,14 @@ base64 URL-safe, padded and unpadded | JWTs, signed URLs
 base32, padded and unpadded | TOTP seeds, `otpauth://` URIs, some token formats
 hex, lower and upper case, contiguous | `xxd -p`, `hexdump -ve '/1 "%02x"'`, Python's `bytes.hex()`, hex BLOB columns
 percent-encoded, in the `quote(safe="")`, `encodeURIComponent` and `encodeURI` safe sets, each in upper and lower hex, and with `%20` or `+` for a space | any URL or form body carrying a credential
-JSON string-escaped, and with `\/` | `-vvv` output, API responses, PHP `json_encode`
+JSON string-escaped leaving non-ASCII as UTF-8, and with `\/` | `-vvv` output, API responses, Go's `encoding/json`, `json.dumps(ensure_ascii=False)`
 shell single-quoted, both the `'\''` and `'"'"'` escapes | `set -x` traces, Python's `shlex.quote`
 shell double-quoted (`\\`, `\$`, `` \` ``, `\"`) | `set -x` traces
 every variant above of the value as stage 1 would leave it, where that stripped form still clears the policy | a stored value carrying a CRLF, a control or an escape, which never appears in output the way it appears in the store
 
-Outside it and always will be: `printf %q`'s backslash re-quoting, and any deliberate transform (`\| rev`, `\| tr a-z A-Z`, a hash), because the child chooses its own output encoding.
+Outside it: JSON that escapes non-ASCII to `\uXXXX`, which is what `json.dumps` and PHP's `json_encode` do by default. A value whose characters are all ASCII is unaffected, because that escaping has nothing to change; one carrying any other character is matched in neither the escaped form nor the raw one.
+
+Outside it and always will be: backslash re-quoting, whether from `printf %q` or Python's `repr`, and any deliberate transform (`\| rev`, `\| tr a-z A-Z`, a hash), because the child chooses its own output encoding.
 
 The hex row is the contiguous rendering, one byte after another. A dump that separates the bytes is a different string and is not covered: `od -An -tx1` and `hexdump -C` space them, `hexdump` with no arguments writes byte-swapped 16-bit words, and `openssl x509 -text` colons them. What they have in common is a separator chosen by the tool, which is the same unbounded space the paragraph below describes.
 

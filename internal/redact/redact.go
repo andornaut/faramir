@@ -288,6 +288,35 @@ func jsonEscape(value string) string {
 	return s
 }
 
+// jsonEscapeASCII is jsonEscape with every non-ASCII rune escaped to \uXXXX.
+//
+// It exists because Go's encoder is the odd one out: it leaves non-ASCII as
+// UTF-8, while Python's json.dumps and PHP's json_encode escape it unless told
+// otherwise. A value carrying one accented character is therefore rendered by
+// the two most common producers in a form the raw spelling does not match, and
+// the ASCII part of it goes out in the clear.
+//
+// Lower-case hex, which is what all three of JSON.stringify, json.dumps and
+// json_encode emit. Astral runes become a surrogate pair, JSON having no other
+// spelling for them.
+func jsonEscapeASCII(value string) string {
+	escaped := jsonEscape(value)
+	var b strings.Builder
+	b.Grow(len(escaped))
+	for _, r := range escaped {
+		switch {
+		case r < utf8.RuneSelf:
+			b.WriteRune(r)
+		case r > 0xFFFF:
+			r -= 0x10000
+			fmt.Fprintf(&b, `\u%04x\u%04x`, 0xD800+(r>>10), 0xDC00+(r&0x3FF))
+		default:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		}
+	}
+	return b.String()
+}
+
 // variants returns every rendering of value the redactor recognises. Not
 // exhaustive by design (see docs/redaction.md), but the encodings ordinary
 // tools produce by accident.
@@ -312,6 +341,12 @@ func variants(value string) map[string]bool {
 	out[js] = true
 	// PHP's json_encode and many JSON serializers escape "/" as "\/" by default.
 	out[strings.ReplaceAll(js, "/", `\/`)] = true
+	// The same two, with non-ASCII escaped: json.dumps and json_encode as they
+	// are called with no arguments. Identical to the pair above for an all-ASCII
+	// value, and the set deduplicates.
+	ja := jsonEscapeASCII(value)
+	out[ja] = true
+	out[strings.ReplaceAll(ja, "/", `\/`)] = true
 	out[shlexQuote(value)] = true
 	// Body of a shell single-quoted string.
 	out[strings.ReplaceAll(value, "'", `'\''`)] = true
