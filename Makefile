@@ -162,7 +162,7 @@ lint: shellcheck
 
 ## shellcheck: the same shellcheck run CI does
 shellcheck:
-	shellcheck tests/*.sh tests/e2e/*.sh agent/hooks/wrap.sh
+	shellcheck tests/*.sh tests/agents/*.sh tests/e2e/*.sh agent/hooks/wrap.sh
 
 ## e2e: the functional suites, against a real install in a container: systemd
 ## units, three uids, a sops store and an agent working in a project tree. Go
