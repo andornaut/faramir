@@ -4,10 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -77,7 +75,7 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	}
 	return fmt.Sprintf("%s (%s) is %s %04o, and a linked file has to be group %s and group-readable, and "+
 		"readable by nobody else:\n%s",
-		config.Shown(link.Path), config.Shown(link.Ref), fileGroup(info), mode, r.brokerGroupName(),
+		config.Shown(link.Path), config.Shown(link.Ref), groupName(info), mode, r.brokerGroupName(),
 		strings.Join(fix, " && ")), nil
 }
 
@@ -91,20 +89,6 @@ func groupNameOf(account string) string {
 		return name
 	}
 	return account
-}
-
-// fileGroup is the group that owns a file, by name where the group still
-// exists.
-func fileGroup(info os.FileInfo) string {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return "?"
-	}
-	gid := strconv.FormatUint(uint64(stat.Gid), 10)
-	if group, err := user.LookupGroupId(gid); err == nil {
-		return group.Name
-	}
-	return gid
 }
 
 // stepLinkAccess checks that every [[secret.link]] file is readable by the

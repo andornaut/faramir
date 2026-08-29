@@ -552,14 +552,23 @@ func holds(account, group string) bool {
 
 // diagnoseAgeKey: the key decrypts every managed file retroactively, so an
 // account that can read it needs nothing else here.
+// wrongMode says a file is not at the mode and owner the install sets, under
+// the check's name. True where it reported, which ends the check.
+func wrongMode(report *DoctorReport, name, path, want string) bool {
+	if got := owns(path); got != want {
+		report.addf(name, StatusFailed, "%s is %s, expected %s", path, got, want)
+		return true
+	}
+	return false
+}
+
 func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	path := filepath.Join(opts.ConfigDir, "age.key")
 	if cfg != nil && cfg.Keeper.AgeKeyFile != "" {
 		path = cfg.Keeper.AgeKeyFile
 	}
 	want := "0400 " + opts.KeeperUser
-	if got := owns(path); got != want {
-		report.addf("age key", StatusFailed, "%s is %s, expected %s", path, got, want)
+	if wrongMode(report, "age key", path, want) {
 		return
 	}
 	accounts, skipped := askable(opts.AgentUser, opts.BrokerUser, opts.ExecUser)
@@ -670,8 +679,7 @@ func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 		return
 	}
 	want := "0600 " + opts.BrokerUser
-	if got := owns(path); got != want {
-		report.addf("audit log", StatusFailed, "%s is %s, expected %s", path, got, want)
+	if wrongMode(report, "audit log", path, want) {
 		return
 	}
 	accounts, skipped := askable(opts.AgentUser, opts.ExecUser)
@@ -929,13 +937,9 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		// The first shared file that is actually there: a distribution that does not
 		// split the login case out has no sudo-i, and one that names sudo-i only is
 		// not a host to report a missing sudo about.
-		pamFile = cfg.Sudo.PamStack
-		if pamFile == "" || !exists(pamFile) {
-			pamFile = firstExistingStack()
-		}
-		if body, err = sudoPamBlock(pamFile); err != nil {
-			report.addf("sudo grant", StatusFailed, "%s: %v. Re-run `faramir init "+
-				"--allow-sudo`", pamFile, err)
+		var problem string
+		if body, pamFile, problem = readSudoStack(cfg); problem != "" {
+			report.addf("sudo grant", StatusFailed, "%s", problem)
 			return
 		}
 	} else if body, err = os.ReadFile(pamFile); err != nil {
@@ -1066,16 +1070,28 @@ func originalSudoOnRsStack(execUser, pamFile string, readErr error, cfg *config.
 	if branch := sudoPamBranchProblem(execUser, cfg.Sudo.Helper); branch != "" {
 		return nil, pamFile, false, branch
 	}
+	body, stack, problem = readSudoStack(cfg)
+	if problem != "" {
+		return nil, stack, false, problem
+	}
+	return body, stack, true, ""
+}
+
+// readSudoStack resolves which file carries sudo's stack and reads faramir's
+// block out of it: the configured one where it is there, else the first shared
+// file that is. problem is "" where the block was read, else the failure with
+// its remedy.
+func readSudoStack(cfg *config.Config) (body []byte, stack, problem string) {
 	stack = cfg.Sudo.PamStack
 	if stack == "" || !exists(stack) {
 		stack = firstExistingStack()
 	}
 	body, err := sudoPamBlock(stack)
 	if err != nil {
-		return nil, stack, false, fmt.Sprintf("%s: %v. Re-run `faramir init "+
+		return nil, stack, fmt.Sprintf("%s: %v. Re-run `faramir init "+
 			"--allow-sudo`", stack, err)
 	}
-	return body, stack, true, ""
+	return body, stack, ""
 }
 
 // ptraceScopeFile is Yama's, and absent on a kernel built without it.
