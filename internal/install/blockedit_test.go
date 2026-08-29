@@ -41,7 +41,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, _, err = AddBlockedPath(Options{ConfigDir: dir}, config.BlockedPath{Path: tc.path})
+			_, _, err = AddBlockedPaths(Options{ConfigDir: dir}, []config.BlockedPath{{Path: tc.path}})
 			if err == nil {
 				t.Fatalf("added %q, want a refusal naming %q", tc.path, tc.wantErr)
 			}
@@ -64,7 +64,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 // which of several entries was rejected.
 func TestAddRefusedNamesThePathItRefused(t *testing.T) {
 	dir := writeBlockConfig(t, "")
-	_, _, err := AddBlockedPath(Options{ConfigDir: dir}, config.BlockedPath{Path: "relative/path"})
+	_, _, err := AddBlockedPaths(Options{ConfigDir: dir}, []config.BlockedPath{{Path: "relative/path"}})
 	if err == nil {
 		t.Fatal("a relative path was accepted")
 	}
@@ -105,12 +105,14 @@ func TestRemoveRefusedOnAPathTheInstallDoesNotRefuse(t *testing.T) {
 	dir := writeBlockConfig(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
 	before := readConfigFile(t, dir)
 
-	_, removed, err := RemoveBlockedPath(Options{ConfigDir: dir}, config.BlockedPath{Path: "/etc/other.key"})
+	_, removed, err := RemoveBlockedPaths(Options{ConfigDir: dir}, []config.BlockedPath{{Path: "/etc/other.key"}})
 	if err != nil && strings.Contains(err.Error(), "refuses no path") {
 		t.Fatalf("removing a path that is not refused was an error: %v", err)
 	}
-	if removed.Path != "" {
-		t.Errorf("removed = %+v, want nothing", removed)
+	for _, entry := range removed {
+		if entry.Path != "" {
+			t.Errorf("removed = %+v, want nothing", removed)
+		}
 	}
 	if after := readConfigFile(t, dir); after != before {
 		t.Errorf("the config was rewritten:\n%s", after)
@@ -371,7 +373,7 @@ func TestAddRefusedWillNotBlockAnEnrolledTree(t *testing.T) {
 		{"the home above it", home, "holds the enrolled tree"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := AddBlockedPath(Options{ConfigDir: dir}, config.BlockedPath{Path: tc.path})
+			_, _, err := AddBlockedPaths(Options{ConfigDir: dir}, []config.BlockedPath{{Path: tc.path}})
 			if err == nil {
 				t.Fatalf("blocked %q", tc.path)
 			}

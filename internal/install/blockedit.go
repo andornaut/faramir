@@ -49,42 +49,29 @@ func (r *runner) BlockedSteps() []namedStep {
 	}
 }
 
-// AddBlockedPath adds one entry and re-renders the rule files that name it.
+// AddBlockedPaths adds entries and re-renders the rule files that name them,
+// taking several at once because that is what a first run pastes and what a
+// converge hands over: a dozen names is a dozen rules and one host to change.
 //
 // Nothing is read and nothing is granted, so there is no order to get right and
 // nothing to put back on a failure: unlike AddLink, this either writes the
-// entry and the rules or leaves the host as it was.
+// entries and the rules or leaves the host as it was. Every entry is held to
+// the loader's rules before anything is written, so a list carrying one bad
+// entry writes none of it. The config and the rule files are then rendered once
+// rather than once per entry, which is the difference between one changed
+// report and a dozen.
 //
 // A path the install already refuses is not an error. The entry stands, the
 // rules are rendered again, and the report says nothing changed: the entry is
 // the whole of what one names, so a second add asks for the state that is
 // already there. Rendering again is the repair, restoring a rule an agent's
-// settings dropped. The bool says which of the two happened.
+// settings dropped. The bools are per entry, in the order given, and say which
+// were new.
 //
 // A path that is not there is added. These are keys on volumes that are not
 // always mounted, and a rule costs nothing while its file is absent, so
 // refusing one would refuse the case the entry exists for. The caller is told,
 // because the other thing an absent path means is a typo.
-func AddBlockedPath(opts Options, refused config.BlockedPath) (Report, bool, error) {
-	report, added, err := AddBlockedPaths(opts, []config.BlockedPath{refused})
-	if len(added) != 1 {
-		return report, false, err
-	}
-	return report, added[0], err
-}
-
-// AddBlockedPaths is the same for several entries at once, which is what a
-// first run pastes and what a converge hands over: a dozen names is a dozen
-// rules and one host to change.
-//
-// Every entry is held to the loader's rules before anything is written, so a
-// list carrying one bad entry writes none of it. The config and the rule files
-// are then rendered once rather than once per entry, which is the difference
-// between one changed report and a dozen.
-//
-// The bools are per entry, in the order given, and say which were new. An entry
-// the install already carries is not an error, for the reason a second add of
-// one is not.
 func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool, error) {
 	if len(refused) == 0 {
 		return Report{}, nil, errors.New("name a path or a pattern to refuse")
@@ -263,10 +250,11 @@ func sameBlock(a, b config.BlockedPath) bool {
 	return a.Path == b.Path && a.Name == b.Name && a.Command == b.Command
 }
 
-// RemoveBlockedPath drops one entry and re-renders. It does not take the rule
-// out of an agent's file: those are merged rather than replaced, so nothing
-// here can remove an entry from one, and a rule carries no sign of who wrote
-// it.
+// RemoveBlockedPaths drops entries and re-renders, the counterpart of
+// AddBlockedPaths: one config rewrite and one render, whatever the length. It
+// does not take the rule out of an agent's file: those are merged rather than
+// replaced, so nothing here can remove an entry from one, and a rule carries no
+// sign of who wrote it.
 //
 // A path the install does not refuse is not an error, for the reason a second
 // add is not: what is asked for is the state the host is already in. The
@@ -279,21 +267,9 @@ func sameBlock(a, b config.BlockedPath) bool {
 // a request to stop refusing something with a sentence saying it was never
 // refused, and leave the operator to find out otherwise from an agent. Removing
 // one means changing faramir, which is not something a host's config can ask
-// for.
-func RemoveBlockedPath(opts Options, refused config.BlockedPath) (Report, config.BlockedPath, error) {
-	report, removed, err := RemoveBlockedPaths(opts, []config.BlockedPath{refused})
-	if len(removed) != 1 {
-		return report, config.BlockedPath{}, err
-	}
-	return report, removed[0], err
-}
-
-// RemoveBlockedPaths is the same for several entries at once, the counterpart
-// of AddBlockedPaths: one config rewrite and one render, whatever the length.
-//
-// A rule faramir carries itself is refused for the whole list before anything
-// is written, so a list holding one of those removes nothing rather than
-// removing what it could and failing halfway.
+// for. The refusal covers the whole list before anything is written, so a list
+// holding one of those removes nothing rather than removing what it could and
+// failing halfway.
 func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []config.BlockedPath, error) {
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
@@ -362,7 +338,7 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 // BuiltInRuleError is why a request to stop refusing something cannot be
 // met, or nil where it can. For the command, which asks before it asks for
 // root: a request that can never be granted has no business costing a sudo
-// first. RemoveBlockedPath asks again at the write, from the same function
+// first. RemoveBlockedPaths asks again at the write, from the same function
 // below, for a caller that is not the command.
 //
 // The install's own entries are read first and win. An install may declare what
