@@ -557,11 +557,69 @@ func renderings(value string, policy EligibilityPolicy) []string {
 			set[v] = true
 		}
 	}
+	for v := range acrossLines(value, policy) {
+		set[v] = true
+	}
 	out := make([]string, 0, len(set))
 	for v := range set {
 		out = append(out, v)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// lineSeparators is what an ordinary rendering puts where a value's newline was.
+// A shell that expands a value unquoted word-splits it and joins the fields with
+// a space; a formatter re-wraps with CRLF or a tab. Nothing here is an attempt
+// to defeat redaction, which is why these are matched rather than accepted.
+var lineSeparators = []string{" ", "\t", "\r\n", "\r", "\n\n"}
+
+// acrossLines returns the spellings a value spanning lines needs beyond its own.
+//
+// The whole-value renderings match only while the lines stay adjacent, and
+// ordinary tools do not keep them adjacent. `cat -n`, `nl` and `grep -n` put a
+// line number between them, `sed -n 2p` prints one line and never the other, and
+// an unquoted expansion joins them with a space. Against a single literal
+// spelling every one of those emits the value in the clear, and the redaction
+// count reports nothing missed, because nothing matched.
+//
+// Two additions, which is what those routes leave to match against:
+//
+//   - Each line on its own. Every route above emits the individual lines whole,
+//     whatever it puts between them, so a per-line needle meets all of them.
+//   - The whole value with its newlines rewritten to the other separators a
+//     shell or a formatter substitutes. Redundant with the per-line needles for
+//     most values, and the only cover for one whose lines are each too short to
+//     register.
+//
+// A line the policy refuses is not added, so a value can end up partly covered.
+// That is the same rule a short single-line value meets, and secretstore is what
+// names a value it will not redact.
+func acrossLines(value string, policy EligibilityPolicy) map[string]bool {
+	out := map[string]bool{}
+	if !strings.ContainsAny(value, "\n\r") {
+		return out
+	}
+	norm := strings.ReplaceAll(value, "\r\n", "\n")
+	for line := range strings.SplitSeq(norm, "\n") {
+		line = strings.Trim(line, "\r")
+		if line == "" || policy.Check(line) != "" {
+			continue
+		}
+		for v := range variants(line) {
+			out[v] = true
+		}
+	}
+	for _, sep := range lineSeparators {
+		joined := strings.ReplaceAll(norm, "\n", sep)
+		if joined == value || policy.Check(joined) != "" {
+			continue
+		}
+		for v := range variants(joined) {
+			out[v] = true
+		}
+	}
+	delete(out, "")
 	return out
 }
 

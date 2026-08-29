@@ -68,6 +68,20 @@ Line breaks are all that is removed, `\n` and a bare `\r`. A continuation the fo
 
 Cost: a low-entropy value split across a line break can be redacted where its two halves were unrelated words. That fails toward redaction rather than toward a leak, as the length gate does. The token replaces the whole span including the break, so such a match also joins the two lines: with `password` managed, `"the pass\nword list is here"` comes back as `"the «SECRET:ref» list is here"`.
 
+A value that **already** spans lines is the reverse case and needs the reverse treatment. Section 3 rejoins a value one formatter broke apart; this is a value that arrived with newlines of its own, whose lines a tool then separates. The whole value matches only while its lines stay adjacent, and ordinary tools do not keep them adjacent:
+
+| What the tool does | Between the lines |
+| --- | --- |
+| `cat -n`, `nl` | a line number and a tab |
+| `grep -n` | a line number and a colon |
+| `sed 's/^/    /'` | the indent it adds |
+| `sed -n 2p` | nothing: one line is printed and the other never is |
+| unquoted `$VAR` | one space, word splitting having eaten the newline |
+
+None of those is an attempt to defeat redaction, which is why they are matched rather than accepted. Two additions cover them. Each line of a multi-line value is registered as a rendering of its own, which is what every route above leaves intact whatever it puts between them. The whole value is registered again with its newlines rewritten to the separators a shell or a formatter substitutes, which is redundant with the per-line needles for most values and is the only cover for one whose lines are each too short to register.
+
+Cost: a line under `[secret] min_length` is not registered on its own, so a multi-line value can be partly covered. That is the gate a short single-line value already meets. A value whose every line is short is matched only where its lines arrive adjacent.
+
 **4. What stage 1 removed needs a second pass too.** A CSI sequence ends at the first byte in `@-~`, which is every letter and most punctuation. So a value written straight after an introducer that never got its own terminator supplies that terminator itself: `ESC [` before `hunter2` is a sequence ending in `h`, and the stripped text stage 2 would otherwise see reads `unter2`, which matches nothing.
 
 Nothing in the bytes tells that apart from a real `ESC [ 3 2 h`, so the strip is correct and the miss belongs to stage 2, which has only the stripped text to look at. The redactor matches a second view, one holding the last byte of every CSI back where it was, and maps hits onto the emitted text. A real sequence leaves a stray letter in front of the value in that view, which no match cares about. Only the case that view alone can find is taken, so text carrying no escapes is still scanned once.
