@@ -523,9 +523,9 @@ func named(entries map[string]bool, path string) bool {
 			i += start
 			start = i + 1
 			// Anchored on the left as well as the right: a path character before
-			// the match means a rule about a longer name, so "**/my.env" must not
+			// the match means a rule about a longer path, so "**/my.env" must not
 			// vouch for ".env" any more than ".npmrc-work" vouches for ".npmrc".
-			if i > 0 && isPathRune(rune(entry[i-1])) {
+			if i > 0 && isPathRune(rune(entry[i-1])) && !anyDirectory(entry[:i]) {
 				continue
 			}
 			rest := entry[i+len(path):]
@@ -546,7 +546,19 @@ func named(entries map[string]bool, path string) bool {
 	return false
 }
 
-// isPathRune reports whether a byte could continue a filename, which is what
+// anyDirectory reports whether what precedes a match is the "in any directory"
+// prefix a name entry is rendered with: "**/" for Claude Code and "*/" for the
+// plugin hosts. That separator is the left edge of the name, so the match is
+// the whole of what the rule names.
+//
+// Only that spelling. A separator reached by an actual directory -- the "/"
+// before ".env" in a rule naming /home/operator/proj/.env -- is a rule about
+// one file, and must not vouch for a name entry that refuses ".env" everywhere.
+func anyDirectory(before string) bool {
+	return strings.HasSuffix(before, "*/")
+}
+
+// isPathRune reports whether a byte could continue a path, which is what
 // decides whether a match was the whole path or a prefix of a longer one. The
 // separators each agent wraps a path in -- ")", quotes, whitespace, a glob --
 // are not path characters.

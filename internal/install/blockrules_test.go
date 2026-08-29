@@ -1,6 +1,7 @@
 package install
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -310,6 +311,54 @@ func TestARefusedPathIsNotReportedAsDriftToRemove(t *testing.T) {
 	if strings.Contains(finding.Detail, "/etc/luks/volume.key") {
 		t.Errorf("a blocked path was reported as a rule to remove, which would "+
 			"undo the entry: %s", finding.Detail)
+	}
+}
+
+// A name entry renders as "**/<name>", and the "/" of that prefix is the left
+// edge of the name rather than a longer path: every kind of name pattern has to
+// read as covered by the rule the enrolment writes for it, or the check fails
+// an install whose rules are exactly what faramir wrote.
+func TestARenderedNameRuleCoversTheNameItWasRenderedFrom(t *testing.T) {
+	layout := testLayout()
+	names := []string{"*.key", ".env*", "id_ecdsa", ".claude/.credentials.json", ".mozilla/"}
+	for _, name := range names {
+		layout.Blocked = append(layout.Blocked, config.BlockedPath{Name: name})
+	}
+	deny, err := json.Marshal(claudeRules(layout))
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := writeRules(t, ".claude/settings.json",
+		`{"permissions": {"deny": `+string(deny)+`}}`)
+
+	var report DoctorReport
+	blockedPathsCheck.report(&report, "blocked paths", home, names, nil)
+
+	finding := findingFor(t, report, "blocked paths")
+	if finding.Status != StatusOK {
+		t.Errorf("status = %v, want OK: a rendered rule did not cover its own "+
+			"name: %s", finding.Status, finding.Detail)
+	}
+}
+
+// The other half of that boundary: only the rendered "in any directory" prefix
+// is the left edge of a name. A rule naming one file that happens to end with
+// the name refuses that file alone, and reading it as covering the name entry
+// would report a pattern that refuses nothing as OK.
+func TestAPathRuleDoesNotCoverANameItEndsWith(t *testing.T) {
+	home := writeRules(t, ".claude/settings.json", `{
+	  "permissions": {"deny": [
+	    "Read(/home/operator/proj/.env)",
+	    "Edit(/home/operator/proj/.env)"
+	  ]}
+	}`)
+	var report DoctorReport
+	blockedPathsCheck.report(&report, "blocked paths", home, []string{".env"}, nil)
+
+	finding := findingFor(t, report, "blocked paths")
+	if finding.Status != StatusFailed {
+		t.Errorf("status = %v, want Failed: a rule for one .env vouched for the "+
+			"name entry that refuses every .env: %s", finding.Status, finding.Detail)
 	}
 }
 
