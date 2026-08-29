@@ -521,10 +521,7 @@ func (s *Server) opStatus() protocol.Response {
 	if s.Store.Degraded() != "" {
 		code = 1
 	}
-	return protocol.Response{
-		"exit_code": code, "output": string(body) + "\n",
-		"truncated": false, "redactions": []any{}, "log_id": nil,
-	}
+	return okResponse(code, string(body)+"\n")
 }
 
 // opRedact scrubs text the caller already holds, so a session outside the
@@ -558,10 +555,9 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer,
 		output += stream.redactor.Flush()
 		stream.finish(s, peer)
 	}
-	return protocol.Response{
-		"exit_code": 0, "output": output, "truncated": false,
-		"redactions": stream.redactor.Summary(), "log_id": stream.logID,
-	}
+	response := okResponse(0, output)
+	response["redactions"], response["log_id"] = stream.redactor.Summary(), stream.logID
+	return response
 }
 
 // redactStream is what one connection's redact carries between chunks: the
@@ -626,10 +622,9 @@ func (s *Server) opRefresh(peer *sockutil.Peer) protocol.Response {
 				"did not re-read the store; the refresh interval covers it", refreshWait), "")
 	}
 	refs := s.Store.Refs()
-	return protocol.Response{
-		"exit_code": 0, "output": "", "truncated": false,
-		"redactions": []any{}, "log_id": nil, "refs": refs,
-	}
+	response := okResponse(0, "")
+	response["refs"] = refs
+	return response
 }
 
 // refreshWait bounds what the refresh op waits for a reload already in flight.
@@ -657,12 +652,9 @@ func (s *Server) opEscalate(request *protocol.Request, peer *sockutil.Peer) prot
 	// A refusal is a response rather than an error: the helper reports it to PAM
 	// as a failed authentication, which is what sudo has to see. The code rides
 	// beside the reason, a refusal and an expiry reading alike in prose.
-	return protocol.Response{
-		"exit_code": 0, "approved": approved, "reason": reason,
-		"outcome_code": code,
-		"output":       reason + "\n", "truncated": false,
-		"redactions": []any{}, "log_id": nil,
-	}
+	response := okResponse(0, reason+"\n")
+	response["approved"], response["reason"], response["outcome_code"] = approved, reason, code
+	return response
 }
 
 func (s *Server) opEscalations(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
@@ -688,10 +680,8 @@ func (s *Server) opEscalations(request *protocol.Request, peer *sockutil.Peer) p
 		return protocol.ErrorResponse("internal", "the questions could not be "+
 			"rendered: "+err.Error(), "")
 	}
-	response := protocol.Response{
-		"exit_code": 0, "output": string(body) + "\n", "questions": questions,
-		"truncated": false, "redactions": []any{}, "log_id": nil,
-	}
+	response := okResponse(0, string(body)+"\n")
+	response["questions"] = questions
 	if finished != nil {
 		response["finished"] = finished
 	}
@@ -723,10 +713,7 @@ func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) proto
 	if request.Approve {
 		verdict = "approved"
 	}
-	return protocol.Response{
-		"exit_code": 0, "output": request.ID + " " + verdict + "\n",
-		"truncated": false, "redactions": []any{}, "log_id": nil,
-	}
+	return okResponse(0, request.ID+" "+verdict+"\n")
 }
 
 // maxEscalationWait bounds a watcher's long poll. It returns an empty list and
@@ -748,10 +735,9 @@ func (s *Server) opListSecrets() protocol.Response {
 	for _, ref := range refs {
 		output.WriteString("faramir://" + ref + "\n")
 	}
-	return protocol.Response{
-		"exit_code": 0, "output": output.String(),
-		"truncated": false, "redactions": []any{}, "log_id": nil, "refs": refs,
-	}
+	response := okResponse(0, output.String())
+	response["refs"] = refs
+	return response
 }
 
 // refuseUnreadable is the gate on the two ops whose output is redacted against
@@ -904,6 +890,17 @@ func addRunConditions(record map[string]any, result *executor.Result) {
 	// status, so the log does not read the code as a signal kill.
 	if result.StatusUnknown {
 		record["status_unknown"] = true
+	}
+}
+
+// okResponse is the base success shape every op answers with, the five keys
+// docs/protocol.md documents; an op adds its own beside them, and the run op
+// builds its response from the executor's result instead. log_id is JSON null
+// where a response has no record to cite.
+func okResponse(exitCode int, output string) protocol.Response {
+	return protocol.Response{
+		"exit_code": exitCode, "output": output, "truncated": false,
+		"redactions": []any{}, "log_id": nil,
 	}
 }
 
