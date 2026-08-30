@@ -24,6 +24,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/execserver"
 	"github.com/andornaut/faramir/internal/executor"
@@ -68,16 +69,25 @@ type Server struct {
 
 // New builds the broker over one config.
 //
-// ownDirs is what this install occupies, from the caller rather than read here:
-// where those directories are is the installer's to know, and a daemon that
-// worked it out for itself would be a second answer to drift from.
-func New(ownDirs []string, cfg *config.Config) *Server {
+// ownDirs is what this install occupies and actions are the rules about
+// faramir's own commands and files, both from the caller rather than worked out
+// here: where the install put itself is the installer's to know, and the action
+// rules are the guard's to spell. A daemon that derived either would be a
+// second answer to drift from, which is how the commands that act on the
+// install came to be refused to a shell and allowed to a brokered command.
+func New(ownDirs []string, actions []denyrules.Rule, cfg *config.Config) *Server {
 	s := &Server{
 		Config: cfg,
 		// What this host declares, as the rules a brokered command is held to.
 		// Compiled once: the entries change by `faramir block add` and `faramir
 		// link add`, each of which rewrites the config and restarts what reads it.
-		declared:   newDeclaredCheck(agentHomeDir(cfg.Server.AgentUser), ownDirs, cfg.Secret),
+		// Actions first, which is the order the guard's rendered file puts them
+		// in and for the same reason: a command that is both an operator command
+		// and a named path is told it is an operator command, that being the more
+		// useful of the two answers. First match wins on either side, so the order
+		// is part of what the two tiers share.
+		declared: newDeclaredCheck(append(actions,
+			denyrules.For(agentHomeDir(cfg.Server.AgentUser), ownDirs, cfg.Secret)...)),
 		Store:      secretstore.New(cfg.Secret, cfg.Keeper),
 		Audit:      audit.NewLog(cfg.Audit),
 		Ssh:        sshagent.New(cfg.Ssh),

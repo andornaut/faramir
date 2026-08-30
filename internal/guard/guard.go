@@ -94,7 +94,8 @@ func fallbackPatterns() []string {
 		subjects = append(subjects, denyrules.Dir(dir))
 	}
 	// fallbackOwn first: a line can match both, and the rule that says something
-	// more specific than "this path is declared" is the one worth reporting.
+	// more specific than "this path is in the blocks or the links" is the one
+	// worth reporting.
 	out := append([]string{}, fallbackOwn...)
 	return append(out, denyrules.NamingAs(denyrules.KindOwn, subjects)...)
 }
@@ -112,7 +113,33 @@ const pluginFiles = `(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/age
 
 // fallbackOwn is the rest of faramir's own: its binary, the files an enrolment
 // installs, and the commands that act on the install rather than through it.
-var fallbackOwn = []string{
+//
+// Flattened from ActionRules rather than listed again, so the groups and their
+// order are stated once. Listing them twice made a group added to one and not
+// the other reach a tier and no more, which is the drift the catalogue exists
+// to remove. The order is the shipped file's, which
+// TestTheFallbackMatchesTheShippedFile compares line by line.
+var fallbackOwn = denyrules.GuardRules(ActionRules())
+
+// ActionRules is what a brokered command is held to on this same ground, as
+// catalogue rules. The broker holds no list of its own: these are patterns
+// rather than a function of the config, they are spelled here, and a copy over
+// there would be the second inventory that let `faramir run -- faramir vault
+// ls` through while the shell spelling was refused.
+//
+// Whole patterns rather than subjects. They are about what a command does
+// rather than what it points at, so there is no looser reading to give one and
+// both tiers take them as written.
+func ActionRules() []denyrules.Rule {
+	return []denyrules.Rule{
+		{Kind: denyrules.KindOwnAction, Patterns: fallbackOwnFiles},
+		{Kind: denyrules.KindOperator, Patterns: fallbackOperator},
+		{Kind: denyrules.KindOwnAction, Patterns: fallbackOwnUnits},
+	}
+}
+
+// fallbackOwnFiles is faramir's own binary and the files an enrolment installs.
+var fallbackOwnFiles = []string{
 	// The binary, named as one path rather than as its directory, or installing
 	// any unrelated tool into /usr/local/bin would be refused.
 	denyrules.WriteCommands + denyrules.ArgSpan + `/usr/local/bin/faramir\b`,
@@ -135,6 +162,11 @@ var fallbackOwn = []string{
 	// registration that went missing.
 	denyrules.WriteCommands + denyrules.ArgSpan + pluginFiles,
 	`>\s*\S*` + pluginFiles,
+}
+
+// fallbackOperator is the commands that act on the install rather than through
+// it, which are the operator's by either route.
+var fallbackOperator = []string{
 	// faramir under sudo, whichever subcommand. Nothing an agent may run needs
 	// root -- `run`, `redact`, `status` and `refs` all answer as the agent's own
 	// account -- so a sudo here is a daemon, a decision that is the operator's, or
@@ -150,9 +182,12 @@ var fallbackOwn = []string{
 	// held to this one by TestTheFallbackMatchesTheShippedFile.
 	`\bfaramir[-\s]+(` + sanctionAlternation(cli.OperatorOnly()) + `)\b`,
 	`\bsudo\b.*-u\s+faramir`,
-	// Blocked for what it costs, not because it hides anything: the wrapper fails
-	// closed, so a stopped broker withholds every command's output in every
-	// enrolled tree at once.
+}
+
+// fallbackOwnUnits is managing one of faramir's units. Blocked for what it
+// costs, not because it hides anything: the wrapper fails closed, so a stopped
+// broker withholds every command's output in every enrolled tree at once.
+var fallbackOwnUnits = []string{
 	`\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`,
 }
 
@@ -164,7 +199,10 @@ const adviceOperator = "Blocked: this is an operator command. It acts on the far
 	"could not carry it out either.\n\nAsk the operator to run it. What you can run: " +
 	"`faramir run`, `faramir refs`, `faramir status`, `faramir redact`, and the " +
 	"commands that only describe the install: `faramir doctor`, `faramir block ls`, " +
-	"`faramir link ls` and `faramir reader ls`."
+	"`faramir link ls` and `faramir reader ls`.\n\nWhere `faramir doctor` says to run " +
+	"it as root for the rest of an answer, that line is addressed to the operator. The " +
+	"checks it names are the ones your account cannot make, and running the same command " +
+	"under sudo is refused here."
 
 // The declared-path messages, one per kind of entry, chosen by the named group
 // the rule carries. The rule itself is the same shape in all three: a path
@@ -221,7 +259,7 @@ const adviceOwnPath = "Blocked: this is one of faramir's own directories" + advi
 // Disclosure rather than one of the narrower messages, because being wrong this
 // way costs a detour and being wrong the other way tells an agent that the
 // operator's own secret is faramir's file.
-const adviceDeclared = "Blocked: this path is declared on this host" + adviceNamed + adviceRoute +
+const adviceDeclared = "Blocked: this path is in the blocks or the links on this host" + adviceNamed + adviceRoute +
 	"\n\nOtherwise this is the operator's to do, or to unblock: `faramir block rm` for a path they " +
 	"blocked, `faramir link rm` for one a link reads. `faramir block ls` and `faramir link ls` say which it is, and " +
 	"you may run both. The directories the install occupies are on neither list and are not " +
@@ -230,10 +268,11 @@ const adviceDeclared = "Blocked: this path is declared on this host" + adviceNam
 // adviceCommand is for a `[[secret.block]]` entry naming a command rather than a
 // path. The remedy is the same shape and the subject is not: telling somebody
 // who ran `op read` that a path is declared names nothing they typed.
-const adviceCommand = "Blocked: this host declares this command, so neither your shell nor a " +
-	"brokered command may run it.\n\nThe words are matched where a command starts, so naming " +
-	"it in a search or a comment is left alone. If the work needs it, it is the operator's to " +
-	"do, or to unblock with `faramir block rm --command`."
+const adviceCommand = "Blocked: this command is in the blocks on this host, so neither your shell nor a " +
+	"brokered command may run it.\n\nThe words are matched where a command starts, so the same " +
+	"words inside an argument or a path are left alone; a line of a heredoc is read as a command " +
+	"and is not, so write a document with your editing tool rather than a shell heredoc. If the " +
+	"work needs it, it is the operator's to do, or to unblock with `faramir block rm --command`."
 
 // adviceOwn is for the rules that are not about disclosure. Acting on
 // faramir's own files, accounts or units discloses nothing, and the disclosure
@@ -255,13 +294,11 @@ var adviceMarkers = []struct {
 	marker string
 	advice string
 }{
-	// The declared-path rules, which say which kind they are: the group is
-	// written into the rule by denyrules.NamingAs and matches exactly what the
-	// rule matched. First, because a rule that names its own kind is not
-	// something a later marker should be able to reinterpret.
-	{denyrules.KindMarker(denyrules.KindOwn), adviceOwnPath},
-	{denyrules.KindMarker(denyrules.KindBlocked), adviceBlockedPath},
-	{denyrules.KindMarker(denyrules.KindLinked), adviceLinkedPath},
+	// These are the legacy path, reached only for a rule the kinds could not
+	// place: a file rendered by an install from before them, or an action rule
+	// whose spelling has since changed. A substring of a pattern is a fragile way
+	// to ask what a rule is about, and it is what the kinds replace.
+	//
 	// A faramir subcommand under sudo, and running as one of the service
 	// accounts. The second spells no word boundary after the name, the account
 	// names carrying a suffix, so the marker stops where the two agree.
@@ -292,12 +329,40 @@ var adviceMarkers = []struct {
 	{denyrules.CommandPosition, adviceCommand},
 }
 
+// byKind is the message per catalogue kind, which is the same vocabulary the
+// broker answers from. Two tables rather than one because the two tiers say
+// different things: a brokered refusal talks about the account on the far side
+// of it, and this one talks about your tools and your shell. What they share is
+// what decides which sentence, so a kind cannot be answered here and forgotten
+// there.
+var byKind = map[denyrules.Kind]string{
+	denyrules.KindOwn:       adviceOwnPath,
+	denyrules.KindBlocked:   adviceBlockedPath,
+	denyrules.KindLinked:    adviceLinkedPath,
+	denyrules.KindCommand:   adviceCommand,
+	denyrules.KindOperator:  adviceOperator,
+	denyrules.KindOwnAction: adviceOwn,
+}
+
 // adviceFor picks the explanation that matches why the command was refused.
 // The pattern is the whole input: a rule about a declared path carries the kind
-// of entry that declared it, and the rest are told apart by what they match.
-// Unclassified means disclosure, which is the larger half and the safer
-// default.
+// of entry that declared it, and an action rule carries no kind and is told
+// apart by what it matches. Unclassified means disclosure, which is the larger
+// half and the safer default.
+//
+// No exact lookup of the action patterns against ActionRules, which would look
+// like the better answer and is not: the rendered file interpolates the bin
+// directory, so on a host that moved it the line is not the string this binary
+// carries and only the markers below reach it. One classifier that answers
+// every spelling beats two that agree on some of them.
 func adviceFor(pattern string) string {
+	// The kind a path rule carries, written into it by denyrules.NamingAs as a
+	// named group that matches exactly what the rule matched.
+	for _, kind := range denyrules.Kinds() {
+		if strings.Contains(pattern, denyrules.KindMarker(kind)) {
+			return byKind[kind]
+		}
+	}
 	for _, m := range adviceMarkers {
 		if strings.Contains(pattern, m.marker) {
 			return m.advice
@@ -430,13 +495,13 @@ func withConfigDir(raw []string) []string {
 	return raw
 }
 
-// compilePatterns compiles each pattern case-insensitively. complete is false
-// when any line did not compile.
+// compilePatterns compiles each pattern the way denyrules says one is read.
+// complete is false when any line did not compile.
 func compilePatterns(raw []string) (out []compiled, complete bool) {
 	complete = true
 	out = make([]compiled, 0, len(raw))
 	for _, pattern := range raw {
-		re, err := regexp.Compile("(?i)" + pattern)
+		re, err := denyrules.Compile(pattern)
 		if err != nil {
 			complete = false
 			continue

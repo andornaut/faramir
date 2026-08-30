@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
@@ -12,14 +13,14 @@ import (
 // a "~" against: the spellings that need one are the agent's own shell's, and
 // this is the brokered route.
 func blocking(entries ...config.BlockedPath) declaredCheck {
-	return newDeclaredCheck("", nil, config.SecretConfig{Blocked: entries})
+	return newDeclaredCheck(denyrules.For("", nil, config.SecretConfig{Blocked: entries}))
 }
 
 // linking is the same for a [[secret.link]] entry, which is held to the same
 // rule: the file holds more than the one ref a link selects, and the rest of it
 // is in no redactor.
 func linking(links ...config.Link) declaredCheck {
-	return newDeclaredCheck("", nil, config.SecretConfig{Links: links})
+	return newDeclaredCheck(denyrules.For("", nil, config.SecretConfig{Links: links}))
 }
 
 func pathEntry(path string) config.BlockedPath { return config.BlockedPath{Path: path} }
@@ -40,8 +41,8 @@ func TestABrokeredCommandMayNotReadABlockedPath(t *testing.T) {
 		t.Fatal("a brokered `cat` of a declared path was allowed, which is the whole " +
 			"of what the entry was written to prevent")
 	}
-	if !strings.Contains(rule.what, "/srv/keys/luks.key") {
-		t.Errorf("the refusal names %q, want the entry that matched", rule.what)
+	if !strings.Contains(declaredSubject(rule), "/srv/keys/luks.key") {
+		t.Errorf("the refusal names %q, want the entry that matched", declaredSubject(rule))
 	}
 }
 
@@ -85,7 +86,7 @@ func TestABrokeredCommandMayStillWorkOnABlockedPath(t *testing.T) {
 	} {
 		if rule, refused := check.refuses(cmd, "/tmp"); refused {
 			t.Errorf("%v was refused by %q: it names the file, it does not read it",
-				cmd, rule.what)
+				cmd, declaredSubject(rule))
 		}
 	}
 }
@@ -434,7 +435,7 @@ func TestAnStrictRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
 // route, where a mode is no answer: a brokered command runs as an account of its
 // own, and as root wherever an escalation was approved.
 func occupying(dirs ...string) declaredCheck {
-	return newDeclaredCheck("", dirs, config.SecretConfig{})
+	return newDeclaredCheck(denyrules.For("", dirs, config.SecretConfig{}))
 }
 
 // A brokered command may not name one, whatever it would do with it, which is
@@ -486,5 +487,57 @@ func TestTheOwnDirectoryRefusalOffersNoRemoval(t *testing.T) {
 	}
 	if !strings.Contains(message, "no entry to remove") {
 		t.Errorf("the refusal does not say why there is nothing to take back: %s", message)
+	}
+}
+
+// A command entry gets the sentence written for a command. Told instead what a
+// reader may still do to a file, somebody who ran `op read` is being answered
+// about a path they never typed.
+func TestACommandRefusalIsNotWrittenAboutAPath(t *testing.T) {
+	rule, refused := newDeclaredCheck(denyrules.For("", nil, config.SecretConfig{
+		Blocked: []config.BlockedPath{{Command: "op read"}},
+	})).refuses([]string{"op", "read", "op://vault/item/field"}, "/tmp")
+	if !refused {
+		t.Fatal("a blocked command ran, so this asserts nothing")
+	}
+
+	said := declaredRefusal(rule)
+	for _, want := range []string{"the blocks", "no brokered command may run it"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, said)
+		}
+	}
+	// The path tail, which is about a file and has none to be about here.
+	for _, unwanted := range []string{"`cp`, `tee` and `sed`", "whatever it does to the file"} {
+		if strings.Contains(said, unwanted) {
+			t.Errorf("the refusal for a command carries %q, which is a path's sentence:\n%s",
+				unwanted, said)
+		}
+	}
+}
+
+// Which list the entry is in, rather than that it was declared: "declared" names
+// no command the reader can run, and the two lists have two different removals.
+func TestARefusalNamesTheListTheEntryIsIn(t *testing.T) {
+	blocked, _ := blocking(pathEntry("/srv/keys/luks.key")).
+		refuses([]string{"cat", "/srv/keys/luks.key"}, "/tmp")
+	if said := declaredRefusal(blocked); !strings.Contains(said, "the blocks on this host") {
+		t.Errorf("a blocked path's refusal does not name the blocks:\n%s", said)
+	}
+
+	linked, _ := linking(config.Link{
+		Ref: "gh/token", Path: "/home/op/.config/gh/hosts.yml", Type: "yaml",
+		Key: "github.com/oauth_token"}).
+		refuses([]string{"cat", "/home/op/.config/gh/hosts.yml"}, "/tmp")
+	if said := declaredRefusal(linked); !strings.Contains(said, "the links on this host") {
+		t.Errorf("a linked file's refusal does not name the links:\n%s", said)
+	}
+
+	// A strict entry says so inside its own subject, ending on a comma that the
+	// clause after it supplies as well.
+	strict, _ := blocking(config.BlockedPath{Path: "/srv/keys/luks.key", Strict: true}).
+		refuses([]string{"ls", "/srv/keys/luks.key"}, "/tmp")
+	if said := declaredRefusal(strict); strings.Contains(said, ",,") {
+		t.Errorf("the refusal punctuates the subject twice:\n%s", said)
 	}
 }

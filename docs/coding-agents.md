@@ -10,20 +10,20 @@ Which agents are supported, and what enrolling each costs, is the table in the [
 means the agent cannot do it and nothing here pretends otherwise. **N/A** means
 the agent needs no such thing.
 
-Feature | Claude Code | Codex | agy | Antigravity IDE | opencode | Kilo Code | pi
+Feature | agy | Antigravity IDE | Claude Code | Codex | Kilo Code | opencode | pi
 --- | --- | --- | --- | --- | --- | --- | ---
-Command routed through the broker | Enrolled trees | Enrolled trees | Yes | Yes | Yes | Yes | Yes
-Its output redacted | Enrolled trees | Enrolled trees | Yes | Yes | Yes | Yes | Yes
+Command routed through the broker | Yes | Yes | Enrolled trees | Enrolled trees | Yes | Yes | Yes
+Its output redacted | Yes | Yes | Enrolled trees | Enrolled trees | Yes | Yes | Yes
 Deny list refuses a command | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 A backgrounded command streams rather than buffering | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 File tools refused | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 &nbsp;&nbsp;by a rule file the agent enforces | Yes | No | Yes | No | No | No | No
-&nbsp;&nbsp;by faramir itself | N/A | Yes | Yes | Yes | Yes | Yes | Yes
+&nbsp;&nbsp;by faramir itself | Yes | Yes | N/A | Yes | Yes | Yes | Yes
 The route reaches the agent | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 Credentials section in the file it reads | Yes | Yes | Yes | Yes | Yes | Yes | Yes
-Enrolment costs a permission prompt | Bash | Bash | N/A | N/A | N/A | N/A | N/A
-Configuration written into a tree | The routing hook | The routing hook | None | None | None | None | None
-Runs a hook only once told to trust it | No | Yes | No | No | N/A | N/A | N/A
+Enrolment costs a permission prompt | N/A | N/A | Bash | Bash | N/A | N/A | N/A
+Configuration written into a tree | None | None | The routing hook | The routing hook | None | None | None
+Runs a hook only once told to trust it | No | No | No | Yes | N/A | N/A | N/A
 
 Everything here is account-wide unless a cell says otherwise: `faramir init`
 installs the guard into a home, and it holds in every directory the agent works
@@ -112,7 +112,7 @@ Five agents cannot rely on a rule file: pi, Codex and the Antigravity IDE have n
 
 ### What a rule matches
 
-A declared path covers itself and everything under it, and is refused in the spellings a shell expands to it: `~/`, `$HOME/` and `${HOME}/`. A space in one is matched quoted and backslash-escaped alike, both reaching the same file. See [configuration.md](configuration.md#blocked-paths).
+A declared path covers itself and everything under it, and is refused in the spellings a shell expands to it: `~/`, `$HOME/` and `${HOME}/`. A path under a home whose tail holds a `/` or opens on a dot is refused by that tail as well, so a `cd` first buys nothing: `cd $HOME && cat .ssh/id_rsa` is refused as the absolute form is. A space in one is matched quoted and backslash-escaped alike, both reaching the same file. See [configuration.md](configuration.md#blocked-paths).
 
 A path this install names is a literal, so the guard tries the spellings that mean the same file: as the tool gave it, with `~` expanded, and with dot segments and doubled separators removed. A relative path is resolved as well, against the directory the payload names where the host sends one and otherwise against the guard's own: the plugin and the extension run inside the agent's own process, so the guard's working directory is the one the call meant, and a hook host runs the guard as a program of its own and promises nothing about where. A hook host that names no directory has a relative path asked about as written.
 

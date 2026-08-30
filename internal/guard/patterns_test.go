@@ -233,14 +233,14 @@ func TestTheWriteVerbsAreStillRefused(t *testing.T) {
 // cannot help.
 func TestADeclaredPathIsAnsweredByItsKind(t *testing.T) {
 	for _, tc := range []struct {
-		kind string
+		kind denyrules.Kind
 		want string
 	}{
 		{denyrules.KindBlocked, adviceBlockedPath},
 		{denyrules.KindLinked, adviceLinkedPath},
 		{denyrules.KindOwn, adviceOwnPath},
 	} {
-		t.Run(tc.kind, func(t *testing.T) {
+		t.Run(string(tc.kind), func(t *testing.T) {
 			rules := denyrules.NamingAs(tc.kind, []string{denyrules.Dir("/srv/luks.key")})
 			if len(rules) != 1 {
 				t.Fatalf("%d rules for one subject, want 1", len(rules))

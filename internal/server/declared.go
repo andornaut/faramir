@@ -7,7 +7,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
 )
 
@@ -41,112 +40,49 @@ import (
 // refused, `ls` and `chmod` with the rest.
 type declaredCheck struct{ rules []declaredRule }
 
-// declaredRule is one compiled pattern and what it was built from, so a refusal
-// names the entry that matched rather than the set. `faramir block ls` and
-// `faramir link ls` are where the whole list is readable, which is what makes
-// naming the one entry safe.
+// declaredRule is one compiled pattern beside the catalogue entry it came from,
+// so a refusal names the entry that matched rather than the set. The two
+// listings are where the whole list is readable, which is what makes naming the
+// one entry safe.
 type declaredRule struct {
+	// The catalogue entry, which is what the refusal is written out of: the kind
+	// decides which message, and the entry, the ref and the remedy fill it in.
+	denyrules.Rule
+
 	re *regexp.Regexp
-	// what the operator declared, as the refusal says it.
-	what string
-	// remedy is the command that takes the entry back out, empty for a rule no
-	// entry stands behind: this install's own directories are rendered from the
-	// layout and there is nothing to remove.
-	remedy string
-	// strict is the entry the operator asked to have refused wherever it is
-	// named. The refusal has to say so: the sentence a looser entry ends on tells
-	// the reader that changing the file is left alone, which for this one is the
-	// opposite of what just happened.
-	strict bool
 }
 
-// newDeclaredCheck compiles what this host declares. Built once, from the
-// config the daemon started on: `faramir block add` and `faramir link add`
-// re-run the install, which rewrites config.toml and restarts what reads it.
+// newDeclaredCheck compiles the catalogue into the rules a brokered command is
+// held to. Built once, from the config the daemon started on: an entry changes
+// only by a command that re-runs the install, which rewrites config.toml and
+// restarts what reads it.
 //
-// A rule per entry rather than one alternation over all of them. The rendered
-// pattern file packs them, having no message to write; here the entry is the
-// message.
+// A rule per pattern rather than one alternation over all of them. The guard's
+// rendered file packs them, having no message to keep beside one; here the
+// entry is the message.
 //
-// agentHome is the home a "~" stands for, empty where it cannot be resolved. A
-// brokered command's argv carries no shell expansion, but its `sh -c` string
-// does, and that is the spelling a model writes.
-func newDeclaredCheck(agentHome string, ownDirs []string, secret config.SecretConfig) declaredCheck {
-	var out []declaredRule
-	add := func(what, remedy string, strict bool, sources []string) {
-		for _, source := range sources {
-			re, err := regexp.Compile(source)
+// The catalogue itself comes from denyrules.For, which the installer renders
+// the guard's file from as well. That is the point of it: a rule reaching one
+// tier and not the other used to be a thing that could happen quietly, and the
+// commands that act on the install were exactly that.
+func newDeclaredCheck(rules []denyrules.Rule) declaredCheck {
+	out := make([]declaredRule, 0, len(rules))
+	for _, rule := range rules {
+		for _, source := range rule.Broker() {
+			// Through denyrules, which is where how a rule is read is decided.
+			// One inventory read two ways is two inventories again.
+			re, err := denyrules.Compile(source)
 			// A pattern that will not compile is left out rather than failing the
 			// daemon: the loader has already held every entry to its form, so this
 			// is unreachable, and a broker that refuses to start refuses every
-			// command on the host over one declared name.
+			// command on the host over one name.
 			if err != nil {
 				continue
 			}
-			out = append(out, declaredRule{
-				re: re, what: what, remedy: remedy, strict: strict,
-			})
+			out = append(out, declaredRule{re: re, Rule: rule})
 		}
-	}
-	// how an entry's subject is matched: every command naming it where the
-	// operator asked for that, and the disclosing ones otherwise.
-	rulesFor := func(subject string, strict bool) []string {
-		if strict {
-			return denyrules.Naming([]string{subject})
-		}
-		return denyrules.Disclosing([]string{subject})
-	}
-	// This install's own directories, which no entry declares and no removal
-	// takes back. Held to the shape a strict entry gets, no command may name it,
-	// rather than the looser reading a declared path gets: the looser one exists
-	// so a brokered command can still manage a credential file, and nothing
-	// brokered has an install to manage. Under an approved escalation this side
-	// runs as root, where the modes that keep the agent out of the age key stop
-	// answering, so this is the rule that does.
-	//
-	// A command that only sets the install up is untouched: the rules match the
-	// text of a command, so `sudo ansible-playbook site.yml` goes through and
-	// `sudo cat <config-dir>/age.key` does not.
-	for _, dir := range ownDirs {
-		add(dir+", which is faramir's own and which no command may name at all,",
-			"", true, denyrules.Naming([]string{denyrules.DirUnder(agentHome, dir)}))
-	}
-	for _, entry := range secret.Blocked {
-		const remedy = "`faramir block rm`"
-		switch {
-		case entry.Command != "":
-			// A command entry is already about what a command does, so it is matched
-			// as itself rather than as a subject for the rules above. The loader
-			// refuses strict on one, there being no looser reading to tighten.
-			if rule := denyrules.CommandRule(entry.Command); rule != "" {
-				add("the command "+entry.Command, remedy, false, []string{rule})
-			}
-		case entry.Path != "":
-			add(named("the path "+entry.Path, entry.Strict), remedy, entry.Strict,
-				rulesFor(denyrules.DirUnder(agentHome, entry.Path), entry.Strict))
-		}
-	}
-	for _, link := range secret.Links {
-		if link.Path == "" {
-			continue
-		}
-		// The ref as well as the file: what a caller is meant to do with a linked
-		// credential is ask for it by name, and the refusal is where to say so.
-		add(named("the linked file "+link.Path+", which answers "+link.Ref, link.Strict),
-			"`faramir link rm`", link.Strict,
-			rulesFor(denyrules.DirUnder(agentHome, link.Path), link.Strict))
 	}
 	return declaredCheck{rules: out}
-}
-
-// named is how the refusal says what matched, with the stricter entry saying so
-// itself. A command refused for naming a path it never read is one whose author
-// would otherwise reach for a way round it: the sentence has to carry why.
-func named(what string, strict bool) string {
-	if strict {
-		return what + ", which no command may name at all,"
-	}
-	return what
 }
 
 // refuses reports the rule a command would disclose, and whether one did.
@@ -276,34 +212,83 @@ func resolveArgs(cmd []string, cwd string) string {
 // declaredRefusal is what the caller is told, which reaches a model rather than
 // the operator: it names the entry that matched, says why no other answer is
 // available, and leaves the remedy where it belongs.
+//
+// One branch per kind, and the kinds come from the catalogue both tiers are
+// built from, and the switch carries no default, so a kind added there is a
+// lint error here rather than
+// as the wrong sentence. A command entry answered with what a reader may still
+// do to a file is what that used to look like.
 func declaredRefusal(rule declaredRule) string {
+	switch rule.Kind {
+	case denyrules.KindOwn:
+		return "this is " + rule.Entry + ", which is faramir's own, so a brokered " +
+			"command may not name it whatever it would do with it. There is no entry " +
+			"to remove: these are rendered from the install's layout on every run, " +
+			"and this side runs as an account of its own, or as root where an " +
+			"escalation was approved, so a mode is no answer here.\n\nIf this is " +
+			"deliberate, it is the operator's to do, outside faramir."
+	case denyrules.KindOperator:
+		return "this command acts on the faramir install rather than through it, so " +
+			"it is the operator's to run and this route is no way round that: a " +
+			"brokered command runs as an account with less reach than you, not " +
+			"more.\n\nAsk the operator. Where `faramir doctor` says to run it as " +
+			"root for the rest of an answer, that line is addressed to them."
+	case denyrules.KindOwnAction:
+		return "this is faramir's own binary, one of the files an enrolment " +
+			"installs, or one of its units. Refused not because it would disclose " +
+			"anything but because it would change or stop what keeps credentials out " +
+			"of this conversation, and a brokered command has less reach than you " +
+			"rather than more.\n\nIf this is deliberate, it is the operator's to do."
+	case denyrules.KindCommand:
+		// The path tail below is about what a reader may still do to a file, which
+		// names nothing somebody who ran `op read` typed.
+		return rule.Kind.List() + " on this host name the command " + rule.Entry +
+			", so no brokered command may run it. The words are matched where a " +
+			"command starts, so the same words inside an argument or a path are " +
+			"left alone; a line of a heredoc is read as a command and is " +
+			"not.\n\nIf the work needs it, that is the operator's, either " +
+			"outside faramir or after " + rule.Remedy + "."
+	case denyrules.KindBlocked, denyrules.KindLinked:
+		// The path message below.
+	}
 	// What the entry leaves alone, which is the sentence that tells a reader
 	// whether another spelling is worth trying. A strict entry leaves nothing
 	// alone, and saying otherwise sends a model back for the same `ls`.
 	tail := "What is refused is a vocabulary rather than a direction: the " +
 		"readers, wherever the path appears in the line, so `cp`, `tee` and " +
-		"`sed` are refused even where the declared path is what they write to. " +
+		"`sed` are refused even where that path is what they write to. " +
 		"A command outside it is not refused, whatever it does to the file: " +
 		"`chmod`, `rm` and `mv` among them."
-	if rule.strict {
+	if rule.Strict {
 		tail = "Changing it where it stands is refused with the rest, which is " +
 			"what this entry asks for: no command may name it."
 	}
-	if rule.remedy == "" {
-		return "this is " + rule.what + " so a brokered command may not name it. " +
-			"There is no entry to remove: these are rendered from the install's " +
-			"layout on every run, and this side runs as an account of its own, or " +
-			"as root where an escalation was approved, so a mode is no answer " +
-			"here.\n\nIf this is deliberate, it is the operator's to do, outside " +
-			"faramir."
-	}
-	return "this host declares " + rule.what +
-		" and a brokered command may not print what is declared. " +
-		"Its contents are covered by nothing on the way back: a declared file is " +
-		"one faramir either never reads or reads a single ref out of, so there is " +
-		"no value to replace in this command's output.\n\n" +
+	// Only the two path kinds reach here, and both are an entry: they have a
+	// listing to name and a removal to offer, so neither is asked for.
+	return rule.Kind.List() + " on this host name " + declaredSubject(rule) +
+		", and a brokered command may not print what they name. " +
+		"Its contents are covered by nothing on the way back: a file named there " +
+		"is one faramir either never reads or reads a single ref out of, so there " +
+		"is no value to replace in this command's output.\n\n" +
 		"Reading it is the operator's, either outside faramir or after " +
-		rule.remedy + ". " + tail
+		rule.Remedy + ". " + tail
+}
+
+// declaredSubject is how the refusal names a path entry: the file, the ref it
+// answers where a link is what named it, and the stricter entry saying so
+// itself. A command refused for naming a path it never read is one whose author
+// would otherwise reach for a way round it, so the sentence has to carry why.
+func declaredSubject(rule declaredRule) string {
+	what := "the path " + rule.Entry
+	if rule.Ref != "" {
+		// What a caller is meant to do with a linked credential is ask for it by
+		// name, and the refusal is where to say so.
+		what = "the file " + rule.Entry + ", which answers " + rule.Ref
+	}
+	if rule.Strict {
+		what += ", which no command may name at all"
+	}
+	return what
 }
 
 // agentHomeDir is the home a "~" in a command stands for. The agent runs as the

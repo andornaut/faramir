@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
 )
 
@@ -197,36 +198,22 @@ func blockedRulePaths(layout Layout) []string {
 	return out
 }
 
-// declaredPaths is every literal path this install names, split by the entry
-// that named it. A path may be both linked and blocked, and it belongs to the
-// link: the rule is the same either way and only the message differs, and
-// taking back a block over a path a link already covers refuses nothing less.
-//
-// The split rather than the union, because the callers that render one rule per
-// path want the union and the caller that renders one rule per kind wants the
-// parts, and deciding the overlap in each of them is deciding it twice.
-func declaredPaths(layout Layout) (linked, blocked []string) {
-	linked = linkedPaths(layout)
-	isLinked := make(map[string]bool, len(linked))
-	for _, path := range linked {
-		isLinked[path] = true
-	}
-	blocked = make([]string, 0, len(layout.Blocked))
-	for _, path := range blockedRulePaths(layout) {
-		if !isLinked[path] {
-			blocked = append(blocked, path)
-		}
-	}
-	return linked, blocked
-}
-
 // perInstallPaths is every literal path this install names, linked and refused
 // together, deduplicated across the two. The agent rule files are merged rather
 // than replaced, so a rule written twice is a rule nothing takes back out.
+//
+// Read off the catalogue rather than joined here, so the third entry point gets
+// the same set as the other two. Which entry named a path, and which one wins
+// where both did, is decided in one place; a union assembled here would be a
+// second answer that agrees until the first one changes.
 func perInstallPaths(layout Layout) []string {
-	linked, blocked := declaredPaths(layout)
-	out := make([]string, 0, len(linked)+len(blocked))
-	out = append(append(out, linked...), blocked...)
+	rules := catalogue(layout)
+	out := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		if rule.Kind == denyrules.KindBlocked || rule.Kind == denyrules.KindLinked {
+			out = append(out, rule.Entry)
+		}
+	}
 	sort.Strings(out)
 	return out
 }
@@ -336,18 +323,18 @@ func jsonBody(indent, suffix string, items []string) string {
 // The spellings come from internal/denyrules, which internal/guard builds the
 // same rules from for a config directory the rendered file did not name.
 func commandRules(layout Layout) []string {
-	rules := subjectRules(layout)
-	// The commands this host declares, which reach here and nowhere else: a
-	// command is not a path, so no agent's file-tool rules can carry one.
-	for _, entry := range layout.Blocked {
-		if entry.Command == "" {
-			continue
-		}
-		if rule := BlockedCommandRule(entry.Command); rule != "" {
-			rules = append(rules, rule)
-		}
-	}
-	return rules
+	return denyrules.GuardRules(catalogue(layout))
+}
+
+// catalogue is everything this install refuses, in the shape both tiers are
+// built from. The broker builds its own from the config it started on, through
+// the same denyrules.For, which is what keeps one tier from holding a rule the
+// other has never heard of.
+func catalogue(layout Layout) []denyrules.Rule {
+	return denyrules.For(agentHome(layout), installDirs(layout), config.SecretConfig{
+		Blocked: layout.Blocked,
+		Links:   layout.Links,
+	})
 }
 
 // BlockedCommandRule is a declared command as the guard matches it: the words
@@ -361,53 +348,6 @@ func commandRules(layout Layout) []string {
 // exactly like one that works.
 func BlockedCommandRule(command string) string {
 	return denyrules.CommandRule(command)
-}
-
-// subjectRules is every protected thing as a rule, one rule per kind of entry
-// that declared it. Literal paths are quoted whole; a pattern becomes the same
-// matcher pi compiles, without the path anchors: a command line carries a path
-// inside other text, so what anchors it is the reader in front of it rather
-// than the start of a string.
-//
-// Three rules rather than one, because the three kinds have different answers
-// to how an agent stops being refused: `faramir block rm`, `faramir link rm`, and nothing at
-// all. A rule carrying all of them cannot say which, so the refusal had to name
-// both commands and leave the reader to work out which one applied.
-//
-// Bounded the same way whichever kind a path is, so a rule about /etc/faramir
-// is about that directory and not about /etc/faramir-notes.md.
-func subjectRules(layout Layout) []string {
-	home := agentHome(layout)
-
-	own := make([]string, 0, len(installDirs(layout)))
-	for _, dir := range installDirs(layout) {
-		own = append(own, denyrules.DirUnder(home, dir))
-	}
-	linked, blocked := declaredPaths(layout)
-
-	// Own first, matching the order the guard reports a match in: a path that is
-	// both this install's own and declared is the install's, which is the answer
-	// with no removal command to offer.
-	rules := denyrules.NamingAs(denyrules.KindOwn, own)
-	rules = append(rules, denyrules.NamingAs(denyrules.KindBlocked, subjectsUnder(home, blocked))...)
-	return append(rules, denyrules.NamingAs(denyrules.KindLinked, subjectsUnder(home, linked))...)
-}
-
-// subjectsUnder is the fragments that cover one path: the path and everything
-// below it, and a glob in the directory that holds it. A rule for a file
-// carries the file's name and a glob does not, so the second is what keeps
-// `cat <dir>/*` from reaching it. Empty for a path whose parent is a home or
-// the root, which is why it is a fragment of its own rather than part of the
-// first.
-func subjectsUnder(home string, paths []string) []string {
-	out := make([]string, 0, len(paths)*2)
-	for _, path := range paths {
-		out = append(out, denyrules.DirUnder(home, path))
-		if glob := denyrules.GlobUnder(home, path); glob != "" {
-			out = append(out, glob)
-		}
-	}
-	return out
 }
 
 // agentHome is the home the tilde in a command line stands for, and "" where

@@ -161,10 +161,25 @@ func Dir(dir string) string {
 // literal, so `cat ~/.private/x` reaches a file that `cat /home/op/.private/x`
 // is refused, and the tilde is how a person and a model both write a home path.
 //
-// Deliberately not the bare relative spelling. `.private/x` names this file
-// only from one directory and names somebody else's from anywhere else, and the
-// rule cannot tell which. Refusing it everywhere would refuse the file of that
-// name in every tree on the host, which is not what the entry asked for.
+// The bare relative spelling as well, which the four prefixed forms all miss: a
+// command that changes directory first names the file with no prefix at all, so
+// `cd $HOME && cat .private/x` reaches what `cat ~/.private/x` is refused. A
+// rule matched against one command's text cannot follow a working directory, so
+// it matches the tail wherever the tail appears, and a file of the same name in
+// another tree is refused with it. That is a refusal and not a disclosure.
+//
+// That one carries pathStart, unlike the four above it. They open on a `/` or a
+// prefix that cannot sit inside a word; a bare `.npmrc` would otherwise match
+// the tail of `package.npmrc`, which is a different file. A slash is left in
+// the class, the tail under another root being the cost this spelling accepts.
+//
+// And it is written only for a tail that is a path rather than a word: one with
+// a `/` in it, or a name opening on a dot. pathStart stops a match inside a word
+// and not a match on a whole one, so a rule for ~/secrets would otherwise refuse
+// `echo "no secrets here"` and every command naming any /secrets/ anywhere on
+// the host. GlobUnder declines a rule at the same boundary and for the same
+// reason. What that gives up is a tail that is neither: `cd $HOME && cat notes`
+// is not refused, and a path directly under a home wants a name of its own.
 //
 // The list is what a shell expands, not every string that could reach the same
 // file: a command may build a path a way no rule can enumerate, and this is the
@@ -175,12 +190,16 @@ func homeSpellings(home, path string) []string {
 		return []string{quotePath(path)}
 	}
 	tail := quotePath("/" + rest)
-	return []string{
+	out := []string{
 		quotePath(path),
 		regexp.QuoteMeta("~") + tail,
 		regexp.QuoteMeta("$HOME") + tail,
 		regexp.QuoteMeta("${HOME}") + tail,
 	}
+	if strings.Contains(rest, "/") || strings.HasPrefix(rest, ".") {
+		out = append(out, pathStart+quotePath(rest))
+	}
+	return out
 }
 
 // quotePath is QuoteMeta plus the one thing a shell writes two ways: a space in
@@ -288,6 +307,13 @@ func GlobUnder(home, path string) string {
 // does not: the home itself. homeSpellings works on a path under a home and
 // returns the literal alone for the home, so a file directly in a home would
 // lose the `~` spelling that is how a person and a model both write it.
+//
+// The bare tail is kept here as well as in DirUnder, and it is the expensive
+// one: GlobUnder builds its prefix from this and multiplies it against a
+// per-character alternation, which is most of what the tail costs both tiers.
+// What it buys is `cd $HOME && cat <dir>/*`, a glob after a change of
+// directory, which is the shape an agent enumerating a directory writes. The
+// trade was measured and taken.
 func dirSpellings(home, dir string) []string {
 	if cleanHome := strings.TrimSuffix(home, "/"); cleanHome != "" && dir == cleanHome {
 		return []string{
@@ -341,7 +367,7 @@ func Naming(subjects []string) []string {
 
 // subjectRule is the one place a subject rule is spelled, named or not, so the
 // syntax NamingAs writes is the syntax KindMarker looks for.
-func subjectRule(kind string, subjects []string) []string {
+func subjectRule(kind Kind, subjects []string) []string {
 	if len(subjects) == 0 {
 		return nil
 	}
@@ -351,19 +377,6 @@ func subjectRule(kind string, subjects []string) []string {
 	}
 	return []string{open + strings.Join(subjects, `|`) + `)`}
 }
-
-// Kinds of subject, as NamingAs writes them into a rule and adviceFor reads
-// them back out. The strings are part of the rendered file and of the compiled
-// fallback, so they are as fixed as any pattern here.
-const (
-	// KindBlocked is a path a [[secret.block]] entry names.
-	KindBlocked = "blocked"
-	// KindLinked is the file a [[secret.link]] entry reads.
-	KindLinked = "linked"
-	// KindOwn is a directory this install occupies, which no entry declares and
-	// no removal takes back.
-	KindOwn = "own"
-)
 
 // NamingAs is Naming with the kind of entry written into the rule as a named
 // group.
@@ -377,7 +390,7 @@ const (
 // A group rather than a second list beside the patterns, because the rendered
 // file is a list of patterns and nothing else, and a label kept alongside would
 // be a second thing for an install to get out of step.
-func NamingAs(kind string, subjects []string) []string {
+func NamingAs(kind Kind, subjects []string) []string {
 	return subjectRule(kind, subjects)
 }
 
@@ -385,8 +398,8 @@ func NamingAs(kind string, subjects []string) []string {
 // rule as text rather than as a compiled regexp. The guard's shipped file is a
 // list of patterns and its refusal picks a message by what the pattern says, so
 // the marker is written once here rather than spelled again there.
-func KindMarker(kind string) string {
-	return `(?P<` + kind + `>`
+func KindMarker(kind Kind) string {
+	return `(?P<` + string(kind) + `>`
 }
 
 // Disclosing is the rule the broker applies, and the one place a verb list is

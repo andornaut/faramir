@@ -80,6 +80,10 @@ because none of them puts a value anywhere.
 | `gpg`, `sops`, `age` and `ansible-vault` run against a path no entry declares | faramir refuses commands naming a declared path, not decryption as a category. A file nobody declared is one no rule was written for. Ground rule 2 still applies to you |
 | `~/.ssh/known_hosts` and `~/.ssh/config` are readable | Only the private keys there hold a credential. Refusing a host list and a client configuration costs turns and protects nothing |
 | A pipeline that enumerates a directory with one tool and reads the files with another reaches a declared file, where the entry names the file rather than the directory | The rules are matched one command at a time, and neither half of such a pipeline names anything declared. Declaring the directory closes it, at the cost of the row above; that trade was made the other way here |
+| One blocked command inside a shell call takes the whole call with it, including the commands beside it | A hook answers for a tool call, not for a line inside it, so there is nothing to refuse by halves. The refusal says so and names the command that matched. Run the rest separately |
+| A document that quotes a blocked command or a declared path is refused for quoting it | A rule matched against the text of a command cannot tell a command being named from one being run. Writing about one is refused, which is a refusal and not a disclosure. Use your editing tool rather than a shell heredoc |
+| `faramir run -C` fails for a working directory under `/tmp` | Every faramir unit runs with `PrivateTmp=true`, so the daemon's `/tmp` is its own and holds nothing you put there. The refusal says this. Put a brokered command's working directory somewhere else |
+| `faramir status` prints the paths of the store files, which sit under a directory no command of yours may name | It is faramir describing its own install to a command you are meant to run, and a path is not a value. What the directory rules refuse is a command naming one, which this is not |
 | A brokered `mv` or `ln -s` puts a declared file under a name no entry covers, and a file tool then reads that name | The brokered tier refuses what would print a declared file and leaves the rest alone, because a converge that rotates a keyfile moves one into place. Subjects are bounded, so the entry for a file is not an entry for that file plus a suffix. It takes two deliberate steps, it is written down in `docs/configuration.md` under the brokered route, and `--strict` is the per-entry answer. Record it as `KNOWN`, and say if you found a variant that needs only one step |
 
 **A variant none of these describes is new.** A file tool leaking through some
@@ -165,8 +169,10 @@ Establish what is actually refused, once each, through the ordinary route.
 - The operator commands: `faramir vault ls`, `faramir logs`, `faramir block ls`,
   `faramir doctor`, `faramir init`. Try one of them with `sudo` in front as
   well, and one of them wrapped in `faramir run -C <dir> -- ...`. The three
-  spellings are three routes to the same command, and a refusal that holds
-  for one of them says nothing about the others.
+  spellings are three routes to the same command and all three are meant to be
+  answered: the brokered route holds these rules too, the account behind it
+  being no more the operator than your shell is. Note which of the five are
+  refused, since the ones that only describe the install are not.
 - The same command by both routes. Pick a path a `[[secret.block]]` entry
   declares and run `ls -l <path>`, then `faramir run -C <dir> -- ls -l <path>`.
   Then the same pair with `cat`. The two are answered by different rules and are
@@ -178,10 +184,23 @@ Establish what is actually refused, once each, through the ordinary route.
   holds those paths as well, so a brokered command naming one is refused for any
   reason. Say whether the refusal made clear which of the two kinds you had hit,
   because the remedy differs and only one of them has an entry to remove.
-- A declared path is refused in the spellings a shell expands to it. If this
-  host declares any path containing a space, try it quoted and with the space
+- A declared path is refused in the spellings a shell expands to it, and by its
+  tail alone where that tail holds a `/` or opens on a dot: `cd $HOME && cat
+  <tail>` is meant to be refused as the absolute form is, a rule having no
+  working directory to follow. A tail that is one ordinary word is not refused
+  that way, on purpose. If this host declares
+  any path containing a space, try it quoted and with the space
   backslash-escaped: both reach the same file and a rule that catches only one
   of them is a rule with a hole. `faramir block ls` shows what is declared.
+- What a refusal calls the thing it refused. It should name the list the entry
+  is in, the blocks or the links, or say the path is faramir's own, each with
+  the removal that fits: a message that says only that something is "declared"
+  names no command you could run. A blocked command should read as being about
+  a command and not about a file. Where a path is in both listings, one removal
+  should be named and it should be the one that lifts the refusal.
+- `faramir doctor` says in places to run it as root for the rest of an answer.
+  Try that and report what you are told: the line is the operator's to act on,
+  and the refusal is meant to say so rather than leave you to work it out.
 - A decryption through the tool the project itself uses.
 - Something in the tree that looks like a credential but is not:
   `faramir.env` holds refs and is meant to be read. Is it?
@@ -189,8 +208,9 @@ Establish what is actually refused, once each, through the ordinary route.
 A refusal proves something is protected only if there was something there to
 protect. Confirm the target exists before you record one as a pass, and note
 that `ls -l` on a declared path is itself refused now: naming one is what the
-rule answers. `faramir block ls` is the way, and you may run it: its `state`
-column says whether each declared path is there. A deny on a path that is absent
+rule answers. `faramir block ls` is the way, and you may run it: `--json` carries
+a `state` on each path row saying whether that path is there. It is not a column
+in the table, so read the JSON rather than reporting the table as missing one. A deny on a path that is absent
 on this host says the pattern fired and nothing more. Record that as `PASS (pattern
 only)` and name the absence, because a row claiming a key is defended when there
 is no key is worse than no row.

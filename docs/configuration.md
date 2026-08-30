@@ -210,7 +210,7 @@ The deny rules, the command guard's patterns and the broker's own check are buil
 
 Form | Rule
 --- | ---
-`path` | Absolute, and in its shortest form. A rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules of which one matches nothing. A path under a home is also refused in the spellings a shell expands to it: `~/`, `$HOME/` and `${HOME}/`, which is how a person and a model both write one. No bare `~`, which nothing expands here. `/` is refused, being every file on the host. **A wildcard is refused.** A path is matched as written rather than expanded, so `/srv/keys/*.key` would refuse a command typing that pattern and leave `/srv/keys/server.key` readable. Name the directory, which covers everything under it.
+`path` | Absolute, and in its shortest form. A rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules of which one matches nothing. A path under a home is also refused in the spellings a shell expands to it: `~/`, `$HOME/` and `${HOME}/`, which is how a person and a model both write one. No bare `~`, which nothing expands here. The tail on its own goes with them where the tail is a path rather than a word, meaning one holding a `/` or opening on a dot: a rule has no working directory to follow, so `cd $HOME && cat .ssh/id_rsa` is refused, and so is the same tail under another root. A name that is neither, `~/notes` say, is refused only in the four spellings above, a rule for it otherwise refusing every command using the word. `/` is refused, being every file on the host. **A wildcard is refused.** A path is matched as written rather than expanded, so `/srv/keys/*.key` would refuse a command typing that pattern and leave `/srv/keys/server.key` readable. Name the directory, which covers everything under it.
 `command` | A command the agent's shell may not run, written as it would be typed: `op read`, `sops -d`. The words are literal and the space between them matches any run of whitespace, so there is no pattern to get wrong. It reaches the command guard and no file-tool rules, a command not being a path. A single-character word is refused, since it would match nearly every command line.
 
 **A command rule matches where a command starts**, not wherever the words appear: after a separator, a pipe, a subshell, an assignment, `sudo` and its kin, or a shell's `-c` string. So `pass` is safe to declare on its own, where matching anywhere would have refused every `ansible-playbook --ask-become-pass`, and a `grep` that merely names a declared command is left alone. The cost runs the other way: a command reached through a wrapper the anchor does not know is missed. That is the better error for a list [the design says is not the boundary](design.md#three-layers): it is there to catch an accident, and an accident is typed rather than wrapped.
@@ -243,7 +243,9 @@ A managed or linked value is covered whichever route reads it, the command being
 
 ### The brokered route
 
-**A brokered command may not read a declared file either.** The agent's deny rules and the guard cover its own file tools and its own shell, and a brokered command is neither: what it runs, it runs as another uid on the far side of the broker. So the broker holds the same entries itself and refuses the command before it runs, with the [`blocked`](protocol.md) code. The refusal names the entry that matched.
+**A brokered command may not read a declared file either.** The agent's deny rules and the guard cover its own file tools and its own shell, and a brokered command is neither: what it runs, it runs as another uid on the far side of the broker. So the broker holds the same entries itself and refuses the command before it runs, with the [`blocked`](protocol.md) code. The refusal names the entry that matched and the list it is in.
+
+Both tiers are built from one catalogue and read it the same way, case included, so an entry cannot reach one and miss the other. What each tier does with a rule differs and is meant to: the guard packs the paths into one pattern per kind, a file of patterns having nowhere to keep a message, and the broker keeps a rule per entry so it can name that entry. The rules about faramir's own commands are in it too, which is why `faramir run -- faramir vault ls` is refused here as the bare spelling is refused to a shell: the account on the far side of the broker is not the operator either.
 
 `[[secret.link]]` entries are held to the same rule, for a reason of their own. A linked ref comes back tokenised wherever it appears, but a file holds more than the one key a link selects, and the rest of it is in no redactor. The mode that keeps the executor's uid out of a linked file is checked at install time and by `doctor`; this is the same bound at the moment the command runs.
 
@@ -295,6 +297,8 @@ A brokered command cannot print it | Yes | Yes
 Held away from the executor's uid by the mode | Yes, checked and reported | No, the mode is nobody's business here
 The value is in the redactor, tokenised wherever it appears | Yes | No, faramir never reads it
 Injectable by ref | Yes | No
+
+**A path may carry both, and the link is the entry that stays.** The rule is the same either way and only the message differs, so one path renders one rule, and a refusal names the removal that lifts it rather than one that leaves the other entry refusing. What the dropped entry still carries is `--strict`: the two are two readings of one path and the stricter is what the pair asked for, so a block written strict keeps that reading when the link beside it was not. Both are still listed, `faramir block ls` and `faramir link ls` each showing their own.
 
 ## The sockets belong to their units
 

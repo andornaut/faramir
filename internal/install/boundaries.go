@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
@@ -433,7 +434,7 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 func uncompilable(rules []string) []string {
 	var out []string
 	for _, rule := range rules {
-		if _, err := regexp.Compile("(?i)" + rule); err != nil {
+		if _, err := denyrules.Compile(rule); err != nil {
 			out = append(out, rule)
 		}
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/guard"
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/server"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -81,7 +82,10 @@ func runBroker(f brokerFlags) int {
 	if configDir := filepath.Dir(cfg.Path); filepath.IsAbs(configDir) {
 		ownDirs = install.InstalledDirs(configDir)
 	}
-	s := server.New(ownDirs, cfg)
+	// The rules about faramir's own commands and files, which the guard spells
+	// and the broker is now held to as well: they act on the install rather than
+	// through it, and a brokered command is no more the operator than a shell is.
+	s := server.New(ownDirs, guard.ActionRules(), cfg)
 	s.Store.Reload()
 
 	// Before starting the agent: --check runs against a live broker, and a second
