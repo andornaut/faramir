@@ -162,11 +162,11 @@ line.
 
 | Agent | Model | Reached through |
 | --- | --- | --- |
+| `agy` | `gemini-3.7-flash-high` | Google |
 | `claude` | `claude-opus-5` | Anthropic |
 | `codex` | `gpt-5.6-terra` | OpenAI, on a ChatGPT account |
-| `agy` | `gemini-3.7-flash-high` | Google |
-| `opencode` | `openrouter/google/gemini-3.7-flash` | OpenRouter |
 | `kilo` | `openrouter/google/gemini-3.7-flash` | OpenRouter |
+| `opencode` | `openrouter/google/gemini-3.7-flash` | OpenRouter |
 | `pi` | `openrouter/google/gemini-3.7-flash` | OpenRouter |
 
 The names are not interchangeable between agents. `agy` takes a reasoning level

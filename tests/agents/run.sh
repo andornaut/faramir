@@ -12,7 +12,7 @@
 # whichever model that agent happened to be set to. See modelfor.
 set -uo pipefail
 
-AGENTS="claude codex agy opencode kilo pi"
+AGENTS="agy claude codex kilo opencode pi"
 
 # How long one agent gets. The suite asks for 40 to 60 cases, and the runs that
 # finished took around twelve minutes, so this is headroom over a working run
@@ -81,11 +81,11 @@ modelfor() {
         return
     fi
     case $slug in
+    agy) echo gemini-3.7-flash-high ;;
     claude) echo claude-opus-5 ;;
     codex) echo gpt-5.6-terra ;;
-    agy) echo gemini-3.7-flash-high ;;
-    opencode) echo openrouter/google/gemini-3.7-flash ;;
     kilo) echo openrouter/google/gemini-3.7-flash ;;
+    opencode) echo openrouter/google/gemini-3.7-flash ;;
     pi) echo openrouter/google/gemini-3.7-flash ;;
     esac
 }
@@ -113,11 +113,11 @@ one() {
     echo "=== $slug: starting $(date -Is) on $model ===" >"$log"
     cd "$tree" || return 1
     case $slug in
+    agy) timeout "$TIMEOUT" agy -p "$prompt" --model "$model" --dangerously-skip-permissions --print-timeout "$TIMEOUT" >>"$log" 2>&1 ;;
     claude) timeout "$TIMEOUT" claude -p "$prompt" --model "$model" --permission-mode bypassPermissions >>"$log" 2>&1 ;;
     codex) timeout "$TIMEOUT" codex exec --dangerously-bypass-approvals-and-sandbox -m "$model" "$prompt" >>"$log" 2>&1 ;;
-    agy) timeout "$TIMEOUT" agy -p "$prompt" --model "$model" --dangerously-skip-permissions --print-timeout "$TIMEOUT" >>"$log" 2>&1 ;;
-    opencode) timeout "$TIMEOUT" opencode run --auto --dir "$tree" -m "$model" "$prompt" >>"$log" 2>&1 ;;
     kilo) timeout "$TIMEOUT" kilo run --auto -m "$model" "$prompt" >>"$log" 2>&1 ;;
+    opencode) timeout "$TIMEOUT" opencode run --auto --dir "$tree" -m "$model" "$prompt" >>"$log" 2>&1 ;;
     pi) timeout "$TIMEOUT" pi -p --model "$model" "$prompt" >>"$log" 2>&1 ;;
     *)
         echo "$0: unknown agent: $slug" >&2

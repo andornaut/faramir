@@ -3,7 +3,7 @@
 [![Release](https://github.com/andornaut/faramir/actions/workflows/release.yml/badge.svg)](https://github.com/andornaut/faramir/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/MIT)
 
-A secrets broker for local AI coding agents: it runs the commands that need credentials and keeps the values out of the agent's context. Those commands run as a uid that holds nothing.
+A secrets broker for AI coding agents: it runs the commands that need credentials and keeps the values out of the agent's context. Those commands run as a uid that holds nothing.
 
 ```console
 $ faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
@@ -20,13 +20,13 @@ All seven get full redaction: what the agent runs is rewritten into a brokered c
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
-[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook and a credentials section in `CLAUDE.md` in the tree | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
-[Codex](https://developers.openai.com/codex/cli/) | A deny-only `PreToolUse` hook in `~/.codex/hooks.json`; the routing hook in `.codex/hooks.json` and a credentials section in `AGENTS.md` in the tree | The same, and only where Codex is run with approvals on. It has no rule file an install can write, so that hook is what refuses its file tools, `apply_patch` included
-[opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) in `~/.config/opencode/plugin/`; deny patterns in `~/.config/opencode/opencode.json` | None: there is no allow to return, so a plugin that has not denied has not approved
-[Kilo Code](https://kilo.ai/) | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) in `~/.config/kilo/plugin/`, loaded by the CLI and the VS Code extension; deny patterns in `~/.config/kilo/kilo.json` | Same as opencode
-[Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) in `~/.pi/agent/extensions/` | None. Installed in a home rather than a tree, which Pi loads for every project without the project being trusted
 [Antigravity CLI](https://antigravity.google/docs/cli/) (`agy`) | `PreToolUse` hook in `~/.gemini/config/hooks.json`; deny rules in `~/.gemini/antigravity-cli/settings.json`; credentials section in `.agents/rules/faramir.md`, the tree's own `AGENTS.md` and `~/.gemini/GEMINI.md` | None: the permission check runs before the hook, so the guard's allow approves nothing that was going to prompt
 [Antigravity IDE](https://antigravity.google/) | The same hook and the same prose. No account-wide rule file: the hook refuses its file tools instead | None
+[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook and a credentials section in `CLAUDE.md` in the tree | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
+[Codex](https://developers.openai.com/codex/cli/) | A deny-only `PreToolUse` hook in `~/.codex/hooks.json`; the routing hook in `.codex/hooks.json` and a credentials section in `AGENTS.md` in the tree | The same as Claude Code, and only where Codex is run with approvals on. It has no rule file an install can write, so that hook is what refuses its file tools, `apply_patch` included
+[Kilo Code](https://kilo.ai/) | [`tool.execute.before` plugin](https://kilo.ai/docs/automate/extending/plugins) in `~/.config/kilo/plugin/`, loaded by the CLI and the VS Code extension; deny patterns in `~/.config/kilo/kilo.json` | None: there is no allow to return, so a plugin that has not denied has not approved
+[opencode](https://open-code.ai/) | [The same plugin API](https://open-code.ai/en/docs/plugins) in `~/.config/opencode/plugin/`; deny patterns in `~/.config/opencode/opencode.json` | Same as Kilo Code
+[Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) in `~/.pi/agent/extensions/` | None. Installed in a home rather than a tree, which Pi loads for every project without the project being trusted
 
 Choosing agents with `--agent`, repeatable on `init` and `init-project`:
 

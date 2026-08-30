@@ -53,13 +53,13 @@ Every path the install creates, what owns it, and what each account can reach th
 
 Agent | Rule file | What faramir installs beside it | Credentials section | Notes
 --- | --- | --- | --- | ---
-Claude Code | `~/.claude/settings.json` | a deny-only hook, in that same file | `~/.claude/CLAUDE.md` | The ordinary case: a rule file and a section
-Codex | none | a deny-only hook in `~/.codex/hooks.json` | `~/.codex/AGENTS.md` | Its own `.rules` files are an exec policy: they decide commands and name no path, so there is no rule file to write and the hook is what refuses its file tools
-opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/plugin/faramir.js` | `~/.config/opencode/AGENTS.md` | Its rule file is a prompt rather than a refusal, so the plugin is what refuses
-Kilo Code | `~/.config/kilo/kilo.json` | `~/.config/kilo/plugin/faramir.js` | `~/.kilocode/rules/faramir.md` | The same, and it has no single home instructions file, so the section goes in a file of faramir's own in the global rules directory, where every `.md` is loaded for every project
-Pi | none | `~/.pi/agent/extensions/faramir.ts` | `~/.pi/agent/AGENTS.md` | No rule file an install can write, so the extension is the whole of it. Pi loads a home's extensions for every project without the project being trusted
 Antigravity CLI (`agy`) | `~/.gemini/antigravity-cli/settings.json` | the hook in `~/.gemini/config/hooks.json` | `~/.gemini/GEMINI.md` | `~/.gemini` is where the whole Antigravity family keeps its own things, so the section and the hook are shared with the IDE and the deny rules are not
 Antigravity IDE | none | the same hook | `~/.gemini/GEMINI.md` | It keeps its permission lists as its own state rather than in a file an install may write, so that hook is what refuses its file tools
+Claude Code | `~/.claude/settings.json` | a deny-only hook, in that same file | `~/.claude/CLAUDE.md` | The ordinary case: a rule file and a section
+Codex | none | a deny-only hook in `~/.codex/hooks.json` | `~/.codex/AGENTS.md` | Its own `.rules` files are an exec policy: they decide commands and name no path, so there is no rule file to write and the hook is what refuses its file tools
+Kilo Code | `~/.config/kilo/kilo.json` | `~/.config/kilo/plugin/faramir.js` | `~/.kilocode/rules/faramir.md` | Its rule file is a prompt rather than a refusal, so the plugin is what refuses. It has no single home instructions file either, so the section goes in a file of faramir's own in the global rules directory, where every `.md` is loaded for every project
+opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/plugin/faramir.js` | `~/.config/opencode/AGENTS.md` | The same rule file, a prompt rather than a refusal, so the plugin is what refuses here too
+Pi | none | `~/.pi/agent/extensions/faramir.ts` | `~/.pi/agent/AGENTS.md` | No rule file an install can write, so the extension is the whole of it. Pi loads a home's extensions for every project without the project being trusted
 
 Every one of these refuses a path by asking `faramir guard`, and every one but Claude Code's and Codex's also routes a command through the broker. Those two return a permission decision, so the hook that rewrites a command must also approve it, and their account-wide hooks are `--deny-only`: each refuses what the list names and nothing else, and routing is what an enrolment buys.
 
@@ -69,9 +69,9 @@ In an enrolled tree, every agent reads the tree's own `AGENTS.md`, or its `CLAUD
 
 Agent | File in the tree | Why
 --- | --- | ---
-Claude Code | `CLAUDE.md` | It reads `CLAUDE.md` and not `AGENTS.md`, so a tree whose own file is an `AGENTS.md` would leave it nothing
-Codex | `AGENTS.md` | The mirror image: it reads `AGENTS.md` and not `CLAUDE.md`. Where the tree's own file has that name the two are one file and the section is written once
 Antigravity | `.agents/rules/faramir.md` | It reads `.agents/rules/*.md` as well as the tree's own file, so a tree whose own file is a `CLAUDE.md` would leave it nothing, that being a name it does not read
+Claude Code | `CLAUDE.md` | It reads `CLAUDE.md` and not `AGENTS.md`, so a tree whose own file is an `AGENTS.md` would leave it nothing
+Codex | `AGENTS.md` | The mirror image of Claude Code: it reads `AGENTS.md` and not `CLAUDE.md`. Where the tree's own file has that name the two are one file and the section is written once
 
 Two agents also get a hook in the tree, which is what routing costs them: Claude Code a `.claude/settings.local.json` and Codex a `.codex/hooks.json`. Both name paths this machine decided, so both belong in git's ignores, and an enrolment says so when they are not there.
 

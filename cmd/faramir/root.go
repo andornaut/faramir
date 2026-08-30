@@ -73,8 +73,8 @@ func runCommand(c *cobra.Command, args []string) int {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "faramir",
-		Short: "A secrets broker for local AI coding agents",
-		Long: "A secrets broker for local AI coding agents: it runs the commands that need\n" +
+		Short: "A secrets broker for AI coding agents",
+		Long: "A secrets broker for AI coding agents: it runs the commands that need\n" +
 			"credentials and keeps the values out of the agent's context.\n\n" +
 			"Every command that talks to the broker finds it at $FARAMIR_SOCKET, else\n" +
 			defaultSocket + ", and accepts --json, except redact, whose output is\n" +
