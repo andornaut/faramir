@@ -275,12 +275,12 @@ func diagnoseCodexTrust(report *DoctorReport, opts DoctorOptions) {
 		return
 	}
 
-	trees, why := readEnrolledWhy(opts.ConfigDir)
+	trees, err := readEnrolledWhy(opts.ConfigDir)
 	// The record is `tree config`'s to fail on. Said here so a report naming
 	// only the account-wide hook does not read as a host with no enrolled trees.
-	if why != "" {
+	if err != nil {
 		report.unaskedf(label, 1, "%s, so only the account-wide hook was examined: "+
-			"which trees are enrolled for Codex is unknown", why)
+			"which trees are enrolled for Codex is unknown", err)
 	}
 	reportCodexTrust(report, home, trees)
 }

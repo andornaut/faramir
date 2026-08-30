@@ -3,6 +3,7 @@ package install
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,14 +26,25 @@ import (
 // checkout that moved, a branch that never carried these files and a hand edit
 // all read the same way from here.
 func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
-	trees, why := readEnrolledWhy(opts.ConfigDir)
+	trees, err := readEnrolledWhy(opts.ConfigDir)
 	// A record that could not be read is not one naming nothing: reporting it
 	// as an empty enrolment tells an operator with a host of enrolled trees
 	// that they have none.
-	if why != "" {
+	//
+	// A permission denial is not that. The record is 0600 root, so an
+	// unprivileged run cannot read it and there is nothing wrong with the file:
+	// reported as not asked, the way every other root-only check here is, rather
+	// than as a failure advising a repair.
+	switch {
+	case errors.Is(err, os.ErrPermission):
+		report.unaskedf("tree config", 1, "the record of enrolled trees is the "+
+			"operator's to read, so which trees are enrolled was not asked and "+
+			"none were examined: re-run as `sudo faramir doctor`")
+		return
+	case err != nil:
 		report.addf("tree config", StatusFailed, "%s, so which trees are enrolled "+
 			"is unknown and none were examined. Restore the record, or re-run "+
-			"`sudo faramir init-project` in each tree to rewrite it", why)
+			"`sudo faramir init-project` in each tree to rewrite it", err)
 		return
 	}
 	if len(trees) == 0 {
@@ -193,9 +205,9 @@ func sameDocument(a, b []byte) bool {
 // brokered command from renaming one aside. Both are the precondition for the
 // substitution the tree check above catches only after the fact.
 func diagnoseTreeModes(report *DoctorReport, opts DoctorOptions) {
-	trees, why := readEnrolledWhy(opts.ConfigDir)
+	trees, err := readEnrolledWhy(opts.ConfigDir)
 	// The record's own state is tree config's finding, reported once.
-	if why != "" || len(trees) == 0 {
+	if err != nil || len(trees) == 0 {
 		return
 	}
 	examined := 0

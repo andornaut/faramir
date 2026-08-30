@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -56,20 +57,23 @@ func readEnrolled(configDir string) []EnrolledTree {
 //
 // Empty where the file is simply not there: a host that has enrolled nothing
 // has no record, and that is the ordinary state rather than a fault.
-func readEnrolledWhy(configDir string) ([]EnrolledTree, string) {
+func readEnrolledWhy(configDir string) ([]EnrolledTree, error) {
 	path := enrolledPath(configDir)
 	body, err := os.ReadFile(path)
 	switch {
 	case os.IsNotExist(err):
-		return nil, ""
+		return nil, nil
 	case err != nil:
-		return nil, err.Error()
+		// The error itself rather than its text: the record is 0600 root, so a
+		// caller has to be able to tell "you are not root" from "this file is
+		// damaged" and say something different about each.
+		return nil, err
 	}
 	var trees []EnrolledTree
 	if err := json.Unmarshal(body, &trees); err != nil {
-		return nil, path + ": " + err.Error()
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return trees, ""
+	return trees, nil
 }
 
 // recordEnrolment adds or updates this tree's entry. One entry per directory,

@@ -242,7 +242,11 @@ func homeSection(allowSudo bool) (string, error) {
 // config and the home are written either way, and doctor reports a tree that
 // still does not carry what an enrolment writes.
 func (r *runner) stepEnrolledTrees() error {
-	trees, unreadable := readEnrolledWhy(r.layout.ConfigDir)
+	trees, unreadableErr := readEnrolledWhy(r.layout.ConfigDir)
+	unreadable := ""
+	if unreadableErr != nil {
+		unreadable = unreadableErr.Error()
+	}
 	var written, skipped, refused []string
 	changed := false
 	for _, tree := range trees {

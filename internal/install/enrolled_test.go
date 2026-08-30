@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -201,27 +202,50 @@ func TestAnEnrolledAgentIsAFaultEvenWithNothingInTheHome(t *testing.T) {
 func TestAnUnreadableRecordIsToldApartFromAnEmptyOne(t *testing.T) {
 	dir := t.TempDir()
 	// No file at all: the ordinary state of a host that has enrolled nothing.
-	if trees, why := readEnrolledWhy(dir); trees != nil || why != "" {
-		t.Errorf("a host with no record reported %v / %q, want nothing and no reason", trees, why)
+	if trees, err := readEnrolledWhy(dir); trees != nil || err != nil {
+		t.Errorf("a host with no record reported %v / %v, want nothing and no reason", trees, err)
 	}
 	path := filepath.Join(dir, enrolledFile)
 	if err := os.WriteFile(path, []byte("{ not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	trees, why := readEnrolledWhy(dir)
+	trees, err := readEnrolledWhy(dir)
 	if trees != nil {
 		t.Errorf("an unreadable record produced trees: %v", trees)
 	}
-	if why == "" || !strings.Contains(why, path) {
-		t.Errorf("the reason does not name the file: %q", why)
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Errorf("the reason does not name the file: %v", err)
+	}
+	// Damaged rather than unreadable: the caller tells the two apart, so this
+	// one must not arrive looking like a permission denial.
+	if errors.Is(err, os.ErrPermission) {
+		t.Errorf("a damaged record reads as a permission denial: %v", err)
 	}
 	// And a record that reads is still read.
 	body := `[{"dir":"/home/op/project","agent_user":"op","agents":["claude"]}]`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if trees, why := readEnrolledWhy(dir); len(trees) != 1 || why != "" {
-		t.Errorf("a good record read as %v / %q", trees, why)
+	if trees, err := readEnrolledWhy(dir); len(trees) != 1 || err != nil {
+		t.Errorf("a good record read as %v / %v", trees, err)
+	}
+}
+
+// A record the caller may not read is not a damaged one. The file is 0600 root
+// and `doctor` is runnable unprivileged, so this is the ordinary case for an
+// agent and has to be told apart from a record that will not parse.
+func TestAnUnreadableRecordIsToldApartFromAForbiddenOne(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, which can read the file whatever its mode")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, enrolledFile)
+	if err := os.WriteFile(path, []byte("[]"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	_, err := readEnrolledWhy(dir)
+	if !errors.Is(err, os.ErrPermission) {
+		t.Errorf("a record the caller may not read gave %v, want a permission error", err)
 	}
 }
 
