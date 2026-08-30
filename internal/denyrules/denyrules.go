@@ -33,7 +33,7 @@ import (
 // a transform of a value being the exfiltration the design says it cannot cover.
 const (
 	ReadCommands = `\b(?-i:` + gnuPrefix + `(?:cat|less|more|head|tail|bat|xxd|od|` +
-		`strings|base64|base32|hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|` +
+		`strings|base64|base32|hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|sed|` +
 		`python3?|perl|ruby|tee|cp|tar|scp|rsync|sops|age|ansible-vault|sort|` +
 		`uniq|comm|join|paste|column|fold|expand|unexpand|fmt|pr|shuf|split|` +
 		`csplit|diff|find|install|cpio|zcat|gunzip|bzcat|xzcat|zstdcat|` +
@@ -41,21 +41,6 @@ const (
 	WriteCommands = `\b(?-i:` + gnuPrefix + `(?:rm|shred|truncate|mv|cp|tee|dd|sed|` +
 		`chmod|chown|chgrp|setfacl|ln|sops|age|ansible-vault|install|split|` +
 		`csplit|cpio|gzip|bzip2|xz|zstd))\b`
-
-	// moveCommands is the rest of what puts a file's contents somewhere else:
-	// under another name, at another path, or in another encoding. Every other
-	// way of doing that is a reader already -- cp, tee, dd, tar, cpio, split and
-	// the decryption tools are in both vocabularies -- so this is what is left.
-	//
-	// It exists because "reads it" and "changes it" is not the whole of the
-	// question a brokered command asks. `mv key /tmp/x` and `ln -s key /tmp/x`
-	// disclose nothing themselves and leave the file readable under a name no
-	// rule was written for, which is the same disclosure one step later. `sed`
-	// is here rather than among the readers for the same reason it is a writer
-	// there, and it prints a file as surely as cat does: `sed -n p key`. The
-	// compressors re-encode in place, which walks a declared path out from under
-	// a rule that named it.
-	moveCommands = `\b(?-i:` + gnuPrefix + `(?:mv|ln|sed|gzip|bzip2|xz|zstd))\b`
 )
 
 // gnuPrefix takes the name a tool has where it is not the default one. Ubuntu
@@ -187,15 +172,28 @@ func Dir(dir string) string {
 func homeSpellings(home, path string) []string {
 	rest, under := strings.CutPrefix(path, strings.TrimSuffix(home, "/")+"/")
 	if home == "" || home == "/" || !under || rest == "" {
-		return []string{regexp.QuoteMeta(path)}
+		return []string{quotePath(path)}
 	}
-	tail := regexp.QuoteMeta("/" + rest)
+	tail := quotePath("/" + rest)
 	return []string{
-		regexp.QuoteMeta(path),
+		quotePath(path),
 		regexp.QuoteMeta("~") + tail,
 		regexp.QuoteMeta("$HOME") + tail,
 		regexp.QuoteMeta("${HOME}") + tail,
 	}
+}
+
+// quotePath is QuoteMeta plus the one thing a shell writes two ways: a space in
+// a path is a space inside quotes and a backslash-space outside them, and both
+// reach the same file. QuoteMeta leaves a space alone, so a subject built from
+// it carries the quoted spelling and misses `cat ~/dir/Local\ Storage`.
+//
+// Only the space. A shell will accept `L\ocal` and `"Local Storage"` spelled a
+// dozen other ways, and a rule cannot be a shell; what this covers is the
+// spelling a person or a model actually writes for a name that has a space in
+// it, which an Electron profile has several of.
+func quotePath(path string) string {
+	return strings.ReplaceAll(regexp.QuoteMeta(path), " ", `(?: |\\ )`)
 }
 
 // DirUnder is Dir for a path that may sit under a home, bounded the same way
@@ -338,10 +336,57 @@ const globChar = `[*?\[]`
 // No subjects is no rules rather than a rule matching everything, an empty
 // alternation being one that matches the empty string.
 func Naming(subjects []string) []string {
+	return subjectRule("", subjects)
+}
+
+// subjectRule is the one place a subject rule is spelled, named or not, so the
+// syntax NamingAs writes is the syntax KindMarker looks for.
+func subjectRule(kind string, subjects []string) []string {
 	if len(subjects) == 0 {
 		return nil
 	}
-	return []string{`(` + strings.Join(subjects, `|`) + `)`}
+	open := `(`
+	if kind != "" {
+		open = KindMarker(kind)
+	}
+	return []string{open + strings.Join(subjects, `|`) + `)`}
+}
+
+// Kinds of subject, as NamingAs writes them into a rule and adviceFor reads
+// them back out. The strings are part of the rendered file and of the compiled
+// fallback, so they are as fixed as any pattern here.
+const (
+	// KindBlocked is a path a [[secret.block]] entry names.
+	KindBlocked = "blocked"
+	// KindLinked is the file a [[secret.link]] entry reads.
+	KindLinked = "linked"
+	// KindOwn is a directory this install occupies, which no entry declares and
+	// no removal takes back.
+	KindOwn = "own"
+)
+
+// NamingAs is Naming with the kind of entry written into the rule as a named
+// group.
+//
+// The group matches exactly what the rule matched and changes nothing about
+// what is refused. What it is for is the refusal: one rule over every declared
+// path cannot otherwise say whether the path was blocked, linked, or is the
+// install's own, so the message could not name the command that takes it back
+// and had to offer two and a way to tell them apart.
+//
+// A group rather than a second list beside the patterns, because the rendered
+// file is a list of patterns and nothing else, and a label kept alongside would
+// be a second thing for an install to get out of step.
+func NamingAs(kind string, subjects []string) []string {
+	return subjectRule(kind, subjects)
+}
+
+// KindMarker is what a rule of that kind opens with, for a reader that has the
+// rule as text rather than as a compiled regexp. The guard's shipped file is a
+// list of patterns and its refusal picks a message by what the pattern says, so
+// the marker is written once here rather than spelled again there.
+func KindMarker(kind string) string {
+	return `(?P<` + kind + `>`
 }
 
 // Disclosing is the rule the broker applies, and the one place a verb list is
@@ -359,18 +404,27 @@ func Naming(subjects []string) []string {
 // went through; a verb missing from the guard's list cost them the file. The
 // account on this side is running what the operator asked for.
 //
-// What it covers: a reader
-// with the path among its arguments, a mover that leaves the contents under a
-// name no rule was written for, a file handed to whatever is on the line, and a
-// path bound to a variable to be read through later.
+// What it covers: a reader with the path among its arguments, a file handed to
+// whatever is on the line, and a path bound to a variable to be read through
+// later. A reader whatever it is called, `sed -n p` printing a file as surely
+// as `cat` does.
 //
-// What it leaves out is a subject changed where it stands: a writer that only
-// alters or removes it, and a redirect over it. That line, rather than the
-// read/write one the vocabularies are split on, is what separates the two: a
-// brokered command runs as an account of its own and only where an operator
-// asked for it, so `chmod` on a declared keyfile or `rm` of one being rotated
-// is ordinary work that puts nothing in the conversation, while `mv` of the
-// same file into /tmp discloses it one step later.
+// What it leaves out is everything else done to the file: a writer that alters
+// or removes it, a redirect over it, and a move or a link that puts it under
+// another name. That line, rather than the read/write one the guard is split
+// on, is what separates the two: `chmod` on a declared keyfile, `rm` of one
+// being rotated and `mv` of one into place are ordinary work that puts nothing
+// in the conversation, and refusing them takes out the converge that rotates a
+// key.
+//
+// What it costs, stated plainly rather than argued away. `faramir run` is the
+// agent's to invoke, not the operator's: only an escalation is approved per
+// command. So a brokered `mv` or `ln -s` of a declared file to a path no rule
+// names, followed by a read of that path with the agent's own file tools, is a
+// disclosure this tier does not stop. It is the move-then-read the vocabulary
+// once carried a rule against. That rule is gone because it also refused the
+// rotation, and `--strict` is the per-entry answer where an entry would rather
+// have the refusal than the converge.
 //
 // Everything the agent types is still held to Naming. The
 // asymmetry is the point: nobody asked for what the agent types, and a value it
@@ -381,14 +435,14 @@ func Disclosing(subjects []string) []string {
 	if !ok {
 		return nil
 	}
-	return []string{r.read, r.move, r.input, r.binding}
+	return []string{r.read, r.input, r.binding}
 }
 
-// the four rules, named, so a caller takes the ones it enforces rather than
+// the rules, named, so a caller takes the ones it enforces rather than
 // slicing a list by position.
-type ruleSet struct{ read, move, input, binding string }
+type ruleSet struct{ read, input, binding string }
 
-// fragments builds the five from one alternation, so they are written once and
+// fragments builds them from one alternation, so they are written once and
 // the callers cannot drift. Not ok for no subjects, an empty alternation being
 // one that matches the empty string next to any reader.
 func fragments(subjects []string) (ruleSet, bool) {
@@ -406,7 +460,6 @@ func fragments(subjects []string) (ruleSet, bool) {
 	boundAlternation := `(` + strings.Join(bound, `|`) + `)`
 	return ruleSet{
 		read:    ReadCommands + ArgSpan + alternation,
-		move:    moveCommands + ArgSpan + alternation,
 		input:   `<\s*\S*` + alternation,
 		binding: binding + boundAlternation,
 	}, true

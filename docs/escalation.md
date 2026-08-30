@@ -168,6 +168,8 @@ the `Protect*` family | Names the things root configures
 
 Still kept: `ProtectProc=invisible`, the supplementary groups, the umask, `AmbientCapabilities=`. Re-running `init` without `--allow-sudo` restores everything dropped.
 
+**What the dropped sandbox does not take with it is the broker's own rules.** They are decided before the command runs rather than enforced by the unit, so a brokered command naming a declared path or one of faramir's own directories is refused whether or not this host grants an escalation. That is the answer here: root does not read a file mode, and it does read the age key.
+
 `faramir doctor` re-checks the arrangement on a host that has it and on one that does not:
 
 Check | Asserts | No grant

@@ -180,16 +180,17 @@ type = {{quote .Type}}
 {{end}}{{end}}{{end}}
 {{if .Blocked}}
 # Managed by `faramir block`. Refused to the agent's file tools, to its shell,
-# and to a brokered command that would read, copy or move one: faramir never
-# reads these, so no account is granted anything and no value of theirs enters
-# the redactor.
+# and to a brokered command that would print one: faramir never reads these, so
+# no account is granted anything and no value of theirs enters the redactor.
 #
 # A path names one file or directory on this host, absolute. A command names
 # something that may not be run, matched where a command starts.
 #
-# strict refuses every command naming the entry rather than the ones that
-# would read it, `ls` and `chmod` included. Off unless the operator asked for
-# it: a file nothing may touch is a file nothing may rotate either.
+# strict narrows the brokered route to refusing every command naming the entry
+# rather than the ones that would print it, `ls`, `chmod` and `mv` included. It
+# changes nothing for the agent's own shell, which refuses a declared path named
+# at all either way. Off unless the operator asked for it: a file nothing may
+# touch is a file nothing may rotate either.
 {{range .Blocked}}
 [[secret.block]]
 {{if .Command}}command = {{quote .Command}}

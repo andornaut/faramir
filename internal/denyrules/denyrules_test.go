@@ -60,29 +60,29 @@ func TestAPathOutsideAHomeGetsNoExtraSpellings(t *testing.T) {
 	}
 }
 
-// rules is the four rules the broker compiles, so a test asks the same question
+// rules is the three rules the broker compiles, so a test asks the same question
 // the broker does rather than a version of it. Named rather than positional: a
 // case says which rule should hold it.
 type rules struct {
-	read, move, input, assign *regexp.Regexp
+	read, input, assign *regexp.Regexp
 }
 
 // all is every rule, for a case that must match none of them.
 func (r rules) all() []*regexp.Regexp {
-	return []*regexp.Regexp{r.read, r.move, r.input, r.assign}
+	return []*regexp.Regexp{r.read, r.input, r.assign}
 }
 
 func compiled(t *testing.T, subjects ...string) rules {
 	t.Helper()
 	got := Disclosing(subjects)
-	if len(got) != 4 {
-		t.Fatalf("Disclosing returned %d rules, want the read, move, input and "+
-			"binding four", len(got))
+	if len(got) != 3 {
+		t.Fatalf("Disclosing returned %d rules, want the read, input and binding "+
+			"three", len(got))
 	}
 	compile := func(pattern string) *regexp.Regexp {
 		return regexp.MustCompile("(?i)" + pattern)
 	}
-	return rules{compile(got[0]), compile(got[1]), compile(got[2]), compile(got[3])}
+	return rules{compile(got[0]), compile(got[1]), compile(got[2])}
 }
 
 // naming is the guard's single rule, compiled the way the guard compiles it.
@@ -116,10 +116,8 @@ func TestTheBrokersRulesRefuseEveryWayALineReadsASubject(t *testing.T) {
 		{re.read, "read", `python3 -c "open('/etc/faramir/age.key')"`},
 		{re.read, "read", "cat '/etc/faramir/age.key'"},
 		{re.read, "read", "tar cf - /etc/faramir"},
-		// A mover leaves the contents readable under a name no rule covers,
-		// which is the same disclosure one step later.
-		{re.move, "move", "mv /etc/faramir/age.key /tmp/x"},
-		{re.move, "move", "ln -s /etc/faramir/age.key /tmp/x"},
+		// sed prints a file as surely as cat does.
+		{re.read, "read", "sed -n p /etc/faramir/age.key"},
 		{re.assign, "assign", "p=/etc/faramir/age.key; cat $p"},
 		{re.assign, "assign", "export KEY=/etc/faramir/age.key"},
 		{re.assign, "assign", `p="/etc/faramir/age.key"`},
@@ -146,6 +144,10 @@ func TestTheBrokerLeavesAloneWhatDoesNotReadTheSubject(t *testing.T) {
 	for _, cmd := range []string{
 		"grep secret /etc/faramir/config.toml",
 		"ls /etc/faramir",
+		// The operator moving their own file. This route does not defend
+		// against a name being walked out from under a rule.
+		"mv /etc/faramir/age.key /tmp/x",
+		"ln -s /etc/faramir/age.key /tmp/x",
 		"chmod 0644 /etc/faramir/age.key",
 		"echo x > /etc/faramir/age.key",
 		// pathEnd bounds the subject, so a sibling is not caught by it.
@@ -296,9 +298,9 @@ func TestNoSubjectsIsNoRulesRatherThanARuleMatchingEverything(t *testing.T) {
 // in this vocabulary. A word boundary does not fall inside `gnucat`, so every
 // one of those walked past these rules on that release.
 //
-// The readers and movers, which is what this tier carries. The write
-// vocabulary belongs to the rules about faramir's own files, and the guard's
-// tier has no vocabulary to prefix at all.
+// The readers, which is what this tier carries. The write vocabulary belongs to
+// the rules about faramir's own files, and the guard's tier has no vocabulary to
+// prefix at all.
 func TestTheGnuPrefixedNamesAreTheSameTools(t *testing.T) {
 	re := compiled(t, Dir("/etc/faramir"))
 	refused := func(cmd string) bool {
@@ -314,10 +316,10 @@ func TestTheGnuPrefixedNamesAreTheSameTools(t *testing.T) {
 		"gnuhead -c1 /etc/faramir/secrets/app.sops.yml",
 		"gnubase64 /etc/faramir/age.key",
 		"gnucp /etc/faramir/age.key /tmp/k",
-		"gnumv /etc/faramir/age.key /tmp/k",
+		"gnused -n p /etc/faramir/age.key",
 		// And the ordinary names, which the prefix must not have displaced.
 		"cat /etc/faramir/age.key",
-		"mv /etc/faramir/age.key /tmp/k",
+		"sed -n p /etc/faramir/age.key",
 	} {
 		if !refused(cmd) {
 			t.Errorf("%q is allowed: the prefixed name is the same tool", cmd)

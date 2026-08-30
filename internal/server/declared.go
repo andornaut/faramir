@@ -49,7 +49,9 @@ type declaredRule struct {
 	re *regexp.Regexp
 	// what the operator declared, as the refusal says it.
 	what string
-	// remedy is the command that takes the entry back out.
+	// remedy is the command that takes the entry back out, empty for a rule no
+	// entry stands behind: this install's own directories are rendered from the
+	// layout and there is nothing to remove.
 	remedy string
 	// strict is the entry the operator asked to have refused wherever it is
 	// named. The refusal has to say so: the sentence a looser entry ends on tells
@@ -69,7 +71,7 @@ type declaredRule struct {
 // agentHome is the home a "~" stands for, empty where it cannot be resolved. A
 // brokered command's argv carries no shell expansion, but its `sh -c` string
 // does, and that is the spelling a model writes.
-func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredCheck {
+func newDeclaredCheck(agentHome string, ownDirs []string, secret config.SecretConfig) declaredCheck {
 	var out []declaredRule
 	add := func(what, remedy string, strict bool, sources []string) {
 		for _, source := range sources {
@@ -108,6 +110,21 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 			add(named("the path "+entry.Path, entry.Strict), remedy, entry.Strict,
 				rulesFor(denyrules.DirUnder(agentHome, entry.Path), entry.Strict))
 		}
+	}
+	// This install's own directories, which no entry declares and no removal
+	// takes back. Held to the shape a strict entry gets, no command may name it,
+	// rather than the looser reading a declared path gets: the looser one exists
+	// so a brokered command can still manage a credential file, and nothing
+	// brokered has an install to manage. Under an approved escalation this side
+	// runs as root, where the modes that keep the agent out of the age key stop
+	// answering, so this is the rule that does.
+	//
+	// A command that only sets the install up is untouched: the rules match the
+	// text of a command, so `sudo ansible-playbook site.yml` goes through and
+	// `sudo cat <config-dir>/age.key` does not.
+	for _, dir := range ownDirs {
+		add(dir+", which is faramir's own and which no command may name at all,",
+			"", true, denyrules.Naming([]string{denyrules.DirUnder(agentHome, dir)}))
 	}
 	for _, link := range secret.Links {
 		if link.Path == "" {
@@ -261,19 +278,27 @@ func resolveArgs(cmd []string, cwd string) string {
 // available, and leaves the remedy where it belongs.
 func declaredRefusal(rule declaredRule) string {
 	// What the entry leaves alone, which is the sentence that tells a reader
-	// whether another spelling is worth trying. An strict entry leaves
-	// nothing alone, and saying otherwise sends a model back for the same `ls`.
+	// whether another spelling is worth trying. A strict entry leaves nothing
+	// alone, and saying otherwise sends a model back for the same `ls`.
 	tail := "What is refused is a vocabulary rather than a direction: the " +
-		"readers, and the commands that move or re-encode a file, wherever the " +
-		"path appears in the line, so `cp`, `tee` and `sed` are refused even " +
-		"where it is what they write to. A command outside it is not refused, " +
-		"whatever it does to the file."
+		"readers, wherever the path appears in the line, so `cp`, `tee` and " +
+		"`sed` are refused even where the declared path is what they write to. " +
+		"A command outside it is not refused, whatever it does to the file: " +
+		"`chmod`, `rm` and `mv` among them."
 	if rule.strict {
 		tail = "Changing it where it stands is refused with the rest, which is " +
 			"what this entry asks for: no command may name it."
 	}
+	if rule.remedy == "" {
+		return "this is " + rule.what + " so a brokered command may not name it. " +
+			"There is no entry to remove: these are rendered from the install's " +
+			"layout on every run, and this side runs as an account of its own, or " +
+			"as root where an escalation was approved, so a mode is no answer " +
+			"here.\n\nIf this is deliberate, it is the operator's to do, outside " +
+			"faramir."
+	}
 	return "this host declares " + rule.what +
-		" and a brokered command may not read, copy or move what is declared. " +
+		" and a brokered command may not print what is declared. " +
 		"Its contents are covered by nothing on the way back: a declared file is " +
 		"one faramir either never reads or reads a single ref out of, so there is " +
 		"no value to replace in this command's output.\n\n" +

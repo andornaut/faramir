@@ -106,8 +106,8 @@ func newBlockAddCmd() *cobra.Command {
 			"the value of: a LUKS keyfile, an SSH identity.\n\n" +
 			"The file is never opened, so nothing of it enters the redactor. What is\n" +
 			"refused is the agent's file tools, its shell, and a brokered command that\n" +
-			"would read, copy or move it. A command outside that vocabulary is left\n" +
-			"alone, writing over the file included. --strict refuses naming it at\n" +
+			"would print it. A command outside that vocabulary is left alone, moving\n" +
+			"the file and writing over it included. --strict refuses naming it at\n" +
 			"all.\n\n" +
 			"A bare argument is refused; a missing path is recorded and reported; an\n" +
 			"entry already there re-renders the rules and reports changed=false.",
@@ -119,7 +119,7 @@ func newBlockAddCmd() *cobra.Command {
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.strict, "strict", false,
 		"refuse every command NAMING these paths, not only the ones that "+
-			"would read, copy or move them: ls, stat and chmod included. For a "+
+			"would print them: ls, stat, chmod and mv included. For a "+
 			"directory the agent has no business in at all. Off by default, since a "+
 			"file nothing may touch is a file nothing may rotate; not for --command, "+
 			"which already matches wherever a command starts")
@@ -258,9 +258,10 @@ func runBlockRemove(f blockFlags, args []string) int {
 		fmt.Fprintf(os.Stderr, "stopped blocking %s\n", config.Shown(entry.Blocks()))
 	}
 	if gone {
-		fmt.Fprintf(os.Stderr, "the deny rules naming them stay in your agent's "+
-			"settings: a merged rule file carries no sign of who added an entry, so "+
-			"nothing removes one for you\n")
+		fmt.Fprintf(os.Stderr, "the deny rules naming them were taken out of your "+
+			"agent's settings, against the record of what faramir last wrote there. "+
+			"A rule you added yourself naming the same path is not in that record "+
+			"and stays\n")
 	}
 	return 0
 }

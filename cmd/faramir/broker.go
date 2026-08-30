@@ -5,10 +5,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/server"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
@@ -66,7 +68,11 @@ func runBroker(f brokerFlags) int {
 		return 0
 	}
 
-	s := server.New(cfg)
+	// The directories this install occupies, so the broker refuses a brokered
+	// command that names one. Read here rather than in the daemon: this is the
+	// installer's answer, and a unit it cannot read falls back to the standard
+	// names, which is what an install that renamed nothing uses.
+	s := server.New(install.InstalledDirs(filepath.Dir(cfg.Path)), cfg)
 	s.Store.Reload()
 
 	// Before starting the agent: --check runs against a live broker, and a second

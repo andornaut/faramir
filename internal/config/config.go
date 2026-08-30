@@ -504,7 +504,7 @@ type Link struct {
 	// the types that select.
 	Key string `json:"key,omitempty"`
 	// Strict refuses every command naming this file rather than the ones
-	// that would read, copy or move it. See BlockedPath.Strict: one flag,
+	// that would print it. See BlockedPath.Strict: one flag,
 	// one meaning, on whichever entry names the file.
 	Strict bool `json:"strict,omitempty"`
 }
@@ -545,7 +545,7 @@ type BlockedPath struct {
 	Command string `json:"command,omitempty"`
 
 	// Strict refuses every command naming this path or matching this name,
-	// rather than the ones that would read, copy or move it. Off by default,
+	// rather than the ones that would print it. Off by default,
 	// because the default has to be the one that leaves a host working: a
 	// declared file usually still has to be managed, and a LUKS keyfile that
 	// nothing may chmod is a key nothing may rotate either.
@@ -1050,13 +1050,16 @@ func validateBlocked(blocked BlockedPath, at string) error {
 			at, strings.Join(named, " and "))
 	case blocked.Command != "":
 		// A command entry is already about what a command does, so there is no
-		// looser reading of it for this to tighten. Refused rather than ignored:
-		// an entry carrying it means to close something, and accepting it while
-		// changing nothing leaves an operator sure they did.
+		// looser reading of it for this to tighten: strict narrows what a
+		// brokered command may do to a declared file, and this entry names no
+		// file. Refused rather than ignored: an entry carrying it means to close
+		// something, and accepting it while changing nothing leaves an operator
+		// sure they did.
 		if blocked.Strict {
-			return fmt.Errorf("%s: %s is for a path or a name, and this entry names "+
-				"a command, which is already matched wherever a command starts. Drop "+
-				"the key", at, keyStrict)
+			return fmt.Errorf("%s: %s narrows what a brokered command may do to a "+
+				"declared file, and this entry names a command rather than a file. "+
+				"A command entry is already refused to the agent's shell and to a "+
+				"brokered command alike. Drop the key", at, keyStrict)
 		}
 		return validateBlockedCommand(blocked.Command, at)
 	}
@@ -1152,24 +1155,34 @@ func validateBlockedPath(refused BlockedPath, at string) error {
 		return fmt.Errorf("%s: path or command is required; one of them is "+
 			"the whole of the entry", at)
 	}
-	if strings.HasPrefix(refused.Path, "~") {
+	return validateRulePath(refused.Path, at)
+}
+
+// validateRulePath holds a path to what a deny rule can carry. Both forms that
+// render one are held to it: a blocked path and a linked path reach the same
+// subject and the same rules, so a spelling that renders a rule matching nothing
+// is the same fault whichever wrote it.
+func validateRulePath(path, at string) error {
+	if strings.HasPrefix(path, "~") {
 		return fmt.Errorf("%s: path %q starts with ~, which nothing expands here. "+
-			"Write the path in full", at, Shown(refused.Path))
+			"Write the path in full", at, Shown(path))
 	}
-	if !filepath.IsAbs(refused.Path) {
+	if !filepath.IsAbs(path) {
 		return fmt.Errorf("%s: path %q is relative, and a deny rule is matched "+
-			"against a path the agent names in full. Write it in full", at, Shown(refused.Path))
+			"against a path the agent names in full. Write it in full", at, Shown(path))
 	}
 	// A rule is a literal string in someone else's config, so the path that
 	// reaches it has to be the one an agent would name. "/etc/./k" and "/etc/k"
-	// are one file and would be two rules, one of which matches nothing.
-	if clean := filepath.Clean(refused.Path); clean != refused.Path {
+	// are one file and would be two rules, one of which matches nothing. The
+	// file still opens either way, so a link written this way works while the
+	// rule rendered from it protects nothing.
+	if clean := filepath.Clean(path); clean != path {
 		return fmt.Errorf("%s: path %q is not in its shortest form, and a deny rule "+
-			"matches the path as written. Use %q", at, Shown(refused.Path), Shown(clean))
+			"matches the path as written. Use %q", at, Shown(path), Shown(clean))
 	}
 	// "/" would render a rule refusing the whole filesystem, which fails closed
 	// and leaves the agent unable to read anything at all.
-	if refused.Path == "/" {
+	if path == "/" {
 		return fmt.Errorf("%s: path is /, which would refuse the agent every file "+
 			"on the host. Name the file or the directory that holds it", at)
 	}
@@ -1182,12 +1195,12 @@ func validateBlockedPath(refused BlockedPath, at string) error {
 	// The directory is the answer. An entry covers what is under it, so naming
 	// the directory refuses every file in it, including the ones a pattern was
 	// reaching for and the ones added later.
-	if i := strings.IndexAny(refused.Path, globChars); i >= 0 {
-		return fmt.Errorf("%s: path %q carries %q, and a path entry is matched as "+
-			"written rather than expanded: the rule would refuse a command typing "+
-			"that pattern and leave the files it names readable. Name the directory "+
-			"that holds them, which covers everything under it",
-			at, Shown(refused.Path), string(refused.Path[i]))
+	if i := strings.IndexAny(path, globChars); i >= 0 {
+		return fmt.Errorf("%s: path %q carries %q, and a path is matched as written "+
+			"rather than expanded: the rule would refuse a command typing that "+
+			"pattern and leave the files it names readable. Name the directory that "+
+			"holds them, which covers everything under it",
+			at, Shown(path), string(path[i]))
 	}
 	return nil
 }
@@ -1221,29 +1234,10 @@ func validateLink(link Link, at string) error {
 	if err := refuseControl("key", link.Key, at); err != nil {
 		return err
 	}
-	// A leading ~ is named separately from "not absolute": the daemons run as
-	// their own accounts, so a home there would be the wrong one even if
-	// something expanded it.
-	if strings.HasPrefix(link.Path, "~") {
-		return fmt.Errorf("%s: path %q starts with ~, which nothing expands here: the "+
-			"broker runs as its own account, so a home would be the wrong one. Write "+
-			"the path in full", at, link.Path)
-	}
-	if !filepath.IsAbs(link.Path) {
-		return fmt.Errorf("%s: path %q is relative, and the broker's working "+
-			"directory is not the operator's. Write it in full", at, link.Path)
-	}
-	// The same refusal a blocked path gets, for the same reason and one more.
-	// The path renders into the deny rules as a literal, so a pattern there
-	// refuses a command typing it and leaves the files it names readable. And
-	// the broker opens this path to read the value, which does not expand a
-	// pattern either, so the entry resolves to nothing as well.
-	if i := strings.IndexAny(link.Path, globChars); i >= 0 {
-		return fmt.Errorf("%s: path %q carries %q, and a link path is opened as "+
-			"written rather than expanded: nothing would resolve it, and the deny "+
-			"rule it renders would refuse a command typing that pattern while "+
-			"leaving the files it names readable. Name the one file this reads",
-			at, Shown(link.Path), string(link.Path[i]))
+	// The same checks a blocked path gets: this one renders into the same rules,
+	// so a spelling that renders a rule matching nothing is the same fault here.
+	if err := validateRulePath(link.Path, at); err != nil {
+		return err
 	}
 	if link.Type == "" {
 		return fmt.Errorf("%s: type is required; one of %s", at,

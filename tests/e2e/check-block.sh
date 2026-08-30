@@ -228,18 +228,44 @@ out=$(brokered -- /bin/cat $MANAGED)
 grep -qF "$WORLD_VALUE" <<<"$out" \
   && bad "*** the manageable fixture was readable, so it declares nothing ***" \
   || ok "while reading that same file is refused, the entry being an ordinary one"
+# And moving it, which this route allows on purpose: a converge that rotates a
+# keyfile moves one into place, and refusing the move refuses the rotation.
+# `--strict` is the entry that says otherwise, asserted further down.
+#
+# On $MANAGED rather than $WORLD, for the reason above: the executor may not
+# write under /etc whatever the policy is, and its /tmp is the unit's own, so a
+# check that looked for a moved file on the host would pass without asking
+# faramir anything at all.
+# A reader under another name, asked while the file is still at the path the
+# entry names: after the move the path is empty, and ENOENT reads like a refusal.
+out=$(brokered -- /bin/sed -n p $MANAGED)
+grep -qF "$WORLD_VALUE" <<<"$out" \
+  && bad "*** a brokered sed printed the blocked file ***" \
+  || ok "and printing it is refused whatever the reader is called"
+
+out=$(brokered -- /bin/mv $MANAGED $MANAGED.moved)
+grep -q 'blocked:' <<<"$out" \
+  && bad "a brokered mv of a blocked path was refused, which breaks rotating it: ${out:0:140}" \
+  || ok "and moving it where the account may write is allowed, as a rotation needs"
+[ -f "$MANAGED.moved" ] \
+  && ok "and the move happened, so it was policy being asked and not the sandbox" \
+  || bad "the mv moved nothing, so this asserts nothing about policy: ${out:0:140}"
+
+# And the name it was moved to is outside every rule, so reading it is allowed.
+# That is the cost of the line above and not a defect: a subject is bounded, so
+# the entry for <file> is not an entry for <file>.moved, and closing this would
+# refuse the rotation the mv above exists for. Written down in
+# docs/configuration.md under "the brokered route", and asserted here so that
+# closing it later fails loudly rather than quietly changing what an operator
+# was told. `--strict` is the per-entry answer.
+out=$(brokered -- /bin/cat $MANAGED.moved)
+grep -qF "$WORLD_VALUE" <<<"$out" \
+  && ok "and the moved name is outside the rule, which is the documented cost of allowing the move" \
+  || bad "the moved file was refused, so the entry now covers a name it does not name: ${out:0:140}"
+
+rm -f "$MANAGED.moved"
 block rm --path "$MANAGED" >/dev/null 2>&1
 rm -f $MANAGED
-
-# And what would be the same disclosure one step later: the contents under a
-# name no rule was written for.
-out=$(brokered -- /bin/mv $WORLD /tmp/moved-key)
-if [ -f /tmp/moved-key ]; then
-  bad "*** a brokered mv walked the blocked file out from under its rule ***"
-  rm -f /tmp/moved-key
-else
-  ok "and moving it out from under the rule is refused with the reads"
-fi
 block rm --path "$WORLD" >/dev/null 2>&1
 rm -f $WORLD
 

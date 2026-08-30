@@ -69,8 +69,8 @@ func newLinkAddCmd() *cobra.Command {
 	c.Flags().StringVar(&f.key, "key", "",
 		"what to select out of it, for the types that select")
 	c.Flags().BoolVar(&f.strict, "strict", false,
-		"refuse every command NAMING this file, not only the ones that would read, "+
-			"copy or move it: ls, stat and chmod included. Ask for the ref "+
+		"refuse every command NAMING this file, not only the ones that would "+
+			"print it: ls, stat, chmod and mv included. Ask for the ref "+
 			"instead. Off by default, since a file nothing may touch is a file its own "+
 			"tool cannot be told to rewrite either")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
@@ -190,9 +190,9 @@ func runLinkRemove(f linkFlags, ref string) int {
 	fmt.Fprintf(os.Stderr, "removed %s\n", removed.Ref)
 	fmt.Fprintf(os.Stderr, "%s is still readable by the broker's group; narrow it "+
 		"with: chmod g-r %s\n", removed.Path, removed.Path)
-	fmt.Fprintf(os.Stderr, "the deny rule naming it stays in your agent's settings: "+
-		"a merged rule file carries no sign of who added an entry, so nothing "+
-		"removes one for you\n")
+	fmt.Fprintf(os.Stderr, "the deny rule naming it was taken out of your agent's "+
+		"settings, against the record of what faramir last wrote there. A rule you "+
+		"added yourself naming the same path is not in that record and stays\n")
 	return 0
 }
 

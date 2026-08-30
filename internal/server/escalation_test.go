@@ -27,7 +27,7 @@ func allowSudo(t *testing.T, s *Server) {
 	}
 	// New() built the server from the config it was made with, so it is rebuilt
 	// here rather than mutated.
-	s.Escalation = New(s.Config).Escalation
+	s.Escalation = New(nil, s.Config).Escalation
 	// Quiescence is a round trip to a running executor, which these tests do not
 	// have: they are about what the broker does with an answer, not about how the
 	// host is measured. Stubbed quiet, so the check is exercised where it is the

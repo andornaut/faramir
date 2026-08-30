@@ -12,14 +12,14 @@ import (
 // a "~" against: the spellings that need one are the agent's own shell's, and
 // this is the brokered route.
 func blocking(entries ...config.BlockedPath) declaredCheck {
-	return newDeclaredCheck(config.SecretConfig{Blocked: entries}, "")
+	return newDeclaredCheck("", nil, config.SecretConfig{Blocked: entries})
 }
 
 // linking is the same for a [[secret.link]] entry, which is held to the same
 // rule: the file holds more than the one ref a link selects, and the rest of it
 // is in no redactor.
 func linking(links ...config.Link) declaredCheck {
-	return newDeclaredCheck(config.SecretConfig{Links: links}, "")
+	return newDeclaredCheck("", nil, config.SecretConfig{Links: links})
 }
 
 func pathEntry(path string) config.BlockedPath { return config.BlockedPath{Path: path} }
@@ -67,7 +67,7 @@ func TestABlockedPathIsRefusedFromItsOwnDirectory(t *testing.T) {
 }
 
 // Referring to a declared file is not reading it. A brokered command runs as an
-// account of its own and only where an operator asked for it, so managing the
+// account of its own, so managing the
 // file it names is ordinary work: none of these puts a byte of it into the
 // conversation, and refusing them would take out the converge that rotates the
 // key while leaving the disclosure this exists for untouched.
@@ -219,23 +219,41 @@ func TestALinkedFileIsRefusedTheSameWay(t *testing.T) {
 	}
 }
 
-// The line is not the read/write one. A command that leaves the contents under
-// a name no rule was written for discloses the file one step later, and the
-// agent reads the copy with its own tools: nothing declares /tmp/x.
-func TestMovingADeclaredFileIsRefusedLikeReadingIt(t *testing.T) {
+// The line is what the command puts in the output, not what it does to the file.
+//
+// This route runs what the operator asked for, as an account of their own, so it
+// does not defend against a name being walked out from under a rule: moving a
+// declared file, linking it or compressing it is the operator managing their own
+// file, and each is allowed. `--strict` is how an entry says otherwise.
+//
+// What stays refused is anything that prints the contents, whatever it is
+// called: `sed -n p` is a read with another name.
+func TestTheBrokeredRouteRefusesWhatPrintsAndAllowsWhatMoves(t *testing.T) {
 	check := blocking(pathEntry("/srv/keys/luks.key"))
 
 	for _, cmd := range [][]string{
+		{"sed", "-n", "p", "/srv/keys/luks.key"},
+		{"cat", "/srv/keys/luks.key"},
+		{"base64", "/srv/keys/luks.key"},
+	} {
+		if _, refused := check.refuses(cmd, "/tmp"); !refused {
+			t.Errorf("%v was allowed, and it prints the file", cmd)
+		}
+	}
+	for _, cmd := range [][]string{
 		{"mv", "/srv/keys/luks.key", "/tmp/x"},
 		{"ln", "-s", "/srv/keys/luks.key", "/tmp/x"},
-		{"sed", "-n", "p", "/srv/keys/luks.key"},
 		{"gzip", "/srv/keys/luks.key"},
 		{"xz", "/srv/keys/luks.key"},
 	} {
-		if _, refused := check.refuses(cmd, "/tmp"); !refused {
-			t.Errorf("%v was allowed: the file ends up readable under a name no rule "+
-				"names, which is the same disclosure one step later", cmd)
+		if _, refused := check.refuses(cmd, "/tmp"); refused {
+			t.Errorf("%v was refused, and it is the operator managing their own file", cmd)
 		}
+	}
+	// And --strict is what refuses those too.
+	strict := blocking(config.BlockedPath{Path: "/srv/keys/luks.key", Strict: true})
+	if _, refused := strict.refuses([]string{"mv", "/srv/keys/luks.key", "/tmp/x"}, "/tmp"); !refused {
+		t.Error("a strict entry allowed a brokered mv, which is what the flag is for")
 	}
 }
 
@@ -408,5 +426,65 @@ func TestAnStrictRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
 		refuses([]string{"cat", "/srv/keys/luks.key"}, "/tmp")
 	if !strings.Contains(declaredRefusal(loose), "A command outside it is not refused") {
 		t.Error("an ordinary entry stopped naming what it leaves alone")
+	}
+}
+
+// occupying is a check over the directories this install occupies, which no
+// entry declares. The guard refuses an agent naming one; this asserts the other
+// route, where a mode is no answer: a brokered command runs as an account of its
+// own, and as root wherever an escalation was approved.
+func occupying(dirs ...string) declaredCheck {
+	return newDeclaredCheck("", dirs, config.SecretConfig{})
+}
+
+// A brokered command may not name one, whatever it would do with it, which is
+// the shape a --strict entry gets. Not the looser reading a declared path gets:
+// that exists so a brokered command can still manage a credential file, and
+// nothing brokered has an install to manage.
+func TestABrokeredCommandMayNotNameFaramirsOwnDirectories(t *testing.T) {
+	check := occupying("/etc/faramir", "/usr/local/libexec/faramir")
+
+	for _, cmd := range [][]string{
+		{"cat", "/etc/faramir/age.key"},
+		{"sudo", "cat", "/etc/faramir/age.key"},
+		{"chmod", "644", "/etc/faramir/age.key"},
+		{"cp", "-a", "/etc/faramir", "/tmp/x"},
+		{"ls", "-l", "/etc/faramir"},
+		{"tee", "/usr/local/libexec/faramir/wrap.sh"},
+	} {
+		if _, refused := check.refuses(cmd, "/tmp"); !refused {
+			t.Errorf("%v was allowed, and it names one of faramir's own directories", cmd)
+		}
+	}
+
+	// The rules match the text of a command, so what a command does once it is
+	// running is not this. A converge that sets the install up goes through.
+	for _, cmd := range [][]string{
+		{"ansible-playbook", "site.yml"},
+		{"cat", "/etc/faramir-notes.md"},
+		{"cat", "/srv/keys/luks.key"},
+	} {
+		if _, refused := check.refuses(cmd, "/tmp"); refused {
+			t.Errorf("%v was refused, and it names none of faramir's own directories", cmd)
+		}
+	}
+}
+
+// The refusal offers no removal command, there being no entry to remove: one
+// naming `faramir block rm` sends the operator to a command that would find
+// nothing.
+func TestTheOwnDirectoryRefusalOffersNoRemoval(t *testing.T) {
+	rule, refused := occupying("/etc/faramir").refuses(
+		[]string{"cat", "/etc/faramir/age.key"}, "/tmp")
+	if !refused {
+		t.Fatal("a read of faramir's own directory was allowed")
+	}
+	message := declaredRefusal(rule)
+	if strings.Contains(message, "block rm") || strings.Contains(message, "link rm") {
+		t.Errorf("the refusal names a removal command for a rule no entry stands "+
+			"behind: %s", message)
+	}
+	if !strings.Contains(message, "no entry to remove") {
+		t.Errorf("the refusal does not say why there is nothing to take back: %s", message)
 	}
 }

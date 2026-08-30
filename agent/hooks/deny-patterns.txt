@@ -49,7 +49,7 @@
 # The broker's own key by path, not left to the config directory: `--ssh-key`
 # may put it anywhere, and one placed outside that directory is named by no
 # rule the layout renders.
-{{if .SSHKey}}{{.SSHKey | regexQuote}}
+{{if .SSHKey}}{{ownRule .SSHKey}}
 {{end}}
 # The binary, named as one path rather than as its directory, or installing any
 # unrelated tool into {{.BinDir}} would be refused.
@@ -98,9 +98,16 @@
 # command, which is the more useful of the two answers, and decide reports the
 # first rule that matches.
 #
-# One rule, and no verb in front of it. A declared subject is an absolute path,
-# and a path names itself: the vocabularies this replaced existed to tell a file
-# access from prose while a subject could be a bare name. What they cost was a
-# list that failed open, short of rg, fd and bat and of whatever ships next.
+# No verb in front of them. A declared subject is an absolute path, and a path
+# names itself: the vocabularies this replaced existed to tell a file access
+# from prose while a subject could be a bare name. What they cost was a list
+# that failed open, short of rg, fd and bat and of whatever ships next.
+#
+# One rule per kind of entry, each naming its kind in a group: `own` for a
+# directory the install occupies, `blocked` for a [[secret.block]] path, and
+# `linked` for a file a [[secret.link]] reads. The group matches what the rule
+# matched and changes nothing about what is refused. It is there so the refusal
+# can name the command that takes the entry back, which differs by kind and
+# which one rule over all three could not say.
 {{range commandRules .}}{{.}}
 {{end}}

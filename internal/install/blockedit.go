@@ -82,7 +82,7 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 		}
 	}
 	configDir := configDirOr(opts.ConfigDir)
-	if err := refuseEnrolledTrees(configDir, refused); err != nil {
+	if err := refuseEnrolledTrees(configDir, blockedPathsOf(refused)); err != nil {
 		return Report{}, nil, err
 	}
 	configFile := filepath.Join(configDir, "config.toml")
@@ -129,28 +129,28 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 // nothing that is a secret, and the file inside it worth refusing can be named
 // on its own. A directory under a tree is left alone, that being the ordinary
 // entry: `--path ~/proj/.env` is what this is for.
-func refuseEnrolledTrees(configDir string, refused []config.BlockedPath) error {
+func refuseEnrolledTrees(configDir string, paths []string) error {
 	trees := readEnrolled(configDir)
 	if len(trees) == 0 {
 		return nil
 	}
-	for _, entry := range refused {
-		if entry.Path == "" {
+	for _, path := range paths {
+		if path == "" {
 			continue
 		}
 		for _, tree := range trees {
-			if !containsPath(entry.Path, tree.Dir) {
+			if !containsPath(path, tree.Dir) {
 				continue
 			}
-			if entry.Path == tree.Dir {
+			if path == tree.Dir {
 				return fmt.Errorf("path %s is an enrolled tree, and the rules hold "+
 					"wherever the agent works: it would be refused every file in the "+
 					"directory it works in. Name the file inside it, or "+
-					"`sudo faramir init-project` elsewhere first", entry.Path)
+					"`sudo faramir init-project` elsewhere first", path)
 			}
 			return fmt.Errorf("path %s holds the enrolled tree %s, so the rule would "+
 				"refuse the agent every file in the directory it works in. Name the "+
-				"file or the directory that holds it", entry.Path, tree.Dir)
+				"file or the directory that holds it", path, tree.Dir)
 		}
 	}
 	return nil
@@ -381,4 +381,16 @@ func builtInRuleError(configDir string, refused config.BlockedPath) error {
 // BlockedPaths is what the install declares, for `faramir block ls`.
 func BlockedPaths(configDir string) ([]config.BlockedPath, error) {
 	return config.BaseBlocked(filepath.Join(configDirOr(configDir), "config.toml"))
+}
+
+// blockedPathsOf is the path each entry names, skipping the command entries,
+// which name none.
+func blockedPathsOf(refused []config.BlockedPath) []string {
+	out := make([]string, 0, len(refused))
+	for _, entry := range refused {
+		if entry.Path != "" {
+			out = append(out, entry.Path)
+		}
+	}
+	return out
 }

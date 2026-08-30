@@ -206,7 +206,15 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	if err := config.ValidateLink(link); err != nil {
 		return Report{}, false, err
 	}
-	configFile := filepath.Join(configDirOr(opts.ConfigDir), "config.toml")
+	configDir := configDirOr(opts.ConfigDir)
+	// A linked path renders the same subject a blocked one does, covering the
+	// path and everything under it, so the tree rule is the same rule: an entry
+	// naming an enrolled tree refuses the agent every file in the directory it
+	// works in.
+	if err := refuseEnrolledTrees(configDir, []string{link.Path}); err != nil {
+		return Report{}, false, err
+	}
+	configFile := filepath.Join(configDir, "config.toml")
 	if err := recordConfigDigest(&opts, configFile); err != nil {
 		return Report{}, false, err
 	}
@@ -257,7 +265,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	}
 
 	opts.links, opts.linksSet = append(append([]config.Link{}, existing...), link), true
-	if err := keepInstalledGrant(&opts, configDirOr(opts.ConfigDir)); err != nil {
+	if err := keepInstalledGrant(&opts, configDir); err != nil {
 		return Report{}, false, err
 	}
 	run, err := newRunner(opts)

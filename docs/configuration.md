@@ -117,7 +117,7 @@ key  = "github.com/oauth_token"
 Field | Rule
 --- | ---
 `ref` | The name a caller asks by, in the same namespace the sops store uses. Nothing marks a ref as linked: where a secret is kept is not part of its name. If it were, moving one into the store later would rename it, and every `faramir.env` that names it would have to change too. A link claiming a ref the store already defines is refused by `link add` before any entry is written.
-`path` | Absolute. No `~`: nothing expands it here, and the broker runs as its own account, so a home directory would be the wrong one. No control characters either, because the path is rendered into the deny rules one rule per line, and a newline would split the rule into two halves that will not compile. No wildcard: the file is opened as written, so nothing would resolve it, and the deny rule it renders would refuse a command typing that pattern while leaving the files it names readable.
+`path` | Absolute, and in its shortest form: the file is opened as written and the deny rule matches the path as written, so `/etc/./k` and `/etc/k` are one file and two rules, of which one matches nothing. No `~`, which nothing expands here, and the broker runs as its own account, so a home directory would be the wrong one. No control characters, because the path is rendered into the deny rules one rule per line, and a newline would split the rule into two halves that will not compile. No wildcard, and not `/`. Held to [the same rules a blocked path is](#what-each-form-accepts): the two render the same rule over the file, and differ only in which entry a refusal names.
 `type` | `text` or `base64` for the whole file. `json`, `yaml`, `toml` or `ini` to select a value out of it.
 `key` | Required for the four types that select, refused for the two that do not. Held to the same character rules as `path`, because `faramir link ls` prints it to a terminal. `a/b/c` walks a tree the way a sops ref does, and a number indexes a list; `ini` matches the whole key instead. See [selectors, escaping and the per-tool recipes](integrations.md#linking-a-credential-another-tool-owns).
 
@@ -197,10 +197,10 @@ sudo faramir block add --command 'op read' --command 'pass show'
 
 Form | Covers | Blocks
 --- | --- | ---
-`--path` | That path on this host, and everything under it | File tools, the shell, and a brokered command that would read, copy or move it
+`--path` | That path on this host, and everything under it | File tools, the shell, and a brokered command that would print it
 `--command` | Command text | The shell and a brokered command, a command being nothing a file tool can name
 
-`--path` also takes [`--strict`](#refusing-every-mention-of-an-entry), which refuses every command naming the entry rather than the ones that would read it.
+`--path` also takes [`--strict`](#refusing-every-mention-of-an-entry), which narrows what a **brokered** command may do to the entry. It changes nothing for the agent's own shell or file tools, which refuse a declared path named at all either way.
 
 The deny rules, the command guard's patterns and the broker's own check are built from one set, so a declared path refuses a file tool, `cat` and `faramir run` alike, and `faramir init` re-asserts all of them.
 
@@ -225,8 +225,8 @@ Form | Rule
 - **A shell pattern that could reach the entry is refused too.** The rules are matched against the text of a command, and a shell expands `*` after the guard has answered, so a rule carrying a file name can never match a pattern: declaring `~/.ssh/id_rsa` would leave `cat ~/.ssh/*` printing it. So each entry also refuses the patterns that could still produce its last component. `~/.ssh/*`, `~/.ssh/id_r*` and `~/.ssh/id_rs?` are refused; `~/.ssh/known_*` is not, `known_` being no prefix of `id_rsa`, and neither is a pattern anywhere else. What this does not reach is a wildcard higher up the path (`~/.s*/id_rsa`), a character class standing in for a literal (`~/.ssh/id_[r]sa`), and any path a command builds while it runs.
 - **A path this install occupies cannot be unblocked, and asking fails.** `block rm /etc/faramir/age.key` names a rule the layout renders on every run, not an entry this install carries, so there is nothing to remove and the host goes on blocking it. Reporting that as "nothing removed" would read as the file becoming readable. If an install declared the same path as well, its entry is removed and the directory is named as what still blocks it. Nothing else is unremovable: no rule is compiled in.
 - **A change reloads the daemons.** The broker holds these entries itself and compiles them once, at start, so an entry added into a running install is not refused until it reloads, and one removed goes on being refused. `block add` and `block rm` reload where they changed something, and not where a converge found the host as it should be.
-- **A path that is, or holds, an enrolled tree is refused.** The rules hold wherever the agent works, so such an entry would refuse it every file in the directory it was pointed at.
-- **Removing an entry stops `init` rendering the rule; it does not take the rule out of an agent's file.** A merged rule file is only addable to, so `block rm` and `link rm` print the rule, and the grant where there is one, with what would narrow them.
+- **A path that is, or holds, an enrolled tree is refused**, in a `[[secret.link]]` entry as well as a blocked one. The rules hold wherever the agent works, so such an entry would refuse it every file in the directory it was pointed at.
+- **Removing an entry takes its rule out of the agent files too.** `block rm` and `link rm` re-render the same steps `add` does, and the merge is given the record of what faramir last wrote into each file: a rule in that record and no longer backed by an entry comes out, and a rule nobody recorded is the operator's and stays, whatever it looks like. What removal does not take back is the grant, which `link rm` prints with the `chmod` that narrows it.
 - **The form is part of what identifies an entry.** `block rm --command` removes a command entry, so a command is not removed by giving the same string to `--path`.
 - **Both commands are idempotent.** A path already refused is not an error: the entry stands, the rules are rendered again, and `--json` reports `changed: false`. Removing a path this install does not refuse writes nothing.
 - **`faramir block ls` answers "what is blocked here".** It prints the declared entries in a table of kind and entry, and under it the rules faramir carries itself: this install's own directories, and the command rules covering its binary, the files an enrolment installs, and the commands that act on the install rather than through it. The kind is `path` or `command`, and where a rule is enforced follows from the kind. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges; `--built-in` narrows it to the half faramir renders from its own layout, which no entry names. Neither half can be asked any other way: a refusal names the rule that matched, not the set. Naming both is the default and is refused. The table and each section are sorted by kind and then by entry, and not sorted into each other. `--json` adds two fields that are not columns: `state`, whether a declared path is there today, and `source`, which half a row came from.
@@ -247,21 +247,27 @@ A managed or linked value is covered whichever route reads it, the command being
 
 `[[secret.link]]` entries are held to the same rule, for a reason of their own. A linked ref comes back tokenised wherever it appears, but a file holds more than the one key a link selects, and the rest of it is in no redactor. The mode that keeps the executor's uid out of a linked file is checked at install time and by `doctor`; this is the same bound at the moment the command runs.
 
-**On this side, and only this side, what is refused is a vocabulary rather than a direction: the commands that read a file and the ones that move or re-encode it, wherever the declared path sits in the line. Everything else is left alone, writing over the file included.** The agent's own shell is answered differently: there, naming a declared path is refused whatever the command would do with it, because a brokered command has to be able to *use* a credential file and an agent's shell does not. A list of every program that reads a secret without printing it could not be finished, so the side that needs one keeps a vocabulary and the side that does not has none.
+**On this side, and only this side, what is refused is a vocabulary rather than a direction: the commands that put a file's contents in the output, wherever the declared path sits in the line. Everything else is left alone, moving the file and writing over it included.** The agent's own shell is answered differently: there, naming a declared path is refused whatever the command would do with it, because a brokered command has to be able to *use* a credential file and an agent's shell does not. A list of every program that reads a secret without printing it could not be finished, so the side that needs one keeps a vocabulary and the side that does not has none.
 
 Through the broker | Example
 --- | ---
 Refused | `cat`, `head`, `python3`, `jq`, `cp`, `tar`, `scp`, `sops -d`, `< file`, and `p=/srv/keys/luks.key`
-Refused | `mv`, `ln`, `sed`, `gzip` and its kin: the contents end up under a name no rule was written for, which is the same disclosure one step later
-Left alone | `chmod`, `chown`, `setfacl`, `rm`, `shred`, `truncate`, `echo x > file`, `cryptsetup --key-file`, `stat`, `test -f`, `ls -l`
+Refused | `sed -n p`, `awk`, `rev`, `zcat`: a reader under another name, which the vocabulary carries by name rather than by what the line looks like
+Left alone | `chmod`, `chown`, `setfacl`, `rm`, `shred`, `truncate`, `echo x > file`, `mv`, `ln`, `gzip`, `cryptsetup --key-file`, `stat`, `test -f`, `ls -l`
 
-That line is not the read/write one the agent's own rules are split on, and the difference is deliberate. Nobody asked for what the agent types, so it is refused both directions: a value it cannot read is one it can still destroy, and an age key replaced is every managed file unreadable retroactively. A brokered command runs as an account of its own and only where an operator asked for it, so managing a declared file is ordinary work: fixing its mode, changing its owner, removing one that is finished. What none of that does is put a byte of the file into the conversation, and reading it is refused because nothing else can cover it. A declared file is one faramir either never reads or reads a single ref out of, which leaves the redactor holding nothing to replace the output with.
+That line is not the read/write one the agent's own rules are split on, and the difference is deliberate. Nobody asked for what the agent types, so it is refused both directions: a value it cannot read is one it can still destroy, and an age key replaced is every managed file unreadable retroactively. A brokered command runs as an account of its own, so managing a declared file is ordinary work: fixing its mode, changing its owner, moving one into place, removing one that is finished. What none of that does is put a byte of the file into the conversation, and reading it is refused because nothing else can cover it. A declared file is one faramir either never reads or reads a single ref out of, which leaves the redactor holding nothing to replace the output with.
 
 To read the file, run it outside faramir or take the entry out with `faramir block rm` or `faramir link rm`.
 
+**What that leaves open, said plainly.** A brokered `mv` or `ln -s` may put a declared file under a name no rule was written for, and the agent may then read that name with its own file tools. `faramir run` is the agent's to invoke: only an escalation is approved per command, so nobody is asked before this happens. It is two deliberate steps rather than an accident, which is the trade being made, and a rule against it also refuses the converge that rotates a keyfile by moving one into place. `--strict` is the per-entry answer for a file that would rather have the refusal than the converge.
+
+**Faramir's own directories are held to the stricter rule on this side, and no brokered command may name one.** Not the looser reading a declared path gets: that exists so a brokered command can still manage a credential file, and nothing brokered has an install to manage. This is also the one route where a mode is no answer. The agent's uid cannot read the age key whatever the rules say, but a brokered command runs as an account of its own, and as root wherever an escalation was approved, so the rule is what refuses it. The refusal offers no removal command, these being rendered from the layout on every run.
+
+The rules match the text of a command rather than what it does once running, so a converge that sets the install up is untouched: `sudo ansible-playbook site.yml` goes through and `sudo cat <config-dir>/age.key` does not.
+
 ### Refusing every mention of an entry
 
-That default is the one that leaves a host working: most declared files still have to be managed, and a keyfile nothing may `chmod` is a keyfile nothing may rotate. It is the wrong default for the directory the agent has no business in at all, where `ls` is as unwelcome as `cat`.
+That default is the one that leaves a host working: most declared files still have to be managed, and a keyfile nothing may `chmod` is a keyfile nothing may rotate. It is the wrong default for the file no brokered command has any business naming.
 
 `--strict` says so, per entry, on `block add` and on `link add`:
 
@@ -270,18 +276,22 @@ sudo faramir block add --path ~/.private --strict
 sudo faramir link add --strict gh/token ~/.config/gh/hosts.yml --type yaml --key github.com/oauth_token
 ```
 
-It changes what a **brokered** command may do. The agent's shell already refuses a declared path named at all, strict or not, so the flag adds nothing there. What it takes away is the looser reading the broker uses: without it a brokered command may still `chmod`, `mv` or write over a declared file, because a file nothing may touch is a file nothing may rotate. With it, no brokered command may name the path for any reason. The entry's own file-tool rules do not change, the path being denied there already.
+It changes what a **brokered** command may do, and nothing else. The agent's shell and its file tools already refuse a declared path named at all, strict or not, so the flag adds nothing there.
+
+What it takes away is the looser reading the broker uses. Without it a brokered command may do anything to the file that does not put its contents in the output: `chmod`, `chown`, `rm`, `truncate`, a redirect over it, and `mv`, `ln` or `gzip` as well. A file nothing may chmod is a file nothing may rotate, and this route runs what the operator asked for as an account of their own, so it does not defend against a name being walked out from under a rule. What stays refused is anything that prints the contents, whatever it is called: `sed -n p` is a read under another name. With `--strict`, no brokered command may name the path for any reason.
 
 The cost is exactly what it says. **Nothing converges a path declared this way**, so it is for a file whose own tool is the only thing that should ever touch it, and not for a key something has to rotate. `faramir block ls` says which entries carry it.
 
 It is not for `--command`, which is already matched wherever a command starts: an entry naming both is refused at load rather than accepted and ignored.
+
+On a link it is about the file and not about the value. The ref still answers, so `faramir run --env NAME=faramir://gh/token` injects the token either way: that is what the link is for, and it names no path. What the flag takes away is the brokered command that would name `~/.config/gh/hosts.yml` in order to manage it. A strict link is a value anything may be given and a file nothing may touch.
 
 A link is still the stronger of the two entries, because it reads the file:
 
 What happens to the file | `[[secret.link]]` | `[[secret.block]]`
 --- | --- | ---
 Refused to the agent's file tools | Yes | Yes
-A brokered command cannot read, copy or move it | Yes | Yes
+A brokered command cannot print it | Yes | Yes
 Held away from the executor's uid by the mode | Yes, checked and reported | No, the mode is nobody's business here
 The value is in the redactor, tokenised wherever it appears | Yes | No, faramir never reads it
 Injectable by ref | Yes | No

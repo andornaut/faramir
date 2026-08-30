@@ -251,7 +251,10 @@ if grep -qF "$GH_VALUE" <<<"$out"; then
   bad "a brokered command read the linked file directly: $out"
 elif grep -qF "$GH_TOKEN" <<<"$out"; then
   bad "a brokered command read the file; only the redactor stood between the value and the transcript: $out"
-elif grep -qiE 'permission denied|cannot open|may not read' <<<"$out"; then
+# The broker answers with the `blocked` code and the mode with an errno. Matched
+# on the code, which the protocol fixes, rather than on the sentence after it,
+# which is prose and changes.
+elif grep -qiE 'permission denied|cannot open|blocked:' <<<"$out"; then
   ok "a brokered command is refused the file it takes the value from"
 else
   bad "the read was neither refused nor redacted, so what happened is not known: $out"

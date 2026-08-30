@@ -45,8 +45,12 @@ out=$(run -- /usr/bin/id -u)
 [ "$out" != "$(id -u op)" ] && ok "and not as the caller" || bad "it ran as the caller's uid"
 
 head_ "2. what that uid cannot reach"
+# Asked of the account directly rather than through the broker. The broker holds
+# rules over faramir's own directories and answers first, so a brokered read of
+# one never reaches the executor, which would leave the mode -- the boundary this
+# section is about -- asserted by nothing.
 refused() { # path label
-  local out; out=$(run -- /bin/cat "$1")
+  local out; out=$(runuser -u faramir-exec -- /bin/cat "$1" 2>&1)
   if grep -qiE "permission denied|no such file|cannot open|not found" <<<"$out"; then
     ok "cannot read $2"
   else
@@ -58,6 +62,20 @@ refused /etc/faramir/secrets/app.sops.yml "the encrypted secrets"
 refused /var/log/faramir/audit.log "the audit log"
 refused /etc/faramir/id_ed25519 "the broker's ssh private key"
 refused /home/op/.ssh/id_ed25519 "the operator's ssh key"
+
+# And the other of the two answers: the broker refuses the command before the
+# executor is asked at all. Under an approved escalation the command runs as
+# root, where the mode above stops refusing, so this is the one that holds there.
+blockedFirst() { # path label
+  local out; out=$(run -- /bin/cat "$1")
+  if grep -q "blocked:" <<<"$out"; then
+    ok "and the broker refuses a brokered read of $2 before the executor sees it"
+  else
+    bad "the broker passed a brokered read of $2 to the executor: $(head -c 90 <<<"$out")"
+  fi
+}
+blockedFirst /etc/faramir/age.key "the age key"
+blockedFirst /var/log/faramir/audit.log "the audit log"
 # The keeper socket is the age key by another name. python3, not nc: nc is not
 # installed here, and "nc: not found" matches every "is it blocked" pattern
 # there is, so that check was answering a question nobody asked.

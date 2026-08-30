@@ -386,14 +386,16 @@ func TestAddRefusedWillNotBlockAnEnrolledTree(t *testing.T) {
 		filepath.Join(tree, "sub"),
 		tree + "2",
 	} {
-		if err := refuseEnrolledTrees(dir, []config.BlockedPath{{Path: path}}); err != nil {
+		if err := refuseEnrolledTrees(dir, []string{path}); err != nil {
 			t.Errorf("%s was refused: %v", path, err)
 		}
 	}
-	// A command names no path, so it is not asked about.
-	if err := refuseEnrolledTrees(dir, []config.BlockedPath{
+	// A command names no path, so it is never asked about: the tree rule is
+	// about a path rendered over a tree, and a command entry renders none.
+	if got := blockedPathsOf([]config.BlockedPath{
 		{Command: "op read"},
-	}); err != nil {
-		t.Errorf("an entry naming no path was refused: %v", err)
+		{Path: "/srv/luks.key"},
+	}); len(got) != 1 || got[0] != "/srv/luks.key" {
+		t.Errorf("the paths of a mixed set are %v, want the one path", got)
 	}
 }

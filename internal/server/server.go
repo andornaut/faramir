@@ -66,13 +66,18 @@ type Server struct {
 	closing bool
 }
 
-func New(cfg *config.Config) *Server {
+// New builds the broker over one config.
+//
+// ownDirs is what this install occupies, from the caller rather than read here:
+// where those directories are is the installer's to know, and a daemon that
+// worked it out for itself would be a second answer to drift from.
+func New(ownDirs []string, cfg *config.Config) *Server {
 	s := &Server{
 		Config: cfg,
 		// What this host declares, as the rules a brokered command is held to.
 		// Compiled once: the entries change by `faramir block add` and `faramir
 		// link add`, each of which rewrites the config and restarts what reads it.
-		declared:   newDeclaredCheck(cfg.Secret, agentHomeDir(cfg.Server.AgentUser)),
+		declared:   newDeclaredCheck(agentHomeDir(cfg.Server.AgentUser), ownDirs, cfg.Secret),
 		Store:      secretstore.New(cfg.Secret, cfg.Keeper),
 		Audit:      audit.NewLog(cfg.Audit),
 		Ssh:        sshagent.New(cfg.Ssh),

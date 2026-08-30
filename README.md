@@ -193,7 +193,7 @@ Two forms, each named by its own flag, and they mix in one command. Neither is t
 
 **Name the directory, not the files in it.** `--path ~/.ssh` refuses every key under it, including the one named `identity` and whatever an `IdentityFile` line points at. A list of file names covers the ones you thought of.
 
-For the directory your agent has no business in at all, `--strict` refuses every command *naming* it, not only the ones that would read it:
+Your agent's shell is refused a declared path named at all. `--strict` says the same of a **brokered** command, which is otherwise still allowed to change the file where it stands:
 
 ```bash
 sudo faramir block add --path ~/.private --strict
@@ -206,7 +206,7 @@ Form | Blocks | Matched against
 `--path` | one file or directory on this host, and everything under it | the path as written, so it is absolute and in its shortest form
 `--command` | what may not be run, written as it would be typed | where a command starts, so `grep` naming one is left alone
 
-A path reaches the agent's file tools and its shell alike; a command is nothing a file tool can name, so it reaches the shell. **The broker holds the same entries**, so a brokered command cannot read, copy or move a declared file either, that being the one route no rule file reaches. The two sides answer differently. Your agent's shell is refused a declared path named at all, whatever the command would do with it. A brokered command is refused the ones that read the file or move it somewhere, and left alone otherwise, writing over it included: it has to be able to *use* a credential, and the programs that read one without printing it are not a list anybody could finish. [How that line falls](docs/configuration.md#the-brokered-route).
+A path reaches the agent's file tools and its shell alike; a command is nothing a file tool can name, so it reaches the shell. **The broker holds the same entries**, so a brokered command cannot print a declared file either, that being the one route no rule file reaches. It also refuses a brokered command that names one of faramir's own directories, an approved escalation running as root, where a file mode refuses nothing. The two sides answer differently. Your agent's shell is refused a declared path named at all, whatever the command would do with it. A brokered command is refused the ones that would print the file, and left alone otherwise, moving it and writing over it included: it has to be able to *use* a credential, and the programs that read one without printing it are not a list anybody could finish. [How that line falls](docs/configuration.md#the-brokered-route).
 
 `faramir block ls` lists everything in force, the rules faramir carries itself included. It is one of the three operator commands that need no root, beside `reader ls` and `link ls`.
 

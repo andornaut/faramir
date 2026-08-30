@@ -96,7 +96,7 @@ func fallbackPatterns() []string {
 	// fallbackOwn first: a line can match both, and the rule that says something
 	// more specific than "this path is declared" is the one worth reporting.
 	out := append([]string{}, fallbackOwn...)
-	return append(out, denyrules.Naming(subjects)...)
+	return append(out, denyrules.NamingAs(denyrules.KindOwn, subjects)...)
 }
 
 // No compiled-in verb rules. What a command does rather than what it points at
@@ -166,26 +166,66 @@ const adviceOperator = "Blocked: this is an operator command. It acts on the far
 	"commands that only describe the install: `faramir doctor`, `faramir block ls`, " +
 	"`faramir link ls` and `faramir reader ls`."
 
-// adviceDeclared is for the one rule about a declared path: this install's own
-// directories, and what the operator blocked or linked.
+// The declared-path messages, one per kind of entry, chosen by the named group
+// the rule carries. The rule itself is the same shape in all three: a path
+// named at all is refused, whatever the command would do with it. What differs
+// is how the agent stops being refused, and a message that could not say which
+// had to name two commands and a way to tell them apart.
 //
-// One sentence for reading it and for changing it alike. The rule carries no
-// verb, so it cannot tell them apart, and inventing a distinction from the
-// command would be a guess dressed as a fact.
+// adviceRefs is the half that holds for any declared path, faramir's own
+// directories included: a value reached by ref is reached without the file
+// being named, so no rule about the path is in the way.
+// adviceNamed is what the rule does, which is the half none of the four
+// messages differ on.
+const adviceNamed = ", so naming it is refused to your tools and to your shell, whatever the command would do with it."
+
+const adviceRefs = "If the value answers a `faramir://` ref, `faramir refs` names it and " +
+	"`faramir run --env NAME=faramir://<ref>` is the way to use it, which does not name the file."
+
+// adviceRoute is the brokered route, for the entries where it is open. It is
+// not always: the broker holds the same entries and refuses a command that
+// would read the file. It is worth naming anyway, a command that only uses a
+// credential being the ordinary case.
+const adviceRoute = "\n\nA brokered command is answered differently: `faramir run` refuses the ones that " +
+	"would read the file and allows the rest, so a command that only uses the credential may go " +
+	"through there. " + adviceRefs
+
+// adviceBlockedPath is for a path a [[secret.block]] entry names. The entry
+// exists to refuse and nothing else, so removing it is the whole remedy.
+const adviceBlockedPath = "Blocked: the operator blocked this path on this host" + adviceNamed + adviceRoute + "\n\nOtherwise this is the operator's to do, or to unblock with `faramir block rm`. " +
+	"`faramir block ls` lists what they blocked."
+
+// adviceLinkedPath is for the file a [[secret.link]] entry reads. Removing the
+// entry takes the refusal back and the ref with it, so the ref is the thing to
+// reach for first: it is what the link is for, and it answers without the file
+// being named.
+const adviceLinkedPath = "Blocked: a link reads this file on this host" + adviceNamed + adviceRoute +
+	"\n\nThat ref is the point of the link, so prefer it to the file. `faramir link ls` lists the links " +
+	"and the files they read. Removing one is the operator's to do, `faramir link rm`, and it takes " +
+	"the ref away as well."
+
+// adviceOwnPath is for a directory this install occupies. No entry declares
+// these and no removal takes them back: they are rendered from the layout on
+// every run, so a message offering a removal command would name a remedy that
+// does not exist.
+const adviceOwnPath = "Blocked: this is one of faramir's own directories" + adviceNamed + "\n\n" + adviceRefs +
+	" A brokered command is no way round the directory itself: `faramir run` holds the same rules and " +
+	"runs as an account with less reach than you.\n\nThere is no entry to remove either. These " +
+	"are rendered from the install's layout on every run and are on neither `faramir block ls` nor " +
+	"`faramir link ls`, so if this is deliberate it is the operator's to do."
+
+// adviceDeclared is the safe default, for a rule no marker classified. It says
+// what is true of any declared path and leaves the reader to find which kind
+// applies, which is the most a message can do when the rule does not say.
 //
-// It offers no route. `faramir run` is not one: the broker holds the same
-// entries and refuses a declared path too. Nor is `faramir block rm` always one,
-// since the install's own directories are rendered from the layout on every run
-// and no entry takes them back. So the message says what is true of both and
-// leaves the decision where it belongs.
-const adviceDeclared = "Blocked: this path is declared on this host, so naming it is refused " +
-	"to your tools and to your shell, whatever the command would do with it.\n\nA brokered " +
-	"command is answered differently: `faramir run` refuses the ones that would read the file " +
-	"or move it somewhere and allows the rest, so a command that only uses the credential may " +
-	"go through there. If the file answers a `faramir://` ref, `faramir refs` names it and " +
-	"`faramir run --env NAME=faramir://<ref>` is the way to use it.\n\nOtherwise this is the " +
-	"operator's to do, or to unblock with `faramir block rm`. The directories the install " +
-	"occupies are not removable at all, being rendered from the layout on every run."
+// Disclosure rather than one of the narrower messages, because being wrong this
+// way costs a detour and being wrong the other way tells an agent that the
+// operator's own secret is faramir's file.
+const adviceDeclared = "Blocked: this path is declared on this host" + adviceNamed + adviceRoute +
+	"\n\nOtherwise this is the operator's to do, or to unblock: `faramir block rm` for a path they " +
+	"blocked, `faramir link rm` for one a link reads. `faramir block ls` and `faramir link ls` say which it is, and " +
+	"you may run both. The directories the install occupies are on neither list and are not " +
+	"removable at all, being rendered from the layout on every run."
 
 // adviceCommand is for a `[[secret.block]]` entry naming a command rather than a
 // path. The remedy is the same shape and the subject is not: telling somebody
@@ -214,54 +254,57 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not bec
 var adviceMarkers = []struct {
 	marker string
 	advice string
-	// ownPath is a pattern whose subjects are mixed: one rule carries this
-	// install's own directories alongside the paths the operator declared or
-	// linked, so the pattern cannot say whose path matched and the command has
-	// to. Without this, `rm /srv/luks.key` is explained as faramir's own file.
-	ownPath bool
 }{
-	{`\s+faramir\b`, adviceOperator, false}, // any faramir subcommand under sudo
+	// The declared-path rules, which say which kind they are: the group is
+	// written into the rule by denyrules.NamingAs and matches exactly what the
+	// rule matched. First, because a rule that names its own kind is not
+	// something a later marker should be able to reinterpret.
+	{denyrules.KindMarker(denyrules.KindOwn), adviceOwnPath},
+	{denyrules.KindMarker(denyrules.KindBlocked), adviceBlockedPath},
+	{denyrules.KindMarker(denyrules.KindLinked), adviceLinkedPath},
+	// A faramir subcommand under sudo, and running as one of the service
+	// accounts. The second spells no word boundary after the name, the account
+	// names carrying a suffix, so the marker stops where the two agree.
+	{`\s+faramir`, adviceOperator},
 	// Stopping at the open bracket rather than reaching into the alternation:
 	// the subcommands inside it are listed alphabetically, so which one comes
 	// first moves whenever a command is added.
-	{`\bfaramir[-\s]+(`, adviceOperator, false},    // the same set unprivileged
-	{`\bsystemctl\b`, adviceOwn, false},            // stopping or masking a unit
-	{`/usr/local/bin/faramir\b`, adviceOwn, false}, // the binary
-	{`opencode/plugin/faramir`, adviceOwn, false},  // the plugin `init` writes
+	{`\bfaramir[-\s]+(`, adviceOperator},    // the same set unprivileged
+	{`\bsystemctl\b`, adviceOwn},            // stopping or masking a unit
+	{`/usr/local/bin/faramir\b`, adviceOwn}, // the binary
+	{`opencode/plugin/faramir`, adviceOwn},  // the plugin `init` writes
 	// A redirect over faramir's own binary or plugin files. At the default bin
 	// directory the path marker above catches it; a moved one has no marker of
 	// its own, and these are the only redirect rules left.
-	{`>\s*\S*`, adviceOwn, false},
+	{`>\s*\S*`, adviceOwn},
 	// The head of denyrules.WriteCommands's word list rather than the constant,
 	// the shipped file carrying the expansion rather than the name. The words
 	// alone, not what wraps them: the group around them has changed shape once
 	// already, and a marker carrying it silently stops matching when it does.
 	//
 	// This is faramir's own binary and plugin files, which are the only rules
-	// left that carry a verb. A declared path has no verb rule to read a message
-	// out of, and falls through to adviceDeclared.
-	{`rm|shred|truncate`, adviceOwn, false},
+	// left that carry a verb. A declared path carries none, and is answered by
+	// the kind its own rule names.
+	{`rm|shred|truncate`, adviceOwn},
 	// A declared command, which is about what a tool does rather than what it
 	// names. Without this it falls through to adviceDeclared and is answered
 	// with advice about a path the entry does not have.
-	{denyrules.CommandPosition, adviceCommand, false},
+	{denyrules.CommandPosition, adviceCommand},
 }
 
 // adviceFor picks the explanation that matches why the command was refused.
+// The pattern is the whole input: a rule about a declared path carries the kind
+// of entry that declared it, and the rest are told apart by what they match.
 // Unclassified means disclosure, which is the larger half and the safer
 // default.
-func adviceFor(pattern, command string) string {
+func adviceFor(pattern string) string {
 	for _, m := range adviceMarkers {
-		if !strings.Contains(pattern, m.marker) {
-			continue
+		if strings.Contains(pattern, m.marker) {
+			return m.advice
 		}
-		if m.ownPath && !namesOwn(command) {
-			continue
-		}
-		return m.advice
 	}
-	// Everything else is the subject rule, which is about a declared path and
-	// says one thing about it.
+	// A subject rule from an install that rendered its file before the kinds
+	// existed, which is the one case left where the rule cannot say which.
 	return adviceDeclared
 }
 
@@ -291,23 +334,6 @@ func shortSegment(segment string) string {
 	return string(runes[:keep]) + "…"
 }
 
-// namesOwn reports whether the command names a directory belonging to this
-// install, which is what separates a write faramir refuses to protect itself
-// from a write to a secret the operator declared.
-//
-// The compiled defaults and this host's config directory. A log or libexec
-// directory moved elsewhere reads as the operator's and gets the disclosure
-// message, which is the safer of the two to be wrong about: it offers
-// `faramir run`, and a brokered command runs as an account with less reach.
-func namesOwn(command string) bool {
-	for _, dir := range append(append([]string{}, defaultInstallPaths...), configDir()) {
-		if strings.Contains(command, dir) {
-			return true
-		}
-	}
-	return false
-}
-
 type compiled struct {
 	source string
 	re     *regexp.Regexp
@@ -328,7 +354,8 @@ func configDir() string {
 // called: the same three shapes the literal rules use, so a moved install is
 // covered the way /etc/faramir is.
 func configDirRules(dir string) []string {
-	return denyrules.Naming([]string{denyrules.DirUnder(guardHome(), dir)})
+	return denyrules.NamingAs(denyrules.KindOwn,
+		[]string{denyrules.DirUnder(guardHome(), dir)})
 }
 
 // guardHome is what a tilde in the command being judged stands for. This runs
@@ -1070,7 +1097,7 @@ func Run(args []string) int {
 				"\n\n    " + shortSegment(segment) +
 				"\n\n(matched deny pattern: " + shortPattern(pattern) + ")"
 		}
-		return emit(activeHost.deny(adviceFor(pattern, command) + note))
+		return emit(activeHost.deny(adviceFor(pattern) + note))
 	}
 
 	// The same question the patch branch above asks, of a command that runs the
