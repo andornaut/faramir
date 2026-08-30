@@ -111,6 +111,6 @@
 # it, so they are the operator's whether or not sudo is in front: refused here so
 # the agent is told that, rather than meeting a permission error it will try to
 # work around.
-\bfaramir[-\s]+(block[ \t]+add|block[ \t]+ls|block[ \t]+rm|doctor|init|init-project|link[ \t]+add|link[ \t]+ls|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+ls|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b
+\bfaramir[-\s]+(block[ \t]+add|block[ \t]+rm|init|init-project|link[ \t]+add|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b
 \bsudo\b.*-u\s+faramir
 \bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-

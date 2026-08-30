@@ -166,7 +166,9 @@ const advice = "Blocked: this command would put a credential into the conversati
 const adviceOperator = "Blocked: this is an operator command. It acts on the faramir install rather than " +
 	"through it, so it is refused whether or not sudo is in front, and your account " +
 	"could not carry it out either.\n\nAsk the operator to run it. What you can run: " +
-	"`faramir run`, `faramir refs`, `faramir status` and `faramir redact`."
+	"`faramir run`, `faramir refs`, `faramir status`, `faramir redact`, and the " +
+	"commands that only describe the install: `faramir doctor`, `faramir block ls`, " +
+	"`faramir link ls` and `faramir reader ls`."
 
 // adviceOwn is for the rules that are not about disclosure. Acting on
 // faramir's own files, accounts or units discloses nothing, and the disclosure

@@ -386,6 +386,13 @@ func commandSubjects(layout Layout) []string {
 	}
 	for _, path := range perInstallPaths(layout) {
 		out = append(out, denyrules.DirUnder(home, path))
+		// And a glob in the directory that holds it: a rule for a file carries
+		// the file's name, and a glob does not. Empty for a path whose parent is
+		// a home or the root, which is why this is appended rather than folded
+		// into DirUnder.
+		if glob := denyrules.GlobUnder(home, path); glob != "" {
+			out = append(out, glob)
+		}
 	}
 	return out
 }

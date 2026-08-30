@@ -66,13 +66,42 @@ var Agent = []string{
 	"version",
 }
 
-// OperatorOnly is Operator without Agent, in Operator's order: the subcommands
-// the deny rules refuse to the agent. Derived rather than written twice, so a
-// command added to Operator is refused until somebody decides otherwise.
+// ReadOnly is the operator subcommands that describe the install without
+// changing it, without printing a value, and without needing root. They are not
+// refused to the agent.
+//
+// Refusing them protected nothing: each already answered as `faramir run --
+// faramir <command>`, which takes no root and raises no approval, so the direct
+// spelling was refused while the brokered one worked. A rule two spellings
+// disagree on is one an agent works around rather than reads.
+//
+// Root is the test, not read-versus-write. `logs` reads and changes nothing and
+// is still absent, because it needs root and needs it through the broker as
+// well: allowing it would answer with a permission error naming `sudo faramir
+// logs`, which stays refused. A refusal that says to ask the operator is the
+// truthful answer there, and is what adviceOperator exists to give.
+//
+// Not folded into Agent, which answers a different question: Agent is whose
+// arguments the guard leaves unscanned, and these are scanned like anything
+// else.
+//
+// The write verbs stay refused, and so does every `sudo` verb: the account the
+// agent runs as must not answer the escalation it raised.
+var ReadOnly = []string{
+	"block ls",
+	"doctor",
+	"link ls",
+	"reader ls",
+}
+
+// OperatorOnly is Operator without Agent or ReadOnly, in Operator's order: the
+// subcommands the deny rules refuse to the agent. Derived rather than written
+// twice, so a command added to Operator is refused until somebody decides
+// otherwise.
 func OperatorOnly() []string {
 	out := make([]string, 0, len(Operator))
 	for _, name := range Operator {
-		if !slices.Contains(Agent, name) {
+		if !slices.Contains(Agent, name) && !slices.Contains(ReadOnly, name) {
 			out = append(out, name)
 		}
 	}

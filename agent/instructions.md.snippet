@@ -8,8 +8,9 @@ values and returns output with each one replaced by `«SECRET:ref»`:
 `faramir refs` names what exists. You do not need a value to use one.
 
 You may also run `faramir status`, `faramir redact`, `version`, `help` and
-`completion`. Every other faramir subcommand changes the install and is
-refused.
+`completion`, and the commands that only describe the install: `faramir doctor`,
+`faramir block ls`, `faramir link ls` and `faramir reader ls`. Every other
+faramir subcommand changes the install or needs root, and is refused.
 
 ## Rules
 

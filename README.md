@@ -265,7 +265,7 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 
 ### Operator commands
 
-**Every operator command is refused to the coding agent's shell**, with sudo and without: [which commands, and what each does](docs/operating.md#operator-commands).
+**Every operator command that changes the install or needs root is refused to the coding agent's shell**, with sudo and without. The four that only describe it are not: [which commands, and what each does](docs/operating.md#operator-commands).
 
 Group | Commands
 --- | ---

@@ -80,7 +80,9 @@ A brokered command cannot delete these files, each agent's own directory in a tr
 
 ## Operator commands
 
-**Every one of these is refused to the coding agent's shell**, with sudo and without. An agent may run `run`, `redact`, `status` and `refs`, plus `version`, `help` and `completion`, which reach no broker; the rest act on the install rather than through it.
+**Every one of these that changes the install or needs root is refused to the coding agent's shell**, with sudo and without. An agent may run `run`, `redact`, `status` and `refs`, plus `version`, `help` and `completion`, which reach no broker, and `doctor`, `block ls`, `link ls` and `reader ls`, which describe the install without changing it and answer unprivileged. The rest act on the install rather than through it.
+
+`logs` is refused despite reading nothing but the audit log: it needs root, and needs it through the broker as well, so allowing it would answer with a permission error pointing at a `sudo` that stays refused.
 
 - All need root except `doctor`, which degrades, and the three that only read: `reader ls`, `link ls` and `block ls`.
 - Five of them take a subcommand: `faramir vault` acts on the encrypted secret files, `faramir link` on a secret another tool owns, `faramir block` on a path refused to the agent and never read, `faramir reader` on which keys can decrypt those files, and `faramir sudo` on a brokered command's request to run `sudo`. `vault` and `link` share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.

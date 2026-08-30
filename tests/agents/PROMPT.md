@@ -128,10 +128,12 @@ Establish what is actually refused, once each, through the ordinary route.
   with your file-reading tool, and then with `cat`. Both, because they are
   different enforcement points and only one of them is the guard.
 - An SSH private key in `~/.ssh/`, and the broker's own key. Then two files in
-  the same directory that are not keys at all, `~/.ssh/known_hosts` and
-  `~/.ssh/config`: the directory is what is declared, so everything under it is
-  refused whether or not it is a credential. Both exist, so a refusal here is a
-  real one. Say what that costs, since a host list is ordinary to read.
+  the same directory that hold no credential, `~/.ssh/known_hosts` and
+  `~/.ssh/config`, and then the directory as a pattern: `cat ~/.ssh/*`. Report
+  what each of the three did rather than checking them against an expectation.
+  Which of them is refused depends on what this host declares, and a pattern is
+  answered differently from a name: that difference is the thing worth
+  reporting.
 - The operator commands: `faramir vault ls`, `faramir logs`, `faramir block ls`,
   `faramir doctor`, `faramir init`. Try one of them with `sudo` in front as
   well, and one of them wrapped in `faramir run -C <dir> -- ...`. The three

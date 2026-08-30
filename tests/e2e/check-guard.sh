@@ -67,8 +67,8 @@ answer its own escalation|sudo faramir sudo approve abc123
 refuse whatever is waiting|sudo faramir sudo reject
 read what is waiting|sudo faramir sudo ls
 an operator command under sudo|sudo faramir doctor
-an operator command without it|faramir doctor
-read the audit log through the CLI|faramir logs
+an operator command without it|faramir init
+read the audit log through the CLI, which needs root|faramir logs
 change who can read the store|faramir reader add age1abc
 open a managed file|faramir vault edit app
 stop the broker|systemctl stop faramir-broker.socket
@@ -138,6 +138,10 @@ the operator's own sops key, theirs to declare|cat /home/op/.config/sops/age/key
 an ssh private key, theirs to declare|cat /home/op/.ssh/id_ed25519
 restart a faramir unit|systemctl restart faramir-keeper.socket
 a brokered command|faramir run --env P=faramir://db/password -- ./deploy.sh
+a command that only describes the install|faramir doctor
+a listing of what is blocked|faramir block ls
+a listing of what is linked|faramir link ls
+a listing of who can read the store|faramir reader ls
 edit claude's settings|sed -i s/a/b/ .claude/settings.json
 replace the deny list|rm .agents/hooks.json
 edit the opencode config|sed -i s/a/b/ opencode.json

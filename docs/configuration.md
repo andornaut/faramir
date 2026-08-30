@@ -187,7 +187,7 @@ sudo faramir block add --path /etc/luks/volume.key   # this file, on this host
 sudo faramir block add --path ~/.ssh                 # and everything under it
 
 # Each flag given is one entry, and one command writes them all
-sudo faramir block add --path ~/.ssh --path ~/.config/sops/age --path ~/.netrc
+sudo faramir block add --path ~/.gnupg --path ~/.config/sops/age --path ~/.netrc
 
 # A command, for what a tool does rather than for a file it names
 sudo faramir block add --command 'op read' --command 'pass show'

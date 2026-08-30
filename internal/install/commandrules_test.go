@@ -10,6 +10,46 @@ import (
 // Before this, `block add` rendered a rule into every agent's file tools and
 // said nothing to the command guard, so `cat` on the very path an operator had
 // just refused was allowed, and nothing said so.
+// A glob in the directory that holds a declared file is refused, which naming
+// the file itself does not cover: the shell expands the pattern after the guard
+// has answered, so the rule has to be about the pattern.
+//
+// Through commandRules rather than GlobUnder alone, because the rule is only
+// worth anything if an install renders it.
+func TestAGlobReachingADeclaredFileIsRefused(t *testing.T) {
+	layout := Layout{
+		ConfigDir: "/etc/faramir",
+		AgentUser: "",
+		Blocked: []config.BlockedPath{
+			{Path: "/home/op/.ssh/id_rsa"},
+			{Path: "/home/op/.gnupg"},
+		},
+	}
+	rules := commandRules(layout)
+
+	for _, tc := range []struct {
+		command string
+		denied  bool
+		why     string
+	}{
+		{"cat /home/op/.ssh/*", true, "a glob over the directory holding a declared key"},
+		{"cat /home/op/.ssh/id_r*", true, "and a narrower one"},
+		{"base64 /home/op/.ssh/*", true, "whatever reader is in front of it"},
+		{"cat /home/op/.gnupg/*", true, "a declared directory already covered this"},
+
+		{"cat /home/op/.ssh/known_hosts", false, "a file in that directory that is not declared"},
+		{"cat /home/op/.ssh/config", false, "and another"},
+		{"ls -l /home/op/.ssh", false, "listing the directory is not reading a file in it"},
+		{"cat /home/op/notes/*", false, "a glob nowhere near a declared path"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			if denied := matchesAny(t, rules, tc.command); denied != tc.denied {
+				t.Errorf("denied = %v, want %v: %s", denied, tc.denied, tc.why)
+			}
+		})
+	}
+}
+
 func TestADeclaredEntryReachesTheCommandRules(t *testing.T) {
 	layout := Layout{
 		ConfigDir:  "/etc/faramir",

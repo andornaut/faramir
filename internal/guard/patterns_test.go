@@ -104,7 +104,9 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		{"sudo faramir access --read /etc/faramir/age.key", adviceOperator},
 		{"sudo faramir doctor", adviceOperator},
 		// And the same set unprivileged, which is where an agent meets it.
-		{"faramir doctor", adviceOperator},
+		// `logs` is here rather than among the listings: it needs root, so a
+		// refusal naming the operator is the true answer and a permission error
+		// would not be.
 		{"faramir logs", adviceOperator},
 		{"faramir vault edit app", adviceOperator},
 		{"faramir uninstall", adviceOperator},
@@ -152,6 +154,62 @@ func TestEveryPatternIsClassifiedOnPurpose(t *testing.T) {
 				"added or moved: decide which message it should carry, add it to "+
 				"TestARefusalExplainsWhyItWasRefused, and update this count",
 				counts[tc.which], len(fallback), tc.name, tc.want)
+		}
+	}
+}
+
+// The listings describe the install without changing it and without printing a
+// value, so they are not refused. Each was already reachable as `faramir run --
+// faramir <command>`, which takes no root and raises no approval: refusing the
+// direct spelling left the two routes disagreeing and bought nothing.
+//
+// Asserted per command rather than through cli.ReadOnly, so moving one out of
+// that list fails here rather than quietly widening what an agent may run.
+func TestTheReadOnlyListingsAreNotRefused(t *testing.T) {
+	for _, command := range []string{
+		"faramir block ls",
+		"faramir link ls",
+		"faramir reader ls",
+		"faramir doctor",
+		"faramir block ls --declared",
+	} {
+		if pattern, denied := decide(command); denied {
+			t.Errorf("%q is refused by %q, and it only describes the install",
+				command, pattern)
+		}
+	}
+}
+
+// Under sudo they stay refused, and so does every write verb: what changed is
+// which commands an agent may run as itself, not what it may run as root.
+func TestTheReadOnlyListingsAreStillRefusedUnderSudo(t *testing.T) {
+	for _, command := range []string{
+		"sudo faramir block ls",
+		"sudo faramir doctor",
+		"sudo faramir reader ls",
+	} {
+		if _, denied := decide(command); !denied {
+			t.Errorf("%q is allowed, and an agent has no root to run it with", command)
+		}
+	}
+}
+
+// The write verbs of the same groups are untouched by the read-only exemption:
+// "block ls" being runnable must not make "block rm" so.
+func TestTheWriteVerbsAreStillRefused(t *testing.T) {
+	for _, command := range []string{
+		"faramir block add --path /etc/x",
+		"faramir block rm --path /etc/x",
+		"faramir link add --ref a --path /etc/x",
+		"faramir link rm --ref a",
+		"faramir reader add age1abc",
+		"faramir reader rm age1abc",
+		"faramir vault ls",
+		"faramir sudo ls",
+		"faramir logs",
+	} {
+		if _, denied := decide(command); !denied {
+			t.Errorf("%q is allowed, and it is the operator's", command)
 		}
 	}
 }

@@ -34,8 +34,9 @@ func TestTheTreeSectionNamesTheRoute(t *testing.T) {
 
 // The section tells the agent which faramir subcommands are its to run, and the
 // guard is what enforces that: cli.Agent is the list whose arguments the guard
-// leaves unscanned, and everything else is refused to the agent's shell. A
-// command named here and absent there is one the agent is told to run and then
+// leaves unscanned and cli.ReadOnly the one it allows without exempting their
+// arguments, and everything else is refused to the agent's shell. A command
+// named here and in neither list is one the agent is told to run and then
 // refused, which is the shape that invites a workaround.
 func TestTheTreeSectionNamesOnlySubcommandsTheAgentMayRun(t *testing.T) {
 	body := section(t)
@@ -47,16 +48,17 @@ func TestTheTreeSectionNamesOnlySubcommandsTheAgentMayRun(t *testing.T) {
 	for _, match := range quoted.FindAllStringSubmatch(body, -1) {
 		found++
 		name := match[1]
-		if slices.Contains(cli.Agent, name) {
+		if slices.Contains(cli.Agent, name) || slices.Contains(cli.ReadOnly, name) {
 			continue
 		}
-		// A grouped command is named in full in cli.Agent, so a two-token match
-		// that is not there may still be a one-token command with an argument.
-		if first, _, ok := strings.Cut(name, " "); ok && slices.Contains(cli.Agent, first) {
+		// A grouped command is named in full in both lists, so a two-token match
+		// that is in neither may still be a one-token command with an argument.
+		if first, _, ok := strings.Cut(name, " "); ok &&
+			(slices.Contains(cli.Agent, first) || slices.Contains(cli.ReadOnly, first)) {
 			continue
 		}
 		t.Errorf("the section names `faramir %s`, which the guard refuses to the "+
-			"agent's shell: cli.Agent is what it may run", name)
+			"agent's shell: cli.Agent and cli.ReadOnly are what it may run", name)
 	}
 	if found == 0 {
 		t.Error("the section names no faramir command, so this asserts nothing")
@@ -69,7 +71,7 @@ func TestTheTreeSectionNamesOnlySubcommandsTheAgentMayRun(t *testing.T) {
 func TestTheTreeSectionSaysTheOtherSubcommandsAreRefused(t *testing.T) {
 	body := section(t)
 
-	const clause = "Every other faramir subcommand changes the install and is refused"
+	const clause = "Every other faramir subcommand changes the install or needs root, and is refused"
 	if !strings.Contains(collapse(body), clause) {
 		t.Errorf("the section does not say the commands it does not sanction are "+
 			"refused:\n%s", body)

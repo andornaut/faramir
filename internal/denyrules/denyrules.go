@@ -208,6 +208,82 @@ func DirUnder(home, dir string) string {
 	return `(?:` + strings.Join(spellings, `|`) + `)(?:/|` + pathEnd + `)`
 }
 
+// GlobUnder refuses a shell glob that could expand to path, and is "" where
+// there is nothing to write.
+//
+// It exists because a declared file and a declared directory fail differently
+// against a pattern. A directory's subject is a prefix of everything under it,
+// so `cat <dir>/*` matches it as written. A file's subject is the file's own
+// name, and a glob carries no name: the shell expands it after the guard has
+// answered, so `cat <dir>/*` reaches a declared file that `cat <dir>/<file>` is
+// refused.
+//
+// What it matches is the path with its last component replaced by a pattern
+// that could still produce that component: every prefix of the name, then a
+// wildcard. So a rule for ~/.ssh/id_rsa refuses `~/.ssh/*` and `~/.ssh/id_r*`
+// and leaves `~/.ssh/known_*` alone, which no rule about the directory could
+// do. Nothing here expands a pattern or asks the filesystem anything; the
+// prefixes come from the declared name alone.
+//
+// This is why the rule needs no answer to "is the entry a file": for a declared
+// directory it refuses the patterns that would name that directory, which the
+// directory's own subject already covers.
+//
+// What it does not reach: a wildcard higher up the path (`~/.s*/id_rsa`), a
+// character class standing in for a literal (`~/.ssh/id_[r]sa`), and any path a
+// command builds at run time. Those are the limits the rules already have, and
+// this is the list that catches an accident.
+func GlobUnder(home, path string) string {
+	trimmed := strings.TrimSuffix(path, "/")
+	i := strings.LastIndex(trimmed, "/")
+	if i <= 0 {
+		return ""
+	}
+	dir, name := trimmed[:i], trimmed[i+1:]
+	if name == "" || dir == "" || dir == "/" {
+		return ""
+	}
+	// A home, or anything above one, gets no rule. The parent of a home is
+	// /home, and a pattern rule there answers for every account on the host.
+	if cleanHome := strings.TrimSuffix(home, "/"); cleanHome != "" &&
+		strings.HasPrefix(cleanHome+"/", trimmed+"/") {
+		return ""
+	}
+	// Every prefix of the name, the empty one included: "*" alone is a pattern
+	// that produces it. Longest first, which is how a reader checks them.
+	prefixes := make([]string, 0, len(name)+1)
+	for n := len(name); n >= 0; n-- {
+		prefixes = append(prefixes, regexp.QuoteMeta(name[:n]))
+	}
+	pattern := `/(?:` + strings.Join(prefixes, `|`) + `)` + globChar
+	spellings := dirSpellings(home, dir)
+	if len(spellings) == 1 {
+		return spellings[0] + pattern
+	}
+	return `(?:` + strings.Join(spellings, `|`) + `)` + pattern
+}
+
+// dirSpellings is homeSpellings for a directory, which has one case that one
+// does not: the home itself. homeSpellings works on a path under a home and
+// returns the literal alone for the home, so a file directly in a home would
+// lose the `~` spelling that is how a person and a model both write it.
+func dirSpellings(home, dir string) []string {
+	if cleanHome := strings.TrimSuffix(home, "/"); cleanHome != "" && dir == cleanHome {
+		return []string{
+			regexp.QuoteMeta(dir),
+			regexp.QuoteMeta("~"),
+			regexp.QuoteMeta("$HOME"),
+			regexp.QuoteMeta("${HOME}"),
+		}
+	}
+	return homeSpellings(home, dir)
+}
+
+// globChar is what makes a word a pattern rather than a name. A shell expands
+// these before the command runs, so a rule matched against the text has to
+// answer the pattern.
+const globChar = `[*?\[]`
+
 // For is the five rules that refuse a set of subjects: reading one, writing
 // one, redirecting output over one, and redirecting one into a command.
 //
