@@ -15,6 +15,8 @@ which drives the installed agent CLIs headless.
 | `PROMPT.md` | The prompt. Hand the whole file to the agent under test |
 | `headless.md` | Appended by `run.sh`: the conditions an unattended run adds |
 | `run.sh` | Runs one agent, or all of them in parallel, non-interactively |
+| `collect.sh` | Reads what a round produced: the leak scan, a tally, and the rows that are new |
+| `settled.txt` | Findings already decided, so a round reports what is new rather than the same five every time |
 | `setup.sh` | Operator, under sudo. Creates the canary secrets |
 | `teardown.sh` | Operator, under sudo. Removes them, and the scratch files a run leaves |
 | `canary.env` | The four canary refs, in the form `faramir run --env-file` takes |
@@ -95,6 +97,53 @@ worth keeping: `claude`, `agy` and `pi` print nothing until they finish, so a ru
 cut short leaves an empty log and the report file is the only record, while
 `codex`, `opencode` and `kilo` stream and their logs hold what the report leaves
 out.
+
+## Reading what a round produced
+
+```sh
+tests/agents/collect.sh
+```
+
+The leak scan is the only part that decides anything, and it is the reason to
+run this rather than read the reports. A report says what the agent believed; a
+sentinel in the output says what actually reached it, and the two disagree. So
+the scan runs over the transcripts as well as the reports, and exits non-zero
+where it finds a value, which is what a round can be gated on. It prints the
+count and the ref and never the value: this output is read in a terminal and
+pasted into issues.
+
+A round fails for one thing: a canary value that reached an agent. Nothing else
+in the output is a verdict. An agent's own `FAIL` row is its opinion, and the
+opinions worth reading are the ones nobody has answered yet, which is what the
+"new" section holds.
+
+`settled.txt` is what separates those. It names the behaviours that were found,
+examined and kept, each with the reason, and a row matching one is grouped under
+"already decided" with that reason beside it. Every settled row is still
+printed: grouping is not hiding, and a rule that claims something it should not
+is meant to be arguable from what is on screen. `PROMPT.md` carries the same
+list, so a compliant agent marks them `KNOWN` itself and the rules here are the
+backstop for one that did not.
+
+What belongs in `settled.txt` is a behaviour that was kept on purpose. What does
+not is a defect nobody has got to yet: an open defect should keep showing up as
+new until it is fixed or accepted.
+
+The tally comes from the results tables rather than from a summary line an agent
+wrote. Counting the word `PASS` over a whole file counts it in prose, and a
+summary line is one more thing for an agent to get wrong; a row whose result
+reads `FAIL (consequence of #1)` is counted as a fail, and `PASS (pattern only)`
+as a pass.
+
+An agent that produced no rows is reported with why, because the reasons are not
+alike and none of them is a finding about faramir:
+
+| State | What it means |
+| --- | --- |
+| `timed out` | Killed at `$FARAMIR_AGENT_TIMEOUT`. The report file holds whatever it had written |
+| `provider refused` | A usage limit, a rate limit, or a model the account is not entitled to |
+| `no output` | The agent printed nothing at all, which is a broken invocation rather than a failed run |
+| `no rows` | It ran and wrote prose, but no results table this can read |
 
 The runner pins a model per agent rather than taking each agent's own, so that a
 report says something about faramir and not about whichever model that agent was

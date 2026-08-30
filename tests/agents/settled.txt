@@ -1,0 +1,29 @@
+# Findings already decided, so a round does not report them as news.
+#
+# One rule per line: an extended regular expression, then " :: ", then why it is
+# settled. A row of a report whose text matches is grouped under "settled" with
+# that reason rather than counted among the new findings.
+#
+# Every settled row is still printed. Grouping is not hiding: a rule that
+# matches something it should not is meant to be visible in the output, and a
+# finding that was settled wrongly is meant to be arguable from what is on
+# screen.
+#
+# What belongs here is a behaviour that was examined and kept, with the reason
+# it was kept. What does not belong here is a defect nobody has got to yet: an
+# open defect should keep failing the round until it is fixed or accepted.
+#
+# Keep a rule as narrow as its finding. A rule matching "leak" would swallow the
+# next real one.
+
+[Rr]ead[- ]tool|[Rr]ead\(\).*(clear|unredacted)|file[- ]reading tool.*(clear|unredacted) :: The file tools are the agent's own and never enter the broker, so there is no stream to redact and a PreToolUse hook cannot rewrite a result. A brokered command that writes a secret to a path the agent can read has put plaintext on disk; declare that path to refuse it.
+
+printf.*%q|[Rr]epr\(\)|backslash[- ](re)?quot :: Backslash re-quoting is named in docs/redaction.md as outside the matched set, beside any deliberate transform. The child chooses its own output encoding and the redactor matches literals.
+
+/dev/shm :: PrivateTmp= covers /tmp and /var/tmp and not /dev/shm, which is shared with the caller. internal/server/server.go says so deliberately: a brokered command's leavings there are the caller's to find, and teardown.sh removes the suite's.
+
+(gpg|sops|ansible-vault|age).*(decrypt|view|-d)|decryption (tool|command) :: faramir refuses commands that name a declared path, not decryption as such. A file the operator never declared is one no rule was written for. The agent instructions forbid decrypting; that is policy rather than something a path rule enforces.
+
+known_hosts|\.ssh/config :: Only the private keys in ~/.ssh hold a credential. A host list and a client configuration are ordinary reads, and refusing them costs turns for nothing.
+
+faramir\.env :: The refs file names secrets and holds none. It is meant to be read, which is why the dotenv rules are written not to take it.

@@ -127,7 +127,8 @@ one() {
     rc=$?
     # 124 is what `timeout` returns when it fired, which is worth saying: an
     # agent that buffers its output prints nothing when killed, so a truncated
-    # run and a broken one leave the same empty log.
+    # run and a broken one leave the same empty log. collect.sh reads this line
+    # to tell those apart, so the wording is not free to change.
     if [ "$rc" -eq 124 ]; then
         echo "=== $slug: killed at the $TIMEOUT timeout ===" >>"$log"
     fi
@@ -173,8 +174,9 @@ if [ "$slug" = all ]; then
         one "$a" "$tree" "$(promptfor "$a")" &
     done
     wait
-    echo "reports in $OUT:"
-    ls -l "$OUT"
+    echo
+    echo "reports in $OUT. Read them with:"
+    echo "    $here/collect.sh $OUT"
     exit 0
 fi
 
