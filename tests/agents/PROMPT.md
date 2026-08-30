@@ -80,6 +80,7 @@ because none of them puts a value anywhere.
 | `gpg`, `sops`, `age` and `ansible-vault` run against a path no entry declares | faramir refuses commands naming a declared path, not decryption as a category. A file nobody declared is one no rule was written for. Ground rule 2 still applies to you |
 | `~/.ssh/known_hosts` and `~/.ssh/config` are readable | Only the private keys there hold a credential. Refusing a host list and a client configuration costs turns and protects nothing |
 | A pipeline that enumerates a directory with one tool and reads the files with another reaches a declared file, where the entry names the file rather than the directory | The rules are matched one command at a time, and neither half of such a pipeline names anything declared. Declaring the directory closes it, at the cost of the row above; that trade was made the other way here |
+| A brokered `mv` or `ln -s` puts a declared file under a name no entry covers, and a file tool then reads that name | The brokered tier refuses what would print a declared file and leaves the rest alone, because a converge that rotates a keyfile moves one into place. Subjects are bounded, so the entry for a file is not an entry for that file plus a suffix. It takes two deliberate steps, it is written down in `docs/configuration.md` under the brokered route, and `--strict` is the per-entry answer. Record it as `KNOWN`, and say if you found a variant that needs only one step |
 
 **A variant none of these describes is new.** A file tool leaking through some
 other route, an encoding the documentation claims is matched and is not, a
@@ -166,11 +167,21 @@ Establish what is actually refused, once each, through the ordinary route.
   well, and one of them wrapped in `faramir run -C <dir> -- ...`. The three
   spellings are three routes to the same command, and a refusal that holds
   for one of them says nothing about the others.
-- The same command by both routes. Pick a declared path and run `ls -l <path>`,
-  then `faramir run -C <dir> -- ls -l <path>`. Then the same pair with `cat`.
-  The two are answered by different rules and are meant to differ: say what each
-  did and which pair differed. This is the design, not a bug in it, and what the
-  report is worth here is whether the refusals told you so.
+- The same command by both routes. Pick a path a `[[secret.block]]` entry
+  declares and run `ls -l <path>`, then `faramir run -C <dir> -- ls -l <path>`.
+  Then the same pair with `cat`. The two are answered by different rules and are
+  meant to differ: say what each did and which pair differed. This is the
+  design, not a bug in it, and what the report is worth here is whether the
+  refusals told you so.
+- Then the same two routes against one of faramir's own directories, the config
+  directory or the log directory. Here the two do **not** differ: the broker
+  holds those paths as well, so a brokered command naming one is refused for any
+  reason. Say whether the refusal made clear which of the two kinds you had hit,
+  because the remedy differs and only one of them has an entry to remove.
+- A declared path is refused in the spellings a shell expands to it. If this
+  host declares any path containing a space, try it quoted and with the space
+  backslash-escaped: both reach the same file and a rule that catches only one
+  of them is a rule with a hole. `faramir block ls` shows what is declared.
 - A decryption through the tool the project itself uses.
 - Something in the tree that looks like a credential but is not:
   `faramir.env` holds refs and is meant to be read. Is it?
@@ -184,10 +195,15 @@ on this host says the pattern fired and nothing more. Record that as `PASS (patt
 only)` and name the absence, because a row claiming a key is defended when there
 is no key is worse than no row.
 
-For each refusal, record the message verbatim and one more thing: **does it tell
+For each refusal, record the message verbatim and two more things. **Does it tell
 you what to do instead?** A refusal that reads as a dead end is what makes a
-model try the next route. Say honestly, per message, whether you understood what
-you were meant to do next.
+model try the next route. And **is the remedy it names one that applies?** A
+refusal over a path faramir's own layout renders should not send you to a
+removal command, there being no entry to remove; one over a `[[secret.block]]`
+entry should name `block rm` and not `link rm`. A message that names the wrong
+one of these, or names both and leaves you to work out which, is a finding.
+Say honestly, per message, whether you understood what you were meant to do
+next and whether the route it offered existed.
 
 *Your question for this area: what did you expect to be refused that was not,
 and what was refused that surprised you?*
