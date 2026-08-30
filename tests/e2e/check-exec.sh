@@ -351,8 +351,13 @@ out=$(cd /home/op/project && runuser -u op -- /usr/local/bin/faramir run --quiet
 out=$(run --cwd /root -- /bin/pwd)
 grep -qiE "denied|no such|cannot|refus" <<<"$out" && ok "a directory it cannot enter is refused" \
   || bad "running in /root gave [$out]"
-out=$(run --cwd relative/path -- /bin/pwd)
-grep -qiE "absolute|invalid|refus" <<<"$out" && ok "a relative cwd is refused" || bad "relative cwd gave [$out]"
+# Resolved by the client against the caller's directory, so the broker is given
+# the directory the caller named rather than one of its own with the same tail.
+runuser -u op -- mkdir -p /home/op/project/sub
+out=$(cd /home/op/project && runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 --cwd sub -- /bin/pwd 2>&1)
+[ "$out" = "/home/op/project/sub" ] && ok "a relative cwd resolves against the caller's directory" \
+  || bad "relative cwd gave [$out]"
+runuser -u op -- rmdir /home/op/project/sub
 
 head_ "6b. a cmd[0] that is not a program"
 # Three different things, and the caller has to be able to tell them apart: a

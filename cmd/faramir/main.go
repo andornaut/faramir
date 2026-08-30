@@ -182,24 +182,16 @@ func newRunCmd() *cobra.Command {
 			if len(refs) > 0 {
 				request["env_refs"] = refs
 			}
-			// An absolute path only: the broker runs it, so a relative one would
-			// resolve against the broker's directory rather than the caller's.
-			// Refused as a wrong invocation rather than sent to fail there. Printed
-			// here because an error returned past this point is silenced.
-			if cwd != "" && !filepath.IsAbs(cwd) {
-				fmt.Fprintln(os.Stderr, "faramir run: --cwd must be an absolute path")
+			// Resolved here rather than sent as it was typed: the broker runs the
+			// command from its own directory, so a relative path means the
+			// caller's directory or nothing. Printed here because an error
+			// returned past this point is silenced.
+			cwd, err = resolveCwd(cwd)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
 				return codeErr(2)
 			}
-			// The caller's own directory unless -C says otherwise: a brokered
-			// command runs where it was typed.
-			if cwd == "" {
-				if here, err := os.Getwd(); err == nil {
-					cwd = here
-				}
-			}
-			if cwd != "" {
-				request["cwd"] = cwd
-			}
+			request["cwd"] = cwd
 			// Printed here rather than returned as a usage error: past argument
 			// validation the root command silences what a RunE returns, so a
 			// usagef from here exits 2 and says nothing at all.
@@ -253,6 +245,34 @@ func newRunCmd() *cobra.Command {
 	// own, running a different command than the caller typed.
 	c.Flags().SetInterspersed(false)
 	return c
+}
+
+// resolveCwd turns what -C was given into the absolute path the broker takes.
+// The broker runs the command from a directory of its own, so a relative path
+// there means nothing the caller named: it is resolved against the caller's
+// directory here, which is also what an absent flag means, a brokered command
+// running where it was typed.
+//
+// A directory that cannot be read is refused here rather than sent short. The
+// broker has no default to fall back on and refuses a request naming no
+// directory, so the round trip only moves the same refusal further from the
+// caller, and this one can name the flag that answers it.
+func resolveCwd(cwd string) (string, error) {
+	if filepath.IsAbs(cwd) {
+		return cwd, nil
+	}
+	here, err := os.Getwd()
+	if err != nil {
+		if cwd == "" {
+			return "", fmt.Errorf(
+				"the directory to run in cannot be read (%w); name one with -C", err)
+		}
+		return "", fmt.Errorf("--cwd %s cannot be resolved: %w", cwd, err)
+	}
+	if cwd == "" {
+		return here, nil
+	}
+	return filepath.Join(here, cwd), nil
 }
 
 // pipedStdin is what the caller piped in, and only where they asked for it to

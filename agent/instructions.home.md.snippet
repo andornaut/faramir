@@ -4,7 +4,8 @@ Your file tools are refused faramir's own directories on this machine, wherever
 you are working. Being able to reach a file is not permission to open it.
 
 A command needing a credential runs through `faramir run`, which injects what
-it asked for and redacts it from the output:
+it asked for and redacts from the output every value the broker holds, not only
+the ones that run injected:
 
     faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
 

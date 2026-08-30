@@ -67,7 +67,7 @@ Field | Required | Notes
 --- | --- | ---
 `version` | yes | The sending binary's own version. Every op on every socket takes it, and a mismatch is refused before the op is read. See [version](#version).
 `cmd` | yes | Non-empty array of strings. A string is rejected with guidance; the broker never runs `sh -c` for you.
-`cwd` | yes | Absolute, and must be an existing directory. A relative `cmd[0]` resolves against it. The CLI fills in its own working directory, so this is a refusal only on the socket.
+`cwd` | yes | Absolute, and must be an existing directory. A relative `cmd[0]` resolves against it. The CLI fills in its own working directory and resolves a relative `-C` against that, so this is a refusal only on the socket.
 `env_refs` | no | `NAME` to `faramir://ref`. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$` and must not be reserved. Values cannot be passed.
 `timeout_sec` | no | Positive integer, clamped down to `[command] max_timeout_sec`. Omitted means `[command] timeout_sec`.
 `stdin` | no | Base64, what the child reads on its standard input, at most 131072 bytes decoded. It travels inside the request because the connection itself is watched for the caller having gone, so bytes after the request are already spoken for. Larger is refused rather than cut: a command that read half its input did something nobody asked for. The CLI sends what was piped into it when `-i` says to, and refuses a pipeline without that flag rather than dropping it: it does not own the file on its own standard input, and a caller looping over one is still reading it. A run carrying none leaves the child on `/dev/null`, which is an immediate end of input rather than a wait.

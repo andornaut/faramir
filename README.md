@@ -244,7 +244,7 @@ faramir redact -- ./deploy.sh
 `--env NAME=faramir://ref` | Once per secret, or a bare `NAME` meaning `faramir://NAME`
 `--env-file FILE` | `NAME=faramir://ref` per line, or a bare `NAME` meaning `faramir://NAME`. `#` starts a comment, at the start of a line or after whitespace
 `--quiet` | Suppress the redaction summary on stderr. Only that: why a `sudo` was refused is printed either way, and so is every note saying the output is not what the command produced, truncation among them
-`--cwd`/`-C` | Where the command runs, an absolute path. Defaults to the caller's directory
+`--cwd`/`-C` | Where the command runs. A relative path is resolved against the caller's directory, which is also the default
 `--timeout`/`-t` | How long before the broker kills it: a duration (`90s`, `5m`) or a bare number of seconds, in whole seconds. Defaults to `[command] timeout_sec`, and `max_timeout_sec` is the ceiling
 `--json` | The raw response, on every broker-facing command but `redact`, whose output is the redaction itself
 
