@@ -211,10 +211,25 @@ cmd_fetch() {
   verified "$work/age/age-keygen" "$HERE/age-keygen" "$AGE_KEYGEN_SHA256"
 }
 
-cmd_up() {
+# build_binaries produces the two binaries that go into the image. Its own
+# function because cmd_both runs an `up` per arrangement at the same time and
+# both would write these same two paths: one build then reads a file the other
+# is partway through writing, and go refuses that as "already exists and is not
+# an object file". The arrangement decides which sudo the image installs and
+# nothing about the binary, so one build serves both.
+build_binaries() {
   echo "== building the binary from $REPO"
   ( cd "$REPO" && go build -o "$HERE/faramir" ./cmd/faramir )
   build_skew
+}
+
+cmd_up() {
+  # Built before the fork where cmd_both is what called this.
+  if [ -n "${E2E_PREBUILT:-}" ]; then
+    echo "== using the binary built before the arrangements forked"
+  else
+    build_binaries
+  fi
   # Checked here as well as in fetch, this being what decides what goes into the
   # image: `up` can be run on its own, and a tool nobody can name again makes a
   # passing run unrepeatable.
@@ -298,13 +313,20 @@ wire_managed_host() {
 # under its own docker-<id>.scope, so the cgroup trees do not meet.
 cmd_both() {
   local status=0 pids=() arrangement
+  # One fetch and one build for both, before the fork. Two of either at once
+  # write the same paths in $HERE, and the loser of that race fails its whole
+  # stack while the other arrangement's run log, left from a previous round,
+  # still reads as a pass. Neither depends on the arrangement: that decides which
+  # sudo the image installs, not what is downloaded or compiled.
+  "$0" fetch >/dev/null 2>&1
+  build_binaries
+  export E2E_PREBUILT=1
   # Under the invoking uid, /tmp being shared: another account's log of the same
   # name is one this cannot write and would report as an empty run.
   local logs
   logs="${TMPDIR:-/tmp}/faramir-e2e-$(id -u)"
   for arrangement in sudo sudo-rs; do
-    ( SUDO=$arrangement "$0" fetch >/dev/null 2>&1
-      SUDO=$arrangement "$0" up  >"$logs-$arrangement-up.log"  2>&1 &&
+    ( SUDO=$arrangement "$0" up  >"$logs-$arrangement-up.log"  2>&1 &&
       SUDO=$arrangement "$0" run >"$logs-$arrangement-run.log" 2>&1 ) &
     pids+=($!)
   done
