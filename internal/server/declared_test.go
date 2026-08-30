@@ -502,7 +502,10 @@ func TestACommandRefusalIsNotWrittenAboutAPath(t *testing.T) {
 	}
 
 	said := declaredRefusal(rule)
-	for _, want := range []string{"the blocks", "no brokered command may run it"} {
+	// The removal as well as the refusal, and the form it goes out under: an
+	// entry comes back out under the flag it went in under, so the path spelling
+	// would name nothing that lifts this one.
+	for _, want := range []string{"the blocks", "no brokered command may run it", "--command"} {
 		if !strings.Contains(said, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, said)
 		}

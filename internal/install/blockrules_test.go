@@ -367,3 +367,19 @@ func TestAgentCodeReportsAGuttedPlugin(t *testing.T) {
 		t.Errorf("status = %v, want OK for the rendered plugin: %s", finding.Status, finding.Detail)
 	}
 }
+
+// perInstallPaths is the entries and nothing else. The install's own
+// directories are rendered beside it as subtree rules, so adding them here
+// writes a second, differently shaped rule for each of them into every agent's
+// file, and nothing downstream compares the set it was given.
+func TestPerInstallPathsIsTheEntriesAlone(t *testing.T) {
+	layout := testLayout()
+	layout.Links = linksAt("/etc/luks/volume.key")
+	layout.Blocked = refusedAt("/srv/keys/api.pem", "/etc/luks/volume.key")
+
+	want := []string{"/etc/luks/volume.key", "/srv/keys/api.pem"}
+	if got := perInstallPaths(layout); !slices.Equal(got, want) {
+		t.Errorf("perInstallPaths = %v, want the entries sorted and deduplicated "+
+			"across the two forms: %v", got, want)
+	}
+}
