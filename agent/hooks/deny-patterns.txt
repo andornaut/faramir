@@ -46,32 +46,10 @@
 # runs to apply it. A credential that must not reach this shell belongs outside
 # the environment the agent inherits.
 
-# Reading, writing, or redirecting either way over anything this install
-# protects. The input rule is the mirror of the output one: "< path" hands a
-# file to whatever is on the line, and the shell builtins that take it that way
-# are words too common to carry in the reader vocabulary.
-#
-# GENERATED from internal/install/protectedpaths.go, which is the same set the
-# agents' own deny rules are rendered from: this install's directories at the
-# paths this host uses, every file a [[secret.link]] or [[secret.block]] entry
-# names, and every pattern one declares. A rule that refused an agent's file
-# tools and said nothing about `cat` covered half of what an operator declaring
-# a path would assume, so the two entry points are spelled from one list.
-#
-# The tool lists are internal/denyrules', and internal/guard builds the same
-# five rules at run time for a config directory a rendered file did not name.
-# Readers carry interpreters and copiers as well as pagers. "sed" is a writer
-# only, and "grep" is neither, so naming a file in a search is not refused.
-#
-# Each name also matches with a "gnu" in front of it: where uutils is the
-# default `cat`, the GNU build is installed as `gnucat`, and a word boundary
-# does not fall inside that.
-{{range commandRules .}}{{.}}
-{{end}}
 # The broker's own key by path, not left to the config directory: `--ssh-key`
-# may put it anywhere, and one placed outside that directory matches nothing
-# above.
-{{if .SSHKey}}{{readCommands}}{{argSpan}}{{.SSHKey | regexQuote}}
+# may put it anywhere, and one placed outside that directory is named by no
+# rule the layout renders.
+{{if .SSHKey}}{{.SSHKey | regexQuote}}
 {{end}}
 # The binary, named as one path rather than as its directory, or installing any
 # unrelated tool into {{.BinDir}} would be refused.
@@ -114,3 +92,15 @@
 \bfaramir[-\s]+(block[ \t]+add|block[ \t]+rm|init|init-project|link[ \t]+add|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b
 \bsudo\b.*-u\s+faramir
 \bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-
+
+# Last, because a line can match this and a rule above it: an agent running
+# `sudo faramir doctor` against a declared path is told it is an operator
+# command, which is the more useful of the two answers, and decide reports the
+# first rule that matches.
+#
+# One rule, and no verb in front of it. A declared subject is an absolute path,
+# and a path names itself: the vocabularies this replaced existed to tell a file
+# access from prose while a subject could be a bare name. What they cost was a
+# list that failed open, short of rg, fd and bat and of whatever ships next.
+{{range commandRules .}}{{.}}
+{{end}}

@@ -69,6 +69,11 @@ read what is waiting|sudo faramir sudo ls
 an operator command under sudo|sudo faramir doctor
 an operator command without it|faramir init
 read the audit log through the CLI, which needs root|faramir logs
+an assignment whose value stops at the space, and a grep that names the path|note=hello; grep -c faramir /etc/faramir/config.toml
+a second command naming a declared path|head -20 README.md; echo "/etc/faramir is where it lives"
+the quotes end the first command; the second still names the path|head -20 "README.md"; echo "/etc/faramir"
+a sed script ends where it ends, and the grep names the key|sed 's/a/b/' x | grep '/etc/faramir/age.key'
+a heredoc marker before a protected path: the redirect refuses nothing, but naming the path does|echo <<EOF /etc/faramir/age.key
 change who can read the store|faramir reader add age1abc
 open a managed file|faramir vault edit app
 stop the broker|systemctl stop faramir-broker.socket
@@ -81,11 +86,10 @@ copy the key that way|gnucp /etc/faramir/age.key /tmp/k
 delete the config that way|gnurm /etc/faramir/config.toml
 CASES
 
-# The prefix takes the tool and nothing else. A rule fires only where one of
-# these words meets a path this host protects, so a name nobody installed
-# refuses nothing an agent does; a word that merely starts with one was never
-# matched and must not start being.
-for cmd in "gnuplot /etc/faramir/notes.txt" "concat /etc/faramir/notes.txt"; do
+# The prefix takes the tool and nothing else. This is the broker's vocabulary
+# now: the guard refuses a declared path whatever names it, so the question has
+# to be asked with a path nothing protects, or the path would answer it.
+for cmd in "gnuplot /srv/notes.txt" "concat /srv/notes.txt"; do
   got=$(verdict "$cmd")
   [ "$got" = deny ] && bad "the prefix widened past the vocabulary: $cmd" \
     || ok "left alone: ${cmd%% *} is no tool in the list"
@@ -146,14 +150,9 @@ edit claude's settings|sed -i s/a/b/ .claude/settings.json
 replace the deny list|rm .agents/hooks.json
 edit the opencode config|sed -i s/a/b/ opencode.json
 a process substitution, which is not an input redirect|diff <(ls) <(ls -a)
-a heredoc marker before a protected path, which redirects nothing|echo <<EOF /etc/faramir/age.key
 an assignment naming a sibling path|p=/etc/faramirx/notes.md; cat $p
 a loop over a directory nothing protects|for d in /tmp; do cat $d/x; done
-an assignment whose value stops at the space|note=hello; grep -c faramir /etc/faramir/config.toml
 a quoted value that is prose, not a path|title="my faramir talk"; echo $title
-a reader in an earlier command does not reach a later one|head -20 README.md; echo "/etc/faramir is where it lives"
-the quotes of an earlier command do not carry into the next|head -20 "README.md"; echo "/etc/faramir"
-a sed script ending in a slash does not reopen the reach|sed 's/a/b/' x | grep '/etc/faramir/age.key'
 CASES
 
 # --------------------------------------------------------------------------

@@ -162,10 +162,17 @@ func TestAFileToolIsRefusedThePathsTheDenyListNames(t *testing.T) {
 	}{
 		{"this install's own key", `{"Path":"/etc/faramir/age.key"}`, true},
 		{"its libexec, under a differently named argument",
-			`{"AbsolutePath":"/usr/local/libexec/faramir/deny-patterns.txt"}`, true},
+			`{"AbsolutePath":"/usr/local/libexec/faramir/wrap.sh"}`, true},
 		{"a path among several, in a tool with no fixed schema",
-			`{"Paths":["/srv/README.md","/etc/faramir/config.toml"]}`, true},
+			`{"Paths":["/srv/README.md","/etc/faramir/secrets/db.sops.yml"]}`, true},
 		{"an ordinary source file", `{"Path":"/srv/app/main.go"}`, false},
+		// Inside declared directories, so refused like anything else there. The
+		// only exemption is the wrapper invocation, which is a command shape
+		// rather than a path and reaches no file tool.
+		{"the rendered rule file, which sits in the install's libexec",
+			`{"AbsolutePath":"/usr/local/libexec/faramir/deny-patterns.txt"}`, true},
+		{"the config, which sits in the install's own directory",
+			`{"Path":"/etc/faramir/config.toml"}`, true},
 		// A refs file names secrets and holds none.
 		{"a file of refs, which is meant to be read", `{"Path":"/srv/app/faramir.env"}`, false},
 	} {

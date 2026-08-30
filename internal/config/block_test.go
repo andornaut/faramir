@@ -139,6 +139,57 @@ name = "*.htpasswd"
 	}
 }
 
+// A wildcard in a path entry is refused, because it is matched as written. The
+// rule it would render refuses a command typing that same pattern and leaves
+// every file the pattern names readable, which is the shape of a rule that
+// covers nothing and reads like one that covers everything.
+func TestAWildcardInAPathEntryIsRefused(t *testing.T) {
+	for _, path := range []string{
+		"/srv/keys/*.key",
+		"/srv/keys/*",
+		"/srv/*/id_rsa",
+		"/srv/keys/id_rs?",
+		"/srv/keys/id_[r]sa",
+	} {
+		err := ValidateBlocked(BlockedPath{Path: path})
+		if err == nil {
+			t.Errorf("%s was accepted, and it protects none of the files it names", path)
+			continue
+		}
+		// The refusal has to say what to write instead: an operator who reached
+		// for a pattern wants the set, and the directory is how to have it.
+		if !strings.Contains(err.Error(), "directory") {
+			t.Errorf("%s: the refusal does not say to name the directory: %v", path, err)
+		}
+	}
+}
+
+// And through the loader, which is where a hand-edited config meets it.
+func TestAWildcardPathDoesNotLoad(t *testing.T) {
+	_, err := load(t, minimal+"\n[[secret.block]]\npath = \"/srv/keys/*.key\"\n")
+	if err == nil {
+		t.Fatal("a config carrying a wildcard path loaded")
+	}
+	if !strings.Contains(err.Error(), "as written") {
+		t.Errorf("the refusal does not say why: %v", err)
+	}
+}
+
+// An ordinary path is untouched by the check. A rule that refused a bracket
+// wherever it appeared would refuse paths that are simply spelled that way.
+func TestAnOrdinaryPathIsStillAccepted(t *testing.T) {
+	for _, path := range []string{
+		"/srv/keys/server.key",
+		"/home/op/.ssh",
+		"/tmp/a b",
+		"/srv/keys-2024/id_rsa",
+	} {
+		if err := ValidateBlocked(BlockedPath{Path: path}); err != nil {
+			t.Errorf("%s was refused: %v", path, err)
+		}
+	}
+}
+
 // A command entry through the loader, which is the half the struct-level tests
 // cannot see: "command" was missing from the accepted keys for as long as the
 // form existed, so every one of these was refused at load while the code that

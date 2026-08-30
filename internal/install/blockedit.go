@@ -74,7 +74,7 @@ func (r *runner) BlockedSteps() []namedStep {
 // because the other thing an absent path means is a typo.
 func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool, error) {
 	if len(refused) == 0 {
-		return Report{}, nil, errors.New("name a path or a pattern to refuse")
+		return Report{}, nil, errors.New("name a path or a command to refuse")
 	}
 	for _, entry := range refused {
 		if err := config.ValidateBlocked(entry); err != nil {
@@ -267,7 +267,7 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
 	if len(refused) == 0 {
-		return Report{}, nil, errors.New("name a path or a pattern to stop refusing")
+		return Report{}, nil, errors.New("name a path or a command to stop refusing")
 	}
 	if err := recordConfigDigest(&opts, configFile); err != nil {
 		return Report{}, nil, err

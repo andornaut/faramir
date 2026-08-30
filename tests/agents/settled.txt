@@ -22,8 +22,14 @@ printf.*%q|[Rr]epr\(\)|backslash[- ](re)?quot :: Backslash re-quoting is named i
 
 /dev/shm :: PrivateTmp= covers /tmp and /var/tmp and not /dev/shm, which is shared with the caller. internal/server/server.go says so deliberately: a brokered command's leavings there are the caller's to find, and teardown.sh removes the suite's.
 
-(gpg|sops|ansible-vault|age).*(decrypt|view|-d)|decryption (tool|command) :: faramir refuses commands that name a declared path, not decryption as such. A file the operator never declared is one no rule was written for. The agent instructions forbid decrypting; that is policy rather than something a path rule enforces.
+(\bgpg\b|\bsops\b|ansible-vault|\bage\b).*(decrypt|\bview\b|[[:space:]]-d\b)|decryption (tool|command) :: faramir refuses commands that name a declared path, not decryption as such. A file the operator never declared is one no rule was written for. The agent instructions forbid decrypting; that is policy rather than something a path rule enforces.
 
 known_hosts|\.ssh/config :: Only the private keys in ~/.ssh hold a credential. A host list and a client configuration are ordinary reads, and refusing them costs turns for nothing.
 
-faramir\.env :: The refs file names secrets and holds none. It is meant to be read, which is why the dotenv rules are written not to take it.
+faramir\.env.*(meant to be read|holds no|refs|readable) :: The refs file names secrets and holds none. It is meant to be read, which is why the dotenv rules are written not to take it.
+
+(find|rg|fd|ls|git[[:space:]]+ls-files)[^|]*\|[^|]*(xargs|[[:space:]]cat|base64|head|tail) :: A pipeline that enumerates with one tool and reads with another names no declared path in either half, and the rules are matched per command. Where the entry is a directory this closes, the directory being the subject; where it is a file, it does not. Declaring the directory is what covers it, and on this host that trade was made the other way on purpose.
+
+\b(ls|stat|file|du|readlink|realpath)\b[^|]*(declared|protected|blocked|/etc/faramir|/var/log/faramir|libexec/faramir) :: Naming a declared path is what the rule answers, so a metadata command naming one is refused with the rest. There is no verb list to exempt it: the list that would have held one failed open on every tool nobody thought to add. `faramir run -- ls` is the brokered route, which is answered by a different rule.
+
+(prose|sentence|comment|documentation|echo ")[^|]*(declared|protected|/etc/faramir|libexec/faramir) :: A rule matched against the text of a command cannot tell a path being named from a path being used. Writing about a declared path is refused, which is a refusal and not a disclosure. Use your editing tool rather than a shell heredoc for that.

@@ -31,10 +31,10 @@ var renderFuncs = template.FuncMap{
 	// The same protected set in the command guard's spelling, so a rule refuses
 	// a file tool and `cat` alike. See commandRules.
 	"commandRules": commandRules,
-	// The verb alternations, so a rule the file writes by hand for a narrower
+	// The write alternation, so a rule the file writes by hand for a narrower
 	// subject reads the same list as the generated ones. Written out twice, they
-	// drift the moment a tool is added to one.
-	"readCommands":  func() string { return denyrules.ReadCommands },
+	// drift the moment a tool is added to one. There is no read alternation:
+	// naming a declared path is what refuses it, and Naming says why.
 	"writeCommands": func() string { return denyrules.WriteCommands },
 	"argSpan":       func() string { return denyrules.ArgSpan },
 	"installDirs":   installDirs,

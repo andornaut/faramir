@@ -607,7 +607,7 @@ grep -q 'is not there' <<<"$out" \
 guard_says "e2e-probe-other read" | grep -q '"permissionDecision":"deny"' \
   && bad "the guard denies a longer word starting the same way" \
   || ok "and a neighbouring command is left alone"
-guard_says "grep -rn 'e2e-probe read' /etc/faramir/config.toml" |
+guard_says "grep -rn 'e2e-probe read' /srv/notes.md" |
   grep -q '"permissionDecision":"deny"' \
   && bad "the guard denies a search that only names the command" \
   || ok "and a line naming it without running it, which is how the list is edited"

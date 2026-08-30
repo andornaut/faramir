@@ -167,11 +167,10 @@ func TestACommandRuleDoesNotReachASiblingPath(t *testing.T) {
 	}
 }
 
-// An --strict entry renders a rule with no verb in it, which is the whole
-// of the difference: the five ordinary rules each need a reader, a writer or a
-// redirect in front of the path, and this one refuses the path being named.
-// Rendered into the guard's file as well as held by the broker, so one entry
-// means one thing whichever route the command took.
+// Every entry renders a rule with no verb in it, strict or not: the guard
+// refuses a declared path named at all. So an entry carrying --strict renders
+// what every other entry does, and the flag's difference is on the brokered
+// route, which internal/server holds it to.
 //
 // Asserted by what the rendered file decides rather than by the shape of a
 // pattern: what the operator asked for is that `ls` be refused.
@@ -184,40 +183,47 @@ func TestAnStrictEntryRefusesACommandWithNoVerbInIt(t *testing.T) {
 
 	rules := denyRules(renderDenyPatterns(t, layout))
 
-	if !refusedByAny(t, rules, "ls -l /home/operator/.private") {
-		t.Error("`ls` of a --strict path is allowed, which is what the flag is for")
+	for _, command := range []string{
+		"ls -l /home/operator/.private",
+		"cat /home/operator/.private/key",
+		// The ordinary entry beside it is refused the same way. Strict is no
+		// longer a difference here: the guard refuses a declared path named at
+		// all, whatever flag the entry carries, so there is no looser reading
+		// left for the flag to tighten. What it still separates is the brokered
+		// route, which internal/server holds it to.
+		"ls -l /srv/keys/luks.key",
+		"cat /srv/keys/luks.key",
+	} {
+		if !refusedByAny(t, rules, command) {
+			t.Errorf("%q is allowed, and it names a declared path", command)
+		}
 	}
-	if !refusedByAny(t, rules, "cat /home/operator/.private/key") {
-		t.Error("a read of it is allowed, which every entry refuses")
-	}
-	// The ordinary entry beside it keeps the looser reading: one flag on one
-	// entry, not a mode the install is in.
-	if refusedByAny(t, rules, "ls -l /srv/keys/luks.key") {
-		t.Error("`ls` of an ordinary entry is refused, so the flag reached every entry")
-	}
-	if !refusedByAny(t, rules, "cat /srv/keys/luks.key") {
-		t.Error("a read of the ordinary entry is allowed")
-	}
-	// And the strict entry does not reach a sibling that starts the same way.
-	if refusedByAny(t, rules, "ls /home/operator/.private-notes.md") {
-		t.Error("the strict entry reached a sibling of the path it names")
+	// And neither entry reaches a sibling that starts the same way.
+	for _, command := range []string{
+		"ls /home/operator/.private-notes.md",
+		"cat /srv/keys/luks.key.bak",
+	} {
+		if refusedByAny(t, rules, command) {
+			t.Errorf("%q is refused, and it names no declared path", command)
+		}
 	}
 }
 
-// A host that declares no strict entry gets no verb-less rule. A bare
-// alternation over nothing matches the empty string, which with no verb in
-// front of it would refuse every command an agent ran.
-func TestNoStrictEntryLeavesOrdinaryCommandsAlone(t *testing.T) {
+// A host that declares nothing renders no subject rule. An empty alternation
+// matches the empty string, which with no verb in front of it would refuse every
+// command an agent ran, so the empty case is the one that must not be written.
+func TestAHostThatDeclaresNothingLeavesOrdinaryCommandsAlone(t *testing.T) {
 	layout := testLayout()
-	layout.Blocked = []config.BlockedPath{{Path: "/srv/keys/luks.key"}}
+	layout.Blocked = nil
+	layout.Links = nil
 
 	rules := denyRules(renderDenyPatterns(t, layout))
 
 	for _, command := range []string{
-		"ls -l /srv/keys/luks.key", "ls", "make build", "git status",
+		"ls", "make build", "git status", "cat README.md", "ls -l /srv/keys/luks.key",
 	} {
 		if refusedByAny(t, rules, command) {
-			t.Errorf("%q is refused by a host that declared no strict entry", command)
+			t.Errorf("%q is refused by a host that declared nothing", command)
 		}
 	}
 }

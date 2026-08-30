@@ -1173,8 +1173,29 @@ func validateBlockedPath(refused BlockedPath, at string) error {
 		return fmt.Errorf("%s: path is /, which would refuse the agent every file "+
 			"on the host. Name the file or the directory that holds it", at)
 	}
+	// A path is matched as a literal, so a wildcard in one is not expanded: it
+	// renders a rule that refuses a command typing that same pattern and leaves
+	// every file the pattern names readable. Refused rather than accepted,
+	// because an operator writing it believes the files are blocked, and a rule
+	// covering nothing reads exactly like one covering everything.
+	//
+	// The directory is the answer. An entry covers what is under it, so naming
+	// the directory refuses every file in it, including the ones a pattern was
+	// reaching for and the ones added later.
+	if i := strings.IndexAny(refused.Path, globChars); i >= 0 {
+		return fmt.Errorf("%s: path %q carries %q, and a path entry is matched as "+
+			"written rather than expanded: the rule would refuse a command typing "+
+			"that pattern and leave the files it names readable. Name the directory "+
+			"that holds them, which covers everything under it",
+			at, Shown(refused.Path), string(refused.Path[i]))
+	}
 	return nil
 }
+
+// globChars are what a shell expands. A file whose name really carries one is
+// reachable by naming the directory that holds it, which is the advice the
+// refusal gives anyway.
+const globChars = `*?[`
 
 func validateLink(link Link, at string) error {
 	// The same pattern a faramir:// URI is parsed against: a ref outside it would
@@ -1211,6 +1232,18 @@ func validateLink(link Link, at string) error {
 	if !filepath.IsAbs(link.Path) {
 		return fmt.Errorf("%s: path %q is relative, and the broker's working "+
 			"directory is not the operator's. Write it in full", at, link.Path)
+	}
+	// The same refusal a blocked path gets, for the same reason and one more.
+	// The path renders into the deny rules as a literal, so a pattern there
+	// refuses a command typing it and leaves the files it names readable. And
+	// the broker opens this path to read the value, which does not expand a
+	// pattern either, so the entry resolves to nothing as well.
+	if i := strings.IndexAny(link.Path, globChars); i >= 0 {
+		return fmt.Errorf("%s: path %q carries %q, and a link path is opened as "+
+			"written rather than expanded: nothing would resolve it, and the deny "+
+			"rule it renders would refuse a command typing that pattern while "+
+			"leaving the files it names readable. Name the one file this reads",
+			at, Shown(link.Path), string(link.Path[i]))
 	}
 	if link.Type == "" {
 		return fmt.Errorf("%s: type is required; one of %s", at,

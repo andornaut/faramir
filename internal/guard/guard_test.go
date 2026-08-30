@@ -148,7 +148,9 @@ func TestEveryFallbackPatternCompiles(t *testing.T) {
 func TestTheFallbackFollowsAMovedConfigDir(t *testing.T) {
 	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
 	const moved = "/srv/elsewhere"
-	command := "cat " + moved + "/config.toml"
+	// Not config.toml: that one is published readable and is left alone on
+	// purpose, so it would say nothing about whether the directory got rules.
+	command := "cat " + moved + "/secrets/db.sops.yml"
 
 	// Nothing else in the list matches this, so what follows is the derived
 	// rule and not a coincidence.
@@ -182,7 +184,7 @@ func TestAConfigDirectoryThisInstallDoesNotHaveIsNotRefused(t *testing.T) {
 		}
 	}
 	// This install's own, at the same defaults, still is.
-	if _, denied := decide("cat /etc/faramir/config.toml"); !denied {
+	if _, denied := decide("cat /etc/faramir/age.key"); !denied {
 		t.Error("this install's own config directory is allowed")
 	}
 }
@@ -196,7 +198,7 @@ func TestAConfigDirectoryThisInstallDoesNotHaveIsNotRefused(t *testing.T) {
 func TestAConfigDirIsNotReadAsCoveredByALongerPath(t *testing.T) {
 	rules := make([]string, 0, len(defaultInstallPaths)*3)
 	for _, dir := range defaultInstallPaths {
-		rules = append(rules, denyrules.For([]string{denyrules.Dir(dir)})...)
+		rules = append(rules, denyrules.Naming([]string{denyrules.Dir(dir)})...)
 	}
 	for _, dir := range []string{"/var/lib/faramir", "/etc/faramir-alt", "/var/log"} {
 		if named(rules, dir) {
@@ -226,7 +228,7 @@ func TestAConfigDirUnderAHomeIsRecognisedInTheRenderedForm(t *testing.T) {
 	for _, dir := range []string{
 		home + "/.config/faramir", "/etc/faramir", "/var/lib/faramir-broker",
 	} {
-		rendered := denyrules.For([]string{denyrules.DirUnder(home, dir)})
+		rendered := denyrules.Naming([]string{denyrules.DirUnder(home, dir)})
 		if !named(rendered, dir) {
 			t.Errorf("%s is in the rendered list and was not recognised, so its rules "+
 				"are compiled twice on every call", dir)
@@ -234,7 +236,7 @@ func TestAConfigDirUnderAHomeIsRecognisedInTheRenderedForm(t *testing.T) {
 	}
 	// And the bound still holds, which is what stops a moved config being read as
 	// already covered by a rule about a longer path.
-	rendered := denyrules.For([]string{denyrules.DirUnder(home, "/var/lib/faramir-broker")})
+	rendered := denyrules.Naming([]string{denyrules.DirUnder(home, "/var/lib/faramir-broker")})
 	if named(rendered, "/var/lib/faramir") {
 		t.Error("/var/lib/faramir was read as covered by the rule about " +
 			"/var/lib/faramir-broker, so it would get no rules of its own")

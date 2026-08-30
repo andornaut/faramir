@@ -14,7 +14,7 @@ func TestAGlobInADeclaredFilesDirectoryIsRefused(t *testing.T) {
 		DirUnder(home, "/home/op/.ssh/id_rsa"),
 		GlobUnder(home, "/home/op/.ssh/id_rsa"),
 	}
-	rules := For(subjects)
+	rules := Naming(subjects)
 	matches := func(command string) bool {
 		for _, rule := range rules {
 			if regexp.MustCompile(rule).MatchString(command) {
@@ -74,7 +74,7 @@ func TestNoGlobRuleIsWrittenForAHomeOrAbove(t *testing.T) {
 // rather than about the home: `~/*` could produce .netrc where the shell is set
 // to expand a leading dot, and `~/notes*` could not.
 func TestAFileInAHomeIsCoveredByItsOwnName(t *testing.T) {
-	rules := For([]string{GlobUnder("/home/op", "/home/op/.netrc")})
+	rules := Naming([]string{GlobUnder("/home/op", "/home/op/.netrc")})
 	matches := func(command string) bool {
 		for _, rule := range rules {
 			if regexp.MustCompile(rule).MatchString(command) {
@@ -99,7 +99,7 @@ func TestAFileInAHomeIsCoveredByItsOwnName(t *testing.T) {
 // generate is about its parent and must not be written.
 func TestADeclaredDirectoryAlreadyCoversAGlobUnderIt(t *testing.T) {
 	const home = "/home/op"
-	rules := For([]string{DirUnder(home, "/home/op/.gnupg")})
+	rules := Naming([]string{DirUnder(home, "/home/op/.gnupg")})
 	matched := false
 	for _, rule := range rules {
 		if regexp.MustCompile(rule).MatchString("cat /home/op/.gnupg/*") {
@@ -114,7 +114,7 @@ func TestADeclaredDirectoryAlreadyCoversAGlobUnderIt(t *testing.T) {
 // The rule ends at the wildcard, so it names one word and cannot run along the
 // line into somebody else's pattern.
 func TestTheGlobRuleNamesOneWord(t *testing.T) {
-	re := regexp.MustCompile(For([]string{GlobUnder("/home/op", "/home/op/.ssh/id_rsa")})[0])
+	re := regexp.MustCompile(Naming([]string{GlobUnder("/home/op", "/home/op/.ssh/id_rsa")})[0])
 	for _, command := range []string{
 		"cat /home/op/notes.md; ls /tmp/*",
 		"cat /home/op/.sshrc/*",

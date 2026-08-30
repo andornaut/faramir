@@ -218,20 +218,22 @@ func DirUnder(home, dir string) string {
 // answered, so `cat <dir>/*` reaches a declared file that `cat <dir>/<file>` is
 // refused.
 //
-// What it matches is the path with its last component replaced by a pattern
-// that could still produce that component: every prefix of the name, then a
-// wildcard. So a rule for ~/.ssh/id_rsa refuses `~/.ssh/*` and `~/.ssh/id_r*`
-// and leaves `~/.ssh/known_*` alone, which no rule about the directory could
-// do. Nothing here expands a pattern or asks the filesystem anything; the
-// prefixes come from the declared name alone.
+// What it matches is the path with its last component replaced by a pattern that
+// could still produce that component: a prefix of the name, a wildcard, then a
+// suffix of it. So a rule for ~/.ssh/id_rsa refuses `~/.ssh/*` and `~/.ssh/id_r*`
+// and leaves `~/.ssh/known_*` alone, which no rule about the directory could do,
+// and a rule for a project's .env leaves `ls *.md` alone, which matching the
+// prefix alone did not. Nothing here expands a pattern or asks the filesystem
+// anything; both halves come from the declared name.
 //
 // This is why the rule needs no answer to "is the entry a file": for a declared
 // directory it refuses the patterns that would name that directory, which the
 // directory's own subject already covers.
 //
 // What it does not reach: a wildcard higher up the path (`~/.s*/id_rsa`), a
-// character class standing in for a literal (`~/.ssh/id_[r]sa`), and any path a
-// command builds at run time. Those are the limits the rules already have, and
+// character class standing in for a literal (`~/.ssh/id_[r]sa`), a second
+// wildcard in the trailing half (`id_*s*`), and any path a command builds at run
+// time. Those are the limits the rules already have, and
 // this is the list that catches an accident.
 func GlobUnder(home, path string) string {
 	trimmed := strings.TrimSuffix(path, "/")
@@ -249,13 +251,34 @@ func GlobUnder(home, path string) string {
 		strings.HasPrefix(cleanHome+"/", trimmed+"/") {
 		return ""
 	}
-	// Every prefix of the name, the empty one included: "*" alone is a pattern
-	// that produces it. Longest first, which is how a reader checks them.
-	prefixes := make([]string, 0, len(name)+1)
-	for n := len(name); n >= 0; n-- {
-		prefixes = append(prefixes, regexp.QuoteMeta(name[:n]))
+	// What a pattern that could produce this name looks like: a prefix of it, a
+	// wildcard, then a suffix of it, and then the end of the word.
+	//
+	// Both halves, not just the prefix. Matching the prefix alone and stopping
+	// at the wildcard makes every pattern match on the empty prefix, so one
+	// declared .env in a project refuses `ls *.md` and `git add *` with it. The
+	// trailing literal is what tells `*` from `*.md`: the first could expand to
+	// the name and the second could not.
+	//
+	// The empty prefix and the empty suffix are both included, which is what
+	// keeps a bare `*` refused. That one is deliberately broad: a shell expands
+	// it to a dotfile only where it is set to, and this cannot know, so it
+	// refuses the pattern that might.
+	//
+	// Longest first, which is how a reader checks them.
+	parts := func() []string {
+		out := make([]string, 0, len(name)+1)
+		for n := len(name); n >= 0; n-- {
+			out = append(out, regexp.QuoteMeta(name[:n]))
+		}
+		return out
+	}()
+	suffixes := make([]string, 0, len(name)+1)
+	for n := 0; n <= len(name); n++ {
+		suffixes = append(suffixes, regexp.QuoteMeta(name[n:]))
 	}
-	pattern := `/(?:` + strings.Join(prefixes, `|`) + `)` + globChar
+	pattern := `/(?:` + strings.Join(parts, `|`) + `)` + globChar +
+		`(?:` + strings.Join(suffixes, `|`) + `)(?:` + pathEnd + `)`
 	spellings := dirSpellings(home, dir)
 	if len(spellings) == 1 {
 		return spellings[0] + pattern
@@ -284,37 +307,59 @@ func dirSpellings(home, dir string) []string {
 // answer the pattern.
 const globChar = `[*?\[]`
 
-// For is the five rules that refuse a set of subjects: reading one, writing
-// one, redirecting output over one, and redirecting one into a command.
+// Naming is the rule the guard applies: a subject named at all is refused.
 //
-// Each rule is matched against one command rather than a
-// whole line; see Segments, which is what decides where a command ends. The two
-// redirect rules match the target word alone, so a heredoc whose body names a
-// path is not a redirect over it either way.
+// No verb in front of it, and that is the whole of the change from what the
+// broker uses. A subject is an absolute path, and an absolute path in a command
+// line is a reference to that file: nothing says /etc/faramir/age.key in
+// passing. A verb list was needed while a subject could be a bare name, where
+// "credentials" appears in a sentence as readily as in a command; it cannot be
+// needed for a path.
 //
-// The input rule is what the reader vocabulary cannot reach: "< path" hands a
-// file to whatever is on the line, and the shell builtins that take it that
-// way are words too common to put in a vocabulary matched against every
-// command. `while read l; do echo $l; done < key` names no reader and prints
-// the file. It is the mirror of the output rule, and disclosure is the
-// direction it covers.
+// The list it replaces failed open, which is the reason to be rid of it here. A
+// command absent from a reader vocabulary read a declared file unrefused, so
+// that list reached fifty words and was still short of rg, fd and bat. A rule
+// about the path has nothing to be short of.
 //
-// A here-string, `<<<"path"`, matches it while passing the text rather than
-// the file. That is the limit the whole list has, a rule matching the command
-// string and not what it would do, and it errs toward refusing: the answer
-// names the rule, and an operator who meant the text writes it another way.
+// What it costs is prose and metadata: a sentence quoting a declared path is
+// refused, and so is `ls` on one. Both are refusals rather than disclosures, and
+// the agent has the brokered route for the second.
+//
+// Not anchored on the left, deliberately. A rule for /etc/faramir also refuses
+// /srv/backup/etc/faramir/age.key, a copy of the protected tree under another
+// root, which is worth refusing. pathEnd bounds the right, so
+// /etc/faramir-notes.md is not part of /etc/faramir.
+//
+// Both tiers use it. For the guard it is the whole rule; for the broker it is
+// what a `strict` entry gets instead of Disclosing, the operator having asked
+// that no brokered command name the path for any reason, `ls` and `chmod` with
+// the rest.
 //
 // No subjects is no rules rather than a rule matching everything, an empty
-// alternation being one that matches the empty string next to any reader.
-func For(subjects []string) []string {
-	r, ok := fragments(subjects)
-	if !ok {
+// alternation being one that matches the empty string.
+func Naming(subjects []string) []string {
+	if len(subjects) == 0 {
 		return nil
 	}
-	return []string{r.read, r.input, r.write, r.redirect, r.binding}
+	return []string{`(` + strings.Join(subjects, `|`) + `)`}
 }
 
-// Disclosing is what puts a subject's contents where they can be read: a reader
+// Disclosing is the rule the broker applies, and the one place a verb list is
+// still the right answer.
+//
+// The guard refuses a declared path outright: see Naming. This side cannot,
+// because using a credential file is what a brokered command is for. `cryptsetup
+// luksOpen --key-file <path>`, `ssh -i <path>` and `git -c
+// core.sshCommand=... ` all name a declared path and disclose nothing, and the
+// set of programs that read a credential without printing it is not one anybody
+// can finish writing.
+//
+// So this list fails open on purpose, and that is safe here in a way it was not
+// there. A verb missing from it costs the operator a command of their own that
+// went through; a verb missing from the guard's list cost them the file. The
+// account on this side is running what the operator asked for.
+//
+// What it covers: a reader
 // with the path among its arguments, a mover that leaves the contents under a
 // name no rule was written for, a file handed to whatever is on the line, and a
 // path bound to a variable to be read through later.
@@ -327,7 +372,7 @@ func For(subjects []string) []string {
 // is ordinary work that puts nothing in the conversation, while `mv` of the
 // same file into /tmp discloses it one step later.
 //
-// Everything the agent types is still held to all five rules For builds. The
+// Everything the agent types is still held to Naming. The
 // asymmetry is the point: nobody asked for what the agent types, and a value it
 // cannot read is one it can still destroy, an age key replaced being every
 // managed file unreadable retroactively.
@@ -339,28 +384,9 @@ func Disclosing(subjects []string) []string {
 	return []string{r.read, r.move, r.input, r.binding}
 }
 
-// Mentioning is the one rule an entry gets when the operator asks for any
-// mention of it to be refused: the subject on its own, with no verb in front.
-//
-// The other rules exist because naming a file is not the same as reading it,
-// and most declared files still have to be managed: a keyfile nothing may
-// `chmod` is one nothing may rotate. This is for the file where that trade does
-// not apply, a ~/.private and its kind, where the agent has no business naming
-// the path for any reason and a refusal is a better answer than a listing.
-//
-// Opt-in per entry, because it refuses exactly what it says: `ls`, `stat`,
-// `test -f`, a `find` that walks past it, and any converge that touches it.
-// Nothing infers it from the shape of a path.
-func Mentioning(subjects []string) []string {
-	if len(subjects) == 0 {
-		return nil
-	}
-	return []string{`(` + strings.Join(subjects, `|`) + `)`}
-}
-
-// the five rules, named, so a caller takes the ones it enforces rather than
+// the four rules, named, so a caller takes the ones it enforces rather than
 // slicing a list by position.
-type ruleSet struct{ read, move, input, write, redirect, binding string }
+type ruleSet struct{ read, move, input, binding string }
 
 // fragments builds the five from one alternation, so they are written once and
 // the callers cannot drift. Not ok for no subjects, an empty alternation being
@@ -379,12 +405,10 @@ func fragments(subjects []string) (ruleSet, bool) {
 	}
 	boundAlternation := `(` + strings.Join(bound, `|`) + `)`
 	return ruleSet{
-		read:     ReadCommands + ArgSpan + alternation,
-		move:     moveCommands + ArgSpan + alternation,
-		input:    `<\s*\S*` + alternation,
-		write:    WriteCommands + ArgSpan + alternation,
-		redirect: `>\s*\S*` + alternation,
-		binding:  binding + boundAlternation,
+		read:    ReadCommands + ArgSpan + alternation,
+		move:    moveCommands + ArgSpan + alternation,
+		input:   `<\s*\S*` + alternation,
+		binding: binding + boundAlternation,
 	}, true
 }
 

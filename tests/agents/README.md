@@ -142,7 +142,7 @@ alike and none of them is a finding about faramir:
 | --- | --- |
 | `timed out` | Killed at `$FARAMIR_AGENT_TIMEOUT`. The report file holds whatever it had written |
 | `provider refused` | A usage limit, a rate limit, or a model the account is not entitled to |
-| `no output` | The agent printed nothing at all, which is a broken invocation rather than a failed run |
+| `no output` | The log holds only the runner's own lines, so the agent printed nothing: a broken invocation rather than a failed run |
 | `no rows` | It ran and wrote prose, but no results table this can read |
 
 The runner pins a model per agent rather than taking each agent's own, so that a

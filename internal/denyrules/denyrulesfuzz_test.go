@@ -31,7 +31,7 @@ func FuzzARuleRefusesEverySpellingAndNothingWider(f *testing.F) {
 		// DirUnder, which is what every caller uses: it is what puts the end
 		// bound on a subject, and a subject without one matches a sibling whose
 		// name merely begins the same way.
-		rules := For([]string{DirUnder(home, path)})
+		rules := Naming([]string{DirUnder(home, path)})
 		if len(rules) == 0 {
 			t.Fatalf("a path produced no rules: %q", path)
 		}

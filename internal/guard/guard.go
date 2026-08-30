@@ -93,8 +93,10 @@ func fallbackPatterns() []string {
 	for _, dir := range defaultInstallPaths {
 		subjects = append(subjects, denyrules.Dir(dir))
 	}
-	out := append([]string{}, denyrules.For(subjects)...)
-	return append(out, fallbackOwn...)
+	// fallbackOwn first: a line can match both, and the rule that says something
+	// more specific than "this path is declared" is the one worth reporting.
+	out := append([]string{}, fallbackOwn...)
+	return append(out, denyrules.Naming(subjects)...)
 }
 
 // No compiled-in verb rules. What a command does rather than what it points at
@@ -154,12 +156,6 @@ var fallbackOwn = []string{
 	`\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`,
 }
 
-const advice = "Blocked: this command would put a credential into the conversation.\n\nUse " +
-	"`faramir run` instead: it runs the command as a uid holding no keys and returns " +
-	"output with secrets replaced by «SECRET:ref» tokens.\n\n    " +
-	"faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW" +
-	"\n\n`faramir refs` lists the names. You do not need a value to use it."
-
 // adviceOperator is for a command that is the operator's to run. The account
 // this agent runs as could not have carried it out, so the refusal saves the
 // detour of finding that out from a permission error.
@@ -169,6 +165,35 @@ const adviceOperator = "Blocked: this is an operator command. It acts on the far
 	"`faramir run`, `faramir refs`, `faramir status`, `faramir redact`, and the " +
 	"commands that only describe the install: `faramir doctor`, `faramir block ls`, " +
 	"`faramir link ls` and `faramir reader ls`."
+
+// adviceDeclared is for the one rule about a declared path: this install's own
+// directories, and what the operator blocked or linked.
+//
+// One sentence for reading it and for changing it alike. The rule carries no
+// verb, so it cannot tell them apart, and inventing a distinction from the
+// command would be a guess dressed as a fact.
+//
+// It offers no route. `faramir run` is not one: the broker holds the same
+// entries and refuses a declared path too. Nor is `faramir block rm` always one,
+// since the install's own directories are rendered from the layout on every run
+// and no entry takes them back. So the message says what is true of both and
+// leaves the decision where it belongs.
+const adviceDeclared = "Blocked: this path is declared on this host, so naming it is refused " +
+	"to your tools and to your shell, whatever the command would do with it.\n\nA brokered " +
+	"command is answered differently: `faramir run` refuses the ones that would read the file " +
+	"or move it somewhere and allows the rest, so a command that only uses the credential may " +
+	"go through there. If the file answers a `faramir://` ref, `faramir refs` names it and " +
+	"`faramir run --env NAME=faramir://<ref>` is the way to use it.\n\nOtherwise this is the " +
+	"operator's to do, or to unblock with `faramir block rm`. The directories the install " +
+	"occupies are not removable at all, being rendered from the layout on every run."
+
+// adviceCommand is for a `[[secret.block]]` entry naming a command rather than a
+// path. The remedy is the same shape and the subject is not: telling somebody
+// who ran `op read` that a path is declared names nothing they typed.
+const adviceCommand = "Blocked: this host declares this command, so neither your shell nor a " +
+	"brokered command may run it.\n\nThe words are matched where a command starts, so naming " +
+	"it in a search or a comment is left alone. If the work needs it, it is the operator's to " +
+	"do, or to unblock with `faramir block rm --command`."
 
 // adviceOwn is for the rules that are not about disclosure. Acting on
 // faramir's own files, accounts or units discloses nothing, and the disclosure
@@ -203,12 +228,23 @@ var adviceMarkers = []struct {
 	{`\bsystemctl\b`, adviceOwn, false},            // stopping or masking a unit
 	{`/usr/local/bin/faramir\b`, adviceOwn, false}, // the binary
 	{`opencode/plugin/faramir`, adviceOwn, false},  // the plugin `init` writes
+	// A redirect over faramir's own binary or plugin files. At the default bin
+	// directory the path marker above catches it; a moved one has no marker of
+	// its own, and these are the only redirect rules left.
+	{`>\s*\S*`, adviceOwn, false},
 	// The head of denyrules.WriteCommands's word list rather than the constant,
 	// the shipped file carrying the expansion rather than the name. The words
 	// alone, not what wraps them: the group around them has changed shape once
 	// already, and a marker carrying it silently stops matching when it does.
-	{`rm|shred|truncate`, adviceOwn, true}, // editing or destroying a path
-	{`>\s*\S*`, adviceOwn, true},           // a redirect into one
+	//
+	// This is faramir's own binary and plugin files, which are the only rules
+	// left that carry a verb. A declared path has no verb rule to read a message
+	// out of, and falls through to adviceDeclared.
+	{`rm|shred|truncate`, adviceOwn, false},
+	// A declared command, which is about what a tool does rather than what it
+	// names. Without this it falls through to adviceDeclared and is answered
+	// with advice about a path the entry does not have.
+	{denyrules.CommandPosition, adviceCommand, false},
 }
 
 // adviceFor picks the explanation that matches why the command was refused.
@@ -224,7 +260,9 @@ func adviceFor(pattern, command string) string {
 		}
 		return m.advice
 	}
-	return advice
+	// Everything else is the subject rule, which is about a declared path and
+	// says one thing about it.
+	return adviceDeclared
 }
 
 // shortPattern is a rendered rule as much of it as identifies which one it was.
@@ -290,7 +328,7 @@ func configDir() string {
 // called: the same three shapes the literal rules use, so a moved install is
 // covered the way /etc/faramir is.
 func configDirRules(dir string) []string {
-	return denyrules.For([]string{denyrules.DirUnder(guardHome(), dir)})
+	return denyrules.Naming([]string{denyrules.DirUnder(guardHome(), dir)})
 }
 
 // guardHome is what a tilde in the command being judged stands for. This runs
@@ -788,6 +826,41 @@ func stripFaramirCalls(command string) string {
 	})
 }
 
+// withoutWrapper strips the leading `source <wrap.sh>` of a command the rewrite
+// produced, so a rule can be asked whether it would still have matched without
+// it.
+//
+// The wrapper lives in the libexec directory, which is declared, so the subject
+// rule refuses any command naming it. That is every command the guard itself
+// emits, and the form the instructions tell an agent to use, so it has to be
+// left alone or the routing refuses its own output.
+//
+// The invocation, not the path. `rm <wrap.sh>` does not open with `source`, so
+// nothing here strips it and the subject rule answers it: deleting the wrapper
+// turns off redaction for every Bash command on the host, and the narrower
+// exemption is what keeps that refused without a verb test to get wrong.
+//
+// Only at the start. A wrapper named later in a line is part of some other
+// command, and that command is the one being asked about.
+func withoutWrapper(command string) string {
+	trimmed := strings.TrimLeft(command, " \t")
+	for _, verb := range []string{"source ", ". "} {
+		prefix := verb + wrapScript()
+		if !strings.HasPrefix(trimmed, prefix) {
+			continue
+		}
+		// The path has to end there. Without this, any name formed by appending
+		// to the wrapper's own is exempted: `source <wrap.sh>.orig` is a
+		// different file, and one inside a declared directory.
+		rest := trimmed[len(prefix):]
+		if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
+			continue
+		}
+		return rest
+	}
+	return command
+}
+
 func decide(command string) (string, bool) {
 	stripped := stripFaramirCalls(command)
 	// Per command rather than per line. A pattern matched against the whole
@@ -812,7 +885,16 @@ func decide(command string) (string, bool) {
 		}
 	}
 	for _, p := range loadPatterns() {
-		if slices.ContainsFunc(spellings, p.re.MatchString) {
+		for _, spelling := range spellings {
+			if !p.re.MatchString(spelling) {
+				continue
+			}
+			// Asked again without the wrapper invocation. A rule that matched
+			// only because the guard's own output named it has found nothing:
+			// see withoutWrapper. One that still matches found something else.
+			if !p.re.MatchString(withoutWrapper(spelling)) {
+				continue
+			}
 			return p.source, true
 		}
 	}
@@ -840,8 +922,13 @@ func matchingSegment(command, pattern string) string {
 			continue
 		}
 		for _, segment := range segments {
-			if p.re.MatchString(segment) || p.re.MatchString(denyrules.NormalizePaths(segment)) {
-				return segment
+			// The same readings decide asked, and the same exemption: without it
+			// this names the wrapper invocation decide deliberately let through,
+			// which is the "wrong part of the line" failure it exists to avoid.
+			for _, spelling := range []string{segment, denyrules.NormalizePaths(segment)} {
+				if p.re.MatchString(spelling) && p.re.MatchString(withoutWrapper(spelling)) {
+					return segment
+				}
 			}
 		}
 		break

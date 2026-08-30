@@ -30,7 +30,7 @@ func TestARefusalNamesTheCommandThatMatched(t *testing.T) {
 // One command in the line: the pattern is the whole answer already, and quoting
 // the line back at the agent adds nothing it does not have.
 func TestASingleCommandRefusalNamesNoSegment(t *testing.T) {
-	const command = "cat /etc/faramir/config.toml"
+	const command = "cat /etc/faramir/age.key"
 	pattern, denied := decide(command)
 	if !denied {
 		t.Fatal("reading the config directory should be refused")

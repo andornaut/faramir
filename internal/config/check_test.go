@@ -7,6 +7,41 @@ import (
 	"testing"
 )
 
+// A wildcard in a link path is refused. The path is opened as written, so
+// nothing resolves it, and it renders into the deny rules as a literal, so the
+// rule refuses a command typing that pattern and leaves the files it names
+// readable. Both failures are silent, and the config is where they are visible.
+func TestAWildcardInALinkPathIsRefused(t *testing.T) {
+	for _, path := range []string{
+		"/home/op/.config/*/token.json",
+		"/home/op/tokens/*.json",
+		"/home/op/tokens/id_rs?",
+		"/home/op/tokens/[a].json",
+	} {
+		err := ValidateLink(Link{Ref: "a/b", Path: path, Type: "json", Key: "k"})
+		if err == nil {
+			t.Errorf("%s was accepted, and nothing would resolve it", path)
+			continue
+		}
+		if !strings.Contains(err.Error(), "as written") {
+			t.Errorf("%s: the refusal does not say why: %v", path, err)
+		}
+	}
+}
+
+// And an ordinary link path is untouched.
+func TestAnOrdinaryLinkPathIsStillAccepted(t *testing.T) {
+	for _, path := range []string{
+		"/home/op/.npmrc",
+		"/home/op/.config/gh/hosts.yml",
+		"/srv/tokens-2024/app.json",
+	} {
+		if err := ValidateLink(Link{Ref: "a/b", Path: path, Type: "json", Key: "k"}); err != nil {
+			t.Errorf("%s was refused: %v", path, err)
+		}
+	}
+}
+
 // Check and Load answer the same question about the same bytes. The installer
 // renders config.toml and then replaces the one the daemons read, so a value
 // they would refuse has to be caught before the write: afterwards the broker

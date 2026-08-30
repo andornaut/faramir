@@ -81,13 +81,15 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		command string
 		want    string
 	}{
-		// Disclosure: what the command would put in the conversation.
-		{"sops -d /etc/faramir/secrets/db.sops.yml", advice},
-		{"cat /etc/faramir/secrets/db.sops.yml", advice},
-		{"sudo -u faramir-keeper cat /etc/faramir/age.key", advice},
-		// faramir's own. Nothing here is disclosed; something is changed or stopped.
-		{"rm /etc/faramir/age.key", adviceOwn},
-		{"echo x > /etc/faramir/config.toml", adviceOwn},
+		// A declared path, however it was reached. One rule matches all of
+		// these, so one sentence answers them: see adviceDeclared.
+		{"sops -d /etc/faramir/secrets/db.sops.yml", adviceDeclared},
+		{"cat /etc/faramir/secrets/db.sops.yml", adviceDeclared},
+		{"rm /etc/faramir/age.key", adviceDeclared},
+		{"echo x > /etc/faramir/age.key", adviceDeclared},
+		// Under sudo it is the operator's, which is the more useful answer and
+		// is why those rules are matched first.
+		{"sudo -u faramir-keeper cat /etc/faramir/age.key", adviceOperator},
 		{"systemctl stop faramir-broker.socket", adviceOwn},
 		{"rm ~/.config/opencode/plugin/faramir.js", adviceOwn},
 		{"sed -i s/x/y/ ~/.pi/agent/extensions/faramir.ts", adviceOwn},
@@ -144,10 +146,12 @@ func TestEveryPatternIsClassifiedOnPurpose(t *testing.T) {
 		which string
 		want  int
 	}{
-		// Seven: the generated write and redirect rules, the binary's two, the
-		// plugin files' two, and systemctl.
-		{"faramir's own", adviceOwn, 7},
+		// Five: the binary's two, the plugin files' two, and systemctl. The
+		// generated rules are no longer among them: one rule names a declared
+		// path and says one thing about it, which is adviceDeclared.
+		{"faramir's own", adviceOwn, 5},
 		{"the operator's", adviceOperator, 2},
+		{"a declared path", adviceDeclared, 2},
 	} {
 		if counts[tc.which] != tc.want {
 			t.Errorf("%d of %d patterns explain themselves as %s, want %d. A rule was "+
@@ -220,7 +224,7 @@ func TestTheWriteVerbsAreStillRefused(t *testing.T) {
 // /srv/luks.key is "faramir's own file" is told something false about the
 // operator's own secret.
 func TestAWriteToADeclaredPathIsNotFaramirsOwn(t *testing.T) {
-	for _, pattern := range denyrules.For([]string{denyrules.Dir("/srv/luks.key")}) {
+	for _, pattern := range denyrules.Naming([]string{denyrules.Dir("/srv/luks.key")}) {
 		for _, command := range []string{
 			"rm /srv/luks.key",
 			"cat /srv/luks.key",
@@ -229,10 +233,10 @@ func TestAWriteToADeclaredPathIsNotFaramirsOwn(t *testing.T) {
 			if !regexp.MustCompile(pattern).MatchString(command) {
 				continue
 			}
-			if got := adviceFor(pattern, command); got != advice {
-				t.Errorf("%q was explained as faramir's own; it is the operator's, "+
-					"and the remedy for it is faramir run rather than the operator",
-					command)
+			if got := adviceFor(pattern, command); got != adviceDeclared {
+				t.Errorf("%q was explained as %q; a path the operator declared is "+
+					"neither faramir's own file nor an operator command, and the "+
+					"message has to say what it is", command, got)
 			}
 		}
 	}

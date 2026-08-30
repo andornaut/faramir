@@ -165,7 +165,7 @@ Three things differ.
 
 A patch the guard cannot read is refused. This branch is the whole of what refuses Codex a path, so an envelope that is not where the guard reads it would otherwise leave every write unexamined and say nothing about it.
 
-The tool is also invocable from a shell, and the documented spelling puts the envelope in a heredoc. The body is split into commands like any other, but a patch header is not a command: `*** Add File: <path>` names a path and no verb, so no reader or writer rule fires on it. Every other write names its file on the opening line, where the rules do see it; this is the one that does not. So a command that runs the patch tool has its headers read the same way the tool's own call does.
+The tool is also invocable from a shell, and the documented spelling puts the envelope in a heredoc. The body is split into commands like any other, and a patch header is not a command: `*** Add File: <path>` names a path and nothing else. Naming a declared path is what the rule answers, so a header naming one is refused where it appears in a command the guard reads. A command that runs the patch tool has its headers read the same way the tool's own call does.
 
 Reads need none of that. Codex reads a file by running one of the shell's own readers, so the command guard covers every read it makes.
 

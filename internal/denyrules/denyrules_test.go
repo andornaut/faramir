@@ -60,36 +60,45 @@ func TestAPathOutsideAHomeGetsNoExtraSpellings(t *testing.T) {
 	}
 }
 
-// rules is the five rules as the guard compiles them, so a test asks the same
-// question the guard does rather than a version of it. Named rather than
-// positional: a case says which rule should hold it.
+// rules is the four rules the broker compiles, so a test asks the same question
+// the broker does rather than a version of it. Named rather than positional: a
+// case says which rule should hold it.
 type rules struct {
-	read, input, write, redirect, assign *regexp.Regexp
+	read, move, input, assign *regexp.Regexp
 }
 
 // all is every rule, for a case that must match none of them.
 func (r rules) all() []*regexp.Regexp {
-	return []*regexp.Regexp{r.read, r.input, r.write, r.redirect, r.assign}
+	return []*regexp.Regexp{r.read, r.move, r.input, r.assign}
 }
 
 func compiled(t *testing.T, subjects ...string) rules {
 	t.Helper()
-	got := For(subjects)
-	if len(got) != 5 {
-		t.Fatalf("For returned %d rules, want the read, input, write, redirect and "+
-			"binding five", len(got))
+	got := Disclosing(subjects)
+	if len(got) != 4 {
+		t.Fatalf("Disclosing returned %d rules, want the read, move, input and "+
+			"binding four", len(got))
 	}
 	compile := func(pattern string) *regexp.Regexp {
 		return regexp.MustCompile("(?i)" + pattern)
 	}
-	return rules{compile(got[0]), compile(got[1]), compile(got[2]), compile(got[3]),
-		compile(got[4])}
+	return rules{compile(got[0]), compile(got[1]), compile(got[2]), compile(got[3])}
 }
 
-// The five rules refuse the five ways a command line reaches a subject. Each
-// case names which rule should hold it, so a rule that stops matching is a
-// failure here rather than a gap the other three happen to cover.
-func TestTheFiveRulesRefuseEveryWayALineReachesASubject(t *testing.T) {
+// naming is the guard's single rule, compiled the way the guard compiles it.
+func naming(t *testing.T, subjects ...string) *regexp.Regexp {
+	t.Helper()
+	got := Naming(subjects)
+	if len(got) != 1 {
+		t.Fatalf("Naming returned %d rules, want one", len(got))
+	}
+	return regexp.MustCompile("(?i)" + got[0])
+}
+
+// The broker's rules refuse the ways a command line reads a subject. Each case
+// names which rule should hold it, so a rule that stops matching is a failure
+// here rather than a gap another happens to cover.
+func TestTheBrokersRulesRefuseEveryWayALineReadsASubject(t *testing.T) {
 	re := compiled(t, Dir("/etc/faramir"))
 	for _, c := range []struct {
 		rule *regexp.Regexp
@@ -99,8 +108,6 @@ func TestTheFiveRulesRefuseEveryWayALineReachesASubject(t *testing.T) {
 		{re.read, "read", "cat /etc/faramir/age.key"},
 		{re.read, "read", "head -c 32 /etc/faramir/age.key"},
 		{re.read, "read", "cat < /etc/faramir/age.key"},
-		// The input rule reaches what the reader vocabulary cannot: these name
-		// no reader and print the file anyway.
 		{re.input, "input", "while read l; do echo $l; done < /etc/faramir/age.key"},
 		{re.input, "input", "mapfile -t key < /etc/faramir/age.key"},
 		{re.input, "input", "md5sum </etc/faramir/age.key"},
@@ -108,23 +115,15 @@ func TestTheFiveRulesRefuseEveryWayALineReachesASubject(t *testing.T) {
 		{re.read, "read", "true; cat /etc/faramir/age.key"},
 		{re.read, "read", `python3 -c "open('/etc/faramir/age.key')"`},
 		{re.read, "read", "cat '/etc/faramir/age.key'"},
-		// The directory itself, not only a file under it.
 		{re.read, "read", "tar cf - /etc/faramir"},
-		{re.write, "write", "rm -rf /etc/faramir"},
-		{re.write, "write", "chmod 0644 /etc/faramir/age.key"},
-		{re.write, "write", "echo hi | tee /etc/faramir/age.key"},
-		{re.redirect, "redirect", "echo x > /etc/faramir/age.key"},
-		{re.redirect, "redirect", "echo x >> /etc/faramir/age.key"},
-		{re.redirect, "redirect", "echo x 2>/etc/faramir/age.key"},
-		// The four rules above read left to right, so a command has to appear
-		// before the path it reaches. An assignment names the path with no
-		// command near it, and the reader that follows names only the variable.
+		// A mover leaves the contents readable under a name no rule covers,
+		// which is the same disclosure one step later.
+		{re.move, "move", "mv /etc/faramir/age.key /tmp/x"},
+		{re.move, "move", "ln -s /etc/faramir/age.key /tmp/x"},
 		{re.assign, "assign", "p=/etc/faramir/age.key; cat $p"},
 		{re.assign, "assign", "export KEY=/etc/faramir/age.key"},
 		{re.assign, "assign", `p="/etc/faramir/age.key"`},
 		{re.assign, "assign", `p='/etc/faramir/age.key'`},
-		// A path quoted because it holds a space. The bare form ends at that
-		// space, so the quoted form is matched to the closing quote instead.
 		{re.assign, "assign", `p="/etc/faramir/my key.txt"`},
 		{re.assign, "assign", `p='/etc/faramir/my key.txt'`},
 		{re.assign, "assign", `for d in "/etc/faramir"; do cat $d/age.key; done`},
@@ -137,28 +136,25 @@ func TestTheFiveRulesRefuseEveryWayALineReachesASubject(t *testing.T) {
 	}
 }
 
-// What the rules leave alone. A command that names a protected path without
-// reaching it, and a path that merely begins the same way, are both allowed:
-// the vocabulary is a list of what reads and what writes, not every command
-// that could be typed near one.
-func TestTheRulesLeaveAloneWhatDoesNotReachTheSubject(t *testing.T) {
+// What the broker leaves alone. Using a credential file is what a brokered
+// command is for, so a command that names a declared path without printing it
+// stands: cryptsetup and restic are the case the whole tier exists to permit,
+// and no list of programs that read a secret without disclosing it could be
+// finished.
+func TestTheBrokerLeavesAloneWhatDoesNotReadTheSubject(t *testing.T) {
 	re := compiled(t, Dir("/etc/faramir"))
 	for _, cmd := range []string{
-		// "grep" is in neither vocabulary, so naming a path in a search stands.
 		"grep secret /etc/faramir/config.toml",
 		"ls /etc/faramir",
+		"chmod 0644 /etc/faramir/age.key",
+		"echo x > /etc/faramir/age.key",
 		// pathEnd bounds the subject, so a sibling is not caught by it.
 		"cat /etc/faramirx",
 		"cat /opt/faramir-notes.md",
-		// The command names are case-sensitive inside a case-insensitive rule:
-		// "CAT" is not a command on this system, and the paths still are not.
 		"CAT /etc/faramir/age.key",
-		// A heredoc is not an input redirect, and neither is a process
-		// substitution or a "<" that is part of what a command prints.
 		"cat <<'EOF'\nnothing here\nEOF",
 		"diff <(echo a) <(echo b)",
 		"echo 'a < b is true of /etc/faramirx'",
-		// A sibling in an assignment is still a sibling.
 		"p=/etc/faramirx/notes.md",
 		// A flag that ends in "=" is not an assignment. A word boundary falls
 		// after a hyphen, so the assignment rule read "file=" out of the middle
@@ -166,21 +162,62 @@ func TestTheRulesLeaveAloneWhatDoesNotReachTheSubject(t *testing.T) {
 		// path a command is meant to be handed.
 		"cryptsetup luksOpen /dev/sdb x --key-file=/etc/faramir/age.key",
 		"restic --password-file=/etc/faramir/age.key snapshots",
-		// The value ends where the shell ends it, so a path further along the
-		// line is not read as this assignment's.
 		"greeting=hello /etc/faramirx",
-		// A quoted value that is prose rather than a path: the quoted form is
-		// taken only where it opens with a path character, or a blocked name
-		// that is an ordinary word would refuse a sentence for saying it.
 		`title="my faramir talk"`,
 		`msg='the faramir docs are here'`,
-		// And a loop over a neighbouring directory is left alone too.
 		"for d in /etc/faramirx; do cat $d/notes.md; done",
 	} {
 		for _, rule := range re.all() {
 			if rule.MatchString(cmd) {
-				t.Errorf("%q is refused, and it does not reach the subject", cmd)
+				t.Errorf("%q is refused, and it does not read the subject", cmd)
 			}
+		}
+	}
+}
+
+// The guard's one rule covers every shape the broker needs four for, and the
+// ones no vocabulary reached. That is the whole argument for having no
+// vocabulary there: a path names itself, so there is nothing to enumerate and
+// nothing to be short of.
+func TestNamingCoversEveryShapeAVocabularyNeeded(t *testing.T) {
+	re := naming(t, Dir("/etc/faramir"))
+	for _, cmd := range []string{
+		// The four the broker's rules cover.
+		"cat /etc/faramir/age.key",
+		"while read l; do echo $l; done < /etc/faramir/age.key",
+		"mv /etc/faramir/age.key /tmp/x",
+		"p=/etc/faramir/age.key; cat $p",
+		// The two Disclosing leaves out, which the guard refuses.
+		"rm -rf /etc/faramir",
+		"echo x > /etc/faramir/age.key",
+		// And the ones no vocabulary held: a tool nobody listed, a metadata
+		// command, a flag-attached path, and a search.
+		"rg --files /etc/faramir",
+		"fd . /etc/faramir",
+		"bat /etc/faramir/age.key",
+		"ls -l /etc/faramir",
+		"stat /etc/faramir/age.key",
+		"cryptsetup luksOpen /dev/sdb x --key-file=/etc/faramir/age.key",
+		"grep secret /etc/faramir/config.toml",
+	} {
+		if !re.MatchString(cmd) {
+			t.Errorf("%q is allowed, and it names the subject", cmd)
+		}
+	}
+}
+
+// Naming still bounds the subject on the right, so a neighbour whose name
+// merely begins the same way is not part of it.
+func TestNamingDoesNotReachASibling(t *testing.T) {
+	re := naming(t, Dir("/etc/faramir"))
+	for _, cmd := range []string{
+		"cat /etc/faramirx",
+		"cat /opt/faramir-notes.md",
+		"cat /etc/faramir-alt/age.key",
+		"p=/etc/faramirx/notes.md",
+	} {
+		if re.MatchString(cmd) {
+			t.Errorf("%q is refused, and it names no declared path", cmd)
 		}
 	}
 }
@@ -243,8 +280,13 @@ func TestAHereStringIsRefusedLikeARedirect(t *testing.T) {
 // generating one would leave a rule that any reader on any command line matches.
 func TestNoSubjectsIsNoRulesRatherThanARuleMatchingEverything(t *testing.T) {
 	for _, subjects := range [][]string{nil, {}} {
-		if got := For(subjects); got != nil {
-			t.Errorf("For(%#v) = %#v, want no rules", subjects, got)
+		for name, got := range map[string][]string{
+			"Naming":     Naming(subjects),
+			"Disclosing": Disclosing(subjects),
+		} {
+			if got != nil {
+				t.Errorf("%s(%#v) = %#v, want no rules", name, subjects, got)
+			}
 		}
 	}
 }
@@ -253,6 +295,10 @@ func TestNoSubjectsIsNoRulesRatherThanARuleMatchingEverything(t *testing.T) {
 // uutils as `cat` and the GNU build as `gnucat`, for 104 programs, 18 of them
 // in this vocabulary. A word boundary does not fall inside `gnucat`, so every
 // one of those walked past these rules on that release.
+//
+// The readers and movers, which is what this tier carries. The write
+// vocabulary belongs to the rules about faramir's own files, and the guard's
+// tier has no vocabulary to prefix at all.
 func TestTheGnuPrefixedNamesAreTheSameTools(t *testing.T) {
 	re := compiled(t, Dir("/etc/faramir"))
 	refused := func(cmd string) bool {
@@ -268,11 +314,10 @@ func TestTheGnuPrefixedNamesAreTheSameTools(t *testing.T) {
 		"gnuhead -c1 /etc/faramir/secrets/app.sops.yml",
 		"gnubase64 /etc/faramir/age.key",
 		"gnucp /etc/faramir/age.key /tmp/k",
-		"gnurm /etc/faramir/config.toml",
-		"gnutee /etc/faramir/config.toml",
+		"gnumv /etc/faramir/age.key /tmp/k",
 		// And the ordinary names, which the prefix must not have displaced.
 		"cat /etc/faramir/age.key",
-		"rm /etc/faramir/config.toml",
+		"mv /etc/faramir/age.key /tmp/k",
 	} {
 		if !refused(cmd) {
 			t.Errorf("%q is allowed: the prefixed name is the same tool", cmd)

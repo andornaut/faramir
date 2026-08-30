@@ -82,7 +82,7 @@ var corpus = []denyCase{
 	{"cat /etc/faramir/config.toml", true, "the config names every managed store"},
 	{"tail /var/log/faramir/audit.log", true, "the audit log carries command output"},
 	{"cat /var/log/faramir/audit.log", true, "whatever reads it"},
-	{"ls /var/log/faramir", false, "listing a directory reads nothing"},
+	{"ls /var/log/faramir", true, "naming a declared directory is enough: the rule carries no verb"},
 	{"journalctl -u faramir-broker -n 50", false, "the journal is not the audit log"},
 
 	// Writes, not reads.
@@ -103,12 +103,13 @@ var corpus = []denyCase{
 	{"systemctl edit faramir-broker", true, "a drop-in changes what the daemon is"},
 	{"cp /bin/true /usr/local/bin/jq", false, "the binary is named as a path, not as its directory"},
 	{"install -m 0755 yq /usr/local/bin/yq", false, "installing an unrelated tool is ordinary work"},
-	{"echo 'see /etc/faramir/config.toml' >> README.md", false, "naming a path is not writing to it"},
+	{"echo 'see /etc/faramir/config.toml' >> README.md", true,
+		"naming a declared path is enough, which is what prose costs"},
 	{"printf '%s\\n' 'store lives in ~/.config/faramir/secrets' >> docs/design.md", false, "the same, into a doc"},
 	{"bash -n scripts/install-hooks.sh", false, "a tool name inside a file name is not the tool"},
 	{"bash scripts/install-hooks.sh /home/op/.config/faramir", false, "even next to a faramir path"},
-	{"grep -q pattern /usr/local/libexec/faramir/deny-patterns.txt", false, "reading the deny list is not writing it"},
-	{"ls -l /usr/local/libexec/faramir", false, "listing the install directory"},
+	{"grep -q pattern /usr/local/libexec/faramir/deny-patterns.txt", true, "the rendered rules are inside a declared directory"},
+	{"ls -l /usr/local/libexec/faramir", true, "the same for the install's own directory"},
 
 	// -- the daemons ---------------------------------------------------------
 	{"sudo faramir-keeper", true, "running a daemon by hand"},
@@ -153,13 +154,13 @@ var corpus = []denyCase{
 	// A rule reaches a path in the command it started in. The guard splits the
 	// line first and reads the quoting while it does, so where one command ends
 	// is decided before any pattern sees it.
-	{`head -20 README.md; echo "/etc/faramir is where it lives"`, false,
-		"the echo is its own command and reads nothing"},
-	{`head -20 "README.md"; echo "/etc/faramir"`, false,
-		"the quotes belong to the first command and do not carry into the second"},
-	{`sed 's/a/b/' x | grep '/etc/faramir/age.key'`, false,
-		"a script ending in a slash does not reopen the reach"},
-	{`awk '{print}' x | grep "/etc/faramir"`, false, "nor a brace"},
+	{`head -20 README.md; echo "/etc/faramir is where it lives"`, true,
+		"the echo names a declared path, which is the cost of a rule with no verb"},
+	{`head -20 "README.md"; echo "/etc/faramir"`, true,
+		"the quoting still splits the line; the second command names the path"},
+	{`sed 's/a/b/' x | grep '/etc/faramir/age.key'`, true,
+		"the sed script still ends where it ends; the grep names the key"},
+	{`awk '{print}' x | grep "/etc/faramir"`, true, "nor does a brace, and the grep names it"},
 	{"head -20 README.md; cat /etc/faramir/age.key", true,
 		"and the second command reaches the key on its own"},
 	{`head -20 "README.md"; cat /etc/faramir/age.key`, true, "quoted or not"},
@@ -177,9 +178,9 @@ var corpus = []denyCase{
 	// whatever command is there rather than to the binding. grep is the case
 	// that shows it: it is in neither vocabulary, so naming a path in a search
 	// stands, and a binding that ran to the end of the line would refuse it.
-	{"note=hello; grep -c faramir /etc/faramir/config.toml", false,
-		"the value ended at the space, and grep reads nothing into the context"},
-	{"for d in /tmp; do grep -c faramir /etc/faramir/config.toml; done", false,
+	{"note=hello; grep -c faramir /etc/faramir/config.toml", true,
+		"the value still ends at the space; the grep names a declared path"},
+	{"for d in /tmp; do grep -c faramir /etc/faramir/config.toml; done", true,
 		"the list ended at the separator"},
 
 	// -- generic credential words, which are nobody's rule until declared -----

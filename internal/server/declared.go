@@ -36,7 +36,7 @@ import (
 // denyrules.Disclosing is the set: reading, moving and re-encoding a declared
 // file, and nothing outside that vocabulary, writing over one included. See its comment for where that
 // line falls and why it is not the read/write one. An entry carrying strict is
-// held to denyrules.Mentioning instead, which is the subject with no verb in
+// held to denyrules.Naming instead, which is the subject with no verb in
 // front of it: the operator asked for every command naming that file to be
 // refused, `ls` and `chmod` with the rest.
 type declaredCheck struct{ rules []declaredRule }
@@ -90,7 +90,7 @@ func newDeclaredCheck(secret config.SecretConfig, agentHome string) declaredChec
 	// operator asked for that, and the disclosing ones otherwise.
 	rulesFor := func(subject string, strict bool) []string {
 		if strict {
-			return denyrules.Mentioning([]string{subject})
+			return denyrules.Naming([]string{subject})
 		}
 		return denyrules.Disclosing([]string{subject})
 	}

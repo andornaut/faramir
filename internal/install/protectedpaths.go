@@ -3,7 +3,6 @@ package install
 import (
 	"os/user"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -317,7 +316,7 @@ func jsonBody(indent, suffix string, items []string) string {
 // The verbs come from internal/denyrules, which internal/guard builds the same
 // rules from for a config directory the rendered file did not name.
 func commandRules(layout Layout) []string {
-	rules := denyrules.For(commandSubjects(layout))
+	rules := denyrules.Naming(commandSubjects(layout))
 	// The commands this host declares, which reach here and nowhere else: a
 	// command is not a path, so no agent's file-tool rules can carry one.
 	for _, entry := range layout.Blocked {
@@ -328,34 +327,7 @@ func commandRules(layout Layout) []string {
 			rules = append(rules, rule)
 		}
 	}
-	// And the entries whose operator asked for any mention of them to be
-	// refused, which is a rule with no verb in it. Added rather than replacing
-	// the five: those are what explain a refusal, and a bare subject can say
-	// only that the path was named.
-	return append(rules, denyrules.Mentioning(strictSubjects(layout))...)
-}
-
-// strictSubjects is every declared file whose entry asks for any mention of
-// it to be refused, blocked and linked together. Sorted, so the rendered file
-// does not churn.
-func strictSubjects(layout Layout) []string {
-	home := agentHome(layout)
-	var out []string
-	for _, entry := range layout.Blocked {
-		if !entry.Strict {
-			continue
-		}
-		if entry.Path != "" {
-			out = append(out, denyrules.DirUnder(home, entry.Path))
-		}
-	}
-	for _, link := range layout.Links {
-		if link.Strict && link.Path != "" {
-			out = append(out, denyrules.DirUnder(home, link.Path))
-		}
-	}
-	sort.Strings(out)
-	return slices.Compact(out)
+	return rules
 }
 
 // BlockedCommandRule is a declared command as the guard matches it: the words
