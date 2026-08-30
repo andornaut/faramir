@@ -29,7 +29,7 @@ Every path the install creates, what owns it, and what each account can reach th
 <config-dir>/config.toml        0644 root:root, faramir's own, rewritten every run
 
 /var/lib/faramir-broker/        the broker's home, a StateDirectory=; .ssh/ 0700
-/var/lib/faramir-keeper/        the keeper's home, likewise
+/var/lib/faramir-keeper/        the keeper's home, a StateDirectory= as well
 /var/lib/faramir-exec/          the child's HOME; .ssh/ 0700
   .ssh/known_hosts              0644 faramir-exec:faramir-exec, only with --known-hosts
 /var/log/faramir/               0750 faramir-broker:faramir-broker, LogsDirectoryMode=

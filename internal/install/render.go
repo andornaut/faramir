@@ -53,9 +53,6 @@ var renderFuncs = template.FuncMap{
 	// files get it from pluginData; an account file renders against the layout
 	// alone, and the path is the same compiled one either way.
 	"binDir": func() string { return DefaultBinDir },
-	// The literal paths this install names as linked or refused, for the agent
-	// that carries its rules rather than writing them into a config.
-	"perInstallPaths": perInstallPaths,
 	// The rules both credentials sections state. See credentialRules.
 	"credentialRules": credentialRules,
 	// The list emitters, so no template counts commas.
