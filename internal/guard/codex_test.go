@@ -122,12 +122,12 @@ func TestEveryPatchHeaderIsRead(t *testing.T) {
 	for _, verb := range []string{"Add File", "Update File", "Delete File", "Move to"} {
 		patch := "*** Begin Patch\n*** Add File: README.md\n+hi\n" +
 			"*** " + verb + ": /etc/faramir/age.key\n*** End Patch"
-		if _, refused := refusedPatchPath("", patch); !refused {
+		if _, _, refused := refusedPatchPath("", patch); !refused {
 			t.Errorf("a patch whose %q header names the age key was not refused", verb)
 		}
 	}
 	// And a patch touching neither is not refused for having a header at all.
-	if _, refused := refusedPatchPath("",
+	if _, _, refused := refusedPatchPath("",
 		"*** Begin Patch\n*** Add File: README.md\n+hi\n*** End Patch"); refused {
 		t.Error("an ordinary patch was refused")
 	}
@@ -143,7 +143,7 @@ func TestAPatchPathIsResolvedAgainstTheDirectoryCodexNames(t *testing.T) {
 
 	// Asked as written it is refused by nothing, so what follows is the
 	// resolution rather than a rule that covered the relative form already.
-	if _, refused := refusedPatchPath("",
+	if _, _, refused := refusedPatchPath("",
 		"*** Begin Patch\n*** Update File: faramir/age.key\n*** End Patch"); refused {
 		t.Fatal("the relative form is refused unresolved, so this asserts nothing")
 	}
@@ -211,7 +211,7 @@ func TestAPatchHeaderIsReadWithEitherLineEnding(t *testing.T) {
 	t.Setenv("FARAMIR_CONFIG", "/etc/faramir/config.toml")
 
 	const crlf = "*** Begin Patch\r\n*** Update File: /etc/faramir/age.key\r\n@@\r\n+x\r\n*** End Patch\r\n"
-	path, refused := refusedPatchPath("", crlf)
+	path, _, refused := refusedPatchPath("", crlf)
 	if !refused {
 		t.Fatal("a CRLF patch replacing the age key was not refused")
 	}
@@ -244,13 +244,13 @@ func TestAPatchRunAsAShellCommandIsCheckedByItsHeaders(t *testing.T) {
 	// line as though the file were being written.
 	quoted := "tee doc <<'PATCH'\n*** Begin Patch\n" +
 		"*** Update File: /srv/app/notes.md\n*** End Patch\nPATCH"
-	if _, denied := refusedPatchCommand(hosts["codex"], "", quoted); denied {
+	if _, _, denied := refusedPatchCommand(hosts["codex"], "", quoted); denied {
 		t.Error("a heredoc that quotes a header was refused, so writing about the " +
 			"patch format is refused as writing the file")
 	}
 	// And the tool named as an argument is not the tool being run.
 	named := "echo " + applyPatchTool + " <<'PATCH'\n*** Add File: /etc/faramir/x\n*** End Patch\nPATCH"
-	if _, denied := refusedPatchCommand(hosts["codex"], "", named); denied {
+	if _, _, denied := refusedPatchCommand(hosts["codex"], "", named); denied {
 		t.Error("the tool named as an argument was read as the tool being run")
 	}
 }

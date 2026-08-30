@@ -88,9 +88,15 @@ verdict() {
 # rows prints one "verdict<TAB>row" line per results-table row, skipping the
 # header and the separator. A row is a line that opens with a pipe and holds
 # enough cells to have a result in the last one.
+#
+# Three cells at least, which with the pipes at both ends is NF >= 5. The
+# results table has six columns and a two-column table is something else: the
+# prompt asks for one of those per verdict, and agents write their own besides.
+# Counted as results rows, those arrive as an unreadable verdict, which inflates
+# the unclassified column and prints an answer under the new findings.
 rows() {
     awk -F'|' '
-        /^[[:space:]]*\|/ && NF >= 4 {
+        /^[[:space:]]*\|/ && NF >= 5 {
             # The last cell holding anything, rather than a fixed field: a row
             # written without its trailing pipe is valid markdown and shifts
             # every count by one.

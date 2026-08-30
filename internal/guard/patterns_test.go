@@ -1,6 +1,8 @@
 package guard
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -329,5 +331,35 @@ func TestOnlyALooseEntryOffersTheBrokeredRoute(t *testing.T) {
 				t.Errorf("the %s message names no way to reach the value:\n%s", tc.kind, said)
 			}
 		})
+	}
+}
+
+// The refusal names what the rule matched rather than the rule. Subjects are
+// packed into one alternation per kind, so a rule's opening is the same
+// whichever entry fired: a reader shown that is told nothing about which of a
+// few hundred paths they named.
+func TestARefusalNamesWhatItMatched(t *testing.T) {
+	rules := denyrules.NamingAs(denyrules.KindBlocked,
+		[]string{denyrules.Dir("/srv/keys/luks.key"), denyrules.Dir("/srv/keys/other.key")})
+	if len(rules) != 1 {
+		t.Fatalf("%d rules for two subjects, want the one alternation", len(rules))
+	}
+	path := filepath.Join(t.TempDir(), "deny-patterns.txt")
+	if err := os.WriteFile(path, []byte(rules[0]+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_DENY_PATTERNS", path)
+
+	const command = "cat /srv/keys/other.key"
+	pattern, denied := decide(command)
+	if !denied {
+		t.Fatal("the command was not refused, so there is no note to read")
+	}
+	note := matchedNote(command, pattern)
+	if !strings.Contains(note, "/srv/keys/other.key") {
+		t.Errorf("the note is %q, and does not name the path that was refused", note)
+	}
+	if strings.Contains(note, "luks.key") {
+		t.Errorf("the note is %q, and names an entry the command never mentioned", note)
 	}
 }

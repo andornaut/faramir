@@ -55,9 +55,12 @@ type Result struct {
 // Request is one resolved command: Argv[0] is an absolute path and Env is the
 // child's entire environment.
 type Request struct {
-	Argv       []string
-	Cwd        string
-	Env        map[string]string
+	Argv []string
+	Cwd  string
+	Env  map[string]string
+	// Stdin is what the caller piped in, for the child to read. Bounded by the
+	// broker before it gets here: it travelled inside one request.
+	Stdin      []byte
 	TimeoutSec int
 	// RunID is what the escalation server calls this run, passed through so the
 	// executor can say which run forked a process asking to sudo. Empty where the
@@ -92,7 +95,8 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	started := time.Now()
 
 	client := execserver.NewClient(executorCfg.SocketPath)
-	startErr := client.Start(argv, cwd, env, req.RunID, timeoutSec, config.KillGraceSec, slave.Fd())
+	startErr := client.Start(argv, cwd, env, req.Stdin, req.RunID, timeoutSec,
+		config.KillGraceSec, slave.Fd())
 	// The executor holds its own copy; this one must go or the master never
 	// reaches EOF.
 	_ = slave.Close()

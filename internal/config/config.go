@@ -61,6 +61,13 @@ var (
 	// MaxRequestBytes is the largest request the broker socket will read, a
 	// guard against a malformed one rather than a size anybody chooses.
 	MaxRequestBytes = 262144
+	// MaxStdinBytes is the most a caller may pipe into a brokered command. The
+	// bytes travel inside the request, base64 encoded, so this has to leave room
+	// under MaxRequestBytes for the command, the cwd and the refs beside them:
+	// 128 KiB encodes to about 171 KB of a 256 KB line. More than that is
+	// refused rather than truncated, a command that read half its input having
+	// done something nobody asked for.
+	MaxStdinBytes = 128 << 10
 	// MaxRecordBytes is the largest one audit record's line may be, counted in
 	// the bytes it spends once encoded. internal/audit excerpts the output and
 	// cuts every other field to fit, so a long command degrades the record rather

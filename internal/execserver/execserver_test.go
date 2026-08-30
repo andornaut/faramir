@@ -45,16 +45,27 @@ func newExecutor(t *testing.T) (*Executor, string, string) {
 	return e, sock, dir
 }
 
-// runChild runs one command the way the broker would, draining the PTY as it
-// goes: waiting for the status first deadlocks on a full terminal buffer.
+// runChild runs one command the way the broker would, with nothing piped in,
+// which is what all but the stdin cases want.
 func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResult, string, error) {
+	t.Helper()
+	return runChildWithStdin(t, sock, argv, cwd, nil)
+}
+
+// runChildWithStdin is the same with something for the child to read, draining
+// the PTY as it goes: waiting for the status first deadlocks on a full terminal
+// buffer.
+func runChildWithStdin(t *testing.T, sock string, argv []string, cwd string,
+	stdin []byte) (*ChildResult, string, error) {
+
 	t.Helper()
 	master, slave, err := ptyutil.Open()
 	if err != nil {
 		t.Fatal(err)
 	}
 	client := NewClient(sock)
-	startErr := client.Start(argv, cwd, map[string]string{"PATH": "/usr/bin:/bin"}, "", 5, 2, slave.Fd())
+	startErr := client.Start(argv, cwd, map[string]string{"PATH": "/usr/bin:/bin"},
+		stdin, "", 5, 2, slave.Fd())
 	_ = slave.Close()
 	if startErr != nil {
 		_ = master.Close()

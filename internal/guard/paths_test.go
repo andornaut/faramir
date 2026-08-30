@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/install"
 )
 
@@ -45,7 +46,7 @@ func TestTheGuardRefusesAPathHoweverItIsSpelled(t *testing.T) {
 		{"a sibling of the refused directory", dir + "-notes/id", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, blocked := refusedPath("", map[string]any{"file_path": tc.path})
+			_, _, blocked := refusedPath("", map[string]any{"file_path": tc.path})
 			if blocked != tc.block {
 				t.Errorf("refused(%q) = %v, want %v", tc.path, blocked, tc.block)
 			}
@@ -115,10 +116,10 @@ func TestTheTildeFormIsRefusedWhereTheRulesLostTheHomeSpellings(t *testing.T) {
 	for _, agentUser := range []string{"", "root"} {
 		t.Run("agent_user "+agentUser, func(t *testing.T) {
 			declared := blockAFileAs(t, agentUser)
-			if _, refused := refusedPath("", map[string]any{"p": declared}); !refused {
+			if _, _, refused := refusedPath("", map[string]any{"p": declared}); !refused {
 				t.Fatalf("the declared path is not refused as written: %s", declared)
 			}
-			if _, refused := refusedPath("", map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
+			if _, _, refused := refusedPath("", map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
 				t.Error("the tilde form is not refused, so a rule rendered without a home " +
 					"leaves it uncovered and the guard's own expansion is doing nothing")
 			}
@@ -143,15 +144,15 @@ func TestTheTildeFormIsRefusedAsTheAbsoluteOneIs(t *testing.T) {
 	// The absolute form first: if the rule does not reach it, the tilde case
 	// below would agree with it and prove nothing, which is the failure this
 	// replaced.
-	if _, refused := refusedPath("", map[string]any{"p": secret}); !refused {
+	if _, _, refused := refusedPath("", map[string]any{"p": secret}); !refused {
 		t.Fatalf("the declared path is not refused as written, so this asserts nothing: %s", secret)
 	}
-	if _, refused := refusedPath("", map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
+	if _, _, refused := refusedPath("", map[string]any{"p": "~/.ssh/id_ed25519"}); !refused {
 		t.Error("the tilde form is not refused, so a path written the way a person writes it is a way past the rule")
 	}
 	// And an unrelated file under the same home is left alone, or the rule would
 	// be refusing the home rather than the file in it.
-	if _, refused := refusedPath("", map[string]any{"p": "~/src/app/main.go"}); refused {
+	if _, _, refused := refusedPath("", map[string]any{"p": "~/src/app/main.go"}); refused {
 		t.Error("an ordinary file under the home is refused, so the rule is wider than the entry")
 	}
 }
@@ -209,7 +210,7 @@ func TestARelativePathIsResolvedAgainstTheGuardsWorkingDirectory(t *testing.T) {
 
 	// Asked as written it is refused by nothing, so what follows is the
 	// resolution rather than a rule that covered the relative form already.
-	if _, refused := refusedPath("", map[string]any{"p": "faramir/age.key"}); refused {
+	if _, _, refused := refusedPath("", map[string]any{"p": "faramir/age.key"}); refused {
 		t.Fatal("the relative form is refused unresolved, so this asserts nothing")
 	}
 
@@ -225,7 +226,7 @@ func TestARelativePathIsResolvedAgainstTheGuardsWorkingDirectory(t *testing.T) {
 		{"an ordinary file beside the agent", "/srv/app", "notes.txt", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, blocked := refusedPath(tc.cwd, map[string]any{"p": tc.path})
+			_, _, blocked := refusedPath(tc.cwd, map[string]any{"p": tc.path})
 			if blocked != tc.block {
 				t.Errorf("refused(%q from %q) = %v, want %v", tc.path, tc.cwd, blocked, tc.block)
 			}
@@ -251,19 +252,84 @@ func TestAFileToolIsRefusedTheFileThatRefusesIt(t *testing.T) {
 		".codex/hooks.json",
 	} {
 		path := filepath.Join(home, rel)
-		if _, refused := refusedPath("", map[string]any{"p": path}); !refused {
+		if _, _, refused := refusedPath("", map[string]any{"p": path}); !refused {
 			t.Errorf("%s is not refused, so a file tool can edit away its own guard", path)
 		}
 	}
 	// Codex's is a tree's own file as well as a home's, and the hook is the whole
 	// of what refuses it a path, so the spelling has to reach both.
-	if _, refused := refusedPath("", map[string]any{"p": "/srv/project/.codex/hooks.json"}); !refused {
+	if _, _, refused := refusedPath("", map[string]any{"p": "/srv/project/.codex/hooks.json"}); !refused {
 		t.Error("a tree's own .codex/hooks.json is not refused")
 	}
 	// An extension of the operator's own is ordinary work: the rule is about the
 	// file faramir installs rather than about the directory it sits in.
 	mine := filepath.Join(home, ".pi/agent/extensions/mine.ts")
-	if _, refused := refusedPath("", map[string]any{"p": mine}); refused {
+	if _, _, refused := refusedPath("", map[string]any{"p": mine}); refused {
 		t.Errorf("%s is refused, so the rule is wider than the file it names", mine)
+	}
+}
+
+// A refused file tool is told what a refused command is told: which list the
+// entry is in and the removal that lifts it. The flat wording it had before
+// said "key material or one of faramir's own files", which is two answers at
+// once and a remedy for neither.
+//
+// The removals are spelled apart from the literal, this file being read by the
+// guard's own rules when anything quotes one.
+func TestAFileToolIsToldWhichKindRefusedIt(t *testing.T) {
+	blockRemoval := "faramir block" + " rm"
+	linkRemoval := "faramir link" + " rm"
+	for _, tc := range []struct {
+		name  string
+		kind  denyrules.Kind
+		names []string
+	}{
+		{name: "a blocked path", kind: denyrules.KindBlocked,
+			names: []string{"the operator blocked this path", blockRemoval}},
+		{name: "a linked file", kind: denyrules.KindLinked,
+			names: []string{"a link reads this file", linkRemoval}},
+		{name: "one of faramir's own directories", kind: denyrules.KindOwn,
+			names: []string{"faramir's own directories", "no entry to remove"}},
+		// The kind whose message carries no clause about naming a path, and the
+		// one a file tool meets most: an agent's own hook file is one faramir
+		// installs, and the deny list is asked about a write to it.
+		{name: "a file an enrolment installs", kind: denyrules.KindOwnAction,
+			names: []string{"faramir's own file, account or unit", "no way round it"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rules := denyrules.NamingAs(tc.kind, []string{denyrules.Dir("/srv/keys/luks.key")})
+			path := filepath.Join(t.TempDir(), "deny-patterns.txt")
+			if err := os.WriteFile(path, []byte(rules[0]+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("FARAMIR_DENY_PATTERNS", path)
+
+			named, pattern, denied := refusedPath("", map[string]any{
+				"file_path": "/srv/keys/luks.key"})
+			if !denied {
+				t.Fatal("the file tool was not refused, so there is no message to read")
+			}
+			said := fileAdviceFor(pattern, named)
+			if !strings.Contains(said, "/srv/keys/luks.key") {
+				t.Errorf("the refusal names no path:\n%s", said)
+			}
+			if !strings.Contains(said, "this tool call was not made") {
+				t.Errorf("the refusal talks about a command that never ran:\n%s", said)
+			}
+			if strings.Contains(said, "shell heredoc") {
+				t.Errorf("the refusal tells a file tool to use an editing tool:\n%s", said)
+			}
+			// The flat wording this replaced, which named two kinds at once and
+			// offered a route the own-file rule says is no route at all.
+			if strings.Contains(said, "key material or one of") {
+				t.Errorf("the refusal fell back to the wording that names two kinds "+
+					"and no remedy:\n%s", said)
+			}
+			for _, want := range tc.names {
+				if !strings.Contains(said, want) {
+					t.Errorf("the refusal does not say %q:\n%s", want, said)
+				}
+			}
+		})
 	}
 }

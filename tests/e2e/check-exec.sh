@@ -312,6 +312,38 @@ elapsed=$(( $(date +%s) - start ))
 [ "$elapsed" -lt 10 ] && ok "a command reading stdin gets EOF at once (${elapsed}s), not a timeout" \
   || bad "reading stdin took ${elapsed}s"
 [ -z "$out" ] && ok "and reads nothing" || bad "cat returned [$out]"
+# And what the caller piped in is what the command reads, where -i asked for it
+# to be sent. The whole point of carrying it: a converge that pipes a rendered
+# config into a brokered `tee` wrote an empty file and reported success before.
+out=$(printf 'PIPED-IN\n' | runuser -u op -- /usr/local/bin/faramir run --quiet -i -t 20 -- /bin/cat 2>&1)
+[ "$out" = "PIPED-IN" ] && ok "what the caller piped in reaches the command" \
+  || bad "the piped input did not arrive: [$out]"
+# Without the flag it is refused rather than dropped. The flag exists because
+# this process does not own the file on its own stdin: a `while read` loop and
+# an ssh session both hand it one they are still using.
+out=$(printf 'PIPED-IN\n' | runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/cat 2>&1); code=$?
+[ "$code" != 0 ] && ok "a pipeline without -i is refused rather than dropped" \
+  || bad "the input was dropped silently (rc=$code, out=[$out])"
+grep -q '\-i' <<<"$out" && ok "and the refusal names the flag that sends it" \
+  || bad "the refusal does not name -i: [$out]"
+# An inherited file is left alone, which is what the flag is protecting: the
+# loop below reads three lines, and a run that drained them would leave it one.
+printf 'a\nb\nc\n' >/tmp/hosts.txt
+lines=0
+while read -r _; do
+  lines=$((lines + 1))
+  runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/true >/dev/null 2>&1
+done </tmp/hosts.txt
+[ "$lines" = 3 ] && ok "a run inside a read loop leaves the loop's input alone" \
+  || bad "the loop ran $lines time(s) of 3, so the run drained its input"
+# Past the cap it is refused rather than cut, and the refusal says so: an input
+# read by halves is worse than one that never started.
+out=$(head -c 200000 /dev/zero | tr '\0' 'x' \
+  | runuser -u op -- /usr/local/bin/faramir run --quiet -i -t 20 -- /bin/cat 2>&1); code=$?
+[ "$code" != 0 ] && ok "an input past the cap is refused" \
+  || bad "an oversized input was accepted (rc=$code)"
+grep -qi 'larger than' <<<"$out" && ok "and the refusal says what the limit is" \
+  || bad "the refusal does not name the limit: [$out]"
 
 head_ "6. where it runs"
 out=$(cd /home/op/project && runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/pwd 2>&1)

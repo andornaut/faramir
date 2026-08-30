@@ -251,7 +251,9 @@ const adviceCommand = "Blocked: this command is in the blocks on this host, so n
 // faramir's own files, accounts or units discloses nothing, and the disclosure
 // advice would offer `faramir run` as the way to proceed: a brokered command
 // runs as an account with less reach rather than more.
-const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not because it would disclose " +
+const adviceOwnOpening = "Blocked: this is "
+
+const adviceOwn = adviceOwnOpening + "faramir's own file, account or unit. Not because it would disclose " +
 	"anything, but because it would change or stop what keeps credentials out of this " +
 	"conversation. `faramir run` is no way round it: a brokered command has less reach " +
 	"than you.\n\nIf this is deliberate, it is the operator's to do."
@@ -289,6 +291,47 @@ func adviceFor(pattern string) string {
 		}
 	}
 	return adviceDeclared
+}
+
+// matchedNote is what the refusal says about the rule that answered: the text
+// of the command the rule matched, and the head of the rule itself where that
+// text cannot be recovered.
+//
+// The text rather than the rule. Subjects are packed into one alternation per
+// kind, so the head of a rule is the same handful of characters whatever entry
+// fired, and a refusal that printed it told a reader nothing about which of a
+// few hundred paths it had named. What was matched is what a reader has to see
+// to know what to stop naming.
+func matchedNote(command, pattern string) string {
+	if matched := matchedText(command, pattern); matched != "" {
+		return shortSegment(matched)
+	}
+	return "deny pattern " + shortPattern(pattern)
+}
+
+// matchedText is the part of the command the reported rule matched, empty
+// where the rule matched a spelling normalisation produced rather than
+// anything that was written.
+//
+// The segment as it was typed, and only that. decide asks about the normalised
+// spelling as well, so a rule can answer a word nobody wrote: quoting that back
+// tells the agent to stop naming something it never named, which is the failure
+// matchingSegment exists to avoid on the other half of the same message.
+func matchedText(command, pattern string) string {
+	for _, p := range loadPatterns() {
+		if p.source != pattern {
+			continue
+		}
+		for _, segment := range denyrules.Segments(stripFaramirCalls(command)) {
+			if !p.re.MatchString(segment) || !p.re.MatchString(withoutWrapper(segment)) {
+				continue
+			}
+			if found := p.re.FindString(segment); found != "" {
+				return found
+			}
+		}
+	}
+	return ""
 }
 
 // shortPattern is a rendered rule as much of it as identifies which one it was.
@@ -573,6 +616,42 @@ const pathAdvice = "Blocked: %s is key material or one of faramir's own files, s
 	"was not made.\n\nValues reach a command through the broker: use `faramir run`, and " +
 	"`faramir refs` to see what exists."
 
+// fileAdviceFor is what a refused file tool is told: the message its kind
+// carries, with the clause about a command swapped for the call that was
+// actually refused. The kinds differ in the list the entry is in and the
+// removal that lifts it, and a file tool's refusal named neither: it said "key
+// material or one of faramir's own files", which is the two answers at once and
+// no remedy for either.
+//
+// The kinds a file tool cannot meet fall back to the flat wording. A command
+// entry and the rules about faramir's own commands match a verb and a path
+// together, so a tool call carrying a path alone reaches none of them.
+func fileAdviceFor(pattern, path string) string {
+	said := adviceFor(pattern)
+	if strings.Contains(said, adviceNamed) {
+		return strings.Replace(said, adviceNamed, adviceFileNamed(path), 1)
+	}
+	// The rules about faramir's own, which a file tool does reach: the deny list
+	// is asked about this path as a read and as a write, and `tee` is a write
+	// command, so an agent's own hook file matches the rule that refuses
+	// replacing it. Its message stands as it is with the path named, and it is
+	// the one message that must not fall back: the fallback offers `faramir run`
+	// as the way through, which this rule says in as many words it is not.
+	if rest, found := strings.CutPrefix(said, adviceOwnOpening); found {
+		return "Blocked: this tool call was not made. " + path + " is " + rest
+	}
+	return fmt.Sprintf(pathAdvice, path)
+}
+
+// adviceFileNamed is adviceNamed for a tool call: the same rule, said about a
+// call that did not happen rather than about a command that would have run.
+// The heredoc clause goes with it, an editing tool being what the reader is
+// already holding.
+func adviceFileNamed(path string) string {
+	return ", so this tool call was not made. " + path + " is refused to your file " +
+		"tools and to your shell alike, whatever either would do with it."
+}
+
 // pathsIn is every string in a tool's input that could name a file, at any
 // depth: a tool taking one path and a tool taking a list of them are the same
 // question, and enumerating tool schemas is how one gets missed. The same walk
@@ -631,30 +710,30 @@ func pathsIn(value any, depth int) []string {
 // call, whichever tool named it: an over-refusal here is a read of one of
 // faramir's own files through an agent's file tool, and the operator's own
 // tools are not this.
-func refusedPath(cwd string, input map[string]any) (string, bool) {
+func refusedPath(cwd string, input map[string]any) (string, string, bool) {
 	for _, candidate := range pathsIn(input, 0) {
 		if !looksLikePath(candidate) {
 			continue
 		}
-		if refusedSpelling(cwd, candidate) {
-			return candidate, true
+		if pattern, denied := refusedSpelling(cwd, candidate); denied {
+			return candidate, pattern, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // refusedSpelling asks the deny list about one path, in every spelling that
 // names the same file and as a read and as a write. Split out because a patch
 // envelope's headers are asked the same question by a different route.
-func refusedSpelling(cwd, candidate string) bool {
+func refusedSpelling(cwd, candidate string) (string, bool) {
 	for _, spelling := range spellings(cwd, candidate) {
 		for _, verb := range []string{"cat ", "tee "} {
-			if _, denied := decide(verb + shellQuote(spelling)); denied {
-				return true
+			if pattern, denied := decide(verb + shellQuote(spelling)); denied {
+				return pattern, true
 			}
 		}
 	}
-	return false
+	return "", false
 }
 
 // patchHeaders matches the file each header line of a patch envelope names.
@@ -684,9 +763,9 @@ var patchHeaders = regexp.MustCompile(
 // every command for patch headers -- refuses a heredoc that writes
 // documentation quoting one, which is ordinary work, and refusing it names the
 // quoted line as though the file were being written.
-func refusedPatchCommand(h *host, cwd, command string) (string, bool) {
+func refusedPatchCommand(h *host, cwd, command string) (string, string, bool) {
 	if h.patchTool == "" || !runsPatchTool(h.patchTool, command) {
-		return "", false
+		return "", "", false
 	}
 	return refusedPatchPath(cwd, command)
 }
@@ -724,17 +803,17 @@ func firstWord(segment string) string {
 //
 // Every header, not the first: a patch is a list of edits, and one that adds a
 // README and replaces an age key is refused for the second.
-func refusedPatchPath(cwd, patch string) (string, bool) {
+func refusedPatchPath(cwd, patch string) (string, string, bool) {
 	for _, header := range patchHeaders.FindAllStringSubmatch(patch, -1) {
 		candidate := header[1]
 		if candidate == "" {
 			continue
 		}
-		if refusedSpelling(cwd, candidate) {
-			return candidate, true
+		if pattern, denied := refusedSpelling(cwd, candidate); denied {
+			return candidate, pattern, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 // spellings is the ways one argument names the same file: as given, with "~"
@@ -1028,8 +1107,8 @@ func Run(args []string) int {
 		if strings.TrimSpace(p.ToolInput.Command) == "" {
 			return emit(activeHost.deny(unreadablePatch))
 		}
-		if path, denied := refusedPatchPath(cwd, p.ToolInput.Command); denied {
-			return emit(activeHost.deny(fmt.Sprintf(pathAdvice, path)))
+		if path, pattern, denied := refusedPatchPath(cwd, p.ToolInput.Command); denied {
+			return emit(activeHost.deny(fileAdviceFor(pattern, path)))
 		}
 		return 0
 	}
@@ -1038,11 +1117,13 @@ func Run(args []string) int {
 	// the host that has nothing else to refuse one.
 	command := commandOf(p)
 	if command == "" && activeHost.refusesPaths {
-		if path, denied := refusedPath(cwd, p.RawInput); denied {
-			// No pattern named. The list is asked about a read of this path, so the
-			// pattern that answers is a reader-verb alternation, which describes how
-			// the question was put rather than why the file is refused.
-			return emit(activeHost.deny(fmt.Sprintf(pathAdvice, path)))
+		if path, pattern, denied := refusedPath(cwd, p.RawInput); denied {
+			// The kind's own message, not the pattern: the list is asked about a
+			// read of this path, so what answered is a reader-verb alternation that
+			// describes how the question was put rather than why the file is
+			// refused. What the kind carries is the list the entry is in and the
+			// removal that lifts it, which is the same answer a shell gets.
+			return emit(activeHost.deny(fileAdviceFor(pattern, path)))
 		}
 	}
 	if !activeHost.handles(p.ToolName) {
@@ -1070,12 +1151,12 @@ func Run(args []string) int {
 	}
 
 	if pattern, denied := decide(command); denied {
-		note := "\n\n(matched deny pattern: " + shortPattern(pattern) + ")"
+		note := "\n\n(matched: " + matchedNote(command, pattern) + ")"
 		if segment := matchingSegment(command, pattern); segment != "" {
 			note = "\n\nOne command in the line matched, and the whole call is refused" +
 				" because a hook answers for all of it. This is the command to change:" +
 				"\n\n    " + shortSegment(segment) +
-				"\n\n(matched deny pattern: " + shortPattern(pattern) + ")"
+				"\n\n(matched: " + matchedNote(command, pattern) + ")"
 		}
 		return emit(activeHost.deny(adviceFor(pattern) + note))
 	}
@@ -1086,8 +1167,8 @@ func Run(args []string) int {
 	// commands, so the list above never sees the headers. Every other heredoc
 	// write names its file on the opening line, which the list does see; this is
 	// the one that does not.
-	if path, denied := refusedPatchCommand(activeHost, cwd, command); denied {
-		return emit(activeHost.deny(fmt.Sprintf(pathAdvice, path)))
+	if path, pattern, denied := refusedPatchCommand(activeHost, cwd, command); denied {
+		return emit(activeHost.deny(fileAdviceFor(pattern, path)))
 	}
 
 	// Everything the list names has been refused by here, which is the whole of

@@ -11,12 +11,14 @@
 package protocol
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/secretref"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -72,6 +74,11 @@ type Request struct {
 	HasCwd     bool
 	EnvRefs    map[string]string
 	TimeoutSec int
+	// Stdin is what the caller piped in, for a run to feed its child. Carried in
+	// the request rather than streamed: the broker reads this connection for the
+	// whole of a run to know whether the caller is still there, so bytes arriving
+	// after the request are already spoken for.
+	Stdin []byte
 	// Text is what the redact op scrubs. Only that op reads it.
 	Text string
 	// More marks a redact chunk that is not the last of a stream, so the redactor
@@ -103,8 +110,8 @@ type Request struct {
 func Parse(payload map[string]any) (*Request, error) {
 	req := &Request{Op: OpRun, EnvRefs: map[string]string{}}
 	for _, step := range []func(map[string]any, *Request) error{
-		parseVersion, parseOp, parseCmd, parseRedact, parseCwd, parseEnvRefs,
-		parseEscalations, parseAnswer, parseEscalate, parseWaits,
+		parseVersion, parseOp, parseCmd, parseStdin, parseRedact, parseCwd,
+		parseEnvRefs, parseEscalations, parseAnswer, parseEscalate, parseWaits,
 	} {
 		if err := step(payload, req); err != nil {
 			return nil, err
@@ -181,6 +188,35 @@ func parseCmd(payload map[string]any, req *Request) error {
 		}
 		req.Cmd = append(req.Cmd, s)
 	}
+	return nil
+}
+
+// parseStdin takes what a run feeds its child, base64 in the request. Refused
+// rather than truncated past the cap: a command that read the first half of its
+// input did something nobody asked for, and silence about it is the shape this
+// exists to avoid.
+func parseStdin(payload map[string]any, req *Request) error {
+	raw, ok := payload["stdin"]
+	if !ok || raw == nil {
+		return nil
+	}
+	if req.Op != OpRun {
+		return errors.New("'stdin' is for a run; no other op feeds a child")
+	}
+	encoded, isStr := raw.(string)
+	if !isStr {
+		return errors.New("'stdin' must be a base64 string")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return errors.New("'stdin' must be base64: " + err.Error())
+	}
+	if len(decoded) > config.MaxStdinBytes {
+		return fmt.Errorf("'stdin' is %d bytes and the limit is %d; a brokered "+
+			"command takes what fits in one request, so feed a larger input from a "+
+			"file the command opens itself", len(decoded), config.MaxStdinBytes)
+	}
+	req.Stdin = decoded
 	return nil
 }
 

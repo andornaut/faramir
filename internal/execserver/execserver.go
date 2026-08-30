@@ -44,9 +44,13 @@ type request struct {
 	// Version is what the broker's binary reports. The daemons are one binary
 	// under three units, so a difference is one of them left running across the
 	// install that replaced it, and every request it sends is refused.
-	Version      string            `json:"version"`
-	Argv         []string          `json:"argv"`
-	Cwd          string            `json:"cwd"`
+	Version string   `json:"version"`
+	Argv    []string `json:"argv"`
+	Cwd     string   `json:"cwd"`
+	// Stdin is what the caller piped into the brokered command, base64 in this
+	// request as it was in the broker's. Empty leaves the child on /dev/null,
+	// which is what a command with nothing to read gets.
+	Stdin        []byte            `json:"stdin,omitempty"`
 	Env          map[string]string `json:"env"`
 	TimeoutSec   int               `json:"timeout_sec"`
 	KillGraceSec int               `json:"kill_grace_sec"`
@@ -337,17 +341,41 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	}
 	defer func() { _ = devnull.Close() }()
 
+	// What the caller piped in, if anything, on a pipe of its own: the bytes are
+	// already here and bounded, so they are written and the write end closed,
+	// which is the EOF /dev/null was standing in for. A pipe rather than the PTY,
+	// which is what keeps a credential prompt unanswerable: nothing here can
+	// open /dev/tty, and this feeds the program's stdin alone.
+	childStdin := devnull
+	if len(req.Stdin) > 0 {
+		reader, writer, pipeErr := os.Pipe()
+		if pipeErr != nil {
+			return sockutil.ErrorResponse("exec_failed", pipeErr.Error())
+		}
+		defer func() { _ = reader.Close() }()
+		go func() {
+			defer func() { _ = writer.Close() }()
+			// A child that exits without reading its input leaves this write to
+			// fail with EPIPE, which is the child's choice rather than a fault.
+			_, _ = writer.Write(req.Stdin)
+		}()
+		childStdin = reader
+	}
+
 	cmd := exec.CommandContext(context.Background(), req.Argv[0], req.Argv[1:]...)
 	cmd.Dir = cwd
 	cmd.Env = env
-	cmd.Stdin = devnull
+	cmd.Stdin = childStdin
 	cmd.Stdout = slave
 	cmd.Stderr = slave
 	// Setsid and no controlling terminal. A child that has one can open /dev/tty,
 	// which is what every credential prompt reads so a pipe cannot answer it:
 	// ssh-add, sudo, gpg. Nothing writes to the master, so that read would block
 	// until the timeout; without a controlling terminal the open fails and the
-	// program falls back to stdin, which is /dev/null.
+	// program falls back to stdin, which is /dev/null unless the caller piped
+	// something in. A prompt reading that gets the caller's first line and not a
+	// passphrase anybody typed, which is the caller's own doing and not a way for
+	// one to be asked for.
 	//
 	// What it gives up is the text of a prompt from a program that writes only to
 	// /dev/tty and has no fallback: that write fails, so it reaches neither the
@@ -569,7 +597,7 @@ func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
 }
 
 func (c *Client) Start(argv []string, cwd string, env map[string]string,
-	runID string, timeoutSec, killGraceSec int, slaveFD uintptr) error {
+	stdin []byte, runID string, timeoutSec, killGraceSec int, slaveFD uintptr) error {
 	addr, err := net.ResolveUnixAddr("unix", c.socketPath)
 	if err != nil {
 		return fmt.Errorf("executor socket %s: %w", c.socketPath, err)
@@ -582,7 +610,7 @@ func (c *Client) Start(argv []string, cwd string, env map[string]string,
 
 	line, err := json.Marshal(request{
 		Version: version.Version,
-		Argv:    argv, Cwd: cwd, Env: env,
+		Argv:    argv, Cwd: cwd, Env: env, Stdin: stdin,
 		RunID:      runID,
 		TimeoutSec: timeoutSec, KillGraceSec: killGraceSec,
 	})

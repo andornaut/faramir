@@ -7,6 +7,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/fserr"
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/protocol"
@@ -149,6 +151,7 @@ func newRunCmd() *cobra.Command {
 	var (
 		o        brokerOptions
 		quiet    bool
+		stdin    bool
 		cwd      string
 		timeout  string
 		envRefs  []string
@@ -210,11 +213,34 @@ func newRunCmd() *cobra.Command {
 			if seconds > 0 {
 				request["timeout_sec"] = seconds
 			}
+			// Last, after every refusal that needs no input: reading stdin to its
+			// end is the one step here that waits on something outside this
+			// process, and a caller correcting a mistyped --cwd should not have
+			// fed it a file first.
+			//
+			// Carried in the request rather than streamed after it: the broker
+			// reads the connection for the whole of a run to know whether the
+			// caller is still there, so bytes sent after the request are already
+			// spoken for.
+			piped, err := pipedStdin(stdin)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
+				return codeErr(2)
+			}
+			if len(piped) > 0 {
+				request["stdin"] = base64.StdEncoding.EncodeToString(piped)
+			}
+			if err := fitsOneRequest(request, len(piped)); err != nil {
+				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
+				return codeErr(2)
+			}
 			return codeErr(send("run", socketDefault(), request, o.json, quiet))
 		},
 	}
 	o.add(c)
 	c.Flags().BoolVar(&quiet, "quiet", false, "suppress the redaction summary")
+	c.Flags().BoolVarP(&stdin, "stdin", "i", false,
+		"send what is piped in to the command; without it a pipeline is refused rather than dropped")
 	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory for the command (default: the caller's)")
 	c.Flags().StringVarP(&timeout, "timeout", "t", "",
 		"how long the command may run: a duration such as 90s or 5m, or a bare number of seconds")
@@ -227,6 +253,83 @@ func newRunCmd() *cobra.Command {
 	// own, running a different command than the caller typed.
 	c.Flags().SetInterspersed(false)
 	return c
+}
+
+// pipedStdin is what the caller piped in, and only where they asked for it to
+// be sent. Read whole rather than streamed, and refused past the cap rather
+// than truncated: a command that read the first half of its input did something
+// nobody asked for, and this exists because dropping the lot silently was
+// worse.
+//
+// Behind a flag because this process does not own the file on its own standard
+// input. `while read host; do faramir run ...; done < hosts.txt` hands every
+// iteration the same open file, and a run that drained it would leave the loop
+// with nothing to read; `ssh host 'faramir run ...'` without -n hands it a pipe
+// from the local terminal, and a run that read to the end of that would wait
+// for a person to press ctrl-D. Neither caller asked to send anything.
+//
+// A pipe with no flag is refused rather than ignored. Somebody who wrote
+// `printf x | faramir run -- cat` meant the command to read it, and silence is
+// the shape this whole thing exists to remove; a caller that wants the input
+// dropped says so with a redirect from /dev/null.
+func pipedStdin(asked bool) ([]byte, error) {
+	if !asked {
+		return nil, refusePipeWithoutTheFlag()
+	}
+	if isTerminal(os.Stdin) {
+		return nil, nil
+	}
+	// One byte past the cap, so a file exactly at it is not reported as over.
+	piped, err := io.ReadAll(io.LimitReader(os.Stdin, int64(config.MaxStdinBytes)+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading stdin: %w", err)
+	}
+	if len(piped) > config.MaxStdinBytes {
+		return nil, fmt.Errorf("stdin is larger than the %d bytes a brokered "+
+			"command takes: it travels inside one request. Write it to a file the "+
+			"command opens itself", config.MaxStdinBytes)
+	}
+	return piped, nil
+}
+
+// refusePipeWithoutTheFlag is the error for a pipeline that named no -i, and
+// nil for every other stdin. A FIFO alone: a terminal is a person who typed
+// nothing, /dev/null is a caller saying so, and a regular file or an inherited
+// socket is something this process does not own, none of which is a request to
+// send anything.
+func refusePipeWithoutTheFlag() error {
+	// A stdin this process cannot ask about is not one to refuse a run over:
+	// nothing here needs to read it, and the run goes ahead forwarding nothing,
+	// as every run did before -i.
+	info, err := os.Stdin.Stat()
+	piped := err == nil && info.Mode()&os.ModeNamedPipe != 0
+	if !piped {
+		return nil
+	}
+	return errors.New("something is piped in and -i was not given, so it would " +
+		"reach nothing: pass -i to send it to the command, or redirect from " +
+		"/dev/null to say it is not meant for one")
+}
+
+// fitsOneRequest refuses a request the broker's socket would cut off. The
+// stdin cap leaves room for an ordinary command beside it, and a long one plus
+// a maximal input still overruns: the broker answers that with the size of the
+// line, which names neither half. Said here, where both halves are in hand.
+func fitsOneRequest(request map[string]any, piped int) error {
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	if len(encoded) <= config.MaxRequestBytes {
+		return nil
+	}
+	if piped > 0 {
+		return fmt.Errorf("the command and its %d bytes of input come to %d, and a "+
+			"request is at most %d: shorten the command, or write the input to a "+
+			"file the command opens itself", piped, len(encoded), config.MaxRequestBytes)
+	}
+	return fmt.Errorf("the command comes to %d bytes and a request is at most %d",
+		len(encoded), config.MaxRequestBytes)
 }
 
 // execRefs is what a command's environment is built from: every --env-file in

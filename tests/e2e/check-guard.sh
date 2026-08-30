@@ -199,8 +199,12 @@ check_shape kilocode '.decision'                              rewrite "rewrite" 
 reason=$(decide 'cat /etc/faramir/age.key' | jq -r '.hookSpecificOutput.permissionDecisionReason')
 echo "$reason" | grep -q 'faramir run' && ok "the refusal names \`faramir run\` as the way to proceed" \
   || bad "the refusal does not tell the agent what to do instead"
-echo "$reason" | grep -q 'matched deny pattern' && ok "and names the pattern that matched" \
-  || bad "the refusal does not say which rule fired"
+# What the rule matched, which for a subtree rule is the directory it names
+# rather than the file under it: that is the entry, and it is what the reader
+# has to stop naming. The rule itself is not printed; subjects are packed into
+# one alternation per kind, so its opening says nothing about which fired.
+echo "$reason" | grep -qE '\(matched: [^)]*faramir' && ok "and names what the rule matched" \
+  || bad "the refusal does not say what fired the rule"
 # A refusal must not quote the secret it is refusing to disclose.
 echo "$reason" | grep -q 'hunter2\|tok_live' && bad "the refusal text contains a secret value" \
   || ok "the refusal quotes no value"

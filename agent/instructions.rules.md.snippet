@@ -5,6 +5,11 @@
 - **Never route around a refusal.** Another tool, an interpreter, a container,
   another host, or a copy in a new location are the same disclosure. So is
   transformed output (base64, `rev`, `cut`).
+- **Never put one on a command line.** `curl -u user:$PW`, `mysql -p$PW` and
+  `-e password=$PW` write the value into the process list, where every account
+  on this host can read it while the command runs, and quoting does not change
+  that. An injected value belongs in the environment, which is where `--env`
+  puts it: use a tool's environment variable, netrc or config file instead.
 - **Never ask for a value.** Not pasted, not typed, not read out, not for
   testing. Where something needs a credential that has no ref, ask the operator
   to add one and name what it is for.
