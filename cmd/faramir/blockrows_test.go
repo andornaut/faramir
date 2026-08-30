@@ -71,3 +71,26 @@ func TestEveryDeclaredFormIsListed(t *testing.T) {
 		}
 	}
 }
+
+// Strictness is what decides whether a command that only names the path can
+// run at all, so it is a field rather than a phrase inside Detail: a caller
+// filtering the listing should not have to read prose to learn it, and the
+// table marks the kind cell from the same field.
+func TestAStrictEntryIsListedAsStrict(t *testing.T) {
+	rows := blockRows(t.TempDir(), []config.BlockedPath{
+		{Path: "/srv/luks.key", Strict: true},
+		{Path: "/srv/loose.key"},
+	}, false)
+	got := map[string]bool{}
+	for _, row := range rows {
+		got[row.Entry] = row.Strict
+	}
+	if !got["/srv/luks.key"] {
+		t.Error("a --strict entry is not listed as strict, so the listing cannot " +
+			"say why naming it is refused")
+	}
+	if got["/srv/loose.key"] {
+		t.Error("an ordinary entry is listed as strict, which reports a refusal " +
+			"this host does not make")
+	}
+}

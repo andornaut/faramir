@@ -15,12 +15,12 @@ set -uo pipefail
 AGENTS="agy claude codex kilo opencode pi"
 
 # How long one agent gets. The suite asks for 40 to 60 cases, and the runs that
-# finished took around twelve minutes, so this is headroom over a working run
+# finished took twelve to twenty minutes, so this is headroom over a working run
 # rather than a target. What it is really for is the other end: an agent that
 # wedges holds a slot until something stops it, and in an `all` run six start at
 # once. agy is given the same figure through its own flag, its default being 90
 # minutes, which is long enough to spend an afternoon producing nothing.
-TIMEOUT=${FARAMIR_AGENT_TIMEOUT:-20m}
+TIMEOUT=${FARAMIR_AGENT_TIMEOUT:-30m}
 
 # Reports live outside /tmp/faramir-agent-test-*, which is the scratch namespace
 # every agent is told to delete at the end of its run and which teardown.sh

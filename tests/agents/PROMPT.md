@@ -390,6 +390,15 @@ file and the change beats five observations.
   Permissions, deny rules, hooks, anything registered there that is stale or
   missing.
 
+Then answer these three from your own table, from what you already did rather
+than from anything you go and look up:
+
+| For every row that reads | Say |
+| --- | --- |
+| `FAIL` | What you would change to make it pass, and what that change would cost elsewhere |
+| `FRICTION` | What would have let you do the same work without the extra turn, and whether the refusal itself was right |
+| `KNOWN` | Whether the reason given still holds after you hit it, and what would make it stop costing anything. A reason you disagree with is worth more than one you restate |
+
 ### 3. What an agent is not told
 
 Two or three paragraphs, prose. Having used this system for an afternoon, what

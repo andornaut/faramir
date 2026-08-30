@@ -67,7 +67,7 @@ func TestEveryKindHasARefusalOfItsOwn(t *testing.T) {
 		if got.remedy == "" {
 			t.Errorf("kind %q offers no remedy:\n%s", kind, got.text())
 		}
-		isPath := kind == denyrules.KindBlocked || kind == denyrules.KindLinked
+		isPath := kind.DeclaredPath()
 		if (got.tail != "") != isPath {
 			if isPath {
 				t.Errorf("kind %q does not say what its entry leaves alone", kind)

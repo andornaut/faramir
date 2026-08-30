@@ -156,7 +156,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	}
 	checks := append(append([]func(){}, aboutTheHost...), aboutTheOperator...)
 	if os.Geteuid() != 0 {
-		report.unaskedf("boundaries", len(checks), "run doctor as root to check these: %d checks "+
+		report.unaskedf("boundaries", len(checks), "the operator can run doctor as root to check these: %d checks "+
 			"ask what %s, %s, %s and %s can reach, and no account can answer that for "+
 			"another", len(checks), opts.AgentUser, opts.BrokerUser, opts.KeeperUser,
 			opts.ExecUser)
@@ -919,7 +919,7 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 	shadow, err := os.ReadFile(shadowFile)
 	if err != nil {
 		report.unaskedf("sudo credential", 1, "%s cannot be read (%v), so whether %s "+
-			"holds a password it could authenticate with went unchecked. Re-run as root",
+			"holds a password it could authenticate with went unchecked. The operator can re-run this as root",
 			shadowFile, err, opts.ExecUser)
 		return
 	}

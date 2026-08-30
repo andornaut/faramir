@@ -91,7 +91,7 @@ head_ "3. every tunable survives a bare re-run"
 # missing an entry, so they are set together and read back after a run that
 # names none of them.
 
-reinit --command-timeout-sec 900 --command-max-timeout-sec 7200 \
+reinit --command-timeout 15m --command-max-timeout 7200 \
   --command-concurrency 4 --secret-min-length 12 \
   || bad "init refused the tunables: $(tail -2 /tmp/init.log)"
 reinit || bad "the bare re-run failed"
@@ -266,7 +266,7 @@ head_ "9. put the host back"
 # make a later suite's wait pass for the wrong reason, and a longer one would
 # make it fail.
 
-reinit --command-timeout-sec 600 --command-max-timeout-sec 3600 \
+reinit --command-timeout 600 --command-max-timeout 1h \
   --command-concurrency 10 --secret-min-length 8 \
   || bad "could not restore the defaults: $(tail -2 /tmp/init.log)"
 settle || bad "the host did not come back"

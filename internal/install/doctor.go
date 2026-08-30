@@ -541,7 +541,7 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 		// with different remedies, and only the second is sops's concern too.
 		if errors.Is(err, fs.ErrPermission) {
 			report.unaskedf("sops config", 1, "%s could not be read (%v), so who can "+
-				"decrypt the secrets directory went unchecked here. Re-run as root", path, err)
+				"decrypt the secrets directory went unchecked here. The operator can re-run this as root", path, err)
 			return
 		}
 		report.addf("sops config", StatusFailed, "%s does not parse (%v), so who can "+
@@ -577,7 +577,7 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 			return
 		}
 		report.unaskedf("sops config", 1, "%s lists %s, and whether %s is among "+
-			"them went unchecked: %v. Re-run as root", path, strings.Join(listed, ", "),
+			"them went unchecked: %v. The operator can re-run this as root", path, strings.Join(listed, ", "),
 			keyPath, err)
 		return
 	}
@@ -633,7 +633,7 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 	if len(unlistable) > 0 {
 		report.unaskedf("rule coverage", 1, "the directories the managed store "+
 			"names cannot be listed by this account (%s), so any managed file under "+
-			"them went unchecked. Re-run as root",
+			"them went unchecked. The operator can re-run this as root",
 			strings.Join(unlistable, ", "))
 	}
 	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
@@ -834,7 +834,7 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	rotated, err := logrotateStateLogs(statePath)
 	switch {
 	case os.IsPermission(err):
-		report.unaskedf("log rotation", 1, "run doctor as root to ask the rest: %s says which logs logrotate has processed "+
+		report.unaskedf("log rotation", 1, "the operator can run doctor as root to ask the rest: %s says which logs logrotate has processed "+
 			"and %s is the broker's, both root's to read. %s does name %s",
 			statePath, logPath, logrotateConfig, logPath)
 		return
@@ -858,7 +858,7 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	info, err := os.Stat(logPath)
 	switch {
 	case os.IsPermission(err):
-		report.unaskedf("log rotation", 1, "run doctor as root to ask the last of "+
+		report.unaskedf("log rotation", 1, "the operator can run doctor as root to ask the last of "+
 			"this: %s is the broker's, so its size is root's to read. %s does name "+
 			"it, and %s records that logrotate has applied the rule",
 			logPath, logrotateConfig, statePath)
@@ -1238,7 +1238,7 @@ func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 // keeper socket, the SSH keys and the secrets files itself.
 func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerServes {
 	if os.Geteuid() != 0 {
-		report.unaskedf("broker", 1, "run doctor as root to ask this: --check "+
+		report.unaskedf("broker", 1, "the operator can run doctor as root to ask this: --check "+
 			"has to run as %s, and any other account gets an answer that is not "+
 			"the broker's", brokerUser)
 		return servesUnknown
@@ -1387,8 +1387,14 @@ func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 			return
 		}
 	}
+	// -C /, so the probe asks about the agent rather than about where doctor was
+	// run from. A brokered command runs in its caller's directory, and every
+	// faramir unit has PrivateTmp=true, so a caller standing anywhere the daemon
+	// cannot see, a host-created directory under /tmp among them, gets
+	// `bad_request: cwd does not exist for this daemon` and this check reports a
+	// working agent as failed. Root is a directory every account can enter.
 	out, err := asOperator(opts, filepath.Join(DefaultBinDir, "faramir"),
-		"run", "--quiet", "--", "ssh-add", "-l")
+		"run", "-C", "/", "--quiet", "--", "ssh-add", "-l")
 	reportSSHProbe(report, cfg, serves, out, err)
 }
 

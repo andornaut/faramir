@@ -46,11 +46,6 @@
 # runs to apply it. A credential that must not reach this shell belongs outside
 # the environment the agent inherits.
 
-# The broker's own key by path, not left to the config directory: `--ssh-key`
-# may put it anywhere, and one placed outside that directory is named by no
-# rule the layout renders.
-{{if .SSHKey}}{{ownRule .SSHKey}}
-{{end}}
 # The binary, named as one path rather than as its directory, or installing any
 # unrelated tool into {{.BinDir}} would be refused.
 {{marked "ownaction" (printf `%s%s%s/faramir\b` writeCommands argSpan (regexQuote .BinDir))}}
@@ -100,6 +95,16 @@
 {{marked "operator" `\bfaramir[-\s]+(block[ \t]+add|block[ \t]+rm|init|init-project|link[ \t]+add|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b`}}
 {{marked "operator" `\bsudo\b.*-u\s+faramir`}}
 
+# The broker's own key by path, not left to the config directory: `--ssh-key`
+# may put it anywhere, and one placed outside that directory is named by no
+# rule the layout renders.
+#
+# Here rather than above the action rules: it is an `own` rule, and
+# denyrules.Kinds() puts own after ownaction and operator. Rendered ahead of
+# them it would answer a command that matches both, and the broker, which holds
+# the same rules in Kinds() order, would answer that command differently.
+{{if .SSHKey}}{{ownRule .SSHKey}}
+{{end}}
 # Last, because a line can match this and a rule above it: an agent running a
 # faramir subcommand against a declared path is told it is an operator command,
 # which is the more useful of the two answers, and decide reports the first rule

@@ -225,14 +225,16 @@ type initFlags struct {
 	// The tunables. Each flag's default is the real one, so --help says what a
 	// host gets; clearUnset then blanks the ones nobody typed, a value left out
 	// meaning "keep what the install has".
-	commandEnv           []string
-	commandTimeoutSec    int
-	commandMaxTimeoutSec int
-	commandConcurrency   int
-	commandMaxMemoryPct  int
-	commandMaxProcMB     int
-	sudoTimeoutSec       int
-	secretMinLength      int
+	commandEnv []string
+	// The three durations are strings, so a caller may write 5m as well as 300.
+	// Parsed once in runInit, which is where a bad spelling is refused.
+	commandTimeout      string
+	commandMaxTimeout   string
+	commandConcurrency  int
+	commandMaxMemoryPct int
+	commandMaxProcMB    int
+	sudoTimeout         string
+	secretMinLength     int
 }
 
 // tunables maps each flag to where it lands, for clearUnset. One table, so a
@@ -240,12 +242,12 @@ type initFlags struct {
 // install every run.
 func (f *initFlags) tunables() map[string]func() {
 	return map[string]func(){
-		"command-timeout-sec":           func() { f.commandTimeoutSec = 0 },
-		"command-max-timeout-sec":       func() { f.commandMaxTimeoutSec = 0 },
+		"command-timeout":               func() { f.commandTimeout = "" },
+		"command-max-timeout":           func() { f.commandMaxTimeout = "" },
 		"command-concurrency":           func() { f.commandConcurrency = 0 },
 		"command-max-memory-percent":    func() { f.commandMaxMemoryPct = 0 },
 		"command-max-process-memory-mb": func() { f.commandMaxProcMB = 0 },
-		"sudo-timeout-sec":              func() { f.sudoTimeoutSec = 0 },
+		"sudo-timeout":                  func() { f.sudoTimeout = "" },
 		"secret-min-length":             func() { f.secretMinLength = 0 },
 	}
 }
@@ -340,18 +342,18 @@ func newInitCmd() *cobra.Command {
 	command, secret := config.DefaultCommand(), config.DefaultSecret()
 	fl.StringArrayVar(&f.commandEnv, "command-env", nil,
 		"NAME=VALUE in a brokered command's environment; repeatable, and it adds to the built-in table rather than replacing it")
-	fl.IntVar(&f.commandTimeoutSec, "command-timeout-sec", command.TimeoutSec,
-		"how long a command runs when the request names no timeout")
-	fl.IntVar(&f.commandMaxTimeoutSec, "command-max-timeout-sec", command.MaxTimeoutSec,
-		"the most a caller may ask for, and the idle bound on a redact stream")
+	fl.StringVar(&f.commandTimeout, "command-timeout", asDuration(command.TimeoutSec),
+		"how long a command runs when the request names no timeout: a duration such as 5m, or a bare number of seconds")
+	fl.StringVar(&f.commandMaxTimeout, "command-max-timeout", asDuration(command.MaxTimeoutSec),
+		"the most a caller may ask for, and the idle bound on a redact stream: a duration, or a bare number of seconds")
 	fl.IntVar(&f.commandConcurrency, "command-concurrency", command.Concurrency,
 		"how many brokered commands run at once; the rest are refused busy. Held to what the executor forks at once")
 	fl.IntVar(&f.commandMaxMemoryPct, "command-max-memory-percent", command.MaxMemoryPercent,
 		"the backstop: how much of this machine's memory every brokered command together may hold, as MemoryMax on the executor unit (1 to 100). It is a cgroup total, so it catches fan-out that no per-process limit sees, and it counts page cache; 100 is the whole machine, which is no bound")
 	fl.IntVar(&f.commandMaxProcMB, "command-max-process-memory-mb", command.MaxProcessMemoryMB,
 		"what one brokered process may allocate, as LimitDATA on the executor unit (at least 256). Anonymous memory only, so a command is not charged for page cache, and one that reaches it gets an allocation failure it can report rather than the OOM killer")
-	fl.IntVar(&f.sudoTimeoutSec, "sudo-timeout-sec", config.DefaultSudoTimeoutSec,
-		"how long a sudo question waits for a human before it is refused (1 to 3600, and never more than --command-max-timeout-sec: the command waits inside sudo for the whole question)")
+	fl.StringVar(&f.sudoTimeout, "sudo-timeout", asDuration(config.DefaultSudoTimeoutSec),
+		"how long a sudo question waits for a human before it is refused (1s to 1h, and never more than --command-max-timeout: the command waits inside sudo for the whole question)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
 		"refuse a secret shorter than this: it cannot be redacted without matching inside ordinary words (at least 6)")
 	return c
@@ -402,6 +404,24 @@ func runInit(f initFlags) int {
 		return 2
 	}
 
+	// The durations, refused here rather than carried into the config as a zero.
+	// Zero is the unset signal every tunable shares, so a spelling this could not
+	// read would otherwise land as "keep what the install has".
+	durations := map[string]*string{
+		"--command-timeout":     &f.commandTimeout,
+		"--command-max-timeout": &f.commandMaxTimeout,
+		"--sudo-timeout":        &f.sudoTimeout,
+	}
+	seconds := make(map[string]int, len(durations))
+	for flag, value := range durations {
+		got, err := durationSeconds(flag, *value)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "faramir init: %v\n", err)
+			return 2
+		}
+		seconds[flag] = got
+	}
+
 	opts := install.Options{
 		// The accounts this run is naming as well as the ones already installed:
 		// `init` is what writes the units, so on a first install there are none to
@@ -423,12 +443,12 @@ func runInit(f initFlags) int {
 		NotifyCommand: f.notifyCommand,
 
 		CommandEnv:                env,
-		CommandTimeoutSec:         f.commandTimeoutSec,
-		CommandMaxTimeoutSec:      f.commandMaxTimeoutSec,
+		CommandTimeoutSec:         seconds["--command-timeout"],
+		CommandMaxTimeoutSec:      seconds["--command-max-timeout"],
 		CommandConcurrency:        f.commandConcurrency,
 		CommandMaxMemoryPercent:   f.commandMaxMemoryPct,
 		CommandMaxProcessMemoryMB: f.commandMaxProcMB,
-		SudoTimeoutSec:            f.sudoTimeoutSec,
+		SudoTimeoutSec:            seconds["--sudo-timeout"],
 		SecretMinLength:           f.secretMinLength,
 		// Either spelling: the old one is deprecated rather than gone, so a fleet
 		// that has not been edited yet still installs.
@@ -807,8 +827,8 @@ func printNotAsked(w io.Writer, paint palette, count int) {
 		// "Most", not "each": want of systemd, of sops on the PATH, or of a broker
 		// holding values is counted here too, and root changes none of those.
 		note += " Most of them have to read a file or run a command as an account " +
-			"that is not yours: re-run as `sudo faramir doctor`, and what root does " +
-			"not answer stays listed with its own reason."
+			"that is not yours: the operator can re-run doctor as root, and what " +
+			"root does not answer stays listed with its own reason."
 	}
 	_, _ = fmt.Fprintln(w)
 	for _, line := range wrapText(note, terminalWidth()) {

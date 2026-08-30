@@ -150,7 +150,7 @@ func newRunCmd() *cobra.Command {
 		o        brokerOptions
 		quiet    bool
 		cwd      string
-		timeout  int
+		timeout  string
 		envRefs  []string
 		envFiles []string
 	)
@@ -197,15 +197,18 @@ func newRunCmd() *cobra.Command {
 			if cwd != "" {
 				request["cwd"] = cwd
 			}
-			// Zero is "name none", which the broker reads as its configured
-			// default. A negative value has no meaning, so refuse it rather than
-			// treat it as "none" and run under a timeout the caller did not ask for.
-			if timeout < 0 {
-				return usagef("--timeout must not be negative; leave it out for " +
-					"the broker's own default")
+			// Printed here rather than returned as a usage error: past argument
+			// validation the root command silences what a RunE returns, so a
+			// usagef from here exits 2 and says nothing at all.
+			seconds, err := durationSeconds("--timeout", timeout)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
+				return codeErr(2)
 			}
-			if timeout > 0 {
-				request["timeout_sec"] = timeout
+			// Zero is "name none", which the broker reads as its configured
+			// default.
+			if seconds > 0 {
+				request["timeout_sec"] = seconds
 			}
 			return codeErr(send("run", socketDefault(), request, o.json, quiet))
 		},
@@ -213,7 +216,8 @@ func newRunCmd() *cobra.Command {
 	o.add(c)
 	c.Flags().BoolVar(&quiet, "quiet", false, "suppress the redaction summary")
 	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory for the command (default: the caller's)")
-	c.Flags().IntVarP(&timeout, "timeout", "t", 0, "timeout in seconds")
+	c.Flags().StringVarP(&timeout, "timeout", "t", "",
+		"how long the command may run: a duration such as 90s or 5m, or a bare number of seconds")
 	c.Flags().StringArrayVar(&envRefs, "env", nil,
 		"NAME=faramir://ref, or a bare NAME for the ref of that name (repeatable)")
 	c.Flags().StringArrayVar(&envFiles, "env-file", nil,
@@ -921,39 +925,42 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 			prog, response.EscalationCode, response.Escalation)
 	}
 
-	if !quiet {
-		var notes []string
-		if len(response.Redactions) > 0 {
-			var parts []string
-			for _, r := range response.Redactions {
-				parts = append(parts, fmt.Sprintf("%s×%d", r.Token, r.Count))
-			}
-			notes = append(notes, "redacted "+strings.Join(parts, ", "))
+	// The redaction count is a summary of a command that ran as asked, and is
+	// what --quiet suppresses. Everything after it says the output is not what
+	// the command produced, so a caller reading it as the command's own would be
+	// reading something else: those are reported either way. `faramir run
+	// --quiet` is how an agent runs a command, and an agent that is not told
+	// cannot ask.
+	var notes []string
+	if !quiet && len(response.Redactions) > 0 {
+		var parts []string
+		for _, r := range response.Redactions {
+			parts = append(parts, fmt.Sprintf("%s×%d", r.Token, r.Count))
 		}
-		// Both change what the output means, so they are always reported.
-		if response.Truncated {
-			notes = append(notes, "output truncated")
-		}
-		// So does this: output that was not text does not survive redaction. Only
-		// when a byte was actually replaced, stripping colour being ordinary.
-		if response.InvalidBytes > 0 {
-			notes = append(notes,
-				fmt.Sprintf("%d non-text byte(s) replaced", response.InvalidBytes))
-		}
-		if response.TimedOut {
-			notes = append(notes, "timed out")
-		}
-		// The command ran but the broker never got its exit status, so the code is
-		// a non-zero stand-in rather than the command's own or a signal kill.
-		if response.StatusUnknown {
-			notes = append(notes, "exit status unknown; the reported code is a stand-in")
-		}
-		if response.LogID != "" {
-			notes = append(notes, "log_id="+response.LogID)
-		}
-		if len(notes) > 0 {
-			fmt.Fprintf(os.Stderr, "faramir %s: %s\n", prog, strings.Join(notes, "; "))
-		}
+		notes = append(notes, "redacted "+strings.Join(parts, ", "))
+	}
+	if response.Truncated {
+		notes = append(notes, "output truncated")
+	}
+	// Output that was not text does not survive redaction. Only when a byte was
+	// actually replaced, stripping colour being ordinary.
+	if response.InvalidBytes > 0 {
+		notes = append(notes,
+			fmt.Sprintf("%d non-text byte(s) replaced", response.InvalidBytes))
+	}
+	if response.TimedOut {
+		notes = append(notes, "timed out")
+	}
+	// The command ran but the broker never got its exit status, so the code is
+	// a non-zero stand-in rather than the command's own or a signal kill.
+	if response.StatusUnknown {
+		notes = append(notes, "exit status unknown; the reported code is a stand-in")
+	}
+	if !quiet && response.LogID != "" {
+		notes = append(notes, "log_id="+response.LogID)
+	}
+	if len(notes) > 0 {
+		fmt.Fprintf(os.Stderr, "faramir %s: %s\n", prog, strings.Join(notes, "; "))
 	}
 
 	if response.ExitCode != nil {

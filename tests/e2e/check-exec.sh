@@ -498,10 +498,17 @@ grep -q 'non-text' <<<"$out" && bad "ordinary text was counted as non-text: [$ou
 out=$(notice -- /bin/sh -c 'printf "\033[31mRED\033[0m\n"')
 grep -q 'non-text' <<<"$out" && bad "stripped colour was counted as non-text: [$out]" \
   || ok "nor is colour, which is stripped rather than replaced"
+# --quiet takes the redaction summary and the log_id, and leaves this. The
+# summary describes a command that ran as asked; this says the output is not
+# what the command produced, and --quiet is how an agent runs everything, so
+# suppressing it leaves altered output read as the command's own.
 out=$({ runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -- \
   /bin/sh -c 'head -c 4096 /dev/urandom' >/dev/null; } 2>&1)
-[ -z "$out" ] && ok "and --quiet suppresses it with the rest of the summary" \
-  || bad "--quiet still printed: [$out]"
+grep -qE '[0-9]+ non-text byte\(s\) replaced' <<<"$out" \
+  && ok "and --quiet keeps it, the output not being what the command produced" \
+  || bad "--quiet suppressed the non-text notice: [$out]"
+grep -q 'log_id' <<<"$out" && bad "--quiet printed the log_id: [$out]" \
+  || ok "while what it does suppress stays suppressed"
 runuser -u op -- /usr/local/bin/faramir run -t 30 -- /bin/echo hello >/tmp/notice.out 2>/dev/null
 [ "$(cat /tmp/notice.out)" = hello ] && ok "while stdout carries the output and nothing else" \
   || bad "stdout carried more than the output: [$(cat /tmp/notice.out)]"

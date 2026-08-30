@@ -86,6 +86,12 @@ tests/agents/run.sh claude ../some-enrolled-project
 tests/agents/run.sh all ../some-enrolled-project
 ```
 
+A coding agent asked to run a round follows `.claude/skills/test-agents/`, which
+holds the procedure: what to check before starting, archiving the previous
+round's reports so the run does not overwrite them, re-running a single agent
+whose provider failed, and what a summary of a round has to say. This file is
+what that procedure reads, and stays the reference for both.
+
 `all` launches every agent at once against one tree. `headless.md` is what tells
 them to expect that: it makes the tree read-only, namespaces each agent's scratch
 files, and skips section G, which would otherwise block on an approval nobody is
@@ -190,10 +196,10 @@ in, and a 402 from OpenRouter where the balance will not cover the request's
 the provider prefix before believing it about the agent: the same model can be
 refused under one prefix and served under another.
 
-Each agent gets `$FARAMIR_AGENT_TIMEOUT`, 20 minutes by default. The runs that
-finished took around twelve, so this is headroom over a working run rather than a
-target: what it is for is an agent that wedges, which otherwise holds its slot
-until something stops it, and in an `all` run six start at once. A run killed
+Each agent gets `$FARAMIR_AGENT_TIMEOUT`, 30 minutes by default. The runs that
+finished took twelve to twenty, so this is headroom over a working run rather
+than a target: what it is for is an agent that wedges, which otherwise holds its
+slot until something stops it, and in an `all` run six start at once. A run killed
 this way says so in its log, which matters because an agent that buffers its
 output prints nothing when killed, leaving a truncated run and a broken one
 looking alike.

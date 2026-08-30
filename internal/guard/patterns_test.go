@@ -88,11 +88,16 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		{"cat /etc/faramir/secrets/db.sops.yml", adviceOwnPath},
 		{"rm /etc/faramir/age.key", adviceOwnPath},
 		{"echo x > /etc/faramir/age.key", adviceOwnPath},
-		// Under sudo it is the operator's, which is the more useful answer and
-		// is why those rules are matched first.
+		// A path under sudo is the operator's, which is the more useful answer:
+		// the competing rule is `own`, and Kinds() puts operator ahead of it.
 		{"sudo -u faramir-keeper cat /etc/faramir/age.key", adviceOperator},
 		{"sudo env -u faramir-exec sh -c 'cat /srv/luks.key'", adviceOperator},
 		{"systemctl stop faramir-broker.socket", adviceOwn},
+		// A unit under sudo is not: the competing rule there is `ownaction`,
+		// which Kinds() puts ahead of operator, so the answer names the unit
+		// rather than the account. Pinned because the two rules both match and
+		// nothing else fixes which one answers.
+		{"sudo -u faramir-keeper systemctl stop faramir-broker", adviceOwn},
 		{"rm ~/.config/opencode/plugin/faramir.js", adviceOwn},
 		{"sed -i s/x/y/ ~/.pi/agent/extensions/faramir.ts", adviceOwn},
 		// The operator's. Every faramir subcommand under sudo, the daemons and the
@@ -237,7 +242,9 @@ func TestADeclaredPathIsAnsweredByItsKind(t *testing.T) {
 		want string
 	}{
 		{denyrules.KindBlocked, adviceBlockedPath},
+		{denyrules.KindBlockedStrict, adviceBlockedStrictPath},
 		{denyrules.KindLinked, adviceLinkedPath},
+		{denyrules.KindLinkedStrict, adviceLinkedStrictPath},
 		{denyrules.KindOwn, adviceOwnPath},
 	} {
 		t.Run(string(tc.kind), func(t *testing.T) {
@@ -261,6 +268,65 @@ func TestADeclaredPathIsAnsweredByItsKind(t *testing.T) {
 						"the three rules look alike and only the kind tells them apart",
 						command, tc.kind)
 				}
+			}
+		})
+	}
+}
+
+// `faramir block ls` lists these, and what an operator is being shown is the
+// rule. The kind group is how a refusal picks its message; left on, every row
+// opens with the same dozen characters and the listing sorts by them.
+func TestTheListedActionPatternsCarryNoKindMarker(t *testing.T) {
+	patterns := ActionPatterns()
+	if len(patterns) == 0 {
+		t.Fatal("no action patterns")
+	}
+	for _, pattern := range patterns {
+		for _, kind := range denyrules.Kinds() {
+			if strings.HasPrefix(pattern, denyrules.KindMarker(kind)) {
+				t.Errorf("this row opens with its kind group rather than with the "+
+					"rule: %s", pattern)
+			}
+		}
+	}
+	// Still the rules themselves, and still compiling.
+	for _, pattern := range patterns {
+		if _, err := regexp.Compile("(?i)" + pattern); err != nil {
+			t.Errorf("unmarking left a pattern that does not compile: %s: %v",
+				pattern, err)
+		}
+	}
+}
+
+// A strict entry is refused on both tiers, so its message must not send the
+// reader to the broker: the brokered refusal is the second turn this exists to
+// save. The loose pair keeps the route, which is what makes it worth naming.
+func TestOnlyALooseEntryOffersTheBrokeredRoute(t *testing.T) {
+	const promise = "may go through there"
+	for _, tc := range []struct {
+		kind    denyrules.Kind
+		offered bool
+	}{
+		{denyrules.KindBlocked, true},
+		{denyrules.KindLinked, true},
+		{denyrules.KindBlockedStrict, false},
+		{denyrules.KindLinkedStrict, false},
+	} {
+		t.Run(string(tc.kind), func(t *testing.T) {
+			said := byKind[tc.kind]
+			if strings.Contains(said, promise) != tc.offered {
+				if tc.offered {
+					t.Errorf("the %s message no longer names the brokered route, which "+
+						"is open for it:\n%s", tc.kind, said)
+					return
+				}
+				t.Errorf("the %s message offers a brokered route that the broker "+
+					"refuses, which costs a turn to find out:\n%s", tc.kind, said)
+			}
+			// The ref is the route a strict entry does have, and the one that
+			// needs no path at all.
+			if !strings.Contains(said, "faramir refs") {
+				t.Errorf("the %s message names no way to reach the value:\n%s", tc.kind, said)
 			}
 		})
 	}

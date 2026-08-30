@@ -303,6 +303,11 @@ type blockRow struct {
 	// tool can name.
 	Kind  string `json:"kind"`
 	Entry string `json:"entry"`
+	// Strict is whether naming the entry is refused rather than reading it. A
+	// field of its own as well as a phrase in Detail: it decides whether a
+	// command that only mentions the path can run at all, which is the question
+	// a caller asks most often, and reading it out of prose is not an answer.
+	Strict bool `json:"strict,omitempty"`
 	// State is whether the path is there, for a path entry alone.
 	//
 	// JSON only, as Detail is: whether a file happens to exist today is a
@@ -356,6 +361,7 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 		rows = append(rows, blockRow{
 			Source: sourceDeclared, Kind: kindPath, Entry: entry.Path,
 			State:  blockedPathState(entry.Path),
+			Strict: entry.Strict,
 			Detail: strictDetail("", entry.Strict),
 		})
 	}
@@ -496,8 +502,17 @@ func runBlockList(f blockFlags) int {
 		}
 		// The entry is unpainted: it is what the operator wrote, and the colour
 		// stops where faramir's own words stop.
+		//
+		// Strictness rides in the kind cell rather than in a column of its own:
+		// it is the difference between a refusal a reader expected and one they
+		// did not, and a column that is empty on most rows costs the width of its
+		// heading on all of them.
+		kind := row.Kind
+		if row.Strict {
+			kind += " (strict)"
+		}
 		table = append(table, []cell{
-			painted(row.Kind, paint.bold), value(row.Entry),
+			painted(kind, paint.bold), value(row.Entry),
 		})
 	}
 	declaredTable := len(table) > 1

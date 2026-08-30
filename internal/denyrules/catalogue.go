@@ -59,6 +59,15 @@ const (
 	KindBlocked Kind = "blocked"
 	// KindLinked is the file a [[secret.link]] entry reads.
 	KindLinked Kind = "linked"
+	// KindBlockedStrict and KindLinkedStrict are the same two entries written
+	// --strict. A kind of their own rather than a flag beside them, because the
+	// guard reads a flat file and has nothing but the kind to answer from: the
+	// tiers differ on a strict entry, which the broker refuses for the mention
+	// where it refuses a loose one for the read, so a message that could not
+	// tell them apart had to promise a brokered route that a strict entry does
+	// not have.
+	KindBlockedStrict Kind = "blockedstrict"
+	KindLinkedStrict  Kind = "linkedstrict"
 	// KindCommand is a [[secret.block]] entry naming a command rather than a
 	// path. What a reader may still do to a file says nothing about one.
 	KindCommand Kind = "command"
@@ -84,8 +93,48 @@ const (
 // the two answers. Own before blocked and linked for the same reason, a path
 // that is both this install's own and declared being the install's, which is
 // the answer with no removal to offer.
+//
+// A strict kind sits beside the loose one it is a spelling of. No path is both,
+// an entry carrying one strictness, so their order relative to each other
+// decides nothing; keeping them adjacent is so the list reads as four entry
+// kinds rather than six unrelated ones.
 func Kinds() []Kind {
-	return []Kind{KindOwnAction, KindOperator, KindOwn, KindBlocked, KindLinked, KindCommand}
+	return []Kind{KindOwnAction, KindOperator, KindOwn,
+		KindBlocked, KindBlockedStrict, KindLinked, KindLinkedStrict, KindCommand}
+}
+
+// DeclaredPath reports whether the kind is a path an entry declared, either
+// strictness. The question two callers ask that is not "which message": what
+// this install renders per host, and which refusal has a listing behind it.
+// Asked here so a kind added later is added to one answer.
+func (k Kind) DeclaredPath() bool {
+	switch k {
+	case KindBlocked, KindBlockedStrict, KindLinked, KindLinkedStrict:
+		return true
+	case KindOwn, KindCommand, KindOperator, KindOwnAction:
+		// A directory the install occupies, a command entry, and the two kinds
+		// about faramir's own: none is a path an entry named, so none is rendered
+		// per host or has a listing behind it.
+		return false
+	}
+	return false
+}
+
+// blockedKind and linkedKind are the kind an entry gets, which is its
+// strictness. One place, so the guard's rendered file and the broker's own
+// rules cannot disagree about which of the two an entry is.
+func blockedKind(strict bool) Kind {
+	if strict {
+		return KindBlockedStrict
+	}
+	return KindBlocked
+}
+
+func linkedKind(strict bool) Kind {
+	if strict {
+		return KindLinkedStrict
+	}
+	return KindLinked
 }
 
 // List is the table an entry sits in, named the way `faramir block ls` and
@@ -94,9 +143,9 @@ func Kinds() []Kind {
 // and does not say which of the two removals applies.
 func (k Kind) List() string {
 	switch k {
-	case KindBlocked, KindCommand:
+	case KindBlocked, KindBlockedStrict, KindCommand:
 		return "the blocks"
-	case KindLinked:
+	case KindLinked, KindLinkedStrict:
 		return "the links"
 	case KindOwn, KindOperator, KindOwnAction:
 		// Nothing an entry wrote, so nothing a listing holds and nothing a
@@ -128,7 +177,7 @@ func For(home string, ownDirs []string, secret config.SecretConfig) []Rule {
 	linked, blocked := declaredPaths(secret)
 	for _, entry := range blocked {
 		out = append(out, Rule{
-			Kind:     KindBlocked,
+			Kind:     blockedKind(entry.Strict),
 			Entry:    entry.Path,
 			Remedy:   "`faramir block rm`",
 			Strict:   entry.Strict,
@@ -137,7 +186,7 @@ func For(home string, ownDirs []string, secret config.SecretConfig) []Rule {
 	}
 	for _, link := range linked {
 		out = append(out, Rule{
-			Kind:     KindLinked,
+			Kind:     linkedKind(link.Strict),
 			Entry:    link.Path,
 			Ref:      link.Ref,
 			Remedy:   "`faramir link rm`",
@@ -257,6 +306,7 @@ func GuardRules(rules []Rule) []string {
 	subjects := make(map[Kind][]string, len(Kinds()))
 	patterns := make(map[Kind][]string, len(Kinds()))
 	for _, rule := range rules {
+		rankOf(rule.Kind)
 		if len(rule.Subjects) == 0 {
 			patterns[rule.Kind] = append(patterns[rule.Kind], rule.Patterns...)
 			continue
@@ -306,10 +356,30 @@ func (r Rule) Broker() []string {
 // compiled set could then disagree about which of two matching rules answers.
 func Catalogue(home string, ownDirs []string, secret config.SecretConfig) []Rule {
 	out := append(ActionRules(), For(home, ownDirs, secret)...)
-	rank := make(map[Kind]int, len(Kinds()))
-	for i, kind := range Kinds() {
-		rank[kind] = i
-	}
-	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Kind] < rank[out[j].Kind] })
+	sort.SliceStable(out, func(i, j int) bool {
+		return rankOf(out[i].Kind) < rankOf(out[j].Kind)
+	})
 	return out
+}
+
+// rankOf is a kind's place in Kinds(), and the one thing both tiers ask about a
+// rule: the guard renders in this order and the broker sorts in it.
+//
+// It panics on a kind Kinds() does not list, which is a kind added to the
+// constants and not to the list. Every kind reaching either tier comes from
+// code -- ActionRules spells its own, For assigns from a fixed set -- so this is
+// a programming error and not something a host's config can provoke.
+//
+// Loud because the failure is otherwise silent and asymmetric. An unlisted kind
+// sorted at 0 would be enforced by the broker and left out of the guard's
+// rendered file entirely, so the tiers would disagree about a rule with nothing
+// reporting it, and the one that failed open is the one an agent meets.
+func rankOf(kind Kind) int {
+	for i, known := range Kinds() {
+		if known == kind {
+			return i
+		}
+	}
+	panic("denyrules: kind " + string(kind) + " is not in Kinds(), so the guard " +
+		"would render no rule for it while the broker enforced one")
 }

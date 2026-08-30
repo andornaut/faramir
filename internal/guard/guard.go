@@ -89,8 +89,29 @@ var fallbackOwn = denyrules.GuardRules(denyrules.ActionRules())
 // Not the path rules, which are generated per install from the same set the
 // agents' own deny rules come from, and are already listed as the entries they
 // were generated from.
+// Without the kind marker. The group is how a refusal picks its message, not
+// part of what the rule matches, and an operator reading the listing is being
+// shown the rule: left on, every row opens with `(?P<ownaction>` and sorts by
+// that rather than by the rule.
 func ActionPatterns() []string {
-	return append([]string{}, fallbackOwn...)
+	out := make([]string, 0, len(fallbackOwn))
+	for _, rule := range fallbackOwn {
+		out = append(out, unmarked(rule))
+	}
+	return out
+}
+
+// unmarked is one rendered rule with its kind group taken back off. Every rule
+// GuardRules writes is KindMarker(kind) + pattern + ")", so the group is the
+// prefix and the last byte; a rule carrying no marker is returned as it is.
+func unmarked(rule string) string {
+	for _, kind := range denyrules.Kinds() {
+		marker := denyrules.KindMarker(kind)
+		if strings.HasPrefix(rule, marker) && strings.HasSuffix(rule, ")") {
+			return rule[len(marker) : len(rule)-1]
+		}
+	}
+	return rule
 }
 
 // fallbackPatterns assembles the list in the shipped file's own order, which
@@ -137,7 +158,15 @@ const adviceOperator = "Blocked: this is an operator command. It acts on the far
 // being named, so no rule about the path is in the way.
 // adviceNamed is what the rule does, which is the half none of the four
 // messages differ on.
-const adviceNamed = ", so naming it is refused to your tools and to your shell, whatever the command would do with it."
+// The escape is in the same sentence as the refusal because the commonest way
+// to meet this rule is to write about the path rather than to read it: a rule
+// matched against the text of a command cannot tell a name being used from one
+// being quoted, so a heredoc that documents an operator command is refused like
+// the command itself. Saying so here is what saves the turn spent finding out.
+const adviceNamed = ", so naming it is refused to your tools and to your shell, whatever the command " +
+	"would do with it. That covers writing about it as well as reading it, a rule matched against " +
+	"the text of a command being unable to tell the two apart: author a document that quotes this " +
+	"path with your editing tool rather than a shell heredoc."
 
 const adviceRefs = "If the value answers a `faramir://` ref, `faramir refs` names it and " +
 	"`faramir run --env NAME=faramir://<ref>` is the way to use it, which does not name the file."
@@ -160,6 +189,28 @@ const adviceBlockedPath = "Blocked: the operator blocked this path on this host"
 // reach for first: it is what the link is for, and it answers without the file
 // being named.
 const adviceLinkedPath = "Blocked: a link reads this file on this host" + adviceNamed + adviceRoute +
+	"\n\nThat ref is the point of the link, so prefer it to the file. `faramir link ls` lists the links " +
+	"and the files they read. Removing one is the operator's to do, `faramir link rm`, and it takes " +
+	"the ref away as well."
+
+// adviceNoRoute is what adviceRoute becomes for a strict entry: the broker
+// holds the same entry and refuses a command that names it at all, so offering
+// the brokered route would spend a turn on a second refusal. The ref is still a
+// route, and is the only one, so it is what this says instead.
+const adviceNoRoute = "\n\nThe broker holds the same entry, and the operator wrote this one strict: " +
+	"a brokered command that names the path is refused there too, whatever it would do with it. " +
+	adviceRefs
+
+// adviceBlockedStrictPath and adviceLinkedStrictPath are the two entry
+// messages for an entry written strict. The same wording as the loose pair
+// with the brokered route taken out, rather than a sentence bolted on: an
+// agent that reads "may go through there" spends the turn finding out it may
+// not.
+const adviceBlockedStrictPath = "Blocked: the operator blocked this path on this host" + adviceNamed +
+	adviceNoRoute + "\n\nOtherwise this is the operator's to do, or to unblock with `faramir block rm`. " +
+	"`faramir block ls` lists what they blocked, and marks the strict entries."
+
+const adviceLinkedStrictPath = "Blocked: a link reads this file on this host" + adviceNamed + adviceNoRoute +
 	"\n\nThat ref is the point of the link, so prefer it to the file. `faramir link ls` lists the links " +
 	"and the files they read. Removing one is the operator's to do, `faramir link rm`, and it takes " +
 	"the ref away as well."
@@ -212,12 +263,14 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not bec
 // what decides which sentence, so a kind cannot be answered here and forgotten
 // there.
 var byKind = map[denyrules.Kind]string{
-	denyrules.KindOwn:       adviceOwnPath,
-	denyrules.KindBlocked:   adviceBlockedPath,
-	denyrules.KindLinked:    adviceLinkedPath,
-	denyrules.KindCommand:   adviceCommand,
-	denyrules.KindOperator:  adviceOperator,
-	denyrules.KindOwnAction: adviceOwn,
+	denyrules.KindOwn:           adviceOwnPath,
+	denyrules.KindBlocked:       adviceBlockedPath,
+	denyrules.KindBlockedStrict: adviceBlockedStrictPath,
+	denyrules.KindLinked:        adviceLinkedPath,
+	denyrules.KindLinkedStrict:  adviceLinkedStrictPath,
+	denyrules.KindCommand:       adviceCommand,
+	denyrules.KindOperator:      adviceOperator,
+	denyrules.KindOwnAction:     adviceOwn,
 }
 
 // adviceFor picks the explanation that matches why the command was refused.

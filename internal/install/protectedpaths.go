@@ -210,7 +210,7 @@ func perInstallPaths(layout Layout) []string {
 	rules := catalogue(layout)
 	out := make([]string, 0, len(rules))
 	for _, rule := range rules {
-		if rule.Kind == denyrules.KindBlocked || rule.Kind == denyrules.KindLinked {
+		if rule.Kind.DeclaredPath() {
 			out = append(out, rule.Entry)
 		}
 	}

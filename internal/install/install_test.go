@@ -329,7 +329,7 @@ func TestInitWarnsWhenTheSudoTimeoutOutlastsTheLongestCommand(t *testing.T) {
 			if !warned {
 				return
 			}
-			for _, want := range []string{"--sudo-timeout-sec 900", "300s", "--command-max-timeout-sec"} {
+			for _, want := range []string{"--sudo-timeout 900s", "300s", "--command-max-timeout"} {
 				if !strings.Contains(run.report.Warnings[0], want) {
 					t.Errorf("the warning does not say %q: %s", want, run.report.Warnings[0])
 				}

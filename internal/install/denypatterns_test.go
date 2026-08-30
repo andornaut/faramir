@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/denyrules"
 )
 
 // renderDenyPatterns is the file as an install would write it.
@@ -84,6 +85,52 @@ func TestAnUnsetSSHKeyDoesNotEmptyAnAlternation(t *testing.T) {
 		if matchesAny(t, rules, harmless) {
 			t.Errorf("an ordinary command is refused with no --ssh-key rendered: %q",
 				harmless)
+		}
+	}
+}
+
+// Every rendered rule carries its kind, and the file holds them in
+// denyrules.Kinds() order. First match wins on both tiers, so a rule rendered
+// out of that order answers a command the broker, which sorts by the same list,
+// answers differently.
+//
+// Rendered with an --ssh-key, which is the one rule the template writes from a
+// field rather than from the catalogue: with none set the line is absent, and
+// the ordering it can break goes untested.
+func TestTheRenderedRulesAreInKindOrder(t *testing.T) {
+	opts := Options{
+		AgentUser: "operator", ConfigDir: "/etc/faramir",
+		SSHKey: "/srv/keys/broker_ed25519",
+	}
+	opts.applyDefaults()
+	layout, err := opts.layout()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := denyRules(renderDenyPatterns(t, layout))
+	if len(rules) == 0 {
+		t.Fatal("no rules rendered")
+	}
+
+	rank := make(map[string]int, len(denyrules.Kinds()))
+	for i, kind := range denyrules.Kinds() {
+		rank[denyrules.KindMarker(kind)] = i
+	}
+	highest, highestRule := -1, ""
+	for _, rule := range rules {
+		for marker, at := range rank {
+			if !strings.HasPrefix(rule, marker) {
+				continue
+			}
+			if at < highest {
+				t.Errorf("this rule is rendered after one of a later kind, so a "+
+					"command matching both is answered by the wrong one:\n  "+
+					"earlier: %s\n  this:    %s", highestRule, rule)
+			}
+			if at > highest {
+				highest, highestRule = at, rule
+			}
+			break
 		}
 	}
 }

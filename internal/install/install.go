@@ -936,9 +936,9 @@ func (r *runner) warnLongSudoTimeout() {
 	if !r.opts.AllowSudo || r.opts.SudoTimeoutSec <= r.opts.CommandMaxTimeoutSec {
 		return
 	}
-	r.warnf("--sudo-timeout-sec %d is longer than the %ds a brokered command may run, "+
+	r.warnf("--sudo-timeout %ds is longer than the %ds a brokered command may run, "+
 		"and the command waits inside sudo for the whole question, so a question is "+
-		"held to %ds. Raise --command-max-timeout-sec to give an answer longer to arrive",
+		"held to %ds. Raise --command-max-timeout to give an answer longer to arrive",
 		r.opts.SudoTimeoutSec, r.opts.CommandMaxTimeoutSec, r.opts.CommandMaxTimeoutSec)
 }
 

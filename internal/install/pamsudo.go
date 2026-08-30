@@ -341,7 +341,7 @@ func sudoPamBranchProblem(execUser, helper string) string {
 		checked++
 		if err != nil {
 			return fmt.Sprintf("%s cannot be read (%v), so what decides an escalation "+
-				"there went unchecked. Re-run as root", path, err)
+				"there went unchecked. The operator can re-run this as root", path, err)
 		}
 		start, _, found, err := placePamBlock(current)
 		switch {

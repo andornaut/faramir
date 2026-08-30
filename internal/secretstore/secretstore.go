@@ -402,7 +402,11 @@ func (s *Store) Value(ref string) (string, error) {
 			"other ref is unaffected; `faramir status` names it and `sudo faramir "+
 			"doctor` says what to do about it", ref, reason)
 	}
-	return "", fmt.Errorf("unknown secret ref: %s", ref)
+	// The remedy, which the two refusals above carry and this one did not: a
+	// well-formed ref that names nothing is a name the caller has to look up,
+	// and every other spelling error is answered by a message that says where.
+	return "", fmt.Errorf("unknown secret ref: %s; `faramir refs` lists what "+
+		"this host holds", ref)
 }
 
 // Redactor is a redactor over the current value set, sharing the compiled

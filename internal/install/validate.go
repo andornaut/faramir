@@ -281,8 +281,11 @@ func (r *runner) stepValidate() error {
 		r.step("broker ssh agent", false, "not asked")
 	}
 	if r.sshKey != "" && report.serves() {
+		// -C /, so the probe asks about the agent rather than about where init was
+		// run from: a brokered command runs in its caller's directory, and one the
+		// daemon cannot see fails the probe rather than answering it.
 		out, agentErr := command(filepath.Join(r.layout.BinDir, "faramir"),
-			"run", "--quiet", "--", "ssh-add", "-l")
+			"run", "-C", "/", "--quiet", "--", "ssh-add", "-l")
 		// The error carries stderr, where the reason is; dropping it reports every
 		// failure as "holds no usable key ()".
 		if agentErr != nil {
@@ -290,10 +293,8 @@ func (r *runner) stepValidate() error {
 				return fmt.Errorf("could not ask the broker what its agent holds: %s",
 					why)
 			}
-			return fmt.Errorf("could not ask the broker what its agent holds: %w\n"+
-				"A brokered command runs where its caller was, so this also fails "+
-				"when init is run from a directory %s cannot enter",
-				agentErr, r.layout.BrokerUser)
+			return fmt.Errorf("could not ask the broker what its agent holds: %w",
+				agentErr)
 		}
 		if !strings.Contains(out, "SHA256") {
 			return fmt.Errorf("the broker's ssh-agent holds no usable key (%s), though [ssh] key names %s: "+

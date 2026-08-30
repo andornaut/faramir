@@ -295,9 +295,12 @@ func refusalFor(rule declaredRule) refusal {
 			remedy: "If the work needs it, that is the operator's, either " +
 				"outside faramir or after " + rule.Remedy + ".",
 		}
-	case denyrules.KindBlocked, denyrules.KindLinked:
-		// Below, both kinds sharing one message: they differ in the listing they
-		// name and the removal they offer, which the rule carries.
+	case denyrules.KindBlocked, denyrules.KindBlockedStrict,
+		denyrules.KindLinked, denyrules.KindLinkedStrict:
+		// Below, the four sharing one message: they differ in the listing they
+		// name, the removal they offer and their strictness, each of which the
+		// rule carries. Named rather than left to a default, so a kind added
+		// later is a case somebody has to write here too.
 	}
 	// What the entry leaves alone, which is the sentence that tells a reader
 	// whether another spelling is worth trying. A strict entry leaves nothing

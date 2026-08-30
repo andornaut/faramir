@@ -39,7 +39,7 @@ func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 	case errors.Is(err, os.ErrPermission):
 		report.unaskedf("tree config", 1, "the record of enrolled trees is the "+
 			"operator's to read, so which trees are enrolled was not asked and "+
-			"none were examined: re-run as `sudo faramir doctor`")
+			"none were examined: the operator can re-run doctor as root")
 		return
 	case err != nil:
 		report.addf("tree config", StatusFailed, "%s, so which trees are enrolled "+
