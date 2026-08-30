@@ -36,3 +36,42 @@ func TestASpaceInAPathIsRefusedInBothSpellings(t *testing.T) {
 		}
 	}
 }
+
+// The same two spellings through the glob rule, which is the other half of what
+// a declared path renders. The directory half of a glob quotes a space and the
+// name half did not, so a wildcard standing in for part of the name took the
+// quoted spelling alone and left the escaped one open.
+//
+// The app directory here is a name no host declares. A rule for a real one
+// carries a relative spelling that matches the name wherever it appears, this
+// file included, and a fixture that trips the guard is one nobody can edit.
+func TestASpaceInAGlobIsRefusedInBothSpellings(t *testing.T) {
+	const home = "/home/op"
+	const path = "/home/op/.config/Exampleditor/Local Storage"
+
+	rule := GlobUnder(home, path)
+	if rule == "" {
+		t.Fatal("no glob rule for a path under a home, so this asserts nothing")
+	}
+	re := regexp.MustCompile("(?i)" + rule)
+	for _, command := range []string{
+		`cat "~/.config/Exampleditor/Local Sto*"`,
+		`cat ~/.config/Exampleditor/Local\ Sto*`,
+		`cat ~/.config/Exampleditor/Local\ Storag?`,
+		`cat ~/.config/Exampleditor/*`,
+	} {
+		if !re.MatchString(command) {
+			t.Errorf("%q is allowed, and it is a pattern that expands to the "+
+				"declared path", command)
+		}
+	}
+	// And the bound: a pattern that cannot expand to this name is left alone.
+	for _, command := range []string{
+		`cat ~/.config/Exampleditor/User/*.json`,
+		`cat ~/.config/Exampleditor/Local\ Storage2*`,
+	} {
+		if re.MatchString(command) {
+			t.Errorf("%q is refused, and no expansion of it is the declared path", command)
+		}
+	}
+}

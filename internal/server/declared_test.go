@@ -13,14 +13,14 @@ import (
 // a "~" against: the spellings that need one are the agent's own shell's, and
 // this is the brokered route.
 func blocking(entries ...config.BlockedPath) declaredCheck {
-	return newDeclaredCheck(denyrules.For("", nil, config.SecretConfig{Blocked: entries}))
+	return newDeclaredCheck(denyrules.For("", nil, "", config.SecretConfig{Blocked: entries}))
 }
 
 // linking is the same for a [[secret.link]] entry, which is held to the same
 // rule: the file holds more than the one ref a link selects, and the rest of it
 // is in no redactor.
 func linking(links ...config.Link) declaredCheck {
-	return newDeclaredCheck(denyrules.For("", nil, config.SecretConfig{Links: links}))
+	return newDeclaredCheck(denyrules.For("", nil, "", config.SecretConfig{Links: links}))
 }
 
 func pathEntry(path string) config.BlockedPath { return config.BlockedPath{Path: path} }
@@ -435,7 +435,7 @@ func TestAnStrictRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
 // route, where a mode is no answer: a brokered command runs as an account of its
 // own, and as root wherever an escalation was approved.
 func occupying(dirs ...string) declaredCheck {
-	return newDeclaredCheck(denyrules.For("", dirs, config.SecretConfig{}))
+	return newDeclaredCheck(denyrules.For("", dirs, "", config.SecretConfig{}))
 }
 
 // A brokered command may not name one, whatever it would do with it, which is
@@ -494,7 +494,7 @@ func TestTheOwnDirectoryRefusalOffersNoRemoval(t *testing.T) {
 // reader may still do to a file, somebody who ran `op read` is being answered
 // about a path they never typed.
 func TestACommandRefusalIsNotWrittenAboutAPath(t *testing.T) {
-	rule, refused := newDeclaredCheck(denyrules.For("", nil, config.SecretConfig{
+	rule, refused := newDeclaredCheck(denyrules.For("", nil, "", config.SecretConfig{
 		Blocked: []config.BlockedPath{{Command: "op read"}},
 	})).refuses([]string{"op", "read", "op://vault/item/field"}, "/tmp")
 	if !refused {
@@ -542,5 +542,36 @@ func TestARefusalNamesTheListTheEntryIsIn(t *testing.T) {
 		refuses([]string{"ls", "/srv/keys/luks.key"}, "/tmp")
 	if said := declaredRefusal(strict); strings.Contains(said, ",,") {
 		t.Errorf("the refusal punctuates the subject twice:\n%s", said)
+	}
+}
+
+// The broker's own key, which --ssh-key may put outside every directory the
+// layout renders. The guard refuses it either way; this is the route where a
+// mode is no answer, an approved escalation running as root, and where the rule
+// was missing while the guard's rendered file carried one.
+func TestARelocatedBrokerKeyIsRefusedByTheBroker(t *testing.T) {
+	const key = "/srv/keys/broker_ed25519"
+	check := newDeclaredCheck(denyrules.For(
+		"/home/op", []string{"/etc/faramir"}, key, config.SecretConfig{}))
+	for _, command := range [][]string{
+		{"cat", key},
+		{"sudo", "cat", key},
+		{"ls", "-l", key},
+	} {
+		if _, refused := check.refuses(command, "/tmp"); !refused {
+			t.Errorf("%v is allowed, and it names the key the broker lends", command)
+		}
+	}
+	// The rule is the key and not the directory holding it: a sibling under the
+	// same directory is nothing faramir installed.
+	if _, refused := check.refuses([]string{"cat", "/srv/keys/other.pem"}, "/tmp"); refused {
+		t.Error("a file beside the key is refused, so the rule is about the " +
+			"directory rather than about the key")
+	}
+	// And no key configured leaves nothing behind that matches everything.
+	none := newDeclaredCheck(denyrules.For(
+		"/home/op", []string{"/etc/faramir"}, "", config.SecretConfig{}))
+	if _, refused := none.refuses([]string{"cat", "/srv/keys/broker_ed25519"}, "/tmp"); refused {
+		t.Error("a host with no [ssh] key refuses a path no entry names")
 	}
 }

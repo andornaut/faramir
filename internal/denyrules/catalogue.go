@@ -164,14 +164,29 @@ func (k Kind) List() string {
 // are the same on every host and are not a function of it, so they are
 // ActionRules in actions.go, and each tier reads them from there rather than
 // being handed them: see the note at the head of that file.
-func For(home string, ownDirs []string, secret config.SecretConfig) []Rule {
-	out := make([]Rule, 0, len(ownDirs)+len(secret.Blocked)+len(secret.Links))
+func For(home string, ownDirs []string, sshKey string, secret config.SecretConfig) []Rule {
+	out := make([]Rule, 0, len(ownDirs)+len(secret.Blocked)+len(secret.Links)+1)
 	for _, dir := range ownDirs {
 		out = append(out, Rule{
 			Kind:     KindOwn,
 			Entry:    dir,
 			Strict:   true,
 			Subjects: []string{DirUnder(home, dir)},
+		})
+	}
+	// The broker's own key, which is not under any of those directories where
+	// --ssh-key put it elsewhere. Here rather than beside the guard's rules: a
+	// key the guard refuses and the broker does not is one an approved
+	// escalation reads as root, where its 0600 mode refuses nothing.
+	//
+	// Spelled like a declared path rather than as one literal, so a key under a
+	// home is refused by the ~ and $HOME spellings a person writes it in.
+	if sshKey != "" {
+		out = append(out, Rule{
+			Kind:     KindOwn,
+			Entry:    sshKey,
+			Strict:   true,
+			Subjects: subjectsUnder(home, sshKey),
 		})
 	}
 	linked, blocked := declaredPaths(secret)
@@ -354,8 +369,8 @@ func (r Rule) Broker() []string {
 // One function so the order is one decision. A caller that joined the two lists
 // itself decided the order again, and the guard's rendered file and the broker's
 // compiled set could then disagree about which of two matching rules answers.
-func Catalogue(home string, ownDirs []string, secret config.SecretConfig) []Rule {
-	out := append(ActionRules(), For(home, ownDirs, secret)...)
+func Catalogue(home string, ownDirs []string, sshKey string, secret config.SecretConfig) []Rule {
+	out := append(ActionRules(), For(home, ownDirs, sshKey, secret)...)
 	sort.SliceStable(out, func(i, j int) bool {
 		return rankOf(out[i].Kind) < rankOf(out[j].Kind)
 	})

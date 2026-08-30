@@ -12,7 +12,7 @@ import (
 // into two again, and a spelling refused to the shell ran here.
 func TestTheBrokerReadsTheCatalogueTheGuardsWay(t *testing.T) {
 	check := newDeclaredCheck(append(denyrules.ActionRules(),
-		denyrules.For("", nil, config.SecretConfig{
+		denyrules.For("", nil, "", config.SecretConfig{
 			Blocked: []config.BlockedPath{{Path: "/srv/keys/luks.key"}},
 		})...))
 

@@ -13,7 +13,7 @@ import (
 // of one path, the stricter is what the pair asked for, and a merge that keeps
 // the looser one takes back a flag the operator set.
 func TestTheStricterOfAnOverlappingPairSurvives(t *testing.T) {
-	rules := For("", nil, config.SecretConfig{
+	rules := For("", nil, "", config.SecretConfig{
 		Blocked: []config.BlockedPath{{Path: "/srv/keys/luks.key", Strict: true}},
 		Links: []config.Link{{
 			Ref: "luks", Path: "/srv/keys/luks.key", Type: "raw"}},
@@ -60,7 +60,7 @@ func TestEveryKindWithSubjectsIsRendered(t *testing.T) {
 // each of them: half a rule reaching both tiers is the failure the one catalogue
 // exists to prevent, and it would be invisible.
 func TestARuleCarriesOneShapeOrTheOther(t *testing.T) {
-	rules := For("/home/op", []string{"/etc/example"}, config.SecretConfig{
+	rules := For("/home/op", []string{"/etc/example"}, "", config.SecretConfig{
 		Blocked: []config.BlockedPath{
 			{Path: "/home/op/.private"},
 			{Path: "/srv/keys/luks.key", Strict: true},
@@ -114,7 +114,7 @@ func TestEveryListedKindIsAccepted(t *testing.T) {
 // kind is refused with the message written for the loose one, which offers a
 // brokered route the broker will not give it.
 func TestAnEntrysStrictnessIsItsKind(t *testing.T) {
-	rules := For("", nil, config.SecretConfig{
+	rules := For("", nil, "", config.SecretConfig{
 		Blocked: []config.BlockedPath{
 			{Path: "/srv/keys/loose.key"},
 			{Path: "/srv/keys/strict.key", Strict: true},

@@ -19,17 +19,6 @@ import (
 // "." otherwise matching any character.
 var renderFuncs = template.FuncMap{
 	"regexQuote": regexp.QuoteMeta,
-	// A rule over one of faramir's own files, saying so. Without the kind the
-	// refusal falls through to the message for a declared path and offers two
-	// removal commands, neither of which finds an entry for a path the layout
-	// renders.
-	"ownRule": func(path string) string {
-		rules := denyrules.NamingAs(denyrules.KindOwn, []string{regexp.QuoteMeta(path)})
-		if len(rules) == 0 {
-			return ""
-		}
-		return rules[0]
-	},
 	// marked wraps a rule this file writes by hand in the kind a refusal reads
 	// back out of it. Every rendered line carries one: a line that did not was
 	// classified by guessing at a substring of itself, so changing how a rule

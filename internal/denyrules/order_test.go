@@ -20,7 +20,7 @@ func TestTheCatalogueIsInKindsOrder(t *testing.T) {
 		rank[kind] = i
 	}
 
-	rules := Catalogue("/home/op", []string{"/etc/exampleown"}, config.SecretConfig{
+	rules := Catalogue("/home/op", []string{"/etc/exampleown"}, "", config.SecretConfig{
 		Blocked: []config.BlockedPath{
 			{Path: "/home/op/.examplestore"},
 			{Command: "op read"},

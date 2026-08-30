@@ -283,16 +283,20 @@ func GlobUnder(home, path string) string {
 	// refuses the pattern that might.
 	//
 	// Longest first, which is how a reader checks them.
+	// quotePath rather than QuoteMeta, as the directory half uses: a name holding
+	// a space is written `Local\ Storage` as often as it is quoted, and a glob
+	// rule that took only the quoted spelling would leave the escaped one open on
+	// exactly the entries the space handling was written for.
 	parts := func() []string {
 		out := make([]string, 0, len(name)+1)
 		for n := len(name); n >= 0; n-- {
-			out = append(out, regexp.QuoteMeta(name[:n]))
+			out = append(out, quotePath(name[:n]))
 		}
 		return out
 	}()
 	suffixes := make([]string, 0, len(name)+1)
 	for n := 0; n <= len(name); n++ {
-		suffixes = append(suffixes, regexp.QuoteMeta(name[n:]))
+		suffixes = append(suffixes, quotePath(name[n:]))
 	}
 	pattern := `/(?:` + strings.Join(parts, `|`) + `)` + globChar +
 		`(?:` + strings.Join(suffixes, `|`) + `)(?:` + pathEnd + `)`

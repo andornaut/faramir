@@ -377,10 +377,15 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 	// What this install occupies, which is refused without anybody declaring it
 	// and is most of what a bare host blocks. Derived from the layout rather
 	// than compiled in, so these are the paths this host actually uses.
+	//
+	// Strict, as denyrules writes them: a brokered command may not name one
+	// whatever it would do with it, there being no install for it to manage. A
+	// row that left the field off reported the strictest rules this host has as
+	// the loosest kind of entry.
 	for _, dir := range install.InstalledDirs(configDir) {
 		rows = append(rows, blockRow{
-			Source: sourceBuiltIn, Kind: kindPath, Entry: dir,
-			Detail: "this install's own, and everything under it",
+			Source: sourceBuiltIn, Kind: kindPath, Entry: dir, Strict: true,
+			Detail: strictDetail("this install's own, and everything under it", true),
 		})
 	}
 	// What faramir blocks for what a command does rather than for what it

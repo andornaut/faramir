@@ -89,7 +89,7 @@ func New(ownDirs []string, cfg *config.Config) *Server {
 		// one place is what keeps the two from answering the same command
 		// differently.
 		declared: newDeclaredCheck(
-			denyrules.Catalogue(agentHomeDir(cfg.Server.AgentUser), ownDirs, cfg.Secret)),
+			denyrules.Catalogue(agentHomeDir(cfg.Server.AgentUser), ownDirs, cfg.Ssh.Key, cfg.Secret)),
 		Store:      secretstore.New(cfg.Secret, cfg.Keeper),
 		Audit:      audit.NewLog(cfg.Audit),
 		Ssh:        sshagent.New(cfg.Ssh),

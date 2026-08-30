@@ -94,3 +94,26 @@ func TestAStrictEntryIsListedAsStrict(t *testing.T) {
 			"this host does not make")
 	}
 }
+
+// The install's own directories are the strictest rules this host has: the
+// broker refuses a command that names one whatever it would do with it, there
+// being no install for a brokered command to manage. A listing that left the
+// field off reported them as the loosest kind of entry, which is what a
+// converge filtering on it would have read.
+func TestTheInstallsOwnDirectoriesAreListedAsStrict(t *testing.T) {
+	rows := blockRows(t.TempDir(), nil, true)
+	paths := 0
+	for _, row := range rows {
+		if row.Source != sourceBuiltIn || row.Kind != kindPath {
+			continue
+		}
+		paths++
+		if !row.Strict {
+			t.Errorf("%s is listed as a loose entry, and the broker refuses it "+
+				"named at all", row.Entry)
+		}
+	}
+	if paths == 0 {
+		t.Fatal("no built-in path rules listed, so this asserts nothing")
+	}
+}

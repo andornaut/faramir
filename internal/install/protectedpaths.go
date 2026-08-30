@@ -331,7 +331,7 @@ func commandRules(layout Layout) []string {
 // the same denyrules.For, which is what keeps one tier from holding a rule the
 // other has never heard of.
 func catalogue(layout Layout) []denyrules.Rule {
-	return denyrules.For(agentHome(layout), installDirs(layout), config.SecretConfig{
+	return denyrules.For(agentHome(layout), installDirs(layout), layout.SSHKey, config.SecretConfig{
 		Blocked: layout.Blocked,
 		Links:   layout.Links,
 	})
