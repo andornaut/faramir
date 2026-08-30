@@ -27,19 +27,19 @@ func TestEveryKindHasAdvice(t *testing.T) {
 	}
 }
 
-// An action rule carries no kind marker, so what classifies it is the marker
-// table. Each one has to reach the advice its kind names: a rule the markers
-// cannot place falls to the unclassified default, which talks about a declared
-// path and offers a removal for an entry that does not exist.
+// Each action rule reaches the advice its kind names, in the spelling a refusal
+// meets: the rendered line, which is where the kind marker is written. A line
+// that carried none fell to the unclassified default, which talks about a
+// declared path and offers a removal for an entry that does not exist.
 //
 // Through adviceFor rather than against the table directly, so this asks the
 // question a refusal asks.
 func TestEveryActionRuleIsAnsweredByItsKind(t *testing.T) {
-	for _, rule := range ActionRules() {
-		for _, pattern := range rule.Patterns {
-			if got := adviceFor(pattern); got != byKind[rule.Kind] {
+	for _, rule := range denyrules.ActionRules() {
+		for _, line := range denyrules.GuardRules([]denyrules.Rule{rule}) {
+			if got := adviceFor(line); got != byKind[rule.Kind] {
 				t.Errorf("the action rule %q is answered as something other than %q",
-					shortPattern(pattern), rule.Kind)
+					shortPattern(line), rule.Kind)
 			}
 		}
 	}

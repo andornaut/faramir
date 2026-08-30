@@ -5,14 +5,13 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
-	"github.com/andornaut/faramir/internal/guard"
 )
 
 // Both tiers read the catalogue the same way, case included. The guard compiles
 // every pattern case-insensitively; a broker that did not made one inventory
 // into two again, and a spelling refused to the shell ran here.
 func TestTheBrokerReadsTheCatalogueTheGuardsWay(t *testing.T) {
-	check := newDeclaredCheck(append(guard.ActionRules(),
+	check := newDeclaredCheck(append(denyrules.ActionRules(),
 		denyrules.For("", nil, config.SecretConfig{
 			Blocked: []config.BlockedPath{{Path: "/srv/keys/luks.key"}},
 		})...))

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/denyrules"
-	"github.com/andornaut/faramir/internal/guard"
 )
 
 // The commands that act on the install are the operator's by either route. They
@@ -13,7 +12,7 @@ import (
 // ran: the account on the far side is not the operator either, and a rule the
 // two tiers do not share is a rule one of them has never heard of.
 func TestABrokeredOperatorCommandIsRefused(t *testing.T) {
-	check := newDeclaredCheck(guard.ActionRules())
+	check := newDeclaredCheck(denyrules.ActionRules())
 
 	for _, cmd := range [][]string{
 		{"faramir", "vault", "ls"},
@@ -46,25 +45,52 @@ func TestABrokeredOperatorCommandIsRefused(t *testing.T) {
 // the text of a command, and a heredoc body is one.
 var blockRemoval = "`" + "faramir block" + " rm`"
 
-// Every kind gets a message written for it. A kind added to the catalogue and
-// not answered here falls to the path branch, which is how a blocked command
-// came to be told what a reader may still do to a file.
+// Every kind gets a message of its own, in the parts every message has. Asked
+// of the parts rather than of the finished string: a message that lost its
+// remedy still reads as a sentence, so prose assertions pass on it and only the
+// phrases somebody thought to list would catch it.
+//
+// The tail is what makes a message about a file, so a kind that is not a path
+// carrying one is a kind that fell through to the path branch. That is how a
+// blocked command came to be told what a reader may still do to a file.
 func TestEveryKindHasARefusalOfItsOwn(t *testing.T) {
 	for _, kind := range denyrules.Kinds() {
 		entry := denyrules.Rule{Kind: kind, Entry: "/srv/keys/luks.key", Remedy: blockRemoval}
-		rule := declaredRule{Rule: entry}
-		said := declaredRefusal(rule)
-		if said == "" {
-			t.Errorf("kind %q has no refusal", kind)
-			continue
+		got := refusalFor(declaredRule{Rule: entry})
+
+		if got.body == "" {
+			t.Errorf("kind %q says nothing about what it refused", kind)
+		}
+		// A refusal with nothing to offer sends its reader looking for a way
+		// round it, so every kind has one whether or not an entry stands behind
+		// the rule.
+		if got.remedy == "" {
+			t.Errorf("kind %q offers no remedy:\n%s", kind, got.text())
+		}
+		isPath := kind == denyrules.KindBlocked || kind == denyrules.KindLinked
+		if (got.tail != "") != isPath {
+			if isPath {
+				t.Errorf("kind %q does not say what its entry leaves alone", kind)
+			} else {
+				t.Errorf("kind %q falls through to the message written for a path:\n%s",
+					kind, got.text())
+			}
 		}
 		// "declared" names no command its reader could run, and does not say
 		// which of the two removals applies.
-		if strings.Contains(said, "declare") {
+		if said := got.text(); strings.Contains(said, "declare") {
 			t.Errorf("the refusal for kind %q says something is declared:\n%s", kind, said)
 		}
-		if list := kind.List(); list != "" && !strings.Contains(said, list) {
-			t.Errorf("the refusal for kind %q does not name %q:\n%s", kind, list, said)
+		// Where an entry stands behind the rule, the refusal names both the
+		// listing it is in and the command that takes it back out.
+		if list := kind.List(); list != "" {
+			if !strings.Contains(got.body, list) {
+				t.Errorf("the refusal for kind %q does not name %q:\n%s", kind, list, got.body)
+			}
+			if !strings.Contains(got.remedy, entry.Remedy) {
+				t.Errorf("the refusal for kind %q does not name its removal:\n%s",
+					kind, got.remedy)
+			}
 		}
 	}
 }

@@ -72,15 +72,20 @@ const (
 	KindOwnAction Kind = "ownaction"
 )
 
-// Kinds is every kind, in a fixed order so a caller iterating them answers the
-// same way twice. A tier keying its messages off these has a compile-time list
-// to check itself against rather than a habit of remembering.
+// Kinds is every kind, and the order both tiers hold their rules in. A tier
+// keying its messages off these has a compile-time list to check itself against
+// rather than a habit of remembering, and one that renders them has the order
+// as well.
 //
-// The order is the one the path rules are rendered in, own first: a path that
-// is both this install's own and declared is the install's, which is the answer
-// with no removal command to offer.
+// First match wins on both sides, so the order decides which of two rules a
+// command that matches both is answered by. What acts on the install comes
+// first: an agent running a faramir subcommand against one of its own
+// directories is told it is an operator command, which is the more useful of
+// the two answers. Own before blocked and linked for the same reason, a path
+// that is both this install's own and declared being the install's, which is
+// the answer with no removal to offer.
 func Kinds() []Kind {
-	return []Kind{KindOwn, KindBlocked, KindLinked, KindCommand, KindOperator, KindOwnAction}
+	return []Kind{KindOwnAction, KindOperator, KindOwn, KindBlocked, KindLinked, KindCommand}
 }
 
 // List is the table an entry sits in, named the way `faramir block ls` and
@@ -106,9 +111,10 @@ func (k Kind) List() string {
 // home is the home a "~" stands for, and ownDirs is where this install put
 // itself, which is the installer's to know.
 //
-// It does not carry the rules about faramir's own commands and files. Those are
-// patterns rather than a function of the config, they live beside the guard that
-// spells them, and a caller appends them: see guard.ActionRules.
+// The config is all it reads. The rules about faramir's own commands and files
+// are the same on every host and are not a function of it, so they are
+// ActionRules in actions.go, and each tier reads them from there rather than
+// being handed them: see the note at the head of that file.
 func For(home string, ownDirs []string, secret config.SecretConfig) []Rule {
 	out := make([]Rule, 0, len(ownDirs)+len(secret.Blocked)+len(secret.Links))
 	for _, dir := range ownDirs {
@@ -235,30 +241,36 @@ func Compile(pattern string) (*regexp.Regexp, error) {
 //
 // Packed, one alternation per kind rather than one rule per entry. The rendered
 // file is a list of patterns and nothing else, so there is no message to keep
-// beside a rule and nothing a per-entry rule would buy; what a refusal recovers
-// is the kind, which NamingAs writes into the rule as a named group. A host
-// declaring 170 paths gets three patterns rather than 340.
+// beside a rule and nothing a per-entry rule would buy; a host declaring 170
+// paths gets three patterns rather than 340.
 //
-// Rules that carry whole patterns are emitted as they are, after the packed
-// ones and in the order they were given.
+// Every line carries its kind, a whole pattern as much as a packed subject.
+// That is what a refusal reads back, and it is the only thing it can read: a
+// line that carried none was classified by guessing at a substring of it, so
+// changing how a rule was spelled changed which message it got.
+//
+// In Kinds() order, which is where the order lives. First match wins on both
+// tiers, so a command that is both an operator command and a named path is told
+// it is an operator command, and the two sides cannot disagree about that
+// without disagreeing about Kinds().
 func GuardRules(rules []Rule) []string {
-	byKind := make(map[Kind][]string, len(Kinds()))
-	var out, whole []string
+	subjects := make(map[Kind][]string, len(Kinds()))
+	patterns := make(map[Kind][]string, len(Kinds()))
 	for _, rule := range rules {
 		if len(rule.Subjects) == 0 {
-			whole = append(whole, rule.Patterns...)
+			patterns[rule.Kind] = append(patterns[rule.Kind], rule.Patterns...)
 			continue
 		}
-		byKind[rule.Kind] = append(byKind[rule.Kind], rule.Subjects...)
+		subjects[rule.Kind] = append(subjects[rule.Kind], rule.Subjects...)
 	}
-	// Every kind, not the three that carry subjects today: a kind added later
-	// that does carry them would otherwise be collected here and emitted
-	// nowhere, which is the failure the one catalogue exists to make impossible.
-	// NamingAs writes nothing for a kind with no subjects.
+	var out []string
 	for _, kind := range Kinds() {
-		out = append(out, NamingAs(kind, byKind[kind])...)
+		out = append(out, NamingAs(kind, subjects[kind])...)
+		for _, pattern := range patterns[kind] {
+			out = append(out, KindMarker(kind)+pattern+`)`)
+		}
 	}
-	return append(out, whole...)
+	return out
 }
 
 // Broker is one rule as a brokered command is held to it: the whole-command
@@ -283,4 +295,21 @@ func (r Rule) Broker() []string {
 		return Naming(r.Subjects)
 	}
 	return Disclosing(r.Subjects)
+}
+
+// Catalogue is everything one host refuses, in the order both tiers hold it:
+// the rules about faramir's own commands and files, and the rules the config
+// asks for, sorted by Kinds().
+//
+// One function so the order is one decision. A caller that joined the two lists
+// itself decided the order again, and the guard's rendered file and the broker's
+// compiled set could then disagree about which of two matching rules answers.
+func Catalogue(home string, ownDirs []string, secret config.SecretConfig) []Rule {
+	out := append(ActionRules(), For(home, ownDirs, secret)...)
+	rank := make(map[Kind]int, len(Kinds()))
+	for i, kind := range Kinds() {
+		rank[kind] = i
+	}
+	sort.SliceStable(out, func(i, j int) bool { return rank[out[i].Kind] < rank[out[j].Kind] })
+	return out
 }

@@ -90,6 +90,13 @@ func newDeclaredCheck(rules []denyrules.Rule) declaredCheck {
 // The command is matched as a line, which is what the rules are written
 // against: a brokered argv is one command, and an argv that hands a string to a
 // shell carries a line inside it.
+//
+// One regular expression per pattern, walked in order. At 170 declared paths
+// that is around 520 of them and about 2ms per brokered command, against 0.03ms
+// for a single packed alternation over the same subjects. The walk is kept: it
+// is what names the entry that matched, and a prefilter in front of it is a
+// second thing deciding what is refused, which is the wrong trade on a path
+// that already forks a process.
 func (d declaredCheck) refuses(cmd []string, cwd string) (declaredRule, bool) {
 	if len(d.rules) == 0 || len(cmd) == 0 {
 		return declaredRule{}, false
@@ -209,47 +216,88 @@ func resolveArgs(cmd []string, cwd string) string {
 	return strings.Join(out, " ")
 }
 
+// a refusal is what a caller is told, in the parts every one of them has:
+// what matched and why no other answer is available, then what to do instead,
+// and for a path the sentence saying what the entry leaves alone.
+//
+// Parts rather than one string, because the remedy is the half a reader can
+// act on and a message that lost it still read as a whole sentence. Asserting
+// prose means listing the phrases somebody thought of; asserting a field means
+// asking whether the message has a remedy at all.
+type refusal struct {
+	// body is what was refused and why this route cannot answer.
+	body string
+	// remedy is what to do instead. Never empty: a refusal with nothing to
+	// offer sends its reader looking for a way round it.
+	remedy string
+	// tail says what the entry leaves alone, and is for the path kinds. The
+	// others have no vocabulary to describe.
+	tail string
+}
+
+func (r refusal) text() string {
+	out := r.body + "\n\n" + r.remedy
+	if r.tail != "" {
+		out += " " + r.tail
+	}
+	return out
+}
+
 // declaredRefusal is what the caller is told, which reaches a model rather than
 // the operator: it names the entry that matched, says why no other answer is
 // available, and leaves the remedy where it belongs.
-//
-// One branch per kind, and the kinds come from the catalogue both tiers are
-// built from, and the switch carries no default, so a kind added there is a
-// lint error here rather than
-// as the wrong sentence. A command entry answered with what a reader may still
-// do to a file is what that used to look like.
 func declaredRefusal(rule declaredRule) string {
+	return refusalFor(rule).text()
+}
+
+// refusalFor is the message per kind, and the kinds come from the catalogue
+// both tiers are built from. The switch carries no default, so a kind added
+// there is a lint error here rather than a rule answered with the wrong
+// sentence: a command entry told what a reader may still do to a file is what
+// that used to look like.
+func refusalFor(rule declaredRule) refusal {
 	switch rule.Kind {
 	case denyrules.KindOwn:
-		return "this is " + rule.Entry + ", which is faramir's own, so a brokered " +
-			"command may not name it whatever it would do with it. There is no entry " +
-			"to remove: these are rendered from the install's layout on every run, " +
-			"and this side runs as an account of its own, or as root where an " +
-			"escalation was approved, so a mode is no answer here.\n\nIf this is " +
-			"deliberate, it is the operator's to do, outside faramir."
+		return refusal{
+			body: "this is " + rule.Entry + ", which is faramir's own, so a brokered " +
+				"command may not name it whatever it would do with it. There is no entry " +
+				"to remove: these are rendered from the install's layout on every run, " +
+				"and this side runs as an account of its own, or as root where an " +
+				"escalation was approved, so a mode is no answer here.",
+			remedy: "If this is deliberate, it is the operator's to do, outside faramir.",
+		}
 	case denyrules.KindOperator:
-		return "this command acts on the faramir install rather than through it, so " +
-			"it is the operator's to run and this route is no way round that: a " +
-			"brokered command runs as an account with less reach than you, not " +
-			"more.\n\nAsk the operator. Where `faramir doctor` says to run it as " +
-			"root for the rest of an answer, that line is addressed to them."
+		return refusal{
+			body: "this command acts on the faramir install rather than through it, so " +
+				"it is the operator's to run and this route is no way round that: a " +
+				"brokered command runs as an account with less reach than you, not " +
+				"more.",
+			remedy: "Ask the operator. Where `faramir doctor` says to run it as " +
+				"root for the rest of an answer, that line is addressed to them.",
+		}
 	case denyrules.KindOwnAction:
-		return "this is faramir's own binary, one of the files an enrolment " +
-			"installs, or one of its units. Refused not because it would disclose " +
-			"anything but because it would change or stop what keeps credentials out " +
-			"of this conversation, and a brokered command has less reach than you " +
-			"rather than more.\n\nIf this is deliberate, it is the operator's to do."
+		return refusal{
+			body: "this is faramir's own binary, one of the files an enrolment " +
+				"installs, or one of its units. Refused not because it would disclose " +
+				"anything but because it would change or stop what keeps credentials out " +
+				"of this conversation, and a brokered command has less reach than you " +
+				"rather than more.",
+			remedy: "If this is deliberate, it is the operator's to do.",
+		}
 	case denyrules.KindCommand:
-		// The path tail below is about what a reader may still do to a file, which
-		// names nothing somebody who ran `op read` typed.
-		return rule.Kind.List() + " on this host name the command " + rule.Entry +
-			", so no brokered command may run it. The words are matched where a " +
-			"command starts, so the same words inside an argument or a path are " +
-			"left alone; a line of a heredoc is read as a command and is " +
-			"not.\n\nIf the work needs it, that is the operator's, either " +
-			"outside faramir or after " + rule.Remedy + "."
+		// No tail: it is about what a reader may still do to a file, and names
+		// nothing somebody who ran `op read` typed.
+		return refusal{
+			body: rule.Kind.List() + " on this host name the command " + rule.Entry +
+				", so no brokered command may run it. The words are matched where a " +
+				"command starts, so the same words inside an argument or a path are " +
+				"left alone; a line of a heredoc is read as a command and is not.",
+			remedy: "If the work needs it, that is the operator's, either " +
+				"outside faramir or after " + rule.Remedy + ".",
+		}
 	case denyrules.KindBlocked, denyrules.KindLinked:
-		// The path message below.
+		// Below, both kinds sharing one message: they differ in the listing they
+		// name and the removal they offer, which the rule carries.
 	}
 	// What the entry leaves alone, which is the sentence that tells a reader
 	// whether another spelling is worth trying. A strict entry leaves nothing
@@ -265,13 +313,16 @@ func declaredRefusal(rule declaredRule) string {
 	}
 	// Only the two path kinds reach here, and both are an entry: they have a
 	// listing to name and a removal to offer, so neither is asked for.
-	return rule.Kind.List() + " on this host name " + declaredSubject(rule) +
-		", and a brokered command may not print what they name. " +
-		"Its contents are covered by nothing on the way back: a file named there " +
-		"is one faramir either never reads or reads a single ref out of, so there " +
-		"is no value to replace in this command's output.\n\n" +
-		"Reading it is the operator's, either outside faramir or after " +
-		rule.Remedy + ". " + tail
+	return refusal{
+		body: rule.Kind.List() + " on this host name " + declaredSubject(rule) +
+			", and a brokered command may not print what they name. " +
+			"Its contents are covered by nothing on the way back: a file named there " +
+			"is one faramir either never reads or reads a single ref out of, so there " +
+			"is no value to replace in this command's output.",
+		remedy: "Reading it is the operator's, either outside faramir or after " +
+			rule.Remedy + ".",
+		tail: tail,
+	}
 }
 
 // declaredSubject is how the refusal names a path entry: the file, the ref it

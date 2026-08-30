@@ -30,6 +30,13 @@ var renderFuncs = template.FuncMap{
 		}
 		return rules[0]
 	},
+	// marked wraps a rule this file writes by hand in the kind a refusal reads
+	// back out of it. Every rendered line carries one: a line that did not was
+	// classified by guessing at a substring of itself, so changing how a rule
+	// was spelled changed which message it got.
+	"marked": func(kind, rule string) string {
+		return denyrules.KindMarker(denyrules.Kind(kind)) + rule + `)`
+	},
 	// list is what lets one rule be written once and rendered per tool it applies
 	// to: a deny list copied per tool drifts, and a rule that has drifted into
 	// matching nothing looks like one that matches everything.

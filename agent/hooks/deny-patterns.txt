@@ -53,8 +53,8 @@
 {{end}}
 # The binary, named as one path rather than as its directory, or installing any
 # unrelated tool into {{.BinDir}} would be refused.
-{{writeCommands}}{{argSpan}}{{.BinDir | regexQuote}}/faramir\b
->\s*\S*{{.BinDir | regexQuote}}/faramir\b
+{{marked "ownaction" (printf `%s%s%s/faramir\b` writeCommands argSpan (regexQuote .BinDir))}}
+{{marked "ownaction" (printf `>\s*\S*%s/faramir\b` (regexQuote .BinDir))}}
 
 # The plugin and extension an enrolment installs, which are faramir's own files
 # rather than shared ones: init-project overwrites each in full on every run, so
@@ -69,8 +69,16 @@
 # registration that went missing, and the rule in the credentials section
 # against removing faramir's own entries from a file you are otherwise free to
 # change.
-{{writeCommands}}{{argSpan}}(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts|codex/hooks\.json)
->\s*\S*(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts|codex/hooks\.json)
+{{marked "ownaction" (printf `%s%s(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts|codex/hooks\.json)` writeCommands argSpan)}}
+{{marked "ownaction" `>\s*\S*(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts|codex/hooks\.json)`}}
+
+# Stopping or masking one of faramir's units, which is refused for what it costs
+# rather than because it hides anything: the wrapper fails closed, so a stopped
+# broker withholds every command's output in every enrolled tree at once.
+#
+# Here rather than below the operator commands: the kinds decide the order now,
+# and this is faramir's own alongside the binary and the plugin files.
+{{marked "ownaction" `\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`}}
 
 # Reaching the broker's private state. Reading the audit log is covered above;
 # listing the directory is not. journalctl is absent: the daemons log ref names
@@ -84,19 +92,19 @@
 # precede the name. Managing a unit is not this, so "systemctl restart
 # faramir-keeper" stays allowed; journalctl likewise, the daemons logging ref
 # names and counts and never values.
-\bsudo\b(\s+-\S+)*\s+faramir\b
+{{marked "operator" `\bsudo\b(\s+-\S+)*\s+faramir\b`}}
 # The same commands unprivileged. They act on the install rather than through
 # it, so they are the operator's whether or not sudo is in front: refused here so
 # the agent is told that, rather than meeting a permission error it will try to
 # work around.
-\bfaramir[-\s]+(block[ \t]+add|block[ \t]+rm|init|init-project|link[ \t]+add|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b
-\bsudo\b.*-u\s+faramir
-\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-
+{{marked "operator" `\bfaramir[-\s]+(block[ \t]+add|block[ \t]+rm|init|init-project|link[ \t]+add|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b`}}
+{{marked "operator" `\bsudo\b.*-u\s+faramir`}}
 
-# Last, because a line can match this and a rule above it: an agent running
-# `sudo faramir doctor` against a declared path is told it is an operator
-# command, which is the more useful of the two answers, and decide reports the
-# first rule that matches.
+# Last, because a line can match this and a rule above it: an agent running a
+# faramir subcommand against a declared path is told it is an operator command,
+# which is the more useful of the two answers, and decide reports the first rule
+# that matches. The order is denyrules.Kinds(), which the broker holds its own
+# rules in as well, so neither tier answers such a command differently.
 #
 # No verb in front of them. A declared subject is an absolute path, and a path
 # names itself: the vocabularies this replaced existed to tell a file access
@@ -109,5 +117,9 @@
 # matched and changes nothing about what is refused. It is there so the refusal
 # can name the command that takes the entry back, which differs by kind and
 # which one rule over all three could not say.
+#
+# Every line above carries one too, `ownaction` or `operator`, and a declared
+# command carries `command`. A line that carried none was classified by matching
+# a substring of itself, so how a rule was spelled decided which message it got.
 {{range commandRules .}}{{.}}
 {{end}}

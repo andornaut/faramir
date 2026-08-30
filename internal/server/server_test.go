@@ -92,7 +92,7 @@ func serverWith(t *testing.T, k *keepertest.Keeper, secretFiles ...string) *Serv
 		Secret: config.SecretConfig{Patterns: secretFiles, MinLength: 8},
 		Audit:  config.AuditConfig{LogPath: filepath.Join(dir, "audit.log")},
 	}
-	s := New(nil, nil, cfg)
+	s := New(nil, cfg)
 	s.Store.Reload()
 	return s
 }

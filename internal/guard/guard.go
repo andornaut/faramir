@@ -70,6 +70,13 @@ var defaultInstallPaths = []string{
 // running on the fallback is a host running on faramir's own paths alone.
 var fallback = fallbackPatterns()
 
+// fallbackOwn is faramir's own: its binary, the files an enrolment installs,
+// and the commands that act on the install rather than through it. Flattened
+// from the catalogue's action rules, which is where they are spelled, in the
+// shipped file's order: TestTheFallbackMatchesTheShippedFile compares the two
+// line by line.
+var fallbackOwn = denyrules.GuardRules(denyrules.ActionRules())
+
 // ActionPatterns is what the guard refuses for what a command does rather than
 // for what it points at: the commands that act on faramir's own install, and
 // writes to the files an enrolment installs.
@@ -105,91 +112,6 @@ func fallbackPatterns() []string {
 // one is rendered into the shipped file rather than carried here: the fallback
 // is what holds when that file cannot be read, and it can no more carry a
 // declaration than it can carry a [[secret.block]] path.
-
-// pluginFiles is the one alternation both plugin-file rules carry: the plugin,
-// extension and hook file `faramir init` installs, which are faramir's own files
-// and the only thing refusing those agents' file tools.
-const pluginFiles = `(opencode/plugin/faramir\.js|kilo/plugin/faramir\.js|pi/agent/extensions/faramir\.ts|codex/hooks\.json)`
-
-// fallbackOwn is the rest of faramir's own: its binary, the files an enrolment
-// installs, and the commands that act on the install rather than through it.
-//
-// Flattened from ActionRules rather than listed again, so the groups and their
-// order are stated once. Listing them twice made a group added to one and not
-// the other reach a tier and no more, which is the drift the catalogue exists
-// to remove. The order is the shipped file's, which
-// TestTheFallbackMatchesTheShippedFile compares line by line.
-var fallbackOwn = denyrules.GuardRules(ActionRules())
-
-// ActionRules is what a brokered command is held to on this same ground, as
-// catalogue rules. The broker holds no list of its own: these are patterns
-// rather than a function of the config, they are spelled here, and a copy over
-// there would be the second inventory that let `faramir run -- faramir vault
-// ls` through while the shell spelling was refused.
-//
-// Whole patterns rather than subjects. They are about what a command does
-// rather than what it points at, so there is no looser reading to give one and
-// both tiers take them as written.
-func ActionRules() []denyrules.Rule {
-	return []denyrules.Rule{
-		{Kind: denyrules.KindOwnAction, Patterns: fallbackOwnFiles},
-		{Kind: denyrules.KindOperator, Patterns: fallbackOperator},
-		{Kind: denyrules.KindOwnAction, Patterns: fallbackOwnUnits},
-	}
-}
-
-// fallbackOwnFiles is faramir's own binary and the files an enrolment installs.
-var fallbackOwnFiles = []string{
-	// The binary, named as one path rather than as its directory, or installing
-	// any unrelated tool into /usr/local/bin would be refused.
-	denyrules.WriteCommands + denyrules.ArgSpan + `/usr/local/bin/faramir\b`,
-	`>\s*\S*/usr/local/bin/faramir\b`,
-	// The plugin, extension and hook file `faramir init` installs, which are
-	// faramir's own files and now the only thing refusing those agents' file
-	// tools: deleting one is deleting their cover. The directories are
-	// ~/.config/opencode, ~/.config/kilo, ~/.pi/agent and ~/.codex, and Codex's is
-	// also a tree's own file, so one spelling covers ~/.codex/hooks.json and a
-	// project's .codex/hooks.json.
-	//
-	// Matched as a suffix with no leading dot, which is wider than those
-	// directories: "somecodex/hooks.json" matches too. Over-refusal, on files
-	// nothing else writes, and narrowing it would cost the one spelling that
-	// reaches both a home and a tree.
-	//
-	// The merged files (.claude/settings.json, opencode.json, kilo.json) are
-	// deliberately absent: they carry the operator's own settings beside
-	// faramir's, so editing them is ordinary work, and `faramir doctor` reports a
-	// registration that went missing.
-	denyrules.WriteCommands + denyrules.ArgSpan + pluginFiles,
-	`>\s*\S*` + pluginFiles,
-}
-
-// fallbackOperator is the commands that act on the install rather than through
-// it, which are the operator's by either route.
-var fallbackOperator = []string{
-	// faramir under sudo, whichever subcommand. Nothing an agent may run needs
-	// root -- `run`, `redact`, `status` and `refs` all answer as the agent's own
-	// account -- so a sudo here is a daemon, a decision that is the operator's, or
-	// a change to the install. Only sudo's own flags may precede the name.
-	// Managing a unit is not this, so "systemctl restart faramir-keeper" stays
-	// allowed, as does journalctl.
-	`\bsudo\b(\s+-\S+)*\s+faramir\b`,
-	// The same commands unprivileged. They act on the install rather than through
-	// it, so they are the operator's whether or not sudo is in front: refused here
-	// so the agent is told that rather than meeting a permission error it will try
-	// to work around. Derived from cli.OperatorOnly, so a command added there is
-	// refused here without a second list to update; the shipped file's copy is
-	// held to this one by TestTheFallbackMatchesTheShippedFile.
-	`\bfaramir[-\s]+(` + sanctionAlternation(cli.OperatorOnly()) + `)\b`,
-	`\bsudo\b.*-u\s+faramir`,
-}
-
-// fallbackOwnUnits is managing one of faramir's units. Blocked for what it
-// costs, not because it hides anything: the wrapper fails closed, so a stopped
-// broker withholds every command's output in every enrolled tree at once.
-var fallbackOwnUnits = []string{
-	`\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`,
-}
 
 // adviceOperator is for a command that is the operator's to run. The account
 // this agent runs as could not have carried it out, so the refusal saves the
@@ -283,52 +205,6 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not bec
 	"conversation. `faramir run` is no way round it: a brokered command has less reach " +
 	"than you.\n\nIf this is deliberate, it is the operator's to do."
 
-// adviceMarkers map a substring of a pattern to the explanation that pattern
-// carries. Matched against the pattern's own text, which is the same string in
-// the compiled fallback and in the shipped file.
-//
-// Ordered, first match winning: a faramir subcommand is the operator's before
-// it is anything else. A refusal offering `faramir run` to somebody who ran
-// `faramir doctor` names a remedy for a problem they do not have.
-var adviceMarkers = []struct {
-	marker string
-	advice string
-}{
-	// These are the legacy path, reached only for a rule the kinds could not
-	// place: a file rendered by an install from before them, or an action rule
-	// whose spelling has since changed. A substring of a pattern is a fragile way
-	// to ask what a rule is about, and it is what the kinds replace.
-	//
-	// A faramir subcommand under sudo, and running as one of the service
-	// accounts. The second spells no word boundary after the name, the account
-	// names carrying a suffix, so the marker stops where the two agree.
-	{`\s+faramir`, adviceOperator},
-	// Stopping at the open bracket rather than reaching into the alternation:
-	// the subcommands inside it are listed alphabetically, so which one comes
-	// first moves whenever a command is added.
-	{`\bfaramir[-\s]+(`, adviceOperator},    // the same set unprivileged
-	{`\bsystemctl\b`, adviceOwn},            // stopping or masking a unit
-	{`/usr/local/bin/faramir\b`, adviceOwn}, // the binary
-	{`opencode/plugin/faramir`, adviceOwn},  // the plugin `init` writes
-	// A redirect over faramir's own binary or plugin files. At the default bin
-	// directory the path marker above catches it; a moved one has no marker of
-	// its own, and these are the only redirect rules left.
-	{`>\s*\S*`, adviceOwn},
-	// The head of denyrules.WriteCommands's word list rather than the constant,
-	// the shipped file carrying the expansion rather than the name. The words
-	// alone, not what wraps them: the group around them has changed shape once
-	// already, and a marker carrying it silently stops matching when it does.
-	//
-	// This is faramir's own binary and plugin files, which are the only rules
-	// left that carry a verb. A declared path carries none, and is answered by
-	// the kind its own rule names.
-	{`rm|shred|truncate`, adviceOwn},
-	// A declared command, which is about what a tool does rather than what it
-	// names. Without this it falls through to adviceDeclared and is answered
-	// with advice about a path the entry does not have.
-	{denyrules.CommandPosition, adviceCommand},
-}
-
 // byKind is the message per catalogue kind, which is the same vocabulary the
 // broker answers from. Two tables rather than one because the two tiers say
 // different things: a brokered refusal talks about the account on the far side
@@ -345,31 +221,20 @@ var byKind = map[denyrules.Kind]string{
 }
 
 // adviceFor picks the explanation that matches why the command was refused.
-// The pattern is the whole input: a rule about a declared path carries the kind
-// of entry that declared it, and an action rule carries no kind and is told
-// apart by what it matches. Unclassified means disclosure, which is the larger
-// half and the safer default.
+// Every rule this install rendered carries its kind as a named group, so the
+// pattern says which message it wants and nothing has to be recognised by a
+// substring of itself.
 //
-// No exact lookup of the action patterns against ActionRules, which would look
-// like the better answer and is not: the rendered file interpolates the bin
-// directory, so on a host that moved it the line is not the string this binary
-// carries and only the markers below reach it. One classifier that answers
-// every spelling beats two that agree on some of them.
+// Unclassified means a file an older install rendered, from before the kinds.
+// It gets the disclosure message, which is the larger half and the safer
+// default: being wrong that way costs a detour, and being wrong the other way
+// tells an agent that the operator's own secret is faramir's file.
 func adviceFor(pattern string) string {
-	// The kind a path rule carries, written into it by denyrules.NamingAs as a
-	// named group that matches exactly what the rule matched.
 	for _, kind := range denyrules.Kinds() {
 		if strings.Contains(pattern, denyrules.KindMarker(kind)) {
 			return byKind[kind]
 		}
 	}
-	for _, m := range adviceMarkers {
-		if strings.Contains(pattern, m.marker) {
-			return m.advice
-		}
-	}
-	// A subject rule from an install that rendered its file before the kinds
-	// existed, which is the one case left where the rule cannot say which.
 	return adviceDeclared
 }
 
@@ -497,6 +362,15 @@ func withConfigDir(raw []string) []string {
 
 // compilePatterns compiles each pattern the way denyrules says one is read.
 // complete is false when any line did not compile.
+//
+// Once per guard process, which is once per tool call: the cache above lives
+// only as long as this one. Compilation is linear in the file's bytes at
+// roughly 100ns each, so at 170 declared paths it is about 10ms and the
+// matching that follows is 24us. What would cut it is not compiling the path
+// rules at all where no literal in them appears in the command, which needs a
+// list of those literals rendered beside the patterns: a second artifact an
+// install can get out of step with the first, and a redesign rather than a
+// change here.
 func compilePatterns(raw []string) (out []compiled, complete bool) {
 	complete = true
 	out = make([]compiled, 0, len(raw))
@@ -875,24 +749,12 @@ func looksLikePath(candidate string) bool {
 // command after a `--`, since redact does not guard what it runs.
 var faramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*faramir[ \t]+(` +
-		sanctionAlternation(cli.Agent) + `)\b[^;&|\n<>]*`)
+		denyrules.SubcommandAlternation(cli.Agent) + `)\b[^;&|\n<>]*`)
 
 // childSeparator matches a standalone `--` token, the boundary before the child
 // command of `run` and `redact`. A flag such as `--env` does not match: `--` is
 // held to whitespace or an end on either side.
 var childSeparator = regexp.MustCompile(`(^|\s)--(\s|$)`)
-
-// sanctionAlternation renders subcommand names as one alternation. A grouped
-// command is named as two tokens, so the space between them becomes the
-// whitespace a shell would accept: `vault edit` has to match `vault   edit` and
-// must not match `vaultedit`.
-func sanctionAlternation(names []string) string {
-	out := make([]string, 0, len(names))
-	for _, name := range names {
-		out = append(out, strings.ReplaceAll(regexp.QuoteMeta(name), " ", `[ \t]+`))
-	}
-	return strings.Join(out, "|")
-}
 
 // stripFaramirCalls removes faramir's own invocations from a line before it is
 // matched, so a ref name or a flag cannot read as the thing a rule refuses.
