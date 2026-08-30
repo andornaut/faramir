@@ -96,21 +96,6 @@ func newDeclaredCheck(agentHome string, ownDirs []string, secret config.SecretCo
 		}
 		return denyrules.Disclosing([]string{subject})
 	}
-	for _, entry := range secret.Blocked {
-		const remedy = "`faramir block rm`"
-		switch {
-		case entry.Command != "":
-			// A command entry is already about what a command does, so it is matched
-			// as itself rather than as a subject for the rules above. The loader
-			// refuses strict on one, there being no looser reading to tighten.
-			if rule := denyrules.CommandRule(entry.Command); rule != "" {
-				add("the command "+entry.Command, remedy, false, []string{rule})
-			}
-		case entry.Path != "":
-			add(named("the path "+entry.Path, entry.Strict), remedy, entry.Strict,
-				rulesFor(denyrules.DirUnder(agentHome, entry.Path), entry.Strict))
-		}
-	}
 	// This install's own directories, which no entry declares and no removal
 	// takes back. Held to the shape a strict entry gets, no command may name it,
 	// rather than the looser reading a declared path gets: the looser one exists
@@ -125,6 +110,21 @@ func newDeclaredCheck(agentHome string, ownDirs []string, secret config.SecretCo
 	for _, dir := range ownDirs {
 		add(dir+", which is faramir's own and which no command may name at all,",
 			"", true, denyrules.Naming([]string{denyrules.DirUnder(agentHome, dir)}))
+	}
+	for _, entry := range secret.Blocked {
+		const remedy = "`faramir block rm`"
+		switch {
+		case entry.Command != "":
+			// A command entry is already about what a command does, so it is matched
+			// as itself rather than as a subject for the rules above. The loader
+			// refuses strict on one, there being no looser reading to tighten.
+			if rule := denyrules.CommandRule(entry.Command); rule != "" {
+				add("the command "+entry.Command, remedy, false, []string{rule})
+			}
+		case entry.Path != "":
+			add(named("the path "+entry.Path, entry.Strict), remedy, entry.Strict,
+				rulesFor(denyrules.DirUnder(agentHome, entry.Path), entry.Strict))
+		}
 	}
 	for _, link := range secret.Links {
 		if link.Path == "" {

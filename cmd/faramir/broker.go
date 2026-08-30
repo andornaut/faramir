@@ -72,7 +72,16 @@ func runBroker(f brokerFlags) int {
 	// command that names one. Read here rather than in the daemon: this is the
 	// installer's answer, and a unit it cannot read falls back to the standard
 	// names, which is what an install that renamed nothing uses.
-	s := server.New(install.InstalledDirs(filepath.Dir(cfg.Path)), cfg)
+	//
+	// Only from an absolute path. A relative one renders a subject for "." and
+	// refuses every ./x on the host, which is worse than rendering nothing.
+	// systemd passes an absolute path; a dev run pointed at a relative
+	// FARAMIR_CONFIG is the case this skips.
+	var ownDirs []string
+	if configDir := filepath.Dir(cfg.Path); filepath.IsAbs(configDir) {
+		ownDirs = install.InstalledDirs(configDir)
+	}
+	s := server.New(ownDirs, cfg)
 	s.Store.Reload()
 
 	// Before starting the agent: --check runs against a live broker, and a second
