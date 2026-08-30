@@ -18,6 +18,8 @@
 
 [Rr]ead[- ]tool|[Rr]ead\(\).*(clear|unredacted)|file[- ]reading tool.*(clear|unredacted) :: The file tools are the agent's own and never enter the broker, so there is no stream to redact and a PreToolUse hook cannot rewrite a result. A brokered command that writes a secret to a path the agent can read has put plaintext on disk; declare that path to refuse it.
 
+[Ee]dit[- ]tool|Edit\(\)|String to replace not found|edit.*(declared|blocked).*(not refused|allowed|went through) :: The client reads the target file to check the old string before the hook is called, so a failing edit is answered without faramir being asked and a succeeding one is refused by the hook as a read is. What that leaves is whether a string is in the file, one call at a time, read by the agent's own uid through its own tool. Nothing in faramir stands in front of that, and the guard denies the same call when it is asked.
+
 printf.*%q|[Rr]epr\(\)|backslash[- ](re)?quot :: Backslash re-quoting is named in docs/redaction.md as outside the matched set, beside any deliberate transform. The child chooses its own output encoding and the redactor matches literals.
 
 /dev/shm :: PrivateTmp= covers /tmp and /var/tmp and not /dev/shm, which is shared with the caller. internal/server/server.go says so deliberately: a brokered command's leavings there are the caller's to find, and teardown.sh removes the suite's.
@@ -32,7 +34,7 @@ faramir\.env.*(meant to be read|holds no|refs|readable) :: The refs file names s
 
 \b(ls|stat|file|du|readlink|realpath)\b[^|]*(declared|protected|blocked|/etc/faramir|/var/log/faramir|libexec/faramir) :: Naming a declared path is what the rule answers, so a metadata command naming one is refused with the rest. There is no verb list to exempt it: the list that would have held one failed open on every tool nobody thought to add. `faramir run -- ls` is the brokered route, which is answered by a different rule.
 
-(prose|sentence|comment|document|heredoc|script (containing|quoting|naming)|echo ")[^|]*(declared|protected|blocked|/etc/faramir|libexec|~/\.|\$HOME/) :: A rule matched against the text of a command cannot tell a name being written from one being used, for a path or for a command. Writing about either is refused, which is a refusal and not a disclosure, and one of faramir's own directories is refused the same way. Use your editing tool rather than a shell heredoc for that.
+(prose|sentence|comment|document|heredoc|script (containing|quoting|naming)|echo ")[^|]*(declared|protected|blocked|/etc/faramir|libexec|~/\.|\$HOME/) :: A rule matched against the text of a command cannot tell a name being written from one being used, for a path or for a command. Writing about either is refused, which is a refusal and not a disclosure, and one of faramir's own directories is refused the same way. Use your editing tool rather than a shell heredoc for that, which the refusal now says itself: a round that reports being told nothing is reporting a message that has since changed.
 
 (whole|entire) (tool |bash |shell )?call is refused|refuses the (whole|entire) (tool |bash |shell )?call :: A hook answers for a tool call rather than for one line inside it, so there is nothing to refuse by halves. The refusal says so and names the command that matched, which leaves running the rest separately.
 
