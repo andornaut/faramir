@@ -29,7 +29,7 @@ Programs behave differently when stdout is not a terminal: colour, progress mete
 
 The child gets a PTY for stdout and stderr and no controlling terminal, so `/dev/tty` cannot be opened at all and a prompt falls back to stderr, which the redactor is reading. `internal/execserver` pins the failed open and that stderr is still captured; the end-to-end suites pin the same open failing on a real host (`check-ssh.sh`) and stderr coming back as a token (`check-wrap.sh`).
 
-The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the master, so redaction runs with no extra hop. Stdin is `/dev/null`, or any command reading it blocks until timeout holding a concurrency slot. Cost: stdout and stderr arrive merged.
+The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the master, so redaction runs with no extra hop. Stdin is `/dev/null`, an immediate end of input rather than the block a child reading the PTY would meet, nothing writing to the master. What a caller pipes in with `-i` goes on a pipe of its own instead of on the PTY, feeding the program's stdin alone, so a credential prompt is still unanswerable. Cost: stdout and stderr arrive merged.
 
 ## The pipeline, in order
 

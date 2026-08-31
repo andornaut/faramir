@@ -18,7 +18,7 @@ Deny list refuses a command | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 A backgrounded command streams rather than buffering | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 File tools refused | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 &nbsp;&nbsp;by a rule file the agent enforces | Yes | No | Yes | No | No | No | No
-&nbsp;&nbsp;by faramir itself | Yes | Yes | N/A | Yes | Yes | Yes | Yes
+&nbsp;&nbsp;by faramir itself | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 The route reaches the agent | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 Credentials section in the file it reads | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 Enrolment costs a permission prompt | N/A | N/A | Bash | Bash | N/A | N/A | N/A
@@ -108,7 +108,7 @@ What the rules name is written once, in [internal/install/protectedpaths.go](../
 
 No pattern is compiled in. The list is the directories this install occupies, taken from the layout so they are this host's real paths, plus the file each `[[secret.link]]` entry reads and every `[[secret.block]]` entry the operator declared.
 
-Five agents cannot rely on a rule file: pi, Codex and the Antigravity IDE have none to write, and on opencode and Kilo Code a rule of `deny` is a prompt an autonomous run approves. All five get the same list applied by faramir instead, and applied by shape rather than by tool name: a tool call carrying a path is checked whatever the tool is called. None of them carries a copy of the list. The hook, the plugin and the extension all ask `faramir guard`, which puts the question as a read of that path and as a write to it, so one implementation answers for every agent and cannot drift from another.
+Five agents cannot rely on a rule file: pi, Codex and the Antigravity IDE have none to write, and on opencode and Kilo Code a rule of `deny` is a prompt an autonomous run approves. Faramir applies the same list for every agent, and applies it by shape rather than by tool name: a tool call carrying a path is checked whatever the tool is called. None of them carries a copy of the list. The hook, the plugin and the extension all ask `faramir guard`, which puts the question as a read of that path and as a write to it, so one implementation answers for every agent and cannot drift from another.
 
 ### What a rule matches
 

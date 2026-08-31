@@ -120,6 +120,7 @@ Field | Rule
 `path` | Absolute, and in its shortest form: the file is opened as written and the deny rule matches the path as written, so `/etc/./k` and `/etc/k` are one file and two rules, of which one matches nothing. No `~`, which nothing expands here, and the broker runs as its own account, so a home directory would be the wrong one. No control characters, because the path is rendered into the deny rules one rule per line, and a newline would split the rule into two halves that will not compile. No wildcard, and not `/`. Held to [the same rules a blocked path is](#what-each-form-accepts): the two render the same rule over the file, and differ only in which entry a refusal names.
 `type` | `text` or `base64` for the whole file. `json`, `yaml`, `toml` or `ini` to select a value out of it.
 `key` | Required for the four types that select, refused for the two that do not. Held to the same character rules as `path`, because `faramir link ls` prints it to a terminal. `a/b/c` walks a tree the way a sops ref does, and a number indexes a list; `ini` matches the whole key instead. See [selectors, escaping and the per-tool recipes](integrations.md#linking-a-credential-another-tool-owns).
+`strict` | Optional, written by `link add --strict`. Narrows the brokered route to refusing every command naming the file rather than the ones that would print it. The ref still answers either way. See [refusing every mention of an entry](#refusing-every-mention-of-an-entry).
 
 ### The three commands are idempotent
 
