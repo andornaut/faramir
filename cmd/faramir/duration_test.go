@@ -3,9 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -100,59 +97,5 @@ func TestARequestTooLargeToSendNamesWhichHalfIsBig(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "input") {
 		t.Errorf("the refusal blames an input the caller never gave: %v", err)
-	}
-}
-
-// -i is what says the input is meant for the command. Without it a pipeline is
-// refused rather than dropped, and every other stdin is left alone: a `while
-// read` loop and an ssh session both hand this process a file they are still
-// using, and reading either would take input away from its owner.
-func TestAPipelineWithoutTheFlagIsRefusedAndNothingElseIsRead(t *testing.T) {
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = reader.Close() }()
-	// Written and closed: a reader waits for the end of a pipe, and a writer
-	// left open is a test that hangs rather than one that fails.
-	if _, err := writer.WriteString("x"); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	saved := os.Stdin
-	os.Stdin = reader
-	defer func() { os.Stdin = saved }()
-
-	if _, err := pipedStdin(false); err == nil {
-		t.Error("a pipeline with no -i was accepted, so the input reaches nothing " +
-			"and nobody is told")
-	}
-	piped, err := pipedStdin(true)
-	if err != nil {
-		t.Fatalf("-i refused a pipeline: %v", err)
-	}
-	if string(piped) != "x" {
-		t.Errorf("-i read %q, want the piped byte", piped)
-	}
-
-	// A regular file is one this process does not own: read here, the loop that
-	// opened it gets nothing.
-	path := filepath.Join(t.TempDir(), "hosts.txt")
-	if err := os.WriteFile(path, []byte("a\nb\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = file.Close() }()
-	os.Stdin = file
-	if _, err := pipedStdin(false); err != nil {
-		t.Errorf("an inherited file was refused, and no pipeline was there to send: %v", err)
-	}
-	if at, err := file.Seek(0, io.SeekCurrent); err != nil || at != 0 {
-		t.Errorf("the file was read to offset %d, so the caller that opened it lost that much", at)
 	}
 }

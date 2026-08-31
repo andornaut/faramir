@@ -326,6 +326,38 @@ out=$(printf 'PIPED-IN\n' | runuser -u op -- /usr/local/bin/faramir run --quiet 
   || bad "the input was dropped silently (rc=$code, out=[$out])"
 grep -q '\-i' <<<"$out" && ok "and the refusal names the flag that sends it" \
   || bad "the refusal does not name -i: [$out]"
+# An anonymous pipe every writer has closed with nothing in it is not a
+# pipeline: it is what a child inherits once the parent that spawned it has
+# written what it had and closed the other end, so refusing it would refuse a
+# run over an input that does not exist. The writer closes the pipe and only
+# then leaves the marker the reader waits on, because a `: |` writer may not
+# have exited yet and a pipe still being closed is one the run is refused over.
+rm -f /tmp/writer-gone
+out=$({ exec 1>&-; : >/tmp/writer-gone; } | { waitfor 10 test -e /tmp/writer-gone
+  runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/echo SPENT 2>&1; }); code=$?
+rm -f /tmp/writer-gone
+[ "$code" = 0 ] && [ "$out" = SPENT ] \
+  && ok "a spent anonymous pipe is not refused as a pipeline" \
+  || bad "a spent pipe was taken for a pipeline (rc=$code, out=[$out])"
+# A FIFO hangs up exactly as that pipe does and is not the same thing: another
+# writer may open one after the last has closed, so a hangup there says nothing
+# has arrived yet rather than that nothing can, and a run let through would drop
+# what that writer sends. Handed over on a second FIFO, because this has to be
+# the same pipe every time: the writer opens `spent`, closes it, and only then
+# opens `handedover`, which the read below is waiting on.
+rm -f /tmp/spent /tmp/handedover
+mkfifo /tmp/spent /tmp/handedover
+( exec 9>/tmp/spent; exec 9>&-; : >/tmp/handedover ) &
+writer=$!
+exec 8</tmp/spent
+read -r _ </tmp/handedover
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/echo SPENT <&8 2>&1); code=$?
+exec 8<&-
+wait "$writer"
+rm -f /tmp/spent /tmp/handedover
+[ "$code" != 0 ] && grep -q '\-i' <<<"$out" \
+  && ok "a spent FIFO is refused, another writer being able to open one" \
+  || bad "a spent FIFO was taken for a pipe nothing can arrive on (rc=$code, out=[$out])"
 # An inherited file is left alone, which is what the flag is protecting: the
 # loop below reads three lines, and a run that drained them would leave it one.
 printf 'a\nb\nc\n' >/tmp/hosts.txt

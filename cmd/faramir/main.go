@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/fserr"
@@ -317,18 +318,68 @@ func pipedStdin(asked bool) ([]byte, error) {
 // nothing, /dev/null is a caller saying so, and a regular file or an inherited
 // socket is something this process does not own, none of which is a request to
 // send anything.
+//
+// An anonymous pipe every writer has already closed with nothing in it is not
+// one either, there being no input to send: that is what a child spawned with
+// its standard input on a pipe holds once its parent has written what it had
+// and closed the other end, which is how a configuration manager or any other
+// program driving a subprocess hands one over. A FIFO is held to the rule
+// above, no state of it being one a writer cannot return from.
 func refusePipeWithoutTheFlag() error {
 	// A stdin this process cannot ask about is not one to refuse a run over:
 	// nothing here needs to read it, and the run goes ahead forwarding nothing,
 	// as every run did before -i.
 	info, err := os.Stdin.Stat()
 	piped := err == nil && info.Mode()&os.ModeNamedPipe != 0
-	if !piped {
+	if !piped || spentPipe() {
 		return nil
 	}
 	return errors.New("something is piped in and -i was not given, so it would " +
 		"reach nothing: pass -i to send it to the command, or redirect from " +
 		"/dev/null to say it is not meant for one")
+}
+
+// spentPipe reports whether standard input is an anonymous pipe that will never
+// deliver a byte: nothing is buffered and every writer has closed. Put to the
+// kernel rather than answered by a read, so a pipe that does hold something
+// still holds it for the command.
+//
+// POLLHUP is the closed writer and POLLIN the byte waiting, and the two are
+// not exclusive: a pipe carrying data whose writer has gone reports both, and
+// is an input somebody meant to send. Neither of them means a writer is still
+// there and has yet to write, which is a pipeline as well.
+func spentPipe() bool {
+	fd := os.Stdin.Fd()
+	if !anonymousPipe(fd) {
+		return false
+	}
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		ready, err := unix.Poll(fds, 0)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if err != nil || ready == 0 {
+			return false
+		}
+		return fds[0].Revents&unix.POLLHUP != 0 && fds[0].Revents&unix.POLLIN == 0
+	}
+}
+
+// anonymousPipe reports whether standard input is a pipe with no name. A FIFO
+// is S_IFIFO too and hangs up the same way, and is not the same thing: another
+// writer may open one after the last has closed, so a hangup there says nothing
+// has arrived yet rather than that nothing can, and letting it through would
+// drop what that writer sends. Only an anonymous pipe is in a state no writer
+// can return from, its last end having gone with the name.
+//
+// /proc is what separates them: an anonymous pipe reads back as `pipe:[inode]`
+// and a FIFO as its own path. A link that cannot be read leaves the pipe
+// refused, which is the answer every one of them got before a spent one was
+// let through.
+func anonymousPipe(fd uintptr) bool {
+	link, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd))
+	return err == nil && strings.HasPrefix(link, "pipe:[")
 }
 
 // fitsOneRequest refuses a request the broker's socket would cut off. The
