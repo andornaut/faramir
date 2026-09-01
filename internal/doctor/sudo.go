@@ -25,6 +25,35 @@ func diagnoseSudoGrant(report *Report, opts Options, cfg *config.Config) {
 	diagnoseSudoArrangement(report, opts, cfg)
 }
 
+// granted is whether this host was installed with --allow-sudo, which is
+// whether the config carries a [sudo] section. Without one there is no
+// arrangement for the checks below to read.
+func granted(cfg *config.Config) bool {
+	return cfg != nil && cfg.Sudo.ExecUser != ""
+}
+
+// noGrant reports the host that was never granted an escalation, and says
+// whether it is one.
+//
+// Called before the checks that need root, because it needs none itself: it
+// reads a config key, while the rest of the arrangement is read by being other
+// accounts. Bundled with those, the commonest reason a brokered `sudo` fails --
+// the host was never granted one -- was reachable only by an operator who
+// already had root, and an unprivileged run reported the whole subject as
+// unasked. `faramir doctor` is what a reader runs first, and the one write-free
+// check the agent may run at all.
+//
+// Reporting lives here and the predicate in granted, so the root-gated path can
+// ask the same question without answering it twice.
+func noGrant(report *Report, cfg *config.Config) bool {
+	if granted(cfg) {
+		return false
+	}
+	report.addf("sudo grant", StatusNA, "no [sudo] section, so brokered commands cannot sudo. That is the default; "+
+		"`faramir init --allow-sudo` writes the arrangement")
+	return true
+}
+
 // sudoNoPasswd is passwordlessSudo, a variable so a test can answer for it
 // without a sudoers file.
 var sudoNoPasswd = passwordlessSudo
@@ -79,9 +108,7 @@ func diagnoseSudoCredential(report *Report, opts Options) {
 // pass. All of it exists only on a host installed with --allow-sudo, so any other
 // host reports n/a.
 func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
-	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		report.addf("sudo grant", StatusNA, "no [sudo] section, so brokered commands cannot sudo. That is the default; "+
-			"`faramir init --allow-sudo` writes the arrangement")
+	if noGrant(report, cfg) {
 		return
 	}
 

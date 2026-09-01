@@ -65,6 +65,14 @@ func diagnoseBoundaries(report *Report, opts Options, cfg *config.Config, serves
 	}
 	checks := append(append([]func(){}, aboutTheHost...), aboutTheOperator...)
 	if os.Geteuid() != 0 {
+		// One of them needs no root and is answered anyway: whether this host was
+		// granted an escalation at all is a config key, not a boundary, and it is
+		// the commonest reason a brokered `sudo` fails. Reporting it with the rest
+		// left an unprivileged run silent on the whole subject, so a reader whose
+		// escalation had just failed was told only that some checks need root.
+		// diagnoseSudoArrangement says the same thing on a run that has it, and is
+		// not reached here.
+		noGrant(report, cfg)
 		report.unaskedf("boundaries", len(checks), "the operator can run doctor as root to check these: %d checks "+
 			"ask what %s, %s, %s and %s can reach, and no account can answer that for "+
 			"another", len(checks), opts.AgentUser, opts.BrokerUser, opts.KeeperUser,

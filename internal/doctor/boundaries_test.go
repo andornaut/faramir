@@ -87,6 +87,41 @@ func TestTheSudoCredentialIsCheckedOnEveryHost(t *testing.T) {
 	}
 }
 
+// The one boundary check that needs no root is answered without it. Whether
+// this host was granted an escalation is a config key rather than something an
+// account has to be asked, and it is the commonest reason a brokered `sudo`
+// fails: an unprivileged run that said nothing about it left a reader whose
+// escalation had just failed with only "some checks need root".
+//
+// Skipped as root, where diagnoseSudoArrangement answers the same question and
+// this path is not reached; the assertion is about what an unprivileged reader
+// is told.
+func TestAnUnprivilegedRunStillNamesAHostWithNoGrant(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("this asserts what a run without root reports")
+	}
+	var report Report
+	diagnoseBoundaries(&report, Options{ExecUser: "ex"}, &config.Config{}, servesUnknown)
+	var grant *Finding
+	for i, finding := range report.Findings {
+		if finding.Name == "sudo grant" {
+			grant = &report.Findings[i]
+		}
+	}
+	if grant == nil {
+		t.Fatalf("no sudo grant line without root, so nothing says the host was "+
+			"never granted one: %+v", report.Findings)
+	}
+	if grant.Status != StatusNA {
+		t.Errorf("status %q, want %q: %s", grant.Status, StatusNA, grant.Detail)
+	}
+	// N/a is not a question that went unput: re-running as root would not change
+	// this answer, so it must not be counted among the checks that need one.
+	if !strings.Contains(grant.Detail, "allow-sudo") {
+		t.Errorf("the detail does not name what writes the arrangement: %s", grant.Detail)
+	}
+}
+
 // Every line is present on a host that granted nothing. A check whose subject
 // this install does not have reports n/a rather than vanishing: a line that is
 // not there is indistinguishable from one nobody wrote, and one reported ok
