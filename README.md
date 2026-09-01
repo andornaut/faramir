@@ -322,6 +322,7 @@ Target | Does
 `make lint` | golangci-lint and ShellCheck. CI's Lint job also runs markdownlint and `goreleaser check`, which this tree asks for no tooling for
 `make shellcheck` | The shell scripts alone, as CI checks them
 `make install`, `make uninstall` | Copy the binary to `/usr/local/bin` and remove it. Both use sudo
+`make clean` | Remove `bin/`, `dist/` and `coverage.txt`
 
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. That decides where a new document goes: operator documentation in `docs/`, which ships, and developer documentation at the root, which does not.
 - Tests live where the logic does. Most of what the broker does is decide, so `internal/server` substitutes the executor. `internal/executor` drives a real child where the PTY and the streaming redactor mean nothing against synthetic bytes, and tests the rune and truncation rules directly, those being properties of the bytes: a test that needs a cgroup to run does not run everywhere.

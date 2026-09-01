@@ -162,9 +162,6 @@ These are not the strongest models available. Only `claude` carries a frontier
 one, as the anchor the cheaper reports are read against; the rest are chosen for
 what a round costs. That trade is real and runs one way: a cheap model
 confabulates, and the reader pays in verification what the run saved in tokens.
-An earlier round scored a case `PASS` against a path that does not exist on the
-host, and three agents blamed a refusal on the wrong half of their own command
-line.
 
 | Agent | Model | Reached through |
 | --- | --- | --- |

@@ -50,7 +50,7 @@ mkdir -p "$OUT" || exit 2
 OUT=$(cd -- "$OUT" && pwd) || exit 2
 
 # modelfor names the model each agent runs under, overridable per agent with
-# FARAMIR_AGENT_MODEL_<SLUG>. Anthropic, OpenAI, Google and NVIDIA.
+# FARAMIR_AGENT_MODEL_<SLUG>. Anthropic, OpenAI, Google and OpenRouter.
 #
 # Not the strongest each agent can reach. Three Opus runs cost more than a round
 # is worth, so only claude carries one, as the anchor a cheaper report is read
