@@ -9,26 +9,12 @@ package vault
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	sops "github.com/getsops/sops/v3"
-
 	"github.com/andornaut/faramir/internal/sopstest"
 )
-
-func requireRealSops(t *testing.T) {
-	t.Helper()
-	installed, err := exec.LookPath("sops")
-	if err != nil {
-		t.Skip("this asserts how sops reads creation rules; the stand-in has none")
-	}
-	previous := sopsBinary
-	sopsBinary = installed
-	t.Cleanup(func() { sopsBinary = previous })
-}
 
 // managedFixture is an install's shape: a rule file with the secrets in a
 // directory beneath it, which is what decides the path sops matches a rule
@@ -53,7 +39,7 @@ func newManagedFixture(t *testing.T) managedFixture {
 		rulePath:  filepath.Join(dir, ".sops.yaml"),
 		recipient: recipient,
 	}
-	sopstest.WriteEncrypted(t, f.store, recipient, sops.TreeBranch{
+	sopstest.WriteEncrypted(t, f.store, recipient, sopstest.Branch{
 		{Key: "secret_one", Value: "the-original-value-long-enough"},
 	})
 	f.writeRule(t, `\.sops\.ya?ml$`, "")
@@ -89,7 +75,7 @@ func (f managedFixture) edit(t *testing.T, to string) ([]byte, error) {
 // must not decide how the managed file is written, or an 'unencrypted_regex' in
 // it puts the values it names into that file in cleartext.
 func TestACreationRuleInTheWorkingDirectoryIsNotRead(t *testing.T) {
-	requireRealSops(t)
+	useSops(t)
 	f := newManagedFixture(t)
 
 	planted := t.TempDir()
@@ -117,7 +103,7 @@ func TestACreationRuleInTheWorkingDirectoryIsNotRead(t *testing.T) {
 // path instead and one naming where the secrets live matches nothing: every
 // edit would end in "no matching creation rules found".
 func TestARulePinnedToTheSecretsDirectoryStillEncrypts(t *testing.T) {
-	requireRealSops(t)
+	useSops(t)
 	f := newManagedFixture(t)
 	f.writeRule(t, `^secrets/.*\.sops\.yml$`, "")
 
@@ -138,7 +124,7 @@ func TestARulePinnedToTheSecretsDirectoryStillEncrypts(t *testing.T) {
 // edit that cannot be written back has to be refused while there is nothing to
 // lose, not after the operator has typed.
 func TestAnEditNoRuleCoversIsRefusedBeforeTheEditor(t *testing.T) {
-	requireRealSops(t)
+	useSops(t)
 	f := newManagedFixture(t)
 	f.writeRule(t, `^elsewhere/.*\.sops\.yml$`, "")
 
@@ -206,7 +192,7 @@ func TestNoRuleFileMeansNothingToCover(t *testing.T) {
 // written back, which is what makes an operator's own setting hold across an
 // edit rather than being replaced by sops' defaults.
 func TestTheInstallsOwnRuleDecidesWhatIsEncrypted(t *testing.T) {
-	requireRealSops(t)
+	useSops(t)
 	f := newManagedFixture(t)
 	f.writeRule(t, `\.sops\.ya?ml$`, "    unencrypted_regex: '^(secret_one)$'\n")
 

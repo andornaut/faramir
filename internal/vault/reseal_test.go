@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"filippo.io/age"
-	sops "github.com/getsops/sops/v3"
 
 	"github.com/andornaut/faramir/internal/sopsrule"
 	"github.com/andornaut/faramir/internal/sopstest"
@@ -165,7 +164,7 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 	}
 	extra := backup.Recipient().String()
 	store := filepath.Join(dir, "store.sops.yml")
-	sopstest.WriteEncrypted(t, store, keeper, sops.TreeBranch{
+	sopstest.WriteEncrypted(t, store, keeper, sopstest.Branch{
 		{Key: "secret_one", Value: "the-original-value-long-enough"},
 	})
 	if err := os.Chmod(store, 0o640); err != nil {
@@ -214,7 +213,7 @@ func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 	dir := t.TempDir()
 	keyPath, keeper := sopstest.NewIdentity(t, dir)
 	store := filepath.Join(dir, "store.sops.yml")
-	sopstest.WriteEncrypted(t, store, keeper, sops.TreeBranch{
+	sopstest.WriteEncrypted(t, store, keeper, sopstest.Branch{
 		{Key: "secret_one", Value: "the-original-value-long-enough"},
 	})
 	before, err := os.ReadFile(store)

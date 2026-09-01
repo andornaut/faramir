@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -10,9 +11,6 @@ import (
 // KMS SDK sops supports out of what we ship. That is a shipping invariant
 // rather than a style rule: an import added anywhere this binary reaches pulls
 // the whole set in, and nothing else would notice.
-//
-// internal/sopstest links the libraries on purpose, to build a stand-in for the
-// suite. This asks what the shipped command reaches, not what the module holds.
 func TestTheShippedBinaryDoesNotLinkSops(t *testing.T) {
 	for _, dep := range deps(t, ".") {
 		if strings.Contains(dep, "getsops") {
@@ -21,20 +19,27 @@ func TestTheShippedBinaryDoesNotLinkSops(t *testing.T) {
 	}
 }
 
-// The check above passes when nothing matches, which is also what it would do
-// if `go list` returned nothing at all. This holds it to a package that does
-// link sops, so a matcher that stopped matching fails here rather than passing
-// everywhere.
-func TestTheSopsCheckMatchesAPackageThatLinksIt(t *testing.T) {
-	found := false
-	for _, dep := range deps(t, "../../internal/sopstest/sopsenc") {
-		if strings.Contains(dep, "getsops") {
-			found = true
-			break
-		}
+// The same invariant one level up. The test fixtures run the real sops rather
+// than building one out of the libraries, so nothing in the module needs them
+// and go.mod names none: a require added here is what would let the check above
+// start having something to find, and it would arrive with the AWS, GCP, Azure
+// and Vault SDKs behind it.
+func TestTheModuleRequiresNoSopsLibrary(t *testing.T) {
+	body, err := os.ReadFile("../../go.mod")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !found {
-		t.Error("sopsenc reaches no getsops package, so the check above proves nothing")
+	mod := string(body)
+	// The read is held to a module that is required, so a go.mod this stopped
+	// being able to parse fails here rather than reporting every absence as a
+	// pass.
+	if !strings.Contains(mod, "filippo.io/age") {
+		t.Fatal("go.mod does not name filippo.io/age, so this is not reading what it thinks it is")
+	}
+	if strings.Contains(mod, "getsops") {
+		t.Error("go.mod requires a getsops module; the fixtures are meant to run the " +
+			"sops binary, and linking the libraries puts every cloud KMS SDK back in " +
+			"the module")
 	}
 }
 

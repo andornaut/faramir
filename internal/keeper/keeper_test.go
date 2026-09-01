@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	sops "github.com/getsops/sops/v3"
-
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/sopstest"
 	"github.com/andornaut/faramir/internal/version"
@@ -45,7 +43,7 @@ func unresolved(t *testing.T, resp map[string]any) []string {
 	return value
 }
 
-func fixture(t *testing.T, branch sops.TreeBranch) (config.SecretConfig, *KeyHolder) {
+func fixture(t *testing.T, branch sopstest.Branch) (config.SecretConfig, *KeyHolder) {
 	t.Helper()
 	dir := t.TempDir()
 	keyPath, recipient := sopstest.NewIdentity(t, dir)
@@ -60,8 +58,8 @@ func fixture(t *testing.T, branch sops.TreeBranch) (config.SecretConfig, *KeyHol
 }
 
 func TestDecryptRoundTrip(t *testing.T) {
-	secrets, keys := fixture(t, sops.TreeBranch{
-		{Key: "router", Value: sops.TreeBranch{
+	secrets, keys := fixture(t, sopstest.Branch{
+		{Key: "router", Value: sopstest.Branch{
 			{Key: "admin", Value: "hunter2hunter2"},
 		}},
 		{Key: "flat", Value: "s3cr3t-value-here"},
@@ -144,7 +142,7 @@ func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 
 // An empty value set means nothing is redacted, so this fails loudly.
 func TestWrongIdentityFails(t *testing.T) {
-	secrets, _ := fixture(t, sops.TreeBranch{{Key: "token", Value: "value-goes-here"}})
+	secrets, _ := fixture(t, sopstest.Branch{{Key: "token", Value: "value-goes-here"}})
 
 	other := t.TempDir()
 	wrongKey, _ := sopstest.NewIdentity(t, other)
@@ -160,7 +158,7 @@ func TestWrongIdentityFails(t *testing.T) {
 }
 
 func TestOneBadFileDoesNotBlankTheSet(t *testing.T) {
-	secrets, keys := fixture(t, sops.TreeBranch{{Key: "good", Value: "a-good-value-x"}})
+	secrets, keys := fixture(t, sopstest.Branch{{Key: "good", Value: "a-good-value-x"}})
 	broken := filepath.Join(t.TempDir(), "broken.sops.yaml")
 	if err := os.WriteFile(broken, []byte("not: sops\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -260,7 +258,7 @@ func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 // Together, so the broker cannot cache a value set under a fingerprint taken at
 // another moment and miss the edit between them.
 func TestGetValuesCarriesTheFileState(t *testing.T) {
-	secrets, keys := fixture(t, sops.TreeBranch{{Key: "flat", Value: "s3cr3t-value-here"}})
+	secrets, keys := fixture(t, sopstest.Branch{{Key: "flat", Value: "s3cr3t-value-here"}})
 	k := &Keeper{config: &config.Config{Secret: secrets}, Keys: keys}
 
 	resp := handle(k, map[string]any{"op": "get_values"})
@@ -633,7 +631,7 @@ func TestTheKeyPathIsResolvedOnce(t *testing.T) {
 // twoFiles is a store of two managed files, which is what a shadowed ref needs.
 // Patterns names them in a fixed order, so which value wins is the test's to
 // decide rather than the filesystem's.
-func twoFiles(t *testing.T, first, second sops.TreeBranch) (config.SecretConfig, *KeyHolder) {
+func twoFiles(t *testing.T, first, second sopstest.Branch) (config.SecretConfig, *KeyHolder) {
 	t.Helper()
 	dir := t.TempDir()
 	keyPath, recipient := sopstest.NewIdentity(t, dir)
@@ -654,8 +652,8 @@ func twoFiles(t *testing.T, first, second sops.TreeBranch) (config.SecretConfig,
 // is reported with both files, the repair being to take the ref out of one.
 func TestARefTwoFilesDisagreeAboutIsReported(t *testing.T) {
 	secrets, keys := twoFiles(t,
-		sops.TreeBranch{{Key: "token", Value: "value-from-the-first-file"}},
-		sops.TreeBranch{{Key: "token", Value: "value-from-the-second-file"}})
+		sopstest.Branch{{Key: "token", Value: "value-from-the-first-file"}},
+		sopstest.Branch{{Key: "token", Value: "value-from-the-second-file"}})
 
 	values, errs, shadowed := DecryptAll(secrets, keys)
 	if len(errs) > 0 {
@@ -681,8 +679,8 @@ func TestARefTwoFilesDisagreeAboutIsReported(t *testing.T) {
 // `broker --check` and `doctor` on a host with nothing wrong with it.
 func TestTheSameValueInTwoFilesIsNotShadowed(t *testing.T) {
 	secrets, keys := twoFiles(t,
-		sops.TreeBranch{{Key: "token", Value: "the-very-same-value-here"}},
-		sops.TreeBranch{{Key: "token", Value: "the-very-same-value-here"}})
+		sopstest.Branch{{Key: "token", Value: "the-very-same-value-here"}},
+		sopstest.Branch{{Key: "token", Value: "the-very-same-value-here"}})
 
 	values, errs, shadowed := DecryptAll(secrets, keys)
 	if len(errs) > 0 {
@@ -707,7 +705,7 @@ func TestADisagreementIsFoundWhereverItFalls(t *testing.T) {
 	for i, value := range written {
 		path := filepath.Join(dir, string(rune('a'+i))+".sops.yaml")
 		sopstest.WriteEncrypted(t, path, recipient,
-			sops.TreeBranch{{Key: "token", Value: value}})
+			sopstest.Branch{{Key: "token", Value: value}})
 		paths = append(paths, path)
 	}
 	secrets := config.SecretConfig{Patterns: paths, DecryptCommand: sopstest.DecryptCommand(t)}

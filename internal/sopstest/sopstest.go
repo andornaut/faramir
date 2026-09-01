@@ -1,24 +1,38 @@
-// Package sopstest builds encrypted fixtures and a sops stand-in for tests.
-// Imported only from _test.go files, so the sops libraries reach test binaries
-// and never the shipped one: the keeper execs sops rather than linking it,
-// which keeps every cloud KMS SDK out of what installs on a host. CI fails on
-// a getsops hit in "go list -deps ./cmd/faramir".
+// Package sopstest builds encrypted fixtures for tests by running the real
+// sops, the same binary the keeper execs. Imported only from _test.go files.
+//
+// Running it rather than linking it is the point. The keeper execs sops so that
+// every cloud KMS SDK sops supports stays out of what installs on a host, and a
+// fixture built through the libraries would put the whole set back into the
+// module for the tests alone. It also removes the last thing a stand-in could
+// get wrong: what these tests are held against is what an operator runs.
+//
+// A missing sops fails rather than skips. The suites that need one cover
+// decryption, re-encryption and how a creation rule is resolved, and a skip
+// there is a green run that checked none of it.
 package sopstest
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"filippo.io/age"
-	sops "github.com/getsops/sops/v3"
-	sopsformats "github.com/getsops/sops/v3/cmd/sops/formats"
-
-	"github.com/andornaut/faramir/internal/sopstest/sopsenc"
+	"go.yaml.in/yaml/v3"
 )
+
+// Branch is a fixture's plaintext: an ordered set of keys, mirroring what a
+// YAML document holds. Ordered rather than a map, because a ref's name is its
+// path through the document and a test asserts on the order sops emits.
+type Branch []Item
+
+// Item is one key and what it holds: a scalar, or a nested Branch.
+type Item struct {
+	Key   string
+	Value any
+}
 
 // NewIdentity mints an age keypair and writes the identity into dir.
 func NewIdentity(t *testing.T, dir string) (keyPath, recipient string) {
@@ -34,85 +48,88 @@ func NewIdentity(t *testing.T, dir string) (keyPath, recipient string) {
 	return keyPath, id.Recipient().String()
 }
 
-// WriteEncrypted builds a sops-encrypted YAML file addressed to recipient.
-func WriteEncrypted(t *testing.T, path, recipient string, branch sops.TreeBranch) {
+// WriteEncrypted builds a sops-encrypted YAML file at path, readable by
+// recipient. Only the public recipient is needed; nothing here holds an
+// identity.
+func WriteEncrypted(t *testing.T, path, recipient string, branch Branch) {
 	t.Helper()
-	out, err := sopsenc.Encrypt(sopsformats.Yaml, []string{recipient}, sops.TreeBranches{branch})
-	if err != nil {
+	plain := filepath.Join(t.TempDir(), "plain.yaml")
+	if err := os.WriteFile(plain, marshal(t, branch), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	// --config names an empty file rather than being left off: without it sops
+	// walks up from the plaintext looking for creation rules, and a test that
+	// writes a .sops.yaml of its own would have its fixture sealed to whatever
+	// that rule says instead of to the recipient asked for here.
+	out, err := exec.CommandContext(t.Context(), SopsBinary(t),
+		"--config", os.DevNull, "--encrypt", "--age", recipient, plain).Output()
+	if err != nil {
+		t.Fatalf("sops --encrypt: %v%s", err, stderrOf(err))
 	}
 	if err := os.WriteFile(path, out, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
-var (
-	stubOnce sync.Once
-	stubPath string
-	errStub  error
-)
+// marshal renders a branch as the YAML sops is handed.
+func marshal(t *testing.T, branch Branch) []byte {
+	t.Helper()
+	out, err := yaml.Marshal(node(t, branch))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
 
-// SopsBinary returns a sops-compatible binary for the keeper to exec: the real
-// one when installed, otherwise the stub, built once per run.
+// node builds the YAML document, keeping the order the branch was written in.
+func node(t *testing.T, value any) *yaml.Node {
+	t.Helper()
+	branch, ok := value.(Branch)
+	if !ok {
+		scalar := &yaml.Node{}
+		if err := scalar.Encode(value); err != nil {
+			t.Fatal(err)
+		}
+		return scalar
+	}
+	mapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, item := range branch {
+		mapping.Content = append(mapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: item.Key},
+			node(t, item.Value))
+	}
+	return mapping
+}
+
+// SopsBinary is the sops the test runs, and the one it points the code under
+// test at. Absent, the test fails: what these suites cover is how sops itself
+// resolves a creation rule and what it emits, and a skip would leave that
+// unrun on a green run.
 func SopsBinary(t *testing.T) string {
 	t.Helper()
-	if installed, err := exec.LookPath("sops"); err == nil {
-		return installed
-	}
-	stubOnce.Do(func() {
-		// One directory, reused by every run on this machine, rather than one per
-		// test binary: the stub outlives the test that built it, so nothing here
-		// can remove it, and a fresh temporary directory each time leaves a 60MB
-		// binary behind on every `go test`. The user's cache rather than a name in
-		// /tmp that any account could have made first.
-		dir, err := stubDir()
-		if err != nil {
-			errStub = err
-			return
-		}
-		out := filepath.Join(dir, "sops")
-		// Built under a name of this process's own and moved into place, so two
-		// `go test` runs at once do not write the same file. The rename is atomic
-		// and a run already executing the old binary keeps it.
-		staged := fmt.Sprintf("%s.%d", out, os.Getpid())
-		cmd := exec.CommandContext(t.Context(), "go", "build", "-o", staged,
-			"github.com/andornaut/faramir/internal/sopstest/stub")
-		if combined, err := cmd.CombinedOutput(); err != nil {
-			errStub = err
-			t.Logf("building sops stub: %s", combined)
-			return
-		}
-		if err := os.Rename(staged, out); err != nil {
-			errStub = err
-			_ = os.Remove(staged)
-			return
-		}
-		stubPath = out
-	})
-	if errStub != nil {
-		t.Skipf("no sops binary and the stub would not build: %v", errStub)
-	}
-	return stubPath
-}
-
-// stubDir is where the stub binary lives between runs: one directory per user,
-// so a machine holds one copy however many times the suite runs. os.TempDir is
-// the fallback, and only there because a cache directory is not guaranteed.
-func stubDir() (string, error) {
-	cache, err := os.UserCacheDir()
+	path, err := exec.LookPath("sops")
 	if err != nil {
-		return os.MkdirTemp("", "faramir-sops-stub-")
+		t.Fatalf("sops is not on PATH, and these tests are held against the real "+
+			"binary rather than a stand-in: %v. Install it from "+
+			"https://github.com/getsops/sops/releases, or run `make e2e`, which "+
+			"fetches a pinned one into tests/e2e", err)
 	}
-	dir := filepath.Join(cache, "faramir", "sops-stub")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return path
 }
 
-// DecryptCommand is the [secret] decrypt_command for a test, pointed at
-// whichever sops binary SopsBinary found or built.
+// DecryptCommand is the [secret] decrypt_command for a test, pointed at the
+// sops the keeper would exec.
 func DecryptCommand(t *testing.T) []string {
 	t.Helper()
 	return []string{SopsBinary(t), "--output-type", "json", "--decrypt", "{file}"}
+}
+
+// stderrOf is what the failing sops wrote, which carries the reason; exec's
+// own error is the exit status alone.
+func stderrOf(err error) string {
+	exit, ok := errors.AsType[*exec.ExitError](err)
+	if !ok || len(exit.Stderr) == 0 {
+		return ""
+	}
+	return ": " + string(exit.Stderr)
 }

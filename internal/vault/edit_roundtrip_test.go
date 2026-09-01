@@ -6,13 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	sops "github.com/getsops/sops/v3"
-
 	"github.com/andornaut/faramir/internal/sopstest"
 )
 
-// useSops points the edit path at the host's sops, or the stand-in. A full
-// decrypt, edit and re-encrypt either way.
+// useSops points the edit path at the host's sops: a full decrypt, edit and
+// re-encrypt through the binary an operator runs.
 func useSops(t *testing.T) {
 	t.Helper()
 	previous := sopsBinary
@@ -35,7 +33,7 @@ func encryptedFixture(t *testing.T) (store, keyPath string) {
 	dir := t.TempDir()
 	keyPath, recipient := sopstest.NewIdentity(t, dir)
 	store = filepath.Join(dir, "store.sops.yml")
-	sopstest.WriteEncrypted(t, store, recipient, sops.TreeBranch{
+	sopstest.WriteEncrypted(t, store, recipient, sopstest.Branch{
 		{Key: "secret_one", Value: "the-original-value-long-enough"},
 	})
 	return store, keyPath

@@ -5,12 +5,12 @@ package doctor
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/sopstest"
 )
 
 // .sops.yaml is 0644 and the documented way to add a recipient is to edit it by
@@ -103,14 +103,12 @@ func TestAListShorthandIsReadRatherThanRefused(t *testing.T) {
 	}
 }
 
-// requireSops skips where the real binary is absent: which files a creation rule
-// governs is sops' own question, and this check exists because answering it
-// anywhere else would be a second opinion free to disagree with it.
+// requireSops fails where the real binary is absent: which files a creation
+// rule governs is sops' own question, and this check exists because answering
+// it anywhere else would be a second opinion free to disagree with it.
 func requireSops(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("sops"); err != nil {
-		t.Skip("sops decides which rule governs a file, so this cannot be asked without it")
-	}
+	sopstest.SopsBinary(t)
 }
 
 // A rule that reaches none of the managed files is a store `faramir vault edit` and

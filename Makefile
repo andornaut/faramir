@@ -91,10 +91,14 @@ build:
 ## them under both sudo implementations, so this pulls in two containers rather
 ## than one: half the arrangements would not be everything.
 ##
-## Needs no sops installed: the round trip runs
-## through a stand-in built from the sops libraries at test time. The tests
-## that assert how sops resolves a creation rule skip without the real binary,
-## the stand-in modelling none, so CI installs it pinned and they run there.
+## Needs sops installed. The fixtures are built by running it rather than by
+## linking its libraries, which is what keeps every cloud KMS SDK out of the
+## module as well as out of the binary, and it is the only way to hold a test
+## against how sops itself resolves a creation rule. A missing binary fails the
+## suites that need one rather than skipping them: what they cover is the guard
+## against a planted .sops.yaml, and a skip there is a green run that checked
+## none of it. `make e2e` fetches a pinned copy into tests/e2e, and CI installs
+## the same pin.
 ##
 ## Under a delegated cgroup where there is one: the executor makes a cgroup per
 ## child, and without one it refuses every command, which skips the tests that

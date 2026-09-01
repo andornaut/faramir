@@ -65,14 +65,13 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # `faramir vault edit` and `faramir reader reseal` hand sops the install's creation rules
-      # rather than letting it search from the working directory, and the tests
-      # that hold that line assert how sops itself resolves and matches a rule.
-      # The stand-in built from the sops libraries models no creation rules, so
-      # those tests skip without the real binary, and what would go unrun is the
-      # guard against a .sops.yaml planted in the agent's tree writing managed
-      # values in cleartext. `make test` still needs no sops: this installs it
-      # for CI alone.
+      # The suite builds its encrypted fixtures by running sops rather than by
+      # linking its libraries, which keeps every cloud KMS SDK out of the module
+      # as well as out of the binary, so the whole Go suite needs one installed.
+      # A missing binary fails those tests rather than skipping them: they hold
+      # how sops itself resolves and matches a creation rule, which is the guard
+      # against a .sops.yaml planted in the agent's tree writing managed values
+      # in cleartext.
       #
       # The version and digest are read out of e2e.sh rather than restated here,
       # so a bump moves both at once: two copies with nothing tying them together
