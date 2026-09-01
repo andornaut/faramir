@@ -17,29 +17,18 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// sops takes the first .sops.yaml walking up from the working directory, so a
-// copy in the secrets directory shadows the one above it. Each of the four
-// states reads differently, the remedies being different: compare recipients
-// and delete one, or move it. No systemd, accounts or root needed.
+// The rule is there or it is not, and without one sops refuses to encrypt a
+// new file into the secrets directory. No systemd, accounts or root needed.
 func TestDiagnoseSopsConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		current bool
-		stale   bool
 		want    Status
 		says    []string
 	}{
 		{
 			name: "the rule where it belongs", current: true,
 			want: StatusOK, says: []string{"/.sops.yaml"},
-		},
-		{
-			name: "a copy in the secrets directory shadows it", current: true, stale: true,
-			want: StatusWarn, says: []string{"shadows", "recipients", "rm "},
-		},
-		{
-			name: "only the copy earlier installs left behind", stale: true,
-			want: StatusWarn, says: []string{"mv "},
 		},
 		{
 			// Not an error: it just cannot encrypt a new file into the secrets
@@ -51,14 +40,11 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			layout := hostlayout.Layout{ConfigDir: dir}
-			// Both rules name the keeper's recipient, so only the state varies;
+			// The rule names the keeper's recipient, so only its presence varies;
 			// TestDiagnoseSopsRecipients covers the rest.
 			keeper := mintKey(t, dir)
 			if tc.current {
 				writeRule(t, layout.SopsConfigPath(), keeper)
-			}
-			if tc.stale {
-				writeRule(t, layout.StaleSopsConfigPath(), keeper)
 			}
 
 			var report Report

@@ -17,32 +17,20 @@ import (
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
-// diagnoseSopsConfig reports a creation rule left inside the secrets directory.
-// sops takes the first .sops.yaml it finds walking up from the working
-// directory, so a copy there shadows the one above it and new values encrypt to
-// different recipients depending on where sops was run from. Reported rather
-// than moved: guessing which is current wrongly writes values nothing can
-// decrypt.
+// diagnoseSopsConfig examines the creation rule the install writes: who it
+// seals to, which of the managed files it governs, and whether the store still
+// matches it.
 func diagnoseSopsConfig(report *Report, opts Options) {
 	layout := hostlayout.Layout{ConfigDir: opts.ConfigDir}
-	current, stale := layout.SopsConfigPath(), layout.StaleSopsConfigPath()
-	switch {
-	case hostfs.Exists(stale) && hostfs.Exists(current):
-		report.addf("sops config", StatusWarn, "%s shadows %s for anything run from "+
-			"the secrets directory, sops taking the nearest one walking up. Compare the recipients, "+
-			"then: sudo rm %s", stale, current, stale)
-	case hostfs.Exists(stale):
-		report.addf("sops config", StatusWarn, "%s is where earlier installs put it, "+
-			"and the secrets directory is globbed by the managed store. Move it: sudo mv %s %s",
-			stale, stale, current)
-	case hostfs.Exists(current):
-		diagnoseSopsRecipients(report, opts, current)
-		diagnoseSopsRuleCoverage(report, opts, current)
-		diagnoseRecipientDrift(report, opts, current)
-	default:
+	current := layout.SopsConfigPath()
+	if !hostfs.Exists(current) {
 		report.addf("sops config", StatusWarn, "no %s, so sops has no creation rule "+
 			"and refuses to encrypt a new file in the secrets directory", current)
+		return
 	}
+	diagnoseSopsRecipients(report, opts, current)
+	diagnoseSopsRuleCoverage(report, opts, current)
+	diagnoseRecipientDrift(report, opts, current)
 }
 
 // diagnoseSopsRecipients answers who can decrypt what the secrets directory

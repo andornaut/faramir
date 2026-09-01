@@ -82,10 +82,6 @@ func TestSopsConfigSitsAboveTheStore(t *testing.T) {
 		t.Errorf("store %q is not under the config directory %q, so the upward "+
 			"search would not reach the rule", layout.SecretsDir(), layout.ConfigDir)
 	}
-	// Named so doctor can report a copy that would shadow this one.
-	if got, want := layout.StaleSopsConfigPath(), "/etc/faramir/secrets/.sops.yaml"; got != want {
-		t.Errorf("StaleSopsConfigPath = %q, want %q", got, want)
-	}
 }
 
 // Asking for a value by name and reading the file it comes from are different

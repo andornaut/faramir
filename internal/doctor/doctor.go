@@ -39,7 +39,7 @@ type Options struct {
 	BrokerVersion string
 
 	// BrokerBuild is which build of that version the broker is, empty from a
-	// release and from a broker that predates the field.
+	// release, which stamps none.
 	BrokerBuild string
 
 	// SocketStates maps each socket unit to what `systemctl is-active` said
