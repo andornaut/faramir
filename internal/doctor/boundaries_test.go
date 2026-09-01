@@ -115,8 +115,8 @@ func TestAnUnprivilegedRunStillNamesAHostWithNoGrant(t *testing.T) {
 	if grant.Status != StatusNA {
 		t.Errorf("status %q, want %q: %s", grant.Status, StatusNA, grant.Detail)
 	}
-	// N/a is not a question that went unput: re-running as root would not change
-	// this answer, so it must not be counted among the checks that need one.
+	// The remedy, so the line answers the question a reader arrived with rather
+	// than only naming the state.
 	if !strings.Contains(grant.Detail, "allow-sudo") {
 		t.Errorf("the detail does not name what writes the arrangement: %s", grant.Detail)
 	}

@@ -560,6 +560,14 @@ if [ -x /usr/sbin/runuser ]; then
   for c in "age key" "audit log" "store"; do
     [[ "$(st "$c")" == *ok* ]] && bad "$c is ok with no way to ask" || ok "$c is not ok with no way to ask"
   done
+  # Whether this host was granted an escalation needs no account to answer, so
+  # giving up on the ones that do must not take it with them: a reader whose
+  # brokered sudo just failed came for this line, and its absence reads as an
+  # arrangement nobody examined rather than one that was never asked for. This
+  # host is installed without --allow-sudo, so n/a is the answer.
+  [[ "$(st "sudo grant")" == *n/a* ]] \
+    && ok "and the grant is still reported, needing no account to answer" \
+    || bad "with runuser gone the sudo grant line is $(st "sudo grant"), want n/a"
   mv /usr/sbin/runuser.hidden /usr/sbin/runuser
 else
   bad "runuser is not at /usr/sbin/runuser; this group did not run"

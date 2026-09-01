@@ -64,14 +64,18 @@ func diagnoseBoundaries(report *Report, opts Options, cfg *config.Config, serves
 		func() { diagnoseBrokered(report, opts, cfg, serves) },
 	}
 	checks := append(append([]func(){}, aboutTheHost...), aboutTheOperator...)
+	// Whether this host was granted an escalation is a config key rather than a
+	// boundary: it needs no root and no account to answer, and it is the
+	// commonest reason a brokered `sudo` fails. Answered on every path that
+	// returns before the checks run, so the line is there whichever way this
+	// gave up; the path that reaches them answers it through
+	// diagnoseSudoArrangement, so no run reports it twice.
+	//
+	// Only this one, though ptrace scope and user namespaces reach their own n/a
+	// from the same key: those say what the executor's seccomp filter excludes,
+	// which is not what a reader whose escalation just failed came for, and each
+	// is still counted as unasked below.
 	if os.Geteuid() != 0 {
-		// One of them needs no root and is answered anyway: whether this host was
-		// granted an escalation at all is a config key, not a boundary, and it is
-		// the commonest reason a brokered `sudo` fails. Reporting it with the rest
-		// left an unprivileged run silent on the whole subject, so a reader whose
-		// escalation had just failed was told only that some checks need root.
-		// diagnoseSudoArrangement says the same thing on a run that has it, and is
-		// not reached here.
 		noGrant(report, cfg)
 		report.unaskedf("boundaries", len(checks), "the operator can run doctor as root to check these: %d checks "+
 			"ask what %s, %s, %s and %s can reach, and no account can answer that for "+
@@ -87,6 +91,9 @@ func diagnoseBoundaries(report *Report, opts Options, cfg *config.Config, serves
 	// can be asked; any other dead account has its questions dropped by
 	// askable, each check's own skipped bookkeeping saying so.
 	if !asaccount.CanRead(opts.KeeperUser, "/") {
+		// As above: this run has root and still cannot ask anything, so the checks
+		// below never run and the one that needs no asking is answered here.
+		noGrant(report, cfg)
 		report.unaskedf("boundaries", len(checks), "cannot ask %s what it can reach, so none "+
 			"of these %d checks were made: runuser has to be installed for this",
 			opts.KeeperUser, len(checks))
