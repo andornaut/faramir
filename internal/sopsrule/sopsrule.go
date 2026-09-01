@@ -245,3 +245,22 @@ func lastLine(err error) string {
 	lines := strings.Split(strings.TrimSpace(string(exit.Stderr)), "\n")
 	return strings.TrimSpace(lines[len(lines)-1])
 }
+
+// AllRecipients is every age recipient .sops.yaml lists, in order, without
+// repeats. Across every rule rather than the one matching the secrets:
+// re-implementing sops' selection would be a second answer free to disagree
+// with sops', and the question here is only whether a key is in the file at
+// all.
+//
+// Load and Recipients in one call, for the caller that wants the whole file's
+// answer rather than a rule's. One reader on purpose: a rule seals to its key
+// groups alone where it carries a bare `age:` beside them, so a reader that
+// merged the two would report a keeper still listed when sops is about to seal
+// every new file without it.
+func AllRecipients(path string) ([]string, error) {
+	rules, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	return Recipients(rules), nil
+}

@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
-	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // The agents with no rule file of their own are refused a path here rather than
@@ -77,14 +78,14 @@ func blockOneFileUnderTheHome(t *testing.T) string {
 func blockAFileAs(t *testing.T, agentUser string) string {
 	t.Helper()
 	secret := filepath.Join(guardHome(), ".ssh", "id_ed25519")
-	rules, err := install.RenderDenyPatterns(install.Layout{
-		ConfigDir:  install.DefaultConfigDir,
-		BinDir:     install.DefaultBinDir,
-		LibexecDir: install.DefaultLibexecDir,
-		LogDir:     install.DefaultLogDir,
-		BrokerUser: install.DefaultBrokerUser,
-		KeeperUser: install.DefaultKeeperUser,
-		ExecUser:   install.DefaultExecUser,
+	rules, err := agentcfg.RenderDenyPatterns(hostlayout.Layout{
+		ConfigDir:  hostlayout.DefaultConfigDir,
+		BinDir:     hostlayout.DefaultBinDir,
+		LibexecDir: hostlayout.DefaultLibexecDir,
+		LogDir:     hostlayout.DefaultLogDir,
+		BrokerUser: hostlayout.DefaultBrokerUser,
+		KeeperUser: hostlayout.DefaultKeeperUser,
+		ExecUser:   hostlayout.DefaultExecUser,
 		AgentUser:  agentUser,
 		Blocked:    []config.BlockedPath{{Path: secret}},
 	})

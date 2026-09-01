@@ -19,7 +19,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/doctor"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostunit"
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -30,7 +34,7 @@ import (
 // brokerUnit records the config the daemons loaded. A variable so a test can
 // point it at a fixture, and taken from install rather than written out again:
 // init refuses a config move against the same file.
-var brokerUnit = install.UnitPath("faramir-broker.service")
+var brokerUnit = hostunit.Path("faramir-broker.service")
 
 // status is what a running broker says about itself: where its config is, and
 // which build is answering.
@@ -103,7 +107,7 @@ func askBroker(socketPath string) status {
 // installed to load, which is the answer left when it is not running. The same
 // reader init refuses a config move against.
 func unitConfigFile() string {
-	return install.UnitConfigFile(brokerUnit)
+	return hostunit.ConfigFile(brokerUnit)
 }
 
 // configFileFrom is the config.toml a running install loads, given an answer
@@ -201,7 +205,7 @@ func initConfigDir(explicit, socketPath string) string {
 	if path, err := configFileFrom(askBroker(socketPath)); err == nil {
 		return filepath.Dir(path)
 	}
-	return install.DefaultConfigDir
+	return hostlayout.DefaultConfigDir
 }
 
 type initFlags struct {
@@ -284,21 +288,21 @@ func newInitCmd() *cobra.Command {
 	// other owns the ciphertext; holding one is not holding the other.
 	fl.StringVar(&f.clientGroup, "client-group", "",
 		"group admitted to the broker socket, and shared with the executor on a working "+
-			"tree (default: what the install uses, then "+install.DefaultClientGroup+")")
+			"tree (default: what the install uses, then "+hostlayout.DefaultClientGroup+")")
 	fl.StringVar(&f.secretsGroup, "secrets-group", "",
 		"group owning the ciphertext in <config-dir>/secrets (default: what the install uses, then the keeper's own group, which is the only account that opens one; naming another adds a second reader)")
 	fl.StringVar(&f.brokerUser, "broker-user", "",
 		"account that holds the SSH keys and the audit log (default: what the install "+
-			"uses, then "+install.DefaultBrokerUser+")")
+			"uses, then "+hostlayout.DefaultBrokerUser+")")
 	fl.StringVar(&f.keeperUser, "keeper-user", "",
 		"account that holds the age key (default: what the install uses, then "+
-			install.DefaultKeeperUser+")")
+			hostlayout.DefaultKeeperUser+")")
 	fl.StringVar(&f.execUser, "exec-user", "",
 		"account brokered commands run as (default: what the install uses, then "+
-			install.DefaultExecUser+")")
+			hostlayout.DefaultExecUser+")")
 	fl.StringVar(&f.configDir, "config-dir", "",
 		"where config.toml, the age key and the managed sops files are "+
-			"installed (default: ask the broker, then read its unit, then "+install.DefaultConfigDir+")")
+			"installed (default: ask the broker, then read its unit, then "+hostlayout.DefaultConfigDir+")")
 	fl.StringVar(&f.sshKey, "ssh-key", "",
 		"where the identity the broker lends to brokered commands lives "+
 			"(default: what the install uses, then id_ed25519 beside the age key; "+
@@ -308,10 +312,10 @@ func newInitCmd() *cobra.Command {
 			"(default: none, verifying against /etc/ssh/ssh_known_hosts alone)")
 	fl.StringArrayVar(&f.initAgents, "agent", nil,
 		"install the deny rules into this agent's own settings, repeatable. "+
-			"Default \""+install.AgentAuto+"\": whichever agents the agent account's home "+
+			"Default \""+agentcfg.Auto+"\": whichever agents the agent account's home "+
 			"already carries. A name writes them whether or not the agent is there, "+
 			"and composes with auto. Known: "+
-			strings.Join(install.KnownAgents(), ", "))
+			strings.Join(agentcfg.Known(), ", "))
 	fl.BoolVar(&f.allowSudo, "allow-sudo", false,
 		"let a brokered command ASK to sudo; it cannot sudo on its own. A human approves "+
 			"each through 'faramir sudo approve', and no password exists anywhere. Off by "+
@@ -392,7 +396,7 @@ func runInit(f initFlags) int {
 	// out, so nested it would do every other step and then fail at its own
 	// verification: a converge that changed nothing and reports failure, with
 	// nothing in the ending to point at the cause.
-	if why := install.NestedRun(); why != "" {
+	if why := protocol.NestedRun(); why != "" {
 		fmt.Fprintf(os.Stderr, "faramir init: %s, so init cannot finish: it asks the broker what the agent holds "+
 			"and that question would be refused. Run it from a shell of your own\n", why)
 		return 1
@@ -530,10 +534,10 @@ func newInitProjectCmd() *cobra.Command {
 		"share the tree with this group instead of the one the installed config admits. It "+
 			"overrides that one value; the config still has to load")
 	fl.StringArrayVar(&f.agents, "agent", nil,
-		"coding agent to enrol, repeatable. Default \""+install.AgentAuto+"\": "+
+		"coding agent to enrol, repeatable. Default \""+agentcfg.Auto+"\": "+
 			"whichever agents this tree already carries configuration for. A name "+
 			"enrols that agent whether or not it is there, and composes with auto. "+
-			"Known: "+strings.Join(install.KnownAgents(), ", "))
+			"Known: "+strings.Join(agentcfg.Known(), ", "))
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
 	return c
@@ -549,7 +553,7 @@ func runInitProject(f initProjectFlags, args []string) int {
 			fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
 			return 1
 		}
-		dir = install.DefaultConfigDir
+		dir = hostlayout.DefaultConfigDir
 	}
 
 	opts := install.ProjectOptions{
@@ -720,7 +724,7 @@ func runDoctor(f doctorFlags) int {
 	// Before the round trip below, which changes what it would report: opening
 	// the broker socket activates the service, and that starts the keeper and
 	// executor sockets it Requires=.
-	sockets := install.SampleSockets()
+	sockets := doctor.SampleSockets()
 	// One round trip: the same answer decides which install this is and whether
 	// the daemons are running the code that was installed.
 	//
@@ -738,7 +742,7 @@ func runDoctor(f doctorFlags) int {
 		return 1
 	}
 	dir := filepath.Dir(configFile)
-	report := install.Diagnose(install.DoctorOptions{
+	report := doctor.Diagnose(doctor.Options{
 		ConfigDir:     dir,
 		BrokerVersion: broker.version,
 		BrokerBuild:   broker.build,
@@ -766,14 +770,14 @@ func runDoctor(f doctorFlags) int {
 // printDiagnosis lays the findings out as status, check, detail. The check is
 // named once per run of findings that share it, and the detail wraps under
 // itself rather than being cut at the terminal edge.
-func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
-	statusWidth := columns(statusColumn(install.StatusFailed)) // the longest
+func printDiagnosis(w io.Writer, paint palette, report doctor.Report) {
+	statusWidth := columns(statusColumn(doctor.StatusFailed)) // the longest
 	name := 0
 	for _, finding := range report.Findings {
 		name = max(name, len(finding.Name))
 	}
 	indent := statusWidth + 2 + name + 2
-	counts := map[install.Status]int{}
+	counts := map[doctor.Status]int{}
 	previous := ""
 	for _, finding := range report.Findings {
 		counts[finding.Status]++
@@ -804,8 +808,8 @@ func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 		return
 	}
 	var totals []string
-	for _, status := range []install.Status{install.StatusOK, install.StatusNA,
-		install.StatusWarn, install.StatusFailed} {
+	for _, status := range []doctor.Status{doctor.StatusOK, doctor.StatusNA,
+		doctor.StatusWarn, doctor.StatusFailed} {
 		if counts[status] > 0 {
 			totals = append(totals, fmt.Sprintf("%d %s", counts[status], status))
 		}
@@ -839,12 +843,12 @@ func printNotAsked(w io.Writer, paint palette, count int) {
 // statusColumn is the glyph and the word: the glyph makes the column scannable,
 // the word survives a pipe into a log or a grep for "failed". The glyph is
 // dropped where the locale is not UTF-8.
-func statusColumn(status install.Status) string {
-	mark := map[install.Status]string{
-		install.StatusOK:     "✓", // check mark
-		install.StatusNA:     "·", // middle dot: neither asserted nor withheld
-		install.StatusWarn:   "!",
-		install.StatusFailed: "✗", // ballot X
+func statusColumn(status doctor.Status) string {
+	mark := map[doctor.Status]string{
+		doctor.StatusOK:     "✓", // check mark
+		doctor.StatusNA:     "·", // middle dot: neither asserted nor withheld
+		doctor.StatusWarn:   "!",
+		doctor.StatusFailed: "✗", // ballot X
 	}[status]
 	if mark == "" || !unicodeLocale() {
 		return fmt.Sprintf("%-6s", status)
@@ -868,18 +872,18 @@ func unicodeLocale() bool {
 	return false
 }
 
-func paintStatus(paint palette, status install.Status) string {
+func paintStatus(paint palette, status doctor.Status) string {
 	text := statusColumn(status)
 	switch status {
-	case install.StatusOK:
+	case doctor.StatusOK:
 		return paint.ok(text)
 	// Dim rather than a colour of its own: nothing was claimed, so the line is
 	// there to be read past.
-	case install.StatusNA:
+	case doctor.StatusNA:
 		return paint.dim(text)
-	case install.StatusWarn:
+	case doctor.StatusWarn:
 		return paint.warn(text)
-	case install.StatusFailed:
+	case doctor.StatusFailed:
 		return paint.bad(text)
 	default:
 		// A status this build does not know is the one worth looking at.
@@ -952,7 +956,7 @@ func runUninstall(f uninstallFlags) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "faramir uninstall: no install answers, so this "+
 			"removes what is at the usual paths and names what it leaves against "+
-			install.DefaultConfigDir)
+			hostlayout.DefaultConfigDir)
 		dir = ""
 	}
 	left, err := install.Uninstall(dir)

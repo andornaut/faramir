@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/cli"
 )
 
@@ -89,11 +90,11 @@ func collapse(body string) string {
 // changed in both. What each may not do is claim the other's half.
 func TestTheSharedRulesAreOneSnippetInBothSections(t *testing.T) {
 	tree := section(t)
-	home, err := homeSection(true)
+	home, err := agentcfg.HomeSection(true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rules, err := renderData("agent/instructions.rules.md.snippet", nil)
+	rules, err := agentcfg.RenderData("agent/instructions.rules.md.snippet", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

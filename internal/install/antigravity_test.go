@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostfs"
 )
 
 // The Antigravity family is two agents sharing one tree enrolment. What these
@@ -23,18 +24,18 @@ import (
 // must not watch the file change back and forth.
 func TestEitherHalfOfTheFamilyWritesTheSameTree(t *testing.T) {
 	dir := t.TempDir()
-	for _, file := range agentTargets["agy"].files {
-		fromCLI, err := assetFor(agentTargets["agy"], file, dir)
+	for _, file := range agentcfg.Targets["agy"].Files {
+		fromCLI, err := agentcfg.AssetFor(agentcfg.Targets["agy"], file, dir)
 		if err != nil {
 			t.Fatal(err)
 		}
-		fromIDE, err := assetFor(agentTargets["antigravity"], file, dir)
+		fromIDE, err := agentcfg.AssetFor(agentcfg.Targets["antigravity"], file, dir)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if string(fromCLI) != string(fromIDE) {
 			t.Errorf("%s differs between the two halves, so enrolling one rewrites "+
-				"what the other wrote:\n%s\n---\n%s", file.path, fromCLI, fromIDE)
+				"what the other wrote:\n%s\n---\n%s", file.Path, fromCLI, fromIDE)
 		}
 	}
 }
@@ -45,19 +46,19 @@ func TestEitherHalfOfTheFamilyWritesTheSameTree(t *testing.T) {
 // ignores, and a matcher naming one tool leaves a payload the guard cannot read
 // arriving on a tool nothing answers for.
 func TestTheHookRegistrationNamesTheGuardAndTheDialect(t *testing.T) {
-	target := agentTargets["agy"]
-	var hook agentFile
+	target := agentcfg.Targets["agy"]
+	var hook agentcfg.File
 	// In a home: the hook is installed for the account, so it routes what the
 	// agent runs in every workspace rather than in an enrolled one.
-	for _, file := range target.accountFiles {
-		if strings.HasSuffix(file.path, "hooks.json") {
+	for _, file := range target.AccountFiles {
+		if strings.HasSuffix(file.Path, "hooks.json") {
 			hook = file
 		}
 	}
-	if hook.path == "" {
+	if hook.Path == "" {
 		t.Fatal("nothing registers the hook, so nothing routes what the agent runs")
 	}
-	body, err := assetFor(target, hook, t.TempDir())
+	body, err := agentcfg.AssetFor(target, hook, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestTheHookRegistrationNamesTheGuardAndTheDialect(t *testing.T) {
 		t.Errorf("the hook does not run the guard: %q", command)
 	}
 	// The family's name, not the target's: the same file is written by both.
-	if !strings.Contains(command, "--host "+antigravityFamily) {
+	if !strings.Contains(command, "--host "+agentcfg.AntigravityFamily) {
 		t.Errorf("the hook names no dialect the guard answers in: %q", command)
 	}
 	if entry.PreToolUse[0].Hooks[0].Timeout == 0 {
@@ -107,23 +108,23 @@ func TestTheHookRegistrationNamesTheGuardAndTheDialect(t *testing.T) {
 // alike. A rule the agent never reads looks exactly like one that covers
 // everything.
 func TestTheCLIsRulesRefuseBothVerbsInTheFileItReads(t *testing.T) {
-	target := agentTargets["agy"]
-	var file agentFile
-	for _, candidate := range target.accountFiles {
-		if strings.HasSuffix(candidate.path, "settings.json") {
+	target := agentcfg.Targets["agy"]
+	var file agentcfg.File
+	for _, candidate := range target.AccountFiles {
+		if strings.HasSuffix(candidate.Path, "settings.json") {
 			file = candidate
 		}
 	}
-	if file.path != ".gemini/antigravity-cli/settings.json" {
+	if file.Path != ".gemini/antigravity-cli/settings.json" {
 		t.Fatalf("the rules are written to %q, which is not the file the CLI reads",
-			file.path)
+			file.Path)
 	}
-	if !file.merge {
+	if !file.Merge {
 		t.Error("the rules replace the settings file rather than merging into it, " +
 			"so the operator's own keys are lost")
 	}
 
-	body, err := renderAccount(file.asset, testLayout())
+	body, err := agentcfg.RenderAccount(file.Asset, testLayout())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,15 +170,15 @@ func TestTheCLIsRulesRefuseBothVerbsInTheFileItReads(t *testing.T) {
 func TestEnrollingOneHalfDoesNotReportTheOtherAsUncovered(t *testing.T) {
 	tree := t.TempDir()
 	opts := ProjectOptions{Dir: tree, ConfigDir: t.TempDir()}
-	first := &project{opts: opts, uid: keep, gid: keep,
-		targets: []*agentTarget{agentTargets["agy"]}}
+	first := &project{opts: opts, uid: hostfs.Keep, gid: hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["agy"]}}
 	if err := first.agentConfig(); err != nil {
 		t.Fatal(err)
 	}
 
 	// The same tree again, so the files are there to be detected.
-	second := &project{opts: opts, uid: keep, gid: keep,
-		targets: []*agentTarget{agentTargets["agy"]}}
+	second := &project{opts: opts, uid: hostfs.Keep, gid: hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["agy"]}}
 	if err := second.agentConfig(); err != nil {
 		t.Fatal(err)
 	}
@@ -190,9 +191,9 @@ func TestEnrollingOneHalfDoesNotReportTheOtherAsUncovered(t *testing.T) {
 	// The hook is account-wide now, so an enrolment writes the tree no files at
 	// all: what it leaves is the prose. Asserted so that a tree file reappearing
 	// is noticed rather than assumed.
-	if len(agentTargets["agy"].files) != 0 {
+	if len(agentcfg.Targets["agy"].Files) != 0 {
 		t.Errorf("the enrolment writes %d file(s) into a tree, where the guard is "+
-			"installed for the account", len(agentTargets["agy"].files))
+			"installed for the account", len(agentcfg.Targets["agy"].Files))
 	}
 }
 
@@ -203,58 +204,20 @@ func TestTheCLIGetsBothATreeFileAndARulesFile(t *testing.T) {
 	tree := t.TempDir()
 	run := &project{
 		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
-		uid:     keep,
-		gid:     keep,
-		targets: []*agentTarget{agentTargets["agy"]},
+		uid:     hostfs.Keep,
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["agy"]},
 	}
 	if err := run.instructions(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"AGENTS.md", agentTargets["agy"].treeInstructions.path} {
+	for _, name := range []string{"AGENTS.md", agentcfg.Targets["agy"].TreeInstructions.Path} {
 		body, err := os.ReadFile(filepath.Join(tree, name))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if !strings.Contains(string(body), sectionBegin) {
+		if !strings.Contains(string(body), agentcfg.SectionBegin) {
 			t.Errorf("%s carries no credentials section:\n%s", name, body)
-		}
-	}
-}
-
-// Antigravity's matcher takes one leading wildcard and nothing after it that
-// crosses a separator. Every other shape refuses nothing at all, which is the
-// failure this package is built to avoid: a rule that covers nothing reads
-// exactly like one that covers everything.
-func TestNoRuleIsWrittenInAShapeTheAgentMatchesNothingWith(t *testing.T) {
-	layout := testLayout()
-	layout.Blocked = []config.BlockedPath{
-		{Path: "/home/op/.ssh"},
-		{Path: "/mnt/vol/luks.key"},
-		{Path: "/home/op/.config/sops/age"},
-	}
-	rules := agyRules(layout)
-	for _, rule := range rules {
-		target := rule[strings.Index(rule, "(")+1 : len(rule)-1]
-		if strings.HasSuffix(target, "/*") {
-			t.Errorf("%q ends in a trailing wildcard, which matches nothing here, "+
-				"not even the files directly inside", rule)
-		}
-		if star := strings.Index(target, "*"); star >= 0 {
-			if star != 0 {
-				t.Errorf("%q has a wildcard that does not lead, so it matches nothing", rule)
-			}
-			if strings.Contains(target[star+1:], "/") {
-				t.Errorf("%q puts a separator after the wildcard, so it matches nothing", rule)
-			}
-		}
-	}
-
-	// A literal path is named bare: a path covers the hierarchy under it, so the
-	// directory is the whole rule.
-	joined := strings.Join(rules, "\n")
-	for _, want := range []string{"read_file(/home/op/.ssh)", "write_file(/mnt/vol/luks.key)"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("%s is missing:\n%s", want, joined)
 		}
 	}
 }
@@ -264,10 +227,10 @@ func TestNoRuleIsWrittenInAShapeTheAgentMatchesNothingWith(t *testing.T) {
 // operator reads as two files to check.
 func TestTheSharedAccountHookIsWrittenOnce(t *testing.T) {
 	shared := ""
-	for _, file := range agentTargets["antigravity"].accountFiles {
-		for _, other := range agentTargets["agy"].accountFiles {
-			if file.path == other.path {
-				shared = file.path
+	for _, file := range agentcfg.Targets["antigravity"].AccountFiles {
+		for _, other := range agentcfg.Targets["agy"].AccountFiles {
+			if file.Path == other.Path {
+				shared = file.Path
 			}
 		}
 	}
@@ -279,8 +242,8 @@ func TestTheSharedAccountHookIsWrittenOnce(t *testing.T) {
 	seen := map[string]bool{}
 	var written []string
 	for _, name := range []string{"agy", "antigravity"} {
-		for _, file := range unseenFiles(seen, agentTargets[name].accountFiles) {
-			written = append(written, file.path)
+		for _, file := range unseenFiles(seen, agentcfg.Targets[name].AccountFiles) {
+			written = append(written, file.Path)
 		}
 	}
 	if got := strings.Count(strings.Join(written, "\n"), shared); got != 1 {
@@ -303,22 +266,22 @@ func TestTheSharedAccountHookIsWrittenOnce(t *testing.T) {
 // the path rules must leave it unset.
 func TestOnlyTheRegistrationIsExemptFromTheRuleChecks(t *testing.T) {
 	layout := testLayout()
-	for _, name := range knownAgents() {
-		for _, file := range agentTargets[name].accountFiles {
-			body, err := renderAccount(file.asset, layout)
+	for _, name := range agentcfg.Known() {
+		for _, file := range agentcfg.Targets[name].AccountFiles {
+			body, err := agentcfg.RenderAccount(file.Asset, layout)
 			if err != nil {
-				t.Fatalf("%s %s: %v", name, file.path, err)
+				t.Fatalf("%s %s: %v", name, file.Path, err)
 			}
 			// A rule file names this install's own config directory; a
 			// registration names the binary and nothing else.
 			carries := strings.Contains(string(body), layout.ConfigDir)
-			if file.noRules && carries {
+			if file.NoRules && carries {
 				t.Errorf("%s: %s is exempt from the rule checks and carries rules, "+
-					"so drift in it would go unreported", name, file.path)
+					"so drift in it would go unreported", name, file.Path)
 			}
-			if !file.noRules && !carries {
+			if !file.NoRules && !carries {
 				t.Errorf("%s: %s is checked as a rule file and carries no path, so "+
-					"every protected path is reported unrefused in it", name, file.path)
+					"every protected path is reported unrefused in it", name, file.Path)
 			}
 		}
 	}
@@ -334,9 +297,9 @@ func TestOnlyTheRegistrationIsExemptFromTheRuleChecks(t *testing.T) {
 // agent's file marking another is not.
 func TestNoAgentIsDetectedByAFileWrittenForAnother(t *testing.T) {
 	written := map[string][]string{}
-	for _, name := range knownAgents() {
-		for _, file := range agentTargets[name].accountFiles {
-			written[file.path] = append(written[file.path], name)
+	for _, name := range agentcfg.Known() {
+		for _, file := range agentcfg.Targets[name].AccountFiles {
+			written[file.Path] = append(written[file.Path], name)
 		}
 	}
 	for path, writers := range written {
@@ -344,8 +307,8 @@ func TestNoAgentIsDetectedByAFileWrittenForAnother(t *testing.T) {
 			continue
 		}
 		// A file two agents share cannot say which of them is here.
-		for _, name := range knownAgents() {
-			for _, marker := range agentTargets[name].detectHome {
+		for _, name := range agentcfg.Known() {
+			for _, marker := range agentcfg.Targets[name].DetectHome {
 				if strings.HasPrefix(path, strings.TrimSuffix(marker, "/")+"/") || path == marker {
 					t.Errorf("%s is detected by %q, which faramir writes for %v: "+
 						"installing for one reports the others as present",

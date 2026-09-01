@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/server"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
@@ -79,7 +79,7 @@ func runBroker(f brokerFlags) int {
 	// FARAMIR_CONFIG is the case this skips.
 	var ownDirs []string
 	if configDir := filepath.Dir(cfg.Path); filepath.IsAbs(configDir) {
-		ownDirs = install.InstalledDirs(configDir)
+		ownDirs = agentcfg.InstalledDirs(configDir)
 	}
 	s := server.New(ownDirs, cfg)
 	s.Store.Reload()

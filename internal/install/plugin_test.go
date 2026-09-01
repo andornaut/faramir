@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // The plugins opencode and Kilo Code load, run, and pi's extension below them.
@@ -79,7 +81,7 @@ func newPluginRig(t *testing.T, agent, exportKind string) *pluginRig {
 	//
 	// .mjs: a .js is CommonJS to node without a package.json. The bytes are the
 	// shipped ones otherwise.
-	body, err := renderData("agent/plugin.js.tmpl", pluginData{
+	body, err := agentcfg.RenderData("agent/plugin.js.tmpl", agentcfg.PluginData{
 		BinDir:        dir,
 		Agent:         agent,
 		Path:          ".test/plugin.js",
@@ -88,7 +90,7 @@ func newPluginRig(t *testing.T, agent, exportKind string) *pluginRig {
 		// one rendered without them is not the file anybody installs. The same
 		// layout pi's rig uses, so the two agents' refusals are checked against
 		// one list rather than two that drift.
-		Layout: Layout{ConfigDir: "/opt/conf", Blocked: []config.BlockedPath{
+		Layout: hostlayout.Layout{ConfigDir: "/opt/conf", Blocked: []config.BlockedPath{
 			{Path: "/home/op/.ssh"}, {Path: "/home/op/.config/sops/age"},
 		}},
 	})
@@ -358,7 +360,7 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 		replyFile:   filepath.Join(dir, "reply.json"),
 		statusFile:  filepath.Join(dir, "status"),
 	}
-	body, err := renderData("agent/pi/extension.ts.tmpl", pluginData{
+	body, err := agentcfg.RenderData("agent/pi/extension.ts.tmpl", agentcfg.PluginData{
 		BinDir: dir, Agent: "pi", Path: ".pi/extensions/faramir.ts",
 		// The rig drives the shipped bytes, so it renders them the way an
 		// enrolment does: the path rules are compiled in, and one rendered
@@ -368,7 +370,7 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 		// went: a credential faramir neither writes nor reads is the operator's
 		// to name, and the case worth covering here is that a declared one
 		// reaches this extension like a compiled-in one does.
-		Layout: Layout{ConfigDir: "/opt/conf", Blocked: []config.BlockedPath{
+		Layout: hostlayout.Layout{ConfigDir: "/opt/conf", Blocked: []config.BlockedPath{
 			{Path: "/home/op/.ssh"}, {Path: "/home/op/.config/sops/age"},
 		}},
 	})

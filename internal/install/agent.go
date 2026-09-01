@@ -7,6 +7,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // stepAgentConfig registers the broker with the operator's own account, which
@@ -22,13 +26,13 @@ import (
 // By path rather than by asset: what matters is the file on disk, and two
 // targets rendering the same path from different assets would still be one
 // write, the second overwriting the first.
-func unseenFiles(seen map[string]bool, files []agentFile) []agentFile {
-	out := make([]agentFile, 0, len(files))
+func unseenFiles(seen map[string]bool, files []agentcfg.File) []agentcfg.File {
+	out := make([]agentcfg.File, 0, len(files))
 	for _, file := range files {
-		if seen[file.path] {
+		if seen[file.Path] {
 			continue
 		}
-		seen[file.path] = true
+		seen[file.Path] = true
 		out = append(out, file)
 	}
 	return out
@@ -46,7 +50,7 @@ func (r *runner) stepAgentConfig() error {
 		r.step(labelAgentConfig, false, fmt.Sprintf(
 			"no coding agent found in %s, so no deny rules were written. "+
 				"`faramir init --agent NAME` writes them anyway (%s)",
-			r.operatorHome, strings.Join(knownAgents(), ", ")))
+			r.operatorHome, strings.Join(agentcfg.Known(), ", ")))
 		r.step("agent instructions", false, "no coding agent found, so no credentials "+
 			"section was written")
 		return nil
@@ -56,14 +60,14 @@ func (r *runner) stepAgentConfig() error {
 	// and nothing else; one that is a program has to name the binary it execs and
 	// the dialect it speaks, and rendering those two kinds differently is a
 	// second render path to keep in step.
-	asTarget := func(target *agentTarget) func(agentFile) ([]byte, error) {
-		return func(file agentFile) ([]byte, error) {
-			return renderData(file.asset, pluginData{
-				BinDir:        DefaultBinDir,
-				Agent:         target.name,
-				Family:        target.familyName(),
-				Path:          file.path,
-				DefaultExport: file.defaultExport,
+	asTarget := func(target *agentcfg.Target) func(agentcfg.File) ([]byte, error) {
+		return func(file agentcfg.File) ([]byte, error) {
+			return agentcfg.RenderData(file.Asset, agentcfg.PluginData{
+				BinDir:        hostlayout.DefaultBinDir,
+				Agent:         target.Name,
+				Family:        target.FamilyName(),
+				Path:          file.Path,
+				DefaultExport: file.DefaultExport,
 				Layout:        r.layout,
 			})
 		}
@@ -73,14 +77,14 @@ func (r *runner) stepAgentConfig() error {
 	var written, refused []string
 	seen := map[string]bool{}
 	for _, target := range targets {
-		files := unseenFiles(seen, target.accountFiles)
+		files := unseenFiles(seen, target.AccountFiles)
 		// 0700: these sit in the agent account's home.
-		made, paths, err := writeAgentFiles(r.fs, r.warnf, r.operatorHome, r.layout.ConfigDir,
+		made, paths, err := agentcfg.WriteFiles(r.fs, r.warnf, r.operatorHome, r.layout.ConfigDir,
 			r.operatorUID, r.operatorGID, 0o700, false, asTarget(target), files)
 		written = append(written, paths...)
 		stood := true
 		switch {
-		case errors.Is(err, errNotOperators):
+		case errors.Is(err, hostfs.ErrNotOperators):
 			// Collected rather than returned, as the sections below are: every other
 			// agent's rules are still written and the run fails once at the end
 			// naming all of them.
@@ -94,9 +98,9 @@ func (r *runner) stepAgentConfig() error {
 		// refused: what the note describes is a condition the agent is under rather
 		// than something this run just did, and nothing here can check it has been
 		// met -- but told to go and trust a hook that was never written, an operator
-		// goes looking for one. See agentTarget.accountNote.
-		if target.accountNote != "" && stood {
-			r.warnf("%s: %s", target.name, target.accountNote)
+		// goes looking for one. See agentcfg.Target.AccountNote.
+		if target.AccountNote != "" && stood {
+			r.warnf("%s: %s", target.Name, target.AccountNote)
 		}
 	}
 	r.step(labelAgentConfig, changed, strings.Join(written, ", "))
@@ -121,7 +125,7 @@ func (r *runner) stepAgentConfig() error {
 // bare permission error, which is the shape that invites a second attempt
 // through an interpreter or a base64 pipe. Kept short: this loads into every
 // session on the machine.
-func (r *runner) agentInstructions(targets []*agentTarget) error {
+func (r *runner) agentInstructions(targets []*agentcfg.Target) error {
 	changed, written, stale, err := r.writeSections(targets)
 	// Recorded before the failure, so a report says what was written as well as
 	// what was not.
@@ -137,11 +141,11 @@ func (r *runner) agentInstructions(targets []*agentTarget) error {
 
 // writeSections writes the section into each file, and reports what it wrote,
 // what it left as it is, and what stopped it.
-func (r *runner) writeSections(targets []*agentTarget) (bool, []string, []string, error) {
+func (r *runner) writeSections(targets []*agentcfg.Target) (bool, []string, []string, error) {
 	changed := false
 	var written, stale []string
 	for _, file := range homeInstructionFiles(targets) {
-		section, err := homeSection(r.layout.AllowSudo)
+		section, err := agentcfg.HomeSection(r.layout.AllowSudo)
 		if err != nil {
 			return changed, written, stale, err
 		}
@@ -149,17 +153,17 @@ func (r *runner) writeSections(targets []*agentTarget) (bool, []string, []string
 		// The operator's own group, not keep, and never re-owned: a .pi/agent or
 		// .kilocode/rules that does not exist yet would otherwise be created
 		// operator:root.
-		if _, err := r.fs.ensureDir(
+		if _, err := r.fs.EnsureDir(
 			filepath.Dir(path), 0o700, r.operatorUID, r.operatorGID, false); err != nil {
 			return changed, written, stale, err
 		}
-		made, err := r.fs.sectionFile(path, section, "", r.operatorUID, r.operatorGID, "")
+		made, err := agentcfg.SectionFile(r.fs, path, section, "", r.operatorUID, r.operatorGID, "")
 		switch {
-		case outOfDate(err):
+		case agentcfg.OutOfDate(err):
 			// Collected rather than returned, so every other agent's section is
 			// still brought up to date and the run fails once at the end naming all
 			// of them.
-			stale = append(stale, sectionProblem(err, path, "`sudo faramir init`"))
+			stale = append(stale, agentcfg.SectionProblem(err, path, "`sudo faramir init`"))
 			written = append(written, path+" (not written; see the error)")
 			continue
 		case err != nil:
@@ -192,11 +196,11 @@ type homeInstructionFile struct {
 // One file, once, in the order the targets came in, so a report reads the same
 // twice. Every agent has something account-wide, so the section makes the same
 // claim whichever of them reads it.
-func homeInstructionFiles(targets []*agentTarget) []homeInstructionFile {
+func homeInstructionFiles(targets []*agentcfg.Target) []homeInstructionFile {
 	var out []homeInstructionFile
 	at := map[string]int{}
 	for _, target := range targets {
-		path := target.homeInstructions
+		path := target.HomeInstructions
 		if path == "" {
 			continue
 		}
@@ -207,23 +211,6 @@ func homeInstructionFiles(targets []*agentTarget) []homeInstructionFile {
 		out = append(out, homeInstructionFile{path: path})
 	}
 	return out
-}
-
-// homeSection is the section `init` writes into a home. Rendered rather than
-// shipped as it is, for the escalation half: a host that granted no sudo would
-// otherwise be telling an agent how to ask for something it cannot have.
-//
-// It names no path this install decides, the rules it explains being rendered
-// into each agent's own config from protectedpaths.go.
-func homeSection(allowSudo bool) (string, error) {
-	body, err := renderData("agent/instructions.home.md.snippet",
-		struct {
-			AllowSudo bool
-		}{AllowSudo: allowSudo})
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimRight(string(body), "\n") + "\n", nil
 }
 
 // stepEnrolledTrees re-renders the project files of every tree this install has
@@ -242,7 +229,7 @@ func homeSection(allowSudo bool) (string, error) {
 // config and the home are written either way, and doctor reports a tree that
 // still does not carry what an enrolment writes.
 func (r *runner) stepEnrolledTrees() error {
-	trees, unreadableErr := readEnrolledWhy(r.layout.ConfigDir)
+	trees, unreadableErr := agentcfg.ReadEnrolledWhy(r.layout.ConfigDir)
 	unreadable := ""
 	if unreadableErr != nil {
 		unreadable = unreadableErr.Error()
@@ -250,7 +237,7 @@ func (r *runner) stepEnrolledTrees() error {
 	var written, skipped, refused []string
 	changed := false
 	for _, tree := range trees {
-		if !exists(tree.Dir) {
+		if !hostfs.Exists(tree.Dir) {
 			skipped = append(skipped, tree.Dir)
 			continue
 		}
@@ -269,22 +256,22 @@ func (r *runner) stepEnrolledTrees() error {
 			continue
 		}
 		uid, gid := r.operatorUID, r.operatorGID
-		if id, err := lookupUser(tree.AgentUser); err == nil && tree.AgentUser != "" {
+		if id, err := hostfs.LookupUser(tree.AgentUser); err == nil && tree.AgentUser != "" {
 			uid = id
 		}
-		if id, _, err := primaryGroup(tree.AgentUser); err == nil && tree.AgentUser != "" {
+		if id, _, err := hostfs.PrimaryGroup(tree.AgentUser); err == nil && tree.AgentUser != "" {
 			gid = id
 		}
 		for _, name := range tree.Agents {
-			target, known := agentTargets[name]
+			target, known := agentcfg.Targets[name]
 			if !known {
 				continue
 			}
-			asTarget := func(file agentFile) ([]byte, error) {
-				return assetFor(target, file, r.layout.ConfigDir)
+			asTarget := func(file agentcfg.File) ([]byte, error) {
+				return agentcfg.AssetFor(target, file, r.layout.ConfigDir)
 			}
-			made, paths, err := writeAgentFiles(r.fs, r.warnf, tree.Dir, r.layout.ConfigDir,
-				uid, gid, 0o2770|os.ModeSetgid, true, asTarget, target.files)
+			made, paths, err := agentcfg.WriteFiles(r.fs, r.warnf, tree.Dir, r.layout.ConfigDir,
+				uid, gid, 0o2770|os.ModeSetgid, true, asTarget, target.Files)
 			if err != nil {
 				skipped = append(skipped, tree.Dir+" ("+err.Error()+")")
 				continue
@@ -316,7 +303,7 @@ func (r *runner) stepEnrolledTrees() error {
 			"refuse to enrol, so nothing was written into them: %s. Remove their "+
 			"entries from %s, and anything an earlier enrolment left in them",
 			len(refused), strings.Join(refused, ", "),
-			enrolledPath(r.layout.ConfigDir))
+			agentcfg.EnrolledPath(r.layout.ConfigDir))
 	}
 	if len(skipped) > 0 {
 		r.warnf("%d enrolled tree(s) were not rewritten, so what an enrolment "+

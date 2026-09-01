@@ -10,7 +10,9 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/secretlink"
 )
 
@@ -60,7 +62,7 @@ func linkRunner(t *testing.T, gid int, paths ...string) *runner {
 	}
 	return &runner{
 		opts:      Options{AgentUser: current.Username, links: linksFor(paths), linksSet: true},
-		layout:    Layout{BrokerUser: "faramir-broker", ClientGroup: group.Name},
+		layout:    hostlayout.Layout{BrokerUser: "faramir-broker", ClientGroup: group.Name},
 		brokerGID: gid,
 	}
 }
@@ -235,35 +237,6 @@ func TestLinkAccessIsSkippedWithNoLinks(t *testing.T) {
 
 // -- the doctor check -------------------------------------------------------
 
-func TestDoctorLinkedAccessSaysSoWhenNothingIsLinked(t *testing.T) {
-	var report DoctorReport
-	diagnoseLinkedAccess(&report, DoctorOptions{}, &config.Config{})
-
-	finding := findingFor(t, report, "linked file access")
-	if finding.Status != StatusOK {
-		t.Errorf("status = %v, want OK: %s", finding.Status, finding.Detail)
-	}
-}
-
-// canRead answers false for an account it cannot name, which is what it
-// answers for one that is properly shut out, so an unnamed account is not a
-// pass and not a failure.
-func TestDoctorLinkedAccessIsUnaskedWithoutBothAccounts(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.Secret.Links = []config.Link{{Ref: "gh/token", Path: "/nowhere"}}
-	var report DoctorReport
-	diagnoseLinkedAccess(&report, DoctorOptions{BrokerUser: "faramir-broker"}, cfg)
-
-	finding := findingFor(t, report, "linked file access")
-	if finding.Status == StatusOK || finding.Status == StatusFailed {
-		t.Errorf("status = %v, want neither a pass nor a verdict: %s",
-			finding.Status, finding.Detail)
-	}
-	if !strings.Contains(finding.Detail, "not asked") {
-		t.Errorf("the finding does not say the question went unasked: %s", finding.Detail)
-	}
-}
-
 // The step list has to resolve the agents before it writes their files.
 // stepAgentConfig reads what stepPreconditions puts in r.agentTargets, and a
 // list without it writes no deny rule while reporting that it found no agent.
@@ -381,7 +354,7 @@ func TestALinkOperationRendersTheSameConfigTheInstallDid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := render("etc/config.toml.tmpl", layout)
+	first, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +375,7 @@ func TestALinkOperationRendersTheSameConfigTheInstallDid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := render("etc/config.toml.tmpl", nextLayout)
+	second, err := agentcfg.Render("etc/config.toml.tmpl", nextLayout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,30 +384,5 @@ func TestALinkOperationRendersTheSameConfigTheInstallDid(t *testing.T) {
 		t.Errorf("a link operation would rewrite config.toml differently from the "+
 			"install that wrote it, so something in this file is derived and not "+
 			"recovered:\n--- installed\n%s\n--- after a link operation\n%s", first, second)
-	}
-}
-
-// An unprivileged doctor cannot become the broker or the executor, so whether a
-// linked file is readable cannot be asked: runuser fails for every path, and
-// reading that failure as the answer reported the broker unable to open files
-// it was serving values from. Unasked, not a verdict. The suite runs without
-// root, which is exactly the condition under test.
-func TestLinkedAccessIsUnaskedWithoutRoot(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root, where the question can be asked for real")
-	}
-	var report DoctorReport
-	cfg := &config.Config{}
-	cfg.Secret.Links = []config.Link{{Ref: "gh/token", Path: "/tmp/nope", Type: "text"}}
-	diagnoseLinkedAccess(&report, DoctorOptions{
-		BrokerUser: "faramir-broker", ExecUser: "faramir-exec"}, cfg)
-
-	finding := findingFor(t, report, "linked file access")
-	if finding.Status == StatusOK || finding.Status == StatusFailed {
-		t.Errorf("status = %v, want neither a pass nor a verdict: %s",
-			finding.Status, finding.Detail)
-	}
-	if report.NotAsked == 0 {
-		t.Error("nothing was recorded as unasked")
 	}
 }

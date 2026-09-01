@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/secretlink"
 )
 
@@ -216,8 +217,8 @@ func TestLinksAreWhatTheConfigDeclares(t *testing.T) {
 // the installed one: a default of "" would join onto nothing and read the
 // working directory instead.
 func TestTheInstalledConfigDirectoryIsTheDefault(t *testing.T) {
-	if got := configDirOr(""); got != DefaultConfigDir {
-		t.Errorf("configDirOr(\"\") = %q, want %q", got, DefaultConfigDir)
+	if got := configDirOr(""); got != hostlayout.DefaultConfigDir {
+		t.Errorf("configDirOr(\"\") = %q, want %q", got, hostlayout.DefaultConfigDir)
 	}
 	if got := configDirOr("/somewhere/else"); got != "/somewhere/else" {
 		t.Errorf("configDirOr = %q, want the directory it was given", got)

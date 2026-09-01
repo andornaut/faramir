@@ -9,8 +9,11 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/andornaut/faramir/internal/asaccount"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/fserr"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/secretlink"
 	"github.com/andornaut/faramir/internal/sharetree"
 )
@@ -75,20 +78,8 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	}
 	return fmt.Sprintf("%s (%s) is %s %04o, and a linked file has to be group %s and group-readable, and "+
 		"readable by nobody else:\n%s",
-		config.Shown(link.Path), config.Shown(link.Ref), groupName(info), mode, r.brokerGroupName(),
+		config.Shown(link.Path), config.Shown(link.Ref), asaccount.GroupName(info), mode, r.brokerGroupName(),
 		strings.Join(fix, " && ")), nil
-}
-
-// groupNameOf is an account's own group, by name, for a remedy a reader pastes
-// into a shell: an account adopted by --broker-user may have a group named
-// something else, and a chgrp naming the account fails with "invalid group".
-// Falls back to the account name, so the remedy is never printed with an empty
-// field.
-func groupNameOf(account string) string {
-	if _, name, err := primaryGroup(account); err == nil {
-		return name
-	}
-	return account
 }
 
 // stepLinkAccess checks that every [[secret.link]] file is readable by the
@@ -117,7 +108,7 @@ func (r *runner) stepLinkAccess() error {
 
 	var faults, absent []string
 	for _, link := range links {
-		if !exists(link.Path) {
+		if !hostfs.Exists(link.Path) {
 			absent = append(absent, link.Path)
 			continue
 		}
@@ -286,7 +277,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	if fault != "" {
 		return Report{}, false, errors.New(fault)
 	}
-	// What the broker itself gets out of the file, which canRead does not ask:
+	// What the broker itself gets out of the file, which asaccount.CanRead does not ask:
 	// the account can open it and the selector yields a value.
 	if err := run.probeLink(link); err != nil {
 		return Report{}, false, err
@@ -331,8 +322,8 @@ func (r *runner) refuseShadowedRef(configFile, ref string) error {
 			"be asked whether it already serves %s. Re-run `sudo faramir init` "+
 			"before adding a link", configFile, ref)
 	}
-	out, err := asUser(r.opts.AgentUser, "env",
-		"FARAMIR_SOCKET="+cfg.Server.SocketPath, selfPath(), "refs")
+	out, err := asaccount.Output(r.opts.AgentUser, "env",
+		"FARAMIR_SOCKET="+cfg.Server.SocketPath, asaccount.SelfPath(), "refs")
 	if err != nil {
 		return fmt.Errorf("the broker did not answer, so whether it already serves %s could not be asked, "+
 			"and an entry claiming a name it serves refuses every brokered command. Start it "+
@@ -459,7 +450,7 @@ func Links(configDir string) ([]config.Link, error) {
 
 func configDirOr(dir string) string {
 	if dir == "" {
-		return DefaultConfigDir
+		return hostlayout.DefaultConfigDir
 	}
 	return dir
 }
@@ -468,11 +459,11 @@ func configDirOr(dir string) string {
 // value out of it, by being that account: root can read anything and would
 // answer yes to a file the broker cannot open.
 func (r *runner) probeLink(link config.Link) error {
-	args := []string{selfPath(), "read-link", "--path", link.Path, "--type", link.Type}
+	args := []string{asaccount.SelfPath(), "read-link", "--path", link.Path, "--type", link.Type}
 	if link.Key != "" {
 		args = append(args, "--key", link.Key)
 	}
-	out, err := asUser(r.layout.BrokerUser, args...)
+	out, err := asaccount.Output(r.layout.BrokerUser, args...)
 	if err == nil {
 		return nil
 	}
@@ -481,90 +472,14 @@ func (r *runner) probeLink(link config.Link) error {
 	if detail == "" {
 		detail = err.Error()
 	}
-	if dir := blockingDir(r.layout.BrokerUser, link.Path); dir != "" {
+	if dir := asaccount.BlockingDir(r.layout.BrokerUser, link.Path); dir != "" {
 		return fmt.Errorf("%s cannot reach %s at %s: it cannot enter %s, so the mode "+
 			"on the file decides nothing. Open that directory to the broker, or keep "+
 			"the file somewhere it can already reach:\n"+
 			"sudo chgrp %s %s && sudo chmod g+x %s",
 			r.layout.BrokerUser, link.Ref, link.Path, dir,
-			groupNameOf(r.layout.BrokerUser), dir, dir)
+			asaccount.GroupNameOf(r.layout.BrokerUser), dir, dir)
 	}
 	return fmt.Errorf("%s cannot read %s as %s: %s",
 		r.layout.BrokerUser, link.Ref, link.Path, detail)
-}
-
-// diagnoseLinkedAccess asks the two questions the grant exists to make true:
-// the broker can read each linked file, and the executor cannot. Asked as
-// those accounts rather than worked out from the mode, which is what catches a
-// tool having replaced its own file and taken the group with it.
-//
-// A file that is not there answers neither, and fails too: the entry names a
-// value nothing can produce, whether the credential has left the machine or the
-// home holding it is not mounted. Which of the two it is, the operator knows and
-// this cannot.
-func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
-	const name = "linked file access"
-	if len(cfg.Secret.Links) == 0 {
-		report.addf(name, StatusOK, "no [[secret.link]] entries are configured")
-		return
-	}
-	accounts, skipped := opts.askable(opts.BrokerUser, opts.ExecUser)
-	if skipped || len(accounts) < 2 {
-		report.unaskedf(name, len(cfg.Secret.Links), "the broker and executor "+
-			"accounts are not both named, so whether the %d linked file(s) are "+
-			"readable was not asked", len(cfg.Secret.Links))
-		return
-	}
-	// The question is put by being those accounts, which runuser needs root for.
-	// Unprivileged, runuser fails for every path, and reading that as the answer
-	// reported the broker unable to open files it was serving values from: a
-	// question that cannot be asked is unasked, not a verdict, which is the
-	// contract every other boundary check keeps.
-	if os.Geteuid() != 0 {
-		report.unaskedf(name, len(cfg.Secret.Links), "the operator can run doctor as root to ask "+
-			"this: whether the %d linked file(s) are readable by %s and not by %s "+
-			"is answered by being those accounts", len(cfg.Secret.Links),
-			opts.BrokerUser, opts.ExecUser)
-		return
-	}
-
-	var unreadable, reachable, absent []string
-	for _, link := range cfg.Secret.Links {
-		switch {
-		case !exists(link.Path):
-			absent = append(absent, fmt.Sprintf("%s (%s)", link.Ref, link.Path))
-		case !canRead(opts.BrokerUser, link.Path):
-			entry := fmt.Sprintf("%s (%s)", link.Ref, link.Path)
-			// The directory, where that is what refuses: the remedy below is about
-			// the file's own group and mode, and neither is the problem here.
-			if dir := blockingDir(opts.BrokerUser, link.Path); dir != "" {
-				entry += fmt.Sprintf(", which it cannot enter %s to reach", dir)
-			}
-			unreadable = append(unreadable, entry)
-		case canRead(opts.ExecUser, link.Path):
-			reachable = append(reachable, fmt.Sprintf("%s (%s)", link.Ref, link.Path))
-		}
-	}
-
-	switch {
-	case len(reachable) > 0:
-		report.addf(name, StatusFailed, "%s can read a linked file directly, so a "+
-			"brokered command reaches the plaintext without asking for the ref and "+
-			"without the redactor seeing it: %s", opts.ExecUser,
-			strings.Join(reachable, ", "))
-	case len(unreadable) > 0:
-		report.addf(name, StatusFailed, "%s cannot read a linked file, so that ref is refused while the plaintext is still "+
-			"on disk. A tool that replaces its own file takes the group with it; `sudo chgrp "+
-			"%s PATH && sudo chmod g+r PATH` puts it back: %s", opts.BrokerUser, groupNameOf(opts.BrokerUser),
-			strings.Join(unreadable, ", "))
-	case len(absent) > 0:
-		report.addf(name, StatusFailed, "%d linked file(s) are readable by %s alone; %d are not there, so those refs "+
-			"answer nothing. Either the credential has left the machine, and the entry should "+
-			"go with `faramir link rm REF`, or the home holding it is not mounted: %s",
-			len(cfg.Secret.Links)-len(absent), opts.BrokerUser, len(absent),
-			strings.Join(absent, ", "))
-	default:
-		report.addf(name, StatusOK, "%d linked file(s) readable by %s and not by %s",
-			len(cfg.Secret.Links), opts.BrokerUser, opts.ExecUser)
-	}
 }

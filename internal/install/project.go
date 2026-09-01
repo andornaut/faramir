@@ -17,14 +17,13 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/sharetree"
 	"github.com/andornaut/faramir/internal/version"
 )
-
-// agentInstructionFiles are the names an agent reads, most specific first; the
-// first is created when there is none.
-var agentInstructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 
 // ProjectOptions is one enrolment.
 type ProjectOptions struct {
@@ -46,7 +45,7 @@ type ProjectOptions struct {
 	// was never installed here, the config is elsewhere, or the path given is
 	// wrong, each of which is an error naming its own fix.
 	ClientGroup string
-	// Agents names which coding agents to enrol. Empty means AgentAuto:
+	// Agents names which coding agents to enrol. Empty means agentcfg.Auto:
 	// whichever agents this tree already carries configuration for. A name
 	// enrols that agent whether or not it is there, and composes with auto.
 	Agents []string
@@ -87,13 +86,13 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	}
 	opts.Dir = dir
 	if opts.ConfigDir == "" {
-		opts.ConfigDir = DefaultConfigDir
+		opts.ConfigDir = hostlayout.DefaultConfigDir
 	}
 
 	// uid and gid keep rather than 0 until preflight resolves them, so a write
 	// that lands before that leaves ownership as it is rather than handing the
 	// operator's file to root.
-	run := &project{opts: opts, fs: fsys{dryRun: opts.DryRun}, uid: keep, gid: keep}
+	run := &project{opts: opts, fs: hostfs.FS{DryRun: opts.DryRun}, uid: hostfs.Keep, gid: hostfs.Keep}
 	run.report = ProjectReport{
 		Version: version.Version,
 		Dir:     dir,
@@ -130,15 +129,15 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	if !opts.DryRun {
 		names := make([]string, 0, len(run.targets))
 		for _, target := range run.targets {
-			names = append(names, target.name)
+			names = append(names, target.Name)
 		}
-		if err := recordEnrolment(opts.ConfigDir, EnrolledTree{
+		if err := agentcfg.RecordEnrolment(opts.ConfigDir, agentcfg.EnrolledTree{
 			Dir: dir, AgentUser: opts.AgentUser, Agents: names,
 		}); err != nil {
 			return run.report, fmt.Errorf("%s is enrolled, and recording it in %s "+
 				"failed, so `faramir init` will not maintain it and `faramir doctor` "+
 				"will not check it: %w\nRun this again once whatever else is writing "+
-				"that file has finished", dir, enrolledPath(opts.ConfigDir), err)
+				"that file has finished", dir, agentcfg.EnrolledPath(opts.ConfigDir), err)
 		}
 	}
 	return run.report, nil
@@ -182,8 +181,8 @@ func (p *project) preflight() error {
 	// Not fatal: an account that does not resolve fails later with a message
 	// about the account, and auto losing one agent is not the error to report
 	// here.
-	p.agentHome, _ = agentHomeFor(p.opts.AgentUser)
-	targets, err := resolveAgents(p.opts.Agents, scopeTree, p.opts.Dir, p.agentHome)
+	p.agentHome, _ = agentcfg.HomeFor(p.opts.AgentUser)
+	targets, err := agentcfg.Resolve(p.opts.Agents, agentcfg.ScopeTree, p.opts.Dir, p.agentHome)
 	if err != nil {
 		return err
 	}
@@ -197,7 +196,7 @@ func (p *project) preflight() error {
 	if err := p.refuseUnreachable(); err != nil {
 		return err
 	}
-	p.warnMissingBinary(filepath.Join(DefaultBinDir, "faramir"))
+	p.warnMissingBinary(filepath.Join(hostlayout.DefaultBinDir, "faramir"))
 	if err := p.refuseUnwritableFiles(); err != nil {
 		return err
 	}
@@ -218,18 +217,18 @@ func (p *project) preflight() error {
 func (p *project) refuseUnparsableAgentConfig() error {
 	var refused []string
 	for _, target := range p.targets {
-		for _, file := range target.files {
-			if !file.merge {
+		for _, file := range target.Files {
+			if !file.Merge {
 				continue
 			}
-			path := filepath.Join(p.opts.Dir, file.path)
-			spot, err := p.fs.editedFile(path, p.uid, p.opts.Dir)
+			path := filepath.Join(p.opts.Dir, file.Path)
+			spot, err := p.fs.EditedFile(path, p.uid, p.opts.Dir)
 			if err != nil {
-				spot.close()
+				spot.Close()
 				continue
 			}
-			data, readErr := spot.read()
-			spot.close()
+			data, readErr := spot.Read()
+			spot.Close()
 			if readErr != nil || len(bytes.TrimSpace(data)) == 0 {
 				continue
 			}
@@ -286,11 +285,11 @@ func (p *project) refuseUnwritableFiles() error {
 		return err
 	}
 	for _, target := range p.targets {
-		paths = append(paths, editedPaths(target, true, "")...)
+		paths = append(paths, agentcfg.EditedPaths(target, true, "")...)
 	}
-	refused := refuseUnwritable(p.fs, p.opts.Dir, p.uid, p.opts.Dir, paths)
+	refused := agentcfg.RefuseUnwritable(p.fs, p.opts.Dir, p.uid, p.opts.Dir, paths)
 	// The mode the share settles on, so what this asks is what the write asks.
-	refused = append(refused, refuseUnenterableDirs(
+	refused = append(refused, hostfs.RefuseUnenterableDirs(
 		p.opts.Dir, 0o2770|os.ModeSetgid, p.uid, p.gid, paths)...)
 	if len(refused) > 0 {
 		return errors.New(strings.Join(refused, "\n"))
@@ -303,14 +302,14 @@ func (p *project) refuseUnwritableFiles() error {
 // tree can be asked about on a host that has not been provisioned yet: the ids
 // stay keep, and nothing a dry run reaches writes.
 func (p *project) resolveIDs() error {
-	uid, err := lookupUser(p.opts.AgentUser)
+	uid, err := hostfs.LookupUser(p.opts.AgentUser)
 	if err != nil {
 		if p.opts.DryRun {
 			return nil
 		}
 		return err
 	}
-	gid, err := lookupGroup(p.report.ClientGroup)
+	gid, err := hostfs.LookupGroup(p.report.ClientGroup)
 	if err != nil {
 		if p.opts.DryRun {
 			return nil
@@ -327,7 +326,7 @@ func (p *project) resolveIDs() error {
 // On the host that runs it the hook and the plugins fail closed, refusing every
 // command in the project rather than running one unredacted.
 func (p *project) warnMissingBinary(binary string) {
-	if exists(binary) {
+	if hostfs.Exists(binary) {
 		return
 	}
 	p.warnf("%s is not installed, and it is what every hook and plugin written here execs. They "+
@@ -355,7 +354,7 @@ func refuseOversharing(dir, operator string) error {
 	if slices.Contains(systemRoots, dir) {
 		return tooBig("a system directory rather than a project")
 	}
-	if home := homeOf(dir); home == dir {
+	if home := hostlayout.HomeOf(dir); home == dir {
 		return tooBig("a home directory")
 	}
 	// The account's own home as passwd records it, which catches one outside
@@ -369,7 +368,7 @@ func refuseOversharing(dir, operator string) error {
 		if home == dir {
 			return tooBig(operator + "'s home directory")
 		}
-		if encloses(dir, home) {
+		if hostfs.Encloses(dir, home) {
 			return tooBig("above " + operator + "'s home directory")
 		}
 	}
@@ -411,14 +410,14 @@ func refuseInstallDirs(dir, configDir string) error {
 	// BinDir with them: it holds the binary every hook and plugin execs, and
 	// group write there is a brokered command replacing what the agent runs.
 	//
-	// ruleLayout rather than the config directory alone: it reads the service
+	// agentcfg.RuleLayout rather than the config directory alone: it reads the service
 	// accounts off the installed units, so a host that renamed one has the
 	// directory it moved to refused rather than the one it left.
-	dirs := append(installDirs(ruleLayout(configDir)), DefaultBinDir)
+	dirs := append(agentcfg.Dirs(agentcfg.RuleLayout(configDir)), hostlayout.DefaultBinDir)
 	for _, installed := range dirs {
 		installed = filepath.Clean(installed)
-		holds := encloses(dir, installed)
-		if !holds && !encloses(installed, dir) {
+		holds := hostfs.Encloses(dir, installed)
+		if !holds && !hostfs.Encloses(installed, dir) {
 			continue
 		}
 		relation := "holds"
@@ -435,16 +434,9 @@ func refuseInstallDirs(dir, configDir string) error {
 	return nil
 }
 
-// encloses compares path elements, so /home/andornaut2 is not inside
-// /home/andornaut.
-func encloses(parent, child string) bool {
-	rel, err := filepath.Rel(parent, child)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
 type project struct {
 	opts   ProjectOptions
-	fs     fsys
+	fs     hostfs.FS
 	report ProjectReport
 	uid    int
 	gid    int
@@ -460,7 +452,7 @@ type project struct {
 	agentHome string
 	// Resolved before any step runs, so an unknown name stops the run before the
 	// tree's ownership changes.
-	targets []*agentTarget
+	targets []*agentcfg.Target
 }
 
 // step, skip and warnf are the report's, forwarded so a step here spells them
@@ -522,83 +514,33 @@ func (p *project) resolveGroup() error {
 	return nil
 }
 
-func warnMissingAccountRules(p *project, target *agentTarget) {
-	if len(target.accountFiles) == 0 {
+func warnMissingAccountRules(p *project, target *agentcfg.Target) {
+	if len(target.AccountFiles) == 0 {
 		return
 	}
-	home, err := agentHomeFor(p.opts.AgentUser)
+	home, err := agentcfg.HomeFor(p.opts.AgentUser)
 	if err != nil || home == "" {
 		return
 	}
 	var missing []string
-	for _, file := range target.accountFiles {
-		if !exists(filepath.Join(home, file.path)) {
-			missing = append(missing, "~/"+file.path)
+	for _, file := range target.AccountFiles {
+		if !hostfs.Exists(filepath.Join(home, file.Path)) {
+			missing = append(missing, "~/"+file.Path)
 		}
 	}
 	if len(missing) == 0 {
 		return
 	}
 	// What those rules cover is what this install writes, plus whatever a
-	// [[secret.link]] or [[secret.block]] entry names: see protectedpaths.go,
+	// [[secret.link]] or [[secret.block]] entry names: see agentcfg's protected
+	// paths,
 	// which renders the same set into the bash deny list. Named that way rather
 	// than by example, a rule for a path faramir did not choose being the thing
 	// that design refuses to compile in.
 	p.warnf("%s's deny rules are not in the agent account's home (%s), so its file tools are "+
 		"refused nothing this install protects, and no uid boundary refuses them either. "+
 		"Run `sudo faramir init --agent %s`",
-		target.name, strings.Join(missing, ", "), target.name)
-}
-
-// agentHomeFor is the account's home directory.
-func agentHomeFor(name string) (string, error) {
-	if name == "" {
-		return "", nil
-	}
-	entry, err := user.Lookup(name)
-	if err != nil {
-		return "", err
-	}
-	return entry.HomeDir, nil
-}
-
-// pluginData is what an agent plugin's template is rendered against: the binary
-// it execs, which agent it speaks to, and the path it is written to. Not the
-// install Layout, none of the last two being install-wide.
-type pluginData struct {
-	BinDir string
-	Agent  string
-	// Family is the tree enrolment this file belongs to, and what a registration
-	// shared by two agents names itself. See agentTarget.family.
-	Family        string
-	Path          string
-	DefaultExport bool
-	// Layout is what the rule renderers take: this install's own directories and
-	// the paths its config names as linked or refused. Built from the enrolment's
-	// --config-dir, so a store moved into a home is the one refused rather than
-	// the default, and built by ruleLayout so what an enrolment writes is what
-	// `doctor` re-renders to compare it with.
-	Layout Layout
-}
-
-// assetFor is one agent file's contents, rendered whatever the asset is named.
-// It is how the plugins and the hook registrations get the installed binary's
-// path compiled in rather than reading it from an environment the host
-// controls.
-func assetFor(target *agentTarget, file agentFile, configDir string) ([]byte, error) {
-	if configDir == "" {
-		configDir = DefaultConfigDir
-	}
-	return renderData(file.asset, pluginData{
-		// The compiled path, as uninstall and reload resolve it: a post-install
-		// command reads the binary where the install put it.
-		BinDir:        DefaultBinDir,
-		Agent:         target.name,
-		Family:        target.familyName(),
-		Path:          file.path,
-		DefaultExport: file.defaultExport,
-		Layout:        ruleLayout(configDir),
-	})
+		target.Name, strings.Join(missing, ", "), target.Name)
 }
 
 // keepModes is every path this enrolment writes, so sharing does not widen a
@@ -612,8 +554,8 @@ func (p *project) keepModes() []string {
 	// p.targets, not a second resolution: auto reads the tree, and this runs after
 	// files have been written into it.
 	for _, target := range p.targets {
-		for _, file := range target.files {
-			keep = append(keep, file.path)
+		for _, file := range target.Files {
+			keep = append(keep, file.Path)
 		}
 	}
 	return keep
@@ -635,7 +577,7 @@ func (p *project) shareTree() error {
 	// The executor runs under ProtectSystem=strict with /home as its only
 	// writable tree, so a tree outside it takes the group and then refuses every
 	// write with EROFS.
-	if homeOf(p.opts.Dir) == "" {
+	if hostlayout.HomeOf(p.opts.Dir) == "" {
 		p.warnf("%s is outside /home, which is the only tree faramir-exec may write: a brokered "+
 			"command enters it and gets EROFS on every write. Add a drop-in extending "+
 			"ReadWritePaths= on faramir-exec.service",
@@ -673,7 +615,7 @@ func (p *project) agentConfig() error {
 		p.warnf("no coding agent is configured in %s, so nothing was registered and nothing this "+
 			"tree runs is redacted. The tree is shared either way. `sudo faramir init-project "+
 			"--agent NAME` enrols one anyway (%s)",
-			p.opts.Dir, strings.Join(knownAgents(), ", "))
+			p.opts.Dir, strings.Join(agentcfg.Known(), ", "))
 		p.step(labelAgentConfig, false, "no coding agent is configured in "+p.opts.Dir)
 		return nil
 	}
@@ -682,15 +624,15 @@ func (p *project) agentConfig() error {
 	for _, target := range p.targets {
 		// Against the target's own data: the installed binary, which agent it
 		// speaks to, and where it is written.
-		asTarget := func(file agentFile) ([]byte, error) {
-			return assetFor(target, file, p.opts.ConfigDir)
+		asTarget := func(file agentcfg.File) ([]byte, error) {
+			return agentcfg.AssetFor(target, file, p.opts.ConfigDir)
 		}
 		// Shared and setgid, as the walk leaves every other directory in the tree.
 		// 0700 would make a directory created here the one place in an enrolled
 		// tree the client group cannot enter, until a later run's walk widened it
 		// and reported a change on what reads as a re-enrolment.
-		made, paths, err := writeAgentFiles(p.fs, p.warnf, p.opts.Dir, p.opts.ConfigDir,
-			p.uid, p.gid, 0o2770|os.ModeSetgid, true, asTarget, target.files)
+		made, paths, err := agentcfg.WriteFiles(p.fs, p.warnf, p.opts.Dir, p.opts.ConfigDir,
+			p.uid, p.gid, 0o2770|os.ModeSetgid, true, asTarget, target.Files)
 		written = append(written, paths...)
 		if err != nil {
 			return err
@@ -698,11 +640,11 @@ func (p *project) agentConfig() error {
 		changed = changed || made
 		// Each warning is about this agent, so each asks whether this agent's files
 		// changed rather than whether any have.
-		if target.autoApprovesBash && made {
+		if target.AutoApprovesBash && made {
 			p.warnf("Bash is now auto-approved in %s for %s: the hook rewrites every command, and a "+
 				"rewritten command matches no permission rule. Its deny list is what refuses one "+
 				"instead",
-				p.opts.Dir, target.name)
+				p.opts.Dir, target.Name)
 		}
 		// The account-wide half is `faramir init --agent`'s, and without it the
 		// agent's file tools have no rules at all: the deny list covers the
@@ -710,9 +652,9 @@ func (p *project) agentConfig() error {
 		// the agent running as the operator.
 		warnMissingAccountRules(p, target)
 		// Where the note stands, whether or not this run wrote anything: see
-		// agentTarget.noteStands.
-		if target.note != "" && (made || target.noteStands) {
-			p.warnf("%s: %s", target.name, target.note)
+		// agentcfg.Target.NoteStands.
+		if target.Note != "" && (made || target.NoteStands) {
+			p.warnf("%s: %s", target.Name, target.Note)
 		}
 		p.warnUncommittableFiles(target)
 	}
@@ -722,12 +664,12 @@ func (p *project) agentConfig() error {
 	// What auto would have taken and this run did not, which only happens when
 	// the operator named agents explicitly.
 	var unenrolled []string
-	for _, name := range detectedAgents(p.opts.Dir, p.agentHome) {
+	for _, name := range agentcfg.Detected(p.opts.Dir, p.agentHome) {
 		enrolled := false
 		for _, target := range p.targets {
 			// By family: two agents sharing one tree enrolment are covered by
 			// whichever of them was named, the files being the same bytes.
-			if target.familyName() == agentTargets[name].familyName() {
+			if target.FamilyName() == agentcfg.Targets[name].FamilyName() {
 				enrolled = true
 			}
 		}
@@ -752,15 +694,15 @@ func (p *project) agentConfig() error {
 // and writing into .git or a tracked .gitignore is not this command's to do.
 // Nothing in the file is secret, only specific to this machine: the binary the
 // hook execs, and the directories this install occupies.
-func (p *project) warnUncommittableFiles(target *agentTarget) {
-	for _, file := range target.files {
-		if !file.local || p.isIgnored(file.path) {
+func (p *project) warnUncommittableFiles(target *agentcfg.Target) {
+	for _, file := range target.Files {
+		if !file.Local || p.isIgnored(file.Path) {
 			continue
 		}
 		p.warnf("%s is not ignored by git, and %s reads it as yours rather than the repository's. "+
 			"It names this machine's layout. Add it to .gitignore, or to .git/info/exclude to "+
 			"keep that local",
-			file.path, target.name)
+			file.Path, target.Name)
 	}
 }
 
@@ -793,7 +735,7 @@ func (p *project) isIgnored(rel string) bool {
 // nothing about what is reachable.
 func (p *project) instructions() error {
 	// One block for every agent, rendered once.
-	section, err := credentialsSection(p.allowSudo)
+	section, err := agentcfg.CredentialsSection(p.allowSudo)
 	if err != nil {
 		return err
 	}
@@ -821,26 +763,26 @@ func (p *project) writeSections(section string) (bool, []string, []string, error
 		// under a directory none of its config files do -- antigravity's
 		// .agents/rules -- has this as the only thing that creates it, and it
 		// holds a file this wrote, so it is sticky like the rest of them.
-		if err := p.fs.ensureDirsIn(p.opts.Dir, filepath.Dir(file.path),
+		if err := p.fs.EnsureDirsIn(p.opts.Dir, filepath.Dir(file.Path),
 			0o2770|os.ModeSetgid, 0o2770|os.ModeSetgid|os.ModeSticky,
 			p.uid, p.gid); err != nil {
 			return changed, written, stale, err
 		}
-		made, err := p.fs.sectionFile(
-			file.path, section, file.head, p.uid, p.gid, p.opts.Dir)
+		made, err := agentcfg.SectionFile(p.fs,
+			file.Path, section, file.Head, p.uid, p.gid, p.opts.Dir)
 		switch {
-		case outOfDate(err):
+		case agentcfg.OutOfDate(err):
 			// Collected rather than returned: an operator fixing these wants every
 			// file named, and one agent's rules file cannot cost the tree its own
 			// instructions.
-			stale = append(stale, sectionProblem(err, file.path, "`sudo faramir init-project`"))
-			written = append(written, file.path+" (not written; see the error)")
+			stale = append(stale, agentcfg.SectionProblem(err, file.Path, "`sudo faramir init-project`"))
+			written = append(written, file.Path+" (not written; see the error)")
 			continue
 		case err != nil:
 			return changed, written, stale, err
 		}
 		changed = changed || made
-		written = append(written, file.path)
+		written = append(written, file.Path)
 	}
 	return changed, written, stale, nil
 }
@@ -848,55 +790,24 @@ func (p *project) writeSections(section string) (bool, []string, []string, error
 // instructionsFiles are the files this enrolment writes the credentials section
 // into: the tree's own, and one per agent that reads none of the names at the
 // tree's root. Absolute, and in a fixed order.
-func (p *project) instructionsFiles() []sectionTarget {
-	out := []sectionTarget{{path: p.instructionsFile()}}
+func (p *project) instructionsFiles() []agentcfg.SectionTarget {
+	out := []agentcfg.SectionTarget{{Path: p.instructionsFile()}}
 	for _, target := range p.targets {
-		if rules := target.treeInstructions; rules.path != "" {
-			out = append(out, sectionTarget{
-				path: filepath.Join(p.opts.Dir, rules.path), head: rules.head,
+		if rules := target.TreeInstructions; rules.Path != "" {
+			out = append(out, agentcfg.SectionTarget{
+				Path: filepath.Join(p.opts.Dir, rules.Path), Head: rules.Head,
 			})
 		}
 	}
-	return oneSectionPerFile(out)
+	return agentcfg.OneSectionPerFile(out)
 }
 
-// oneSectionPerFile drops a file an earlier one in the list already resolves
-// to, so a tree whose CLAUDE.md is a link to its AGENTS.md is written once.
-//
-// Only these files. Every instructions file in a tree carries the same
-// credentials section, so one standing in for two writes the same bytes to the
-// same place and loses nothing. Two agents' settings files are each written for
-// the agent that reads them, and a link between those is refused rather than
-// deduplicated: see oneFileTwice.
-//
-// A path that cannot be resolved keeps its own name, so a dangling link stays
-// in the list and is refused by refuseUnwritable, which says why.
-//
-// The first name wins, which puts the section in the tree's own file and leaves
-// the link pointing at it.
-func oneSectionPerFile(files []sectionTarget) []sectionTarget {
-	out := make([]sectionTarget, 0, len(files))
-	claimed := map[string]bool{}
-	for _, file := range files {
-		name := file.path
-		if resolved, err := filepath.EvalSymlinks(name); err == nil {
-			name = resolved
-		}
-		if claimed[name] {
-			continue
-		}
-		claimed[name] = true
-		out = append(out, file)
-	}
-	return out
-}
-
-// relativeInstructions is instructionsFiles as sharetree and refuseUnwritable
+// relativeInstructions is instructionsFiles as sharetree and agentcfg.RefuseUnwritable
 // take them: relative to the tree.
 func (p *project) relativeInstructions() ([]string, error) {
 	var out []string
 	for _, file := range p.instructionsFiles() {
-		rel, err := filepath.Rel(p.opts.Dir, file.path)
+		rel, err := filepath.Rel(p.opts.Dir, file.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -905,39 +816,4 @@ func (p *project) relativeInstructions() ([]string, error) {
 	return out, nil
 }
 
-// sectionTarget is one file the section goes into, with what heads it where
-// this creates it. See fsys.sectionFile.
-type sectionTarget struct {
-	path string
-	head string
-}
-
-// credentialsSection is the section `init-project` writes into a tree.
-// Rendered rather than shipped as it is, for one paragraph: what an agent is
-// told about waiting for an escalation only holds on a host installed with
-// --allow-sudo, and on any other host it describes a refusal that never
-// happens.
-func credentialsSection(allowSudo bool) (string, error) {
-	body, err := renderData("agent/instructions.md.snippet",
-		struct{ AllowSudo bool }{AllowSudo: allowSudo})
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimRight(string(body), "\n") + "\n", nil
-}
-
-func (p *project) instructionsFile() string { return treeInstructionsFile(p.opts.Dir) }
-
-// treeInstructionsFile is the file a tree carries the credentials section in:
-// the first name an agent reads that is already there, and the first name when
-// none is. Answered from the tree alone, so `doctor` can ask about a tree it
-// did not enrol.
-func treeInstructionsFile(dir string) string {
-	for _, name := range agentInstructionFiles {
-		path := filepath.Join(dir, name)
-		if exists(path) {
-			return path
-		}
-	}
-	return filepath.Join(dir, agentInstructionFiles[0])
-}
+func (p *project) instructionsFile() string { return agentcfg.TreeInstructionsFile(p.opts.Dir) }

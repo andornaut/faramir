@@ -4,21 +4,23 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // The key follows the config directory, so an encrypted home holding the
 // secrets directory holds the key too and a powered-off disk carries neither.
 func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 	for _, tc := range []struct{ name, configDir, wantKey, wantDir string }{
-		{"the default", DefaultConfigDir, DefaultConfigDir + "/age.key", DefaultConfigDir},
+		{"the default", hostlayout.DefaultConfigDir, hostlayout.DefaultConfigDir + "/age.key", hostlayout.DefaultConfigDir},
 		{"an agent account's home", "/home/op/.config/faramir", "/home/op/.config/faramir/age.key", "/home/op/.config/faramir"},
 		{"a trailing slash is cleaned", "/srv/f/", "/srv/f/age.key", "/srv/f"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := Options{
-				AgentUser: "op", ClientGroup: DefaultClientGroup,
-				BrokerUser: DefaultBrokerUser, KeeperUser: DefaultKeeperUser,
-				ExecUser:  DefaultExecUser,
+				AgentUser: "op", ClientGroup: hostlayout.DefaultClientGroup,
+				BrokerUser: hostlayout.DefaultBrokerUser, KeeperUser: hostlayout.DefaultKeeperUser,
+				ExecUser:  hostlayout.DefaultExecUser,
 				ConfigDir: tc.configDir,
 			}
 			layout, err := opts.layout()
@@ -44,7 +46,7 @@ func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 // ciphertext are the one that decrypts it, with no membership list to keep.
 func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
 	for _, tc := range []struct{ name, keeperUser, storeGroup, want string }{
-		{"the default", "", "", DefaultKeeperUser},
+		{"the default", "", "", hostlayout.DefaultKeeperUser},
 		{"a renamed keeper takes its group with it", "vault", "", "vault"},
 		{"an explicit group is honoured", "", "faramir-secrets", "faramir-secrets"},
 	} {
@@ -65,7 +67,7 @@ func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
 // secrets directory stays nothing but ciphertext: the managed store globs it and
 // filepath.Glob matches dotfiles.
 func TestSopsConfigSitsAboveTheStore(t *testing.T) {
-	layout := Layout{ConfigDir: "/etc/faramir"}
+	layout := hostlayout.Layout{ConfigDir: "/etc/faramir"}
 	if got, want := layout.SopsConfigPath(), "/etc/faramir/.sops.yaml"; got != want {
 		t.Errorf("SopsConfigPath = %q, want %q", got, want)
 	}

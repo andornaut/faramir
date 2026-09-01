@@ -6,12 +6,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/runcmd"
 )
 
 // The broker prints its --check report on stdout and logs on stderr on every
 // load, so a combined capture makes every report unparseable.
 func TestCommandReturnsStdoutOnly(t *testing.T) {
-	out, err := command("sh", "-c", `echo "loaded 3 vault refs" >&2; echo '{"ok":true}'`)
+	out, err := runcmd.Output("sh", "-c", `echo "loaded 3 vault refs" >&2; echo '{"ok":true}'`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +34,7 @@ func TestCommandReturnsStdoutOnly(t *testing.T) {
 
 // A failure has to carry stderr, which is where the reason is.
 func TestCommandErrorCarriesStderr(t *testing.T) {
-	_, err := command("sh", "-c", `echo "the reason" >&2; exit 3`)
+	_, err := runcmd.Output("sh", "-c", `echo "the reason" >&2; exit 3`)
 	if err == nil {
 		t.Fatal("no error from a command that exited 3")
 	}
@@ -45,7 +48,7 @@ func TestCommandErrorCarriesStderr(t *testing.T) {
 func TestEnsureDirCreatesEveryLevel(t *testing.T) {
 	root := t.TempDir()
 	leaf := filepath.Join(root, "config", "sops", "age")
-	changed, err := fsys{}.ensureDir(leaf, 0o700, keep, keep, true)
+	changed, err := hostfs.FS{}.EnsureDir(leaf, 0o700, hostfs.Keep, hostfs.Keep, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +80,7 @@ func TestEnsureDirCreatesEveryLevel(t *testing.T) {
 func TestEnsureDirDoesNotWidenAncestors(t *testing.T) {
 	root := t.TempDir()
 	store := filepath.Join(root, "faramir", "secrets")
-	if _, err := (fsys{}).ensureDir(store, 0o2770|os.ModeSetgid, keep, keep, true); err != nil {
+	if _, err := (hostfs.FS{}).EnsureDir(store, 0o2770|os.ModeSetgid, hostfs.Keep, hostfs.Keep, true); err != nil {
 		t.Fatal(err)
 	}
 	parent, err := os.Stat(filepath.Join(root, "faramir"))
@@ -94,7 +97,7 @@ func TestEnsureDirDoesNotWidenAncestors(t *testing.T) {
 
 func TestMissingAncestors(t *testing.T) {
 	root := t.TempDir()
-	got := missingAncestors(filepath.Join(root, "a", "b"))
+	got := hostfs.MissingAncestors(filepath.Join(root, "a", "b"))
 	want := []string{filepath.Join(root, "a"), filepath.Join(root, "a", "b")}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
@@ -105,7 +108,7 @@ func TestMissingAncestors(t *testing.T) {
 		}
 	}
 	// An existing directory needs nothing created.
-	if leftovers := missingAncestors(root); len(leftovers) != 0 {
+	if leftovers := hostfs.MissingAncestors(root); len(leftovers) != 0 {
 		t.Errorf("got %v for a directory that is already there", leftovers)
 	}
 }
@@ -113,10 +116,10 @@ func TestMissingAncestors(t *testing.T) {
 // A second run reports nothing, which is what the changed flag is for.
 func TestEnsureDirIsIdempotent(t *testing.T) {
 	leaf := filepath.Join(t.TempDir(), "store")
-	if _, err := (fsys{}).ensureDir(leaf, 0o2770|os.ModeSetgid, keep, keep, true); err != nil {
+	if _, err := (hostfs.FS{}).EnsureDir(leaf, 0o2770|os.ModeSetgid, hostfs.Keep, hostfs.Keep, true); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := fsys{}.ensureDir(leaf, 0o2770|os.ModeSetgid, keep, keep, true)
+	changed, err := hostfs.FS{}.EnsureDir(leaf, 0o2770|os.ModeSetgid, hostfs.Keep, hostfs.Keep, true)
 	if err != nil {
 		t.Fatal(err)
 	}

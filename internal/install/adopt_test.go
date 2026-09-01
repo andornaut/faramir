@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // writeInstalledConfig lays down enough of a config.toml for Load to parse, and
@@ -71,7 +74,7 @@ func TestAdoptInstalledLeavesWhatWasNamedAlone(t *testing.T) {
 // there is nothing to report and the line stays off.
 func TestAdoptInstalledIsQuietAboutTheDefaults(t *testing.T) {
 	dir := t.TempDir()
-	writeInstalledConfig(t, dir, DefaultClientGroup, filepath.Join(dir, "id_ed25519"))
+	writeInstalledConfig(t, dir, hostlayout.DefaultClientGroup, filepath.Join(dir, "id_ed25519"))
 	opts := Options{ConfigDir: dir}
 
 	took, err := opts.adoptInstalled()
@@ -239,7 +242,7 @@ func TestAdoptInstalledDropsTheNotifierWithTheGrant(t *testing.T) {
 // rather than something to report.
 func TestAdoptInstalledInventsNoNotifier(t *testing.T) {
 	dir := t.TempDir()
-	writeInstalledConfig(t, dir, DefaultClientGroup, filepath.Join(dir, "id_ed25519"))
+	writeInstalledConfig(t, dir, hostlayout.DefaultClientGroup, filepath.Join(dir, "id_ed25519"))
 	opts := Options{ConfigDir: dir, AllowSudo: true}
 
 	took, err := opts.adoptInstalled()
@@ -265,7 +268,7 @@ func TestTheRenderedNotifierIsAdoptedBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := render("etc/config.toml.tmpl", layout)
+	body, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}

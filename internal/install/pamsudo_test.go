@@ -1,63 +1,24 @@
 package install
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/escalation"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostsudo"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
-
-// pinSudo answers the probe for a test, so which arrangement is written or
-// diagnosed is the test's to choose rather than the machine's.
-func pinSudo(t *testing.T, rs bool) {
-	t.Helper()
-	original := sudoRsProbe
-	sudoRsProbe = func() bool { return rs }
-	t.Cleanup(func() { sudoRsProbe = original })
-}
-
-// stockSudoStack is /etc/pam.d/sudo as a distribution ships it: a session
-// preamble and the includes that authenticate everybody.
-const stockSudoStack = `#%PAM-1.0
-
-session    required   pam_limits.so
-
-@include common-auth
-@include common-account
-@include common-session-noninteractive
-`
-
-// sudoStacks writes both shared stacks into a redirected /etc/pam.d and returns
-// the directory.
-//
-// It redirects the grant and the service file with them. This machine may be a
-// granting host: a test that reached the real paths would be one that revoked
-// the install it was running on.
-func sudoStacks(t *testing.T) string {
-	t.Helper()
-	dir := t.TempDir()
-	pam, grant, service := pamDir, sudoersFile, pamServiceFile
-	pamDir = dir
-	sudoersFile = filepath.Join(dir, "sudoers-faramir")
-	pamServiceFile = filepath.Join(dir, pamServiceName)
-	t.Cleanup(func() { pamDir, sudoersFile, pamServiceFile = pam, grant, service })
-	for _, name := range []string{"sudo", "sudo-i"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(stockSudoStack), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return dir
-}
 
 // The block goes in at the top. Anything ahead of it is a module the executor
 // meets before the branch is reached, and on a stack whose first auth line is a
 // password check that is every escalation refused.
 func TestTheBlockGoesAboveEverythingThatAuthenticates(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	run := &runner{layout: testLayout()}
 	if _, err := run.writeSudoPamBlock(); err != nil {
 		t.Fatal(err)
@@ -66,16 +27,16 @@ func TestTheBlockGoesAboveEverythingThatAuthenticates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(body), pamBlockBegin) {
+	if !strings.HasPrefix(string(body), hostsudo.PamBlockBegin) {
 		t.Errorf("the block is not at the top of the stack:\n%s", body)
 	}
 	// And the first module the stack reaches is the branch itself, not something
 	// the executor would meet before it.
-	if first := firstAuthLine(body); !strings.Contains(first, "pam_succeed_if.so") {
+	if first := hostsudo.FirstAuthLine(body); !strings.Contains(first, "pam_succeed_if.so") {
 		t.Errorf("the first auth line is not the branch: %q", first)
 	}
 	// And what the file already said is still there, all of it.
-	if !strings.Contains(string(body), stockSudoStack) {
+	if !strings.Contains(string(body), layouttest.StockSudoStack) {
 		t.Errorf("the distribution's own stack did not survive the splice:\n%s", body)
 	}
 }
@@ -84,7 +45,7 @@ func TestTheBlockGoesAboveEverythingThatAuthenticates(t *testing.T) {
 // `sudo` and not for `sudo -i` is one where a login shell escalation meets the
 // password check instead of the question.
 func TestBothSharedStacksGetTheBranch(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	run := &runner{layout: testLayout()}
 	if _, err := run.writeSudoPamBlock(); err != nil {
 		t.Fatal(err)
@@ -104,7 +65,7 @@ func TestBothSharedStacksGetTheBranch(t *testing.T) {
 // rather than stacking a second branch, which would be two modules where the
 // jump counts one.
 func TestWritingTheBlockTwiceLeavesOne(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	run := &runner{layout: testLayout()}
 	if _, err := run.writeSudoPamBlock(); err != nil {
 		t.Fatal(err)
@@ -127,7 +88,7 @@ func TestWritingTheBlockTwiceLeavesOne(t *testing.T) {
 	if string(first) != string(second) {
 		t.Errorf("a re-run rewrote the stack:\n%s", second)
 	}
-	if n := strings.Count(string(second), pamBlockBegin); n != 1 {
+	if n := strings.Count(string(second), hostsudo.PamBlockBegin); n != 1 {
 		t.Errorf("counted %d blocks, want 1:\n%s", n, second)
 	}
 }
@@ -136,12 +97,12 @@ func TestWritingTheBlockTwiceLeavesOne(t *testing.T) {
 // distribution's, and an uninstall that trimmed a line of it would be one that
 // changed how every account on the host authenticates.
 func TestRemovingTheBlockLeavesTheStackAsItWas(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	run := &runner{layout: testLayout()}
 	if _, err := run.writeSudoPamBlock(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := removeSudoPamBlock(run.fs); err != nil {
+	if _, err := hostsudo.RemoveBlock(run.fs); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"sudo", "sudo-i"} {
@@ -149,12 +110,12 @@ func TestRemovingTheBlockLeavesTheStackAsItWas(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(body) != stockSudoStack {
+		if string(body) != layouttest.StockSudoStack {
 			t.Errorf("%s is not what it was before the block went in:\n%s", name, body)
 		}
 	}
 	// And a second removal is not an error on a host that has none.
-	if changed, err := removeSudoPamBlock(run.fs); err != nil || changed {
+	if changed, err := hostsudo.RemoveBlock(run.fs); err != nil || changed {
 		t.Errorf("removing an absent block reported changed=%v err=%v", changed, err)
 	}
 }
@@ -163,9 +124,9 @@ func TestRemovingTheBlockLeavesTheStackAsItWas(t *testing.T) {
 // block starts or stops cannot be read off such a file, and a wrong guess
 // rewrites the stack that decides every account's sudo.
 func TestAHalfMarkedStackIsRefused(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	path := filepath.Join(dir, "sudo")
-	if err := os.WriteFile(path, []byte(pamBlockBegin+"\n"+stockSudoStack), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(hostsudo.PamBlockBegin+"\n"+layouttest.StockSudoStack), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	run := &runner{layout: testLayout()}
@@ -180,130 +141,9 @@ func TestAHalfMarkedStackIsRefused(t *testing.T) {
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	if !strings.Contains(string(body), stockSudoStack) {
+	if !strings.Contains(string(body), layouttest.StockSudoStack) {
 		t.Errorf("the stack was rewritten by a run that refused:\n%s", body)
 	}
-}
-
-// A marker quoted inside somebody's comment is not a boundary. Matching it as a
-// substring would let a line about faramir in an operator's own note decide
-// where the block ends.
-func TestAQuotedMarkerIsNotABoundary(t *testing.T) {
-	body := []byte("# see '" + pamBlockBegin + "' below\n" + stockSudoStack)
-	if _, _, found, err := placePamBlock(body); found || err != nil {
-		t.Errorf("a quoted marker was read as a block: found=%v err=%v", found, err)
-	}
-}
-
-// sudoRsArrangement is a granting host whose sudo is sudo-rs: faramir's service
-// reads the environment file with pam_env, and the branch that selects it is in
-// both shared stacks.
-func sudoRsArrangement(t *testing.T) (*config.Config, string) {
-	t.Helper()
-	dir := sudoStacks(t)
-	pinSudo(t, true)
-
-	// The block is the stack on a sudo-rs host, so the layout it renders from and
-	// the config doctor reads have to name the same helper and the same
-	// environment file. Both follow LibexecDir, which points at this directory.
-	run := &runner{layout: testLayout()}
-	run.layout.LibexecDir = dir
-	run.layout.SudoRs = true
-	cfg := &config.Config{}
-	cfg.Sudo.ExecUser = run.layout.ExecUser
-	cfg.Sudo.PamService = pamServiceName
-	cfg.Sudo.Helper = run.layout.PamHelper()
-	if err := os.WriteFile(run.layout.SudoEnvFile(),
-		[]byte("FARAMIR_OPERATOR=op\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// Named on the block's requisite line, so the arrangement is not whole
-	// without it.
-	if err := os.WriteFile(cfg.Sudo.Helper, []byte("#!/bin/sh\nexit 0\n"),
-		0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := run.writeSudoPamBlock(); err != nil {
-		t.Fatal(err)
-	}
-	return cfg, dir
-}
-
-// The whole sudo-rs arrangement passes, and the branch going missing fails.
-// /etc/pam.d/sudo is a dpkg conffile: an upgrade that installs the maintainer's
-// version drops the block without saying so, and every escalation fails after
-// it with nothing naming the cause.
-func TestTheSudoRsArrangementFailsWhenTheBranchIsGone(t *testing.T) {
-	cfg, dir := sudoRsArrangement(t)
-	opts := DoctorOptions{ExecUser: "ex", AgentUser: "op"}
-
-	var whole DoctorReport
-	diagnoseSudoArrangement(&whole, opts, cfg)
-	if got := only(t, whole); got.Status != StatusOK {
-		t.Fatalf("status %q, want %q with the whole arrangement in place: %s",
-			got.Status, StatusOK, got.Detail)
-	}
-
-	if err := os.WriteFile(filepath.Join(dir, "sudo"), []byte(stockSudoStack), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var without DoctorReport
-	diagnoseSudoArrangement(&without, opts, cfg)
-	finding := only(t, without)
-	if finding.Status != StatusFailed {
-		t.Errorf("status %q, want %q with the branch gone: %s",
-			finding.Status, StatusFailed, finding.Detail)
-	}
-	if !strings.Contains(finding.Detail, filepath.Join(dir, "sudo")) {
-		t.Errorf("the failure does not name the stack it is about: %s", finding.Detail)
-	}
-}
-
-// A host whose `sudo` alternatives group was switched after an install is
-// reported, and the two directions do not have the same answer.
-//
-// Toward sudo-rs the grant is broken: sudo-rs reaches the service called `sudo`
-// for everybody and refuses the pam_service settings the original arrangement
-// carries, so nothing can be approved.
-//
-// Toward the original it still works. The sudo-rs arrangement writes no
-// pam_service line, so the original sudo uses its own default service, which is
-// the file faramir's block is in. Reporting that as a failure said every
-// escalation fails on a host where each one succeeds, and this is the line an
-// operator reads to decide whether escalation works.
-func TestSwitchingTheSudoAlternativeIsReported(t *testing.T) {
-	t.Run("rendered for the original, host now sudo-rs", func(t *testing.T) {
-		cfg, _ := sudoArrangement(t)
-		pinSudo(t, true)
-		var report DoctorReport
-		diagnoseSudoArrangement(&report, DoctorOptions{ExecUser: "ex", AgentUser: "op"}, cfg)
-		finding := only(t, report)
-		if finding.Status != StatusFailed {
-			t.Fatalf("status %q, want %q: %s", finding.Status, StatusFailed, finding.Detail)
-		}
-		if !strings.Contains(finding.Detail, "sudo-rs") {
-			t.Errorf("the failure does not name what the host now runs: %s", finding.Detail)
-		}
-	})
-	t.Run("rendered for sudo-rs, host now the original", func(t *testing.T) {
-		cfg, _ := sudoRsArrangement(t)
-		pinSudo(t, false)
-		var report DoctorReport
-		diagnoseSudoArrangement(&report, DoctorOptions{ExecUser: "ex", AgentUser: "op"}, cfg)
-		finding := only(t, report)
-		if finding.Status != StatusWarn {
-			t.Fatalf("status %q, want %q: %s", finding.Status, StatusWarn, finding.Detail)
-		}
-		// The verdict has to say the grant works, or an operator reads it as the
-		// other direction and goes looking for a break that is not there.
-		if !strings.Contains(finding.Detail, "escalation works") {
-			t.Errorf("the warning does not say the grant still works: %s", finding.Detail)
-		}
-		if !strings.Contains(finding.Detail, "--allow-sudo") {
-			t.Errorf("the warning does not say how to write the right arrangement: %s",
-				finding.Detail)
-		}
-	})
 }
 
 // An install that does not grant sudo takes the branch out, whatever the host's
@@ -311,7 +151,7 @@ func TestSwitchingTheSudoAlternativeIsReported(t *testing.T) {
 // names, and a branch left pointing at a file that is gone sends the executor to
 // /etc/pam.d/other.
 func TestRevokingTakesTheBranchOut(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	pinSudo(t, false)
 	run := &runner{layout: testLayout()}
 	// The revoke removes the environment file with the rest of the grant, so the
@@ -328,122 +168,8 @@ func TestRevokingTakesTheBranchOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), pamBlockBegin) {
+	if strings.Contains(string(body), hostsudo.PamBlockBegin) {
 		t.Errorf("the branch outlived the grant:\n%s", body)
-	}
-}
-
-// A splice that changed anything outside the block is undone rather than left.
-// This is a file the distribution owns and every account's sudo reads, so a
-// write that came out wrong is a host nobody can sudo on, and an install that
-// noticed and carried on would be one that broke a machine quietly.
-func TestASpliceThatDamagesTheStackIsPutBack(t *testing.T) {
-	dir := sudoStacks(t)
-	path := filepath.Join(dir, "sudo")
-	// A block whose end marker is missing: what lands parses as half-marked, which
-	// is the shape spliceProblem refuses.
-	if problem := spliceProblem(path, []byte(stockSudoStack), []byte(pamBlockBegin+"\n")); problem == "" {
-		t.Error("a block with no end marker was accepted")
-	}
-	// And the claim itself, against what is actually on disk: everything outside
-	// the block has to come back unchanged.
-	before := []byte(stockSudoStack)
-	if err := os.WriteFile(path, []byte("something else entirely\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if problem := spliceProblem(path, before, nil); problem == "" {
-		t.Error("a stack rewritten out from under the splice was accepted")
-	}
-}
-
-// The block is cut out of both sides before they are compared, or a run that
-// replaced an older block would read as one that ate the file.
-func TestTheComparisonIgnoresTheBlockItself(t *testing.T) {
-	withBlock := []byte(pamBlockBegin + "\nauth optional pam_permit.so\n" + pamBlockEnd + "\n" + stockSudoStack)
-	if got := string(withoutPamBlock(withBlock)); got != stockSudoStack {
-		t.Errorf("cutting the block out left %q, want the stock stack", got)
-	}
-	if got := string(withoutPamBlock([]byte(stockSudoStack))); got != stockSudoStack {
-		t.Errorf("a stack with no block was changed: %q", got)
-	}
-}
-
-// A second factor somebody put on this host's sudo is named rather than stepped
-// over in silence: the branch goes above it, so the executor reaches root
-// without meeting it. An `include` of the distribution's shared stack is what a
-// stock file says and draws nothing.
-func TestAThirdPartyAuthModuleIsNamed(t *testing.T) {
-	for body, want := range map[string]string{
-		stockSudoStack: "",
-		"auth include system-auth\n@include common-account\n":                 "",
-		"auth substack password-auth\n":                                       "",
-		"# auth required pam_duo.so\n@include common-auth\n":                  "",
-		"auth required pam_duo.so\n@include common-auth\n":                    "auth required pam_duo.so",
-		stockSudoStack + "auth required pam_google_authenticator.so nullok\n": "auth required pam_google_authenticator.so nullok",
-	} {
-		if got := foreignAuthModule([]byte(body)); got != want {
-			t.Errorf("got %q, want %q, for:\n%s", got, want, body)
-		}
-	}
-}
-
-// THE ONE THAT MATTERS. The branch's jump has to skip every faramir module that
-// follows it and land on the stack this file already had. One short and it lands
-// on faramir's own `sufficient pam_permit`, which authenticates EVERY OTHER
-// ACCOUNT ON THE HOST with no password at all.
-//
-// Counted off the rendered block rather than asserted as a literal, so a line
-// added or removed below the branch fails here instead of on a host.
-func TestTheBranchSkipsEveryModuleItPutThere(t *testing.T) {
-	block, err := render("etc/pam.d-sudo.tmpl", testLayout())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var branch string
-	after := 0
-	for line := range strings.Lines(uncommented(string(block))) {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "auth") {
-			continue
-		}
-		if branch == "" {
-			branch = line
-			continue
-		}
-		after++
-	}
-	if branch == "" {
-		t.Fatal("the block has no auth line at all")
-	}
-	if !strings.Contains(branch, "pam_succeed_if.so") {
-		t.Fatalf("the first auth line is not the account branch: %q", branch)
-	}
-	want := fmt.Sprintf("default=%d", after)
-	if !strings.Contains(branch, want) {
-		t.Errorf("the branch is %q but %d module(s) follow it in the block: it must "+
-			"say %q, or an account that is not the executor lands on one of them",
-			branch, after, want)
-	}
-	// And the module it must never land on is the last of them.
-	lines := strings.Split(strings.TrimSpace(uncommented(string(block))), "\n")
-	if last := strings.TrimSpace(lines[len(lines)-1]); !strings.Contains(last, "pam_permit.so") ||
-		!strings.Contains(last, "sufficient") {
-		t.Errorf("the block does not end with `sufficient pam_permit.so`, so the "+
-			"count above is measuring something else: %q", last)
-	}
-}
-
-// The block is the whole stack on a sudo-rs host, so everything pamStackProblem
-// asserts about a service file has to hold of it too: the helper is requisite,
-// runs with seteuid, and is faramir's own.
-func TestTheBlockIsAStackPamStackProblemAccepts(t *testing.T) {
-	layout := testLayout()
-	block, err := render("etc/pam.d-sudo.tmpl", layout)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if problem := pamStackProblem(string(block), layout.PamHelper()); problem != "" {
-		t.Errorf("the rendered block is not a stack that gates: %s", problem)
 	}
 }
 
@@ -451,13 +177,13 @@ func TestTheBlockIsAStackPamStackProblemAccepts(t *testing.T) {
 // reaches the service named `sudo` and nothing a caller may name, so one beside
 // the block would be a stack nothing reads.
 func TestNoServiceFileIsWrittenUnderSudoRs(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	pinSudo(t, true)
 	run := &runner{layout: testLayout()}
 	run.layout.SudoRs = true
 	run.layout.LibexecDir = dir
 	// One left by an install made when this host's sudo was the original.
-	if err := os.WriteFile(pamServiceFile, []byte("auth required pam_permit.so\n"), 0o644); err != nil {
+	if err := os.WriteFile(hostlayout.PamServiceFile, []byte("auth required pam_permit.so\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run.writeSudoPamBlock(); err != nil {
@@ -466,9 +192,9 @@ func TestNoServiceFileIsWrittenUnderSudoRs(t *testing.T) {
 	if _, err := run.syncPamService(); err != nil {
 		t.Fatal(err)
 	}
-	if exists(pamServiceFile) {
+	if hostfs.Exists(hostlayout.PamServiceFile) {
 		t.Errorf("%s is still there on a sudo-rs host, where nothing reads it",
-			pamServiceFile)
+			hostlayout.PamServiceFile)
 	}
 }
 
@@ -477,15 +203,15 @@ func TestNoServiceFileIsWrittenUnderSudoRs(t *testing.T) {
 // reaches: the executor meets the password check first and every escalation
 // fails, on a host doctor would otherwise call well.
 func TestABlockBelowTheAuthLineIsHoistedBack(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	path := filepath.Join(dir, "sudo")
 	run := &runner{layout: testLayout()}
-	block, err := render("etc/pam.d-sudo.tmpl", run.layout)
+	block, err := agentcfg.Render("etc/pam.d-sudo.tmpl", run.layout)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The shape a conffile merge or a hand edit leaves.
-	if err := os.WriteFile(path, append([]byte(stockSudoStack), block...), 0o644); err != nil {
+	if err := os.WriteFile(path, append([]byte(layouttest.StockSudoStack), block...), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := run.writeSudoPamBlock(); err != nil {
@@ -495,23 +221,23 @@ func TestABlockBelowTheAuthLineIsHoistedBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(body), pamBlockBegin) {
+	if !strings.HasPrefix(string(body), hostsudo.PamBlockBegin) {
 		t.Errorf("the block was left below what authenticates:\n%s", body)
 	}
-	if n := strings.Count(string(body), pamBlockBegin); n != 1 {
+	if n := strings.Count(string(body), hostsudo.PamBlockBegin); n != 1 {
 		t.Errorf("counted %d blocks, want 1", n)
 	}
 	// And doctor agrees, which it did not before: the stock stack authenticates
 	// with `@include common-auth` and has no line beginning `auth` at all.
 	pinSudo(t, true)
-	if problem := sudoPamBranchProblem(run.layout.ExecUser, run.layout.PamHelper()); problem != "" {
+	if problem := hostsudo.BranchProblem(run.layout.ExecUser, run.layout.PamHelper()); problem != "" {
 		t.Errorf("the hoisted block still reads as misplaced: %s", problem)
 	}
 	// The same file with the block put back underneath is what must fail.
-	if err := os.WriteFile(path, append([]byte(stockSudoStack), block...), 0o644); err != nil {
+	if err := os.WriteFile(path, append([]byte(layouttest.StockSudoStack), block...), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	problem := sudoPamBranchProblem(run.layout.ExecUser, run.layout.PamHelper())
+	problem := hostsudo.BranchProblem(run.layout.ExecUser, run.layout.PamHelper())
 	if problem == "" {
 		t.Error("a block sitting below `@include common-auth` was reported as fine")
 	}
@@ -521,7 +247,7 @@ func TestABlockBelowTheAuthLineIsHoistedBack(t *testing.T) {
 // rendered: a block edited by hand to add a module is one whose branch now lands
 // inside it, and that authenticates every other account for free.
 func TestAJumpThatNoLongerClearsTheBlockIsReported(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	pinSudo(t, true)
 	run := &runner{layout: testLayout()}
 	if _, err := run.writeSudoPamBlock(); err != nil {
@@ -533,12 +259,12 @@ func TestAJumpThatNoLongerClearsTheBlockIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One more module inside the block, the jump left as it was.
-	edited := strings.Replace(string(body), pamBlockEnd,
-		"auth optional pam_permit.so\n"+pamBlockEnd, 1)
+	edited := strings.Replace(string(body), hostsudo.PamBlockEnd,
+		"auth optional pam_permit.so\n"+hostsudo.PamBlockEnd, 1)
 	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	problem := sudoPamBranchProblem(run.layout.ExecUser, run.layout.PamHelper())
+	problem := hostsudo.BranchProblem(run.layout.ExecUser, run.layout.PamHelper())
 	if problem == "" {
 		t.Fatal("a block with a module the jump does not clear was reported as fine")
 	}
@@ -552,9 +278,9 @@ func TestAJumpThatNoLongerClearsTheBlockIsReported(t *testing.T) {
 // that works as one that cannot escalate -- which fails `init` at the validate
 // step, after the grant is already on disk.
 func TestTheBrokerFindsTheStackOnEitherArrangement(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 
-	if _, err := escalation.StackFile(dir, pamServiceName); err == nil {
+	if _, err := escalation.StackFile(dir, hostlayout.PamServiceName); err == nil {
 		t.Error("a host with neither arrangement reported a stack")
 	}
 	// The sudo-rs arrangement: a block, and no service file.
@@ -562,7 +288,7 @@ func TestTheBrokerFindsTheStackOnEitherArrangement(t *testing.T) {
 	if _, err := run.writeSudoPamBlock(); err != nil {
 		t.Fatal(err)
 	}
-	stack, err := escalation.StackFile(dir, pamServiceName)
+	stack, err := escalation.StackFile(dir, hostlayout.PamServiceName)
 	if err != nil {
 		t.Fatalf("the block was not recognised as the stack: %v", err)
 	}
@@ -570,29 +296,13 @@ func TestTheBrokerFindsTheStackOnEitherArrangement(t *testing.T) {
 		t.Errorf("found %q, want the shared stack", stack)
 	}
 	// And the classic one: a service file, which wins.
-	if err := os.WriteFile(filepath.Join(dir, pamServiceName),
+	if err := os.WriteFile(filepath.Join(dir, hostlayout.PamServiceName),
 		[]byte("auth requisite pam_exec.so\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if stack, err = escalation.StackFile(dir, pamServiceName); err != nil ||
-		stack != filepath.Join(dir, pamServiceName) {
+	if stack, err = escalation.StackFile(dir, hostlayout.PamServiceName); err != nil ||
+		stack != filepath.Join(dir, hostlayout.PamServiceName) {
 		t.Errorf("found %q (%v), want the service file", stack, err)
-	}
-}
-
-// A half-marked stack is not a stack the broker may answer for: it cannot tell
-// what the block is, and reporting a host as able to escalate on the strength of
-// a stray marker is worse than reporting it as broken.
-func TestAStrayMarkerIsNotAStack(t *testing.T) {
-	if escalation.HasBlock(escalation.BlockBegin + "\nauth required pam_permit.so\n") {
-		t.Error("a begin marker with no end was read as a block")
-	}
-	if escalation.HasBlock("# see '" + escalation.BlockBegin + "' in the docs\n") {
-		t.Error("a marker quoted in a comment was read as a block")
-	}
-	if !escalation.HasBlock(escalation.BlockBegin + "\nauth optional pam_permit.so\n" +
-		escalation.BlockEnd + "\n") {
-		t.Error("a whole block was not recognised")
 	}
 }
 
@@ -601,7 +311,7 @@ func TestAStrayMarkerIsNotAStack(t *testing.T) {
 // the link is already covered and refusing the install over it would fail a host
 // that works.
 func TestASharedStackLinkedToTheOtherIsAlreadyCovered(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	link := filepath.Join(dir, "sudo-i")
 	if err := os.Remove(link); err != nil {
 		t.Fatal(err)
@@ -617,7 +327,7 @@ func TestASharedStackLinkedToTheOtherIsAlreadyCovered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(string(body), pamBlockBegin); n != 1 {
+	if n := strings.Count(string(body), hostsudo.PamBlockBegin); n != 1 {
 		t.Errorf("counted %d blocks through the link, want 1:\n%s", n, body)
 	}
 	// And the link is still a link: writing through it would have replaced it.
@@ -634,7 +344,7 @@ func TestASharedStackLinkedToTheOtherIsAlreadyCovered(t *testing.T) {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(dir, "somewhere-else")
-	if err := os.WriteFile(outside, []byte(stockSudoStack), 0o644); err != nil {
+	if err := os.WriteFile(outside, []byte(layouttest.StockSudoStack), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, link); err != nil {
@@ -650,14 +360,14 @@ func TestASharedStackLinkedToTheOtherIsAlreadyCovered(t *testing.T) {
 // block this run could see left the other there through every re-run and every
 // revoke, with nothing able to remove it.
 func TestASecondBlockIsNotLeftBehind(t *testing.T) {
-	dir := sudoStacks(t)
+	dir := layouttest.SudoStacks(t)
 	path := filepath.Join(dir, "sudo")
 	run := &runner{layout: testLayout()}
-	block, err := render("etc/pam.d-sudo.tmpl", run.layout)
+	block, err := agentcfg.Render("etc/pam.d-sudo.tmpl", run.layout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	doubled := append(append(append([]byte{}, block...), block...), []byte(stockSudoStack)...)
+	doubled := append(append(append([]byte{}, block...), block...), []byte(layouttest.StockSudoStack)...)
 	if err := os.WriteFile(path, doubled, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -668,20 +378,20 @@ func TestASecondBlockIsNotLeftBehind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(string(body), pamBlockBegin); n != 1 {
+	if n := strings.Count(string(body), hostsudo.PamBlockBegin); n != 1 {
 		t.Errorf("a re-run left %d blocks, want 1:\n%s", n, body)
 	}
 	// And a revoke takes the file back to what the distribution put there.
 	if err := os.WriteFile(path, doubled, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := removeSudoPamBlock(run.fs); err != nil {
+	if _, err := hostsudo.RemoveBlock(run.fs); err != nil {
 		t.Fatal(err)
 	}
 	if body, err = os.ReadFile(path); err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != stockSudoStack {
+	if string(body) != layouttest.StockSudoStack {
 		t.Errorf("a revoke left a block behind:\n%s", body)
 	}
 }

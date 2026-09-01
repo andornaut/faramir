@@ -1,43 +1,15 @@
 package install
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
-
-// testLayout moves everything off its default, so a literal left in a template
-// shows up in the output.
-func testLayout() Layout {
-	opts := Options{
-		AgentUser:    "operator",
-		ClientGroup:  "shared",
-		SecretsGroup: "store",
-		BrokerUser:   "br",
-		KeeperUser:   "kp",
-		ExecUser:     "ex",
-		ConfigDir:    "/opt/conf",
-	}
-	opts.applyDefaults()
-	layout, err := opts.layout()
-	if err != nil {
-		panic(err)
-	}
-	// Each service account's group, named differently from the account. layout()
-	// defaults each pair to the same string and stepAccounts resolves the real one
-	// before the units render, so a directive taking a group from the *User* field
-	// passes on this host and names the wrong group on one where an adopted
-	// account's primary group is called something else.
-	layout.ExecGroup = "exgrp"
-	layout.BrokerGroup = "brgrp"
-	layout.KeeperGroup = "kpgrp"
-	return layout
-}
 
 // Catches a field renamed in Layout and not in the file that names it.
 func TestTemplatesRender(t *testing.T) {
@@ -52,17 +24,17 @@ func TestTemplatesRender(t *testing.T) {
 		"systemd/faramir.tmpfiles.conf.tmpl",
 	}, unitValues()...)
 	for _, asset := range assets {
-		if _, err := render(asset, layout); err != nil {
+		if _, err := agentcfg.Render(asset, layout); err != nil {
 			t.Errorf("%s: %v", asset, err)
 		}
 	}
 }
 
 func unitValues() []string {
-	names := unitNames()
+	names := agentcfg.UnitNames()
 	out := make([]string, 0, len(names))
 	for _, name := range names {
-		out = append(out, units[name])
+		out = append(out, agentcfg.Units[name])
 	}
 	return out
 }
@@ -70,9 +42,9 @@ func unitValues() []string {
 // supplementaryGroups is a rendered unit's SupplementaryGroups=, or "". Parsed
 // rather than grepped: a unit that joins no group says so in a comment naming
 // one.
-func supplementaryGroups(t *testing.T, unit string, layout Layout) string {
+func supplementaryGroups(t *testing.T, unit string, layout hostlayout.Layout) string {
 	t.Helper()
-	body, err := render(units[unit], layout)
+	body, err := agentcfg.Render(agentcfg.Units[unit], layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +64,7 @@ func supplementaryGroups(t *testing.T, unit string, layout Layout) string {
 // value.
 func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	layout := testLayout()
-	config, err := render("etc/config.toml.tmpl", layout)
+	config, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +90,7 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 		t.Errorf("broker joins %q, want the executor's group %q alone",
 			got, layout.ExecGroup)
 	}
-	socket, err := render(units["faramir-broker.socket"], layout)
+	socket, err := agentcfg.Render(agentcfg.Units["faramir-broker.socket"], layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,14 +120,14 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 			// group not being assumed to share its name.
 			"SupplementaryGroups": "exgrp",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
-			"ExecStart":           DefaultBinDir + "/faramir broker",
+			"ExecStart":           hostlayout.DefaultBinDir + "/faramir broker",
 			"SyslogIdentifier":    "faramir-broker",
 		}},
 		{"faramir-keeper.service", map[string]string{
 			"User": "kp", "Group": "kpgrp", "StateDirectory": "kp",
 			"SupplementaryGroups": "store",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
-			"ExecStart":           DefaultBinDir + "/faramir keeper",
+			"ExecStart":           hostlayout.DefaultBinDir + "/faramir keeper",
 			"SyslogIdentifier":    "faramir-keeper",
 		}},
 		{"faramir-exec.service", map[string]string{
@@ -164,7 +136,7 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 			"User": "ex", "Group": "exgrp", "StateDirectory": "ex",
 			"SupplementaryGroups": "shared",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
-			"ExecStart":           DefaultBinDir + "/faramir exec",
+			"ExecStart":           hostlayout.DefaultBinDir + "/faramir exec",
 			"SyslogIdentifier":    "faramir-exec",
 		}},
 		{"faramir-broker.socket", map[string]string{"SocketGroup": "shared"}},
@@ -173,7 +145,7 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 		{"faramir-keeper.socket", map[string]string{"SocketGroup": "brgrp"}},
 		{"faramir-exec.socket", map[string]string{"SocketGroup": "brgrp"}},
 	} {
-		body, err := render(units[tc.unit], layout)
+		body, err := agentcfg.Render(agentcfg.Units[tc.unit], layout)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -184,7 +156,7 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 		}
 	}
 
-	config, err := render("etc/config.toml.tmpl", layout)
+	config, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +170,7 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 		}
 	}
 
-	tmpfiles, err := render("systemd/faramir.tmpfiles.conf.tmpl", layout)
+	tmpfiles, err := agentcfg.Render("systemd/faramir.tmpfiles.conf.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +183,7 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 // never learns where systemd got it.
 func TestKeeperCredentialSource(t *testing.T) {
 	layout := testLayout()
-	unit, err := render(units["faramir-keeper.service"], layout)
+	unit, err := agentcfg.Render(agentcfg.Units["faramir-keeper.service"], layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +223,7 @@ func TestTheKeeperUnitBindsOnlyWhatTheConfigDirNeeds(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			layout := Layout{ConfigDir: test.configDir}
+			layout := hostlayout.Layout{ConfigDir: test.configDir}
 			got := layout.KeeperBinds()
 			if len(got) != len(test.want) {
 				t.Fatalf("got %v, want %v", got, test.want)
@@ -270,7 +242,7 @@ func TestTheKeeperUnitBindsOnlyWhatTheConfigDirNeeds(t *testing.T) {
 func TestKeeperProtectHome(t *testing.T) {
 	strict := testLayout()
 	strict.ConfigDir = "/etc/faramir"
-	body, err := render(units["faramir-keeper.service"], strict)
+	body, err := agentcfg.Render(agentcfg.Units["faramir-keeper.service"], strict)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +255,7 @@ func TestKeeperProtectHome(t *testing.T) {
 
 	inHome := strict
 	inHome.ConfigDir = "/home/operator/.config/faramir"
-	body, err = render(units["faramir-keeper.service"], inHome)
+	body, err = agentcfg.Render(agentcfg.Units["faramir-keeper.service"], inHome)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +313,7 @@ func TestLayoutValidation(t *testing.T) {
 func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 	layout := testLayout()
 	layout.SSHKey = "/var/lib/br/.ssh/identity"
-	config, err := render("etc/config.toml.tmpl", layout)
+	config, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,9 +328,9 @@ func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 // there too.
 func TestTheSSHKeyDefaultsBesideTheAgeKey(t *testing.T) {
 	opts := Options{
-		AgentUser: "op", ClientGroup: DefaultClientGroup,
-		BrokerUser: DefaultBrokerUser, KeeperUser: DefaultKeeperUser,
-		ExecUser: DefaultExecUser, ConfigDir: "/home/op/.config/faramir",
+		AgentUser: "op", ClientGroup: hostlayout.DefaultClientGroup,
+		BrokerUser: hostlayout.DefaultBrokerUser, KeeperUser: hostlayout.DefaultKeeperUser,
+		ExecUser: hostlayout.DefaultExecUser, ConfigDir: "/home/op/.config/faramir",
 	}
 	layout, err := opts.layout()
 	if err != nil {
@@ -382,7 +354,7 @@ func TestTheSSHKeyDefaultsBesideTheAgeKey(t *testing.T) {
 // writes it and then runs `broker --check`, so a key the parser does not know
 // aborts an install that has already created accounts and written units.
 func TestTheRenderedConfigLoads(t *testing.T) {
-	body, err := render("etc/config.toml.tmpl", testLayout())
+	body, err := agentcfg.Render("etc/config.toml.tmpl", testLayout())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,41 +367,30 @@ func TestTheRenderedConfigLoads(t *testing.T) {
 	}
 }
 
-// The rendered agent files are JSON, and Go's escape set is not JSON's.
-//
-// Every path in them is the operator's, from --config-dir or --ssh-key, and
-// nothing on the way here refuses a control character in one. Rendered with
-// Go's quoting, such a path produces a settings file the agent cannot parse:
-// the enrolment reports success and every rule in that file is absent, which is
-// the failure mode worth a test rather than the syntax error.
-func TestTheRenderedAgentFilesAreParseableJSON(t *testing.T) {
-	for _, awkward := range []string{
-		"/etc/faramir",
-		"/etc/far\amir",
-		"/etc/far\vmir",
-		"/etc/far\x01mir",
-		"/etc/far\"mir",
-		"/etc/far\\mir",
-	} {
-		t.Run(strconv.Quote(awkward), func(t *testing.T) {
-			for _, tc := range []struct{ open, body, close string }{
-				{"[", jsonLines("", []string{awkward}), "]"},
-				{"{", jsonDenyMap("", []string{awkward}), "}"},
-			} {
-				var into any
-				body := tc.open + strings.TrimSpace(tc.body) + tc.close
-				if err := json.Unmarshal([]byte(body), &into); err != nil {
-					t.Errorf("renders JSON nothing can parse: %v\n%s", err, body)
-				}
-			}
-			// And the value survives rather than merely parsing.
-			var got []string
-			if err := json.Unmarshal([]byte("["+strings.TrimSpace(jsonLines("", []string{awkward}))+"]"), &got); err != nil {
-				t.Fatal(err)
-			}
-			if len(got) != 1 || got[0] != awkward {
-				t.Errorf("round trip = %q, want %q", got, awkward)
-			}
-		})
+// testLayout moves everything off its default, so a literal left in a template
+// shows up in the output.
+func testLayout() hostlayout.Layout {
+	opts := Options{
+		AgentUser:    "operator",
+		ClientGroup:  "shared",
+		SecretsGroup: "store",
+		BrokerUser:   "br",
+		KeeperUser:   "kp",
+		ExecUser:     "ex",
+		ConfigDir:    "/opt/conf",
 	}
+	opts.applyDefaults()
+	layout, err := opts.layout()
+	if err != nil {
+		panic(err)
+	}
+	// Each service account's group, named differently from the account. layout()
+	// defaults each pair to the same string and stepAccounts resolves the real one
+	// before the units render, so a directive taking a group from the *User* field
+	// passes on this host and names the wrong group on one where an adopted
+	// account's primary group is called something else.
+	layout.ExecGroup = "exgrp"
+	layout.BrokerGroup = "brgrp"
+	layout.KeeperGroup = "kpgrp"
+	return layout
 }

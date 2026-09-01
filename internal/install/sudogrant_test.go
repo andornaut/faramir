@@ -7,11 +7,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // sudoGrantLayout is testLayout with --allow-sudo passed.
-func sudoGrantLayout(t *testing.T) Layout {
+func sudoGrantLayout(t *testing.T) hostlayout.Layout {
 	t.Helper()
 	opts := Options{
 		AgentUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
@@ -48,7 +52,7 @@ func TestWithoutAllowSudoTheConfigCarriesNoSudoSection(t *testing.T) {
 	if layout.AllowSudo {
 		t.Error("AllowSudo is set with --allow-sudo unset")
 	}
-	body, err := render("etc/config.toml.tmpl", layout)
+	body, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +68,7 @@ func TestWithoutAllowSudoTheConfigCarriesNoSudoSection(t *testing.T) {
 // things.
 func TestAllowSudoRendersTheSudoSection(t *testing.T) {
 	layout := sudoGrantLayout(t)
-	body, err := render("etc/config.toml.tmpl", layout)
+	body, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,10 +96,10 @@ func TestASudoGrantPlacesNoCredential(t *testing.T) {
 	layout := sudoGrantLayout(t)
 	for _, asset := range []string{
 		"etc/config.toml.tmpl", "etc/sudoers.tmpl", "etc/pam.d.tmpl",
-		"agent/hooks/pam-escalate.tmpl", units["faramir-broker.service"],
-		units["faramir-exec.service"],
+		"agent/hooks/pam-escalate.tmpl", agentcfg.Units["faramir-broker.service"],
+		agentcfg.Units["faramir-exec.service"],
 	} {
-		body, err := render(asset, layout)
+		body, err := agentcfg.Render(asset, layout)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,7 +118,7 @@ func TestASudoGrantPlacesNoCredential(t *testing.T) {
 // that must never appear here.
 func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
 	layout := sudoGrantLayout(t)
-	body, err := render("etc/sudoers.tmpl", layout)
+	body, err := agentcfg.Render("etc/sudoers.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +145,7 @@ func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
 	// the template renders and so cannot disagree with it: this fixture puts the
 	// config under /opt/conf, so the literal also says the file does not follow
 	// --config-dir, an uninstall keeping that directory and never removing it whole.
-	service, err := render("etc/pam.d.tmpl", layout)
+	service, err := agentcfg.Render("etc/pam.d.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +177,7 @@ func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
 func TestTheSudoEnvironmentIsTheInstallsOwn(t *testing.T) {
 	layout := sudoGrantLayout(t)
 	layout.CommandEnv = map[string]string{"DEBIAN_FRONTEND": "noninteractive"}
-	body, err := render("etc/sudo-env.tmpl", layout)
+	body, err := agentcfg.Render("etc/sudo-env.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +197,7 @@ func TestTheSudoEnvironmentIsTheInstallsOwn(t *testing.T) {
 // without env_keep or env_check, so what is filtered here is all that is
 // filtered: before it existed, sudo's own env_reset stripped the last of them.
 func TestTheSudoEnvironmentRefusesWhatWouldReachRootUnchecked(t *testing.T) {
-	r := &runner{layout: sudoGrantLayout(t), fs: fsys{dryRun: true}}
+	r := &runner{layout: sudoGrantLayout(t), fs: hostfs.FS{DryRun: true}}
 	r.layout.CommandEnv = map[string]string{
 		"SAFE": "yes",
 		// --command-env splits on the first '=', so everything after one in the name
@@ -208,7 +212,7 @@ func TestTheSudoEnvironmentRefusesWhatWouldReachRootUnchecked(t *testing.T) {
 		"LD_LIBRARY_PATH": "/tmp/evil",
 	}
 
-	body, err := render("etc/sudo-env.tmpl", r.sudoEnv())
+	body, err := agentcfg.Render("etc/sudo-env.tmpl", r.sudoEnv())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +231,7 @@ func TestTheSudoEnvironmentRefusesWhatWouldReachRootUnchecked(t *testing.T) {
 // decide whether it gates anything at all.
 func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 	layout := sudoGrantLayout(t)
-	body, err := render("etc/pam.d.tmpl", layout)
+	body, err := agentcfg.Render("etc/pam.d.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,11 +246,11 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 	for _, rs := range []bool{false, true} {
 		variant := layout
 		variant.SudoRs = rs
-		rendered, renderErr := render("etc/pam.d.tmpl", variant)
+		rendered, renderErr := agentcfg.Render("etc/pam.d.tmpl", variant)
 		if renderErr != nil {
 			t.Fatal(renderErr)
 		}
-		for line := range strings.Lines(uncommented(string(rendered))) {
+		for line := range strings.Lines(layouttest.Uncommented(string(rendered))) {
 			if !strings.Contains(line, "pam_exec.so") {
 				continue
 			}
@@ -276,7 +280,7 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 // put on the host rather than whatever is on PATH.
 func TestThePamHelperExecsTheInstalledBinary(t *testing.T) {
 	layout := sudoGrantLayout(t)
-	body, err := render("agent/hooks/pam-escalate.tmpl", layout)
+	body, err := agentcfg.Render("agent/hooks/pam-escalate.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +380,7 @@ func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
 // when the run ends, so a setsid child cannot outlive it. That is the one
 // mechanism that ends a run, so it is not conditional on the grant.
 func TestTheExecutorUnitDelegatesItsCgroup(t *testing.T) {
-	for _, layout := range []Layout{testLayout(), sudoGrantLayout(t)} {
+	for _, layout := range []hostlayout.Layout{testLayout(), sudoGrantLayout(t)} {
 		if got := directives(t, "faramir-exec.service", layout)["Delegate"]; got != "yes" {
 			t.Errorf("Delegate=%q on the executor unit, want yes: without a delegated "+
 				"cgroup the executor cannot confine a run and refuses to run it", got)
@@ -392,7 +396,7 @@ func TestTheExecutorUnitDelegatesItsCgroup(t *testing.T) {
 	// on clone()'s flags, cannot read the ones clone3() carries behind a pointer, and
 	// so denies clone3() outright. The spawn above is CLONE_INTO_CGROUP, which
 	// exists only there, so setting it stops every brokered command with ENOSYS.
-	for _, layout := range []Layout{testLayout(), sudoGrantLayout(t)} {
+	for _, layout := range []hostlayout.Layout{testLayout(), sudoGrantLayout(t)} {
 		if value, set := directives(t, "faramir-exec.service", layout)["RestrictNamespaces"]; set {
 			t.Errorf("the executor unit sets RestrictNamespaces=%q, so systemd denies "+
 				"clone3() and the executor can spawn nothing", value)
@@ -402,9 +406,9 @@ func TestTheExecutorUnitDelegatesItsCgroup(t *testing.T) {
 
 // directives parses one rendered unit's KEY=VALUE lines, comments dropped. The
 // last wins, as systemd takes it for a non-list directive.
-func directives(t *testing.T, unit string, layout Layout) map[string]string {
+func directives(t *testing.T, unit string, layout hostlayout.Layout) map[string]string {
 	t.Helper()
-	body, err := render(units[unit], layout)
+	body, err := agentcfg.Render(agentcfg.Units[unit], layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,8 +432,8 @@ func directives(t *testing.T, unit string, layout Layout) map[string]string {
 // the hole stays closed, systemd's ask-password directory being root-only and
 // the reason that channel was not used.
 func TestTheBrokerUnitNeedsNoHoleForEscalations(t *testing.T) {
-	for _, layout := range []Layout{testLayout(), sudoGrantLayout(t)} {
-		body, err := render(units["faramir-broker.service"], layout)
+	for _, layout := range []hostlayout.Layout{testLayout(), sudoGrantLayout(t)} {
+		body, err := agentcfg.Render(agentcfg.Units["faramir-broker.service"], layout)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -441,7 +445,7 @@ func TestTheBrokerUnitNeedsNoHoleForEscalations(t *testing.T) {
 }
 
 // notifyLayout is sudoGrantLayout with an announcement asked for.
-func notifyLayout(t *testing.T, argv ...string) (Layout, error) {
+func notifyLayout(t *testing.T, argv ...string) (hostlayout.Layout, error) {
 	t.Helper()
 	opts := Options{
 		AgentUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
@@ -462,7 +466,7 @@ func TestNotifyCommandIsRenderedAndLoadsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := render("etc/config.toml.tmpl", layout)
+	body, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +506,7 @@ func checkNotifyRoundTrip(t *testing.T, awkward string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, err := render("etc/config.toml.tmpl", layout)
+	body, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 )
 
@@ -26,7 +27,7 @@ func TestAnEntryKindsCommentIsRenderedOnce(t *testing.T) {
 		})
 	}
 
-	body, err := render("etc/config.toml.tmpl", layout)
+	body, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,7 @@ func TestAnEntryKindWithNoEntriesRendersNoComment(t *testing.T) {
 	layout := testLayout()
 	layout.Blocked = nil
 	layout.Links = nil
-	body, err := render("etc/config.toml.tmpl", layout)
+	body, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}

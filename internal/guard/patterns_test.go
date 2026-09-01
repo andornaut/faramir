@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/denyrules"
-	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // The shipped file is a template, so the paths it refuses are the ones an
@@ -17,14 +18,14 @@ func renderShippedBytes() ([]byte, error) {
 	// install's own rendering rather than a second one here: the file now carries
 	// generated rules, and a test that built it another way would assert on rules
 	// nobody installs.
-	return install.RenderDenyPatterns(install.Layout{
-		ConfigDir:  install.DefaultConfigDir,
-		BinDir:     install.DefaultBinDir,
-		LibexecDir: install.DefaultLibexecDir,
-		LogDir:     install.DefaultLogDir,
-		BrokerUser: install.DefaultBrokerUser,
-		KeeperUser: install.DefaultKeeperUser,
-		ExecUser:   install.DefaultExecUser,
+	return agentcfg.RenderDenyPatterns(hostlayout.Layout{
+		ConfigDir:  hostlayout.DefaultConfigDir,
+		BinDir:     hostlayout.DefaultBinDir,
+		LibexecDir: hostlayout.DefaultLibexecDir,
+		LogDir:     hostlayout.DefaultLogDir,
+		BrokerUser: hostlayout.DefaultBrokerUser,
+		KeeperUser: hostlayout.DefaultKeeperUser,
+		ExecUser:   hostlayout.DefaultExecUser,
 	})
 }
 

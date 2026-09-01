@@ -1,7 +1,19 @@
+// Package install provisions a host and enrols a tree: the accounts, the
+// directories, the age key, the binaries, the systemd units, the sudo
+// arrangement, the coding agents' configuration, and the linked and blocked
+// paths an operator declares afterwards.
+//
+// It writes. Saying whether what landed works is internal/doctor's, and the two
+// are siblings: neither imports the other, and both build a hostlayout.Layout
+// first, so a check compares against the values the write came from rather than
+// against a second reading of them.
+//
+// What every step renders from is that Layout, and what every step writes
+// through is a hostfs.FS, which reports whether it changed anything so a
+// configuration manager need not stat the host before and after.
 package install
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -11,11 +23,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
-	"time"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostsudo"
+	"github.com/andornaut/faramir/internal/hostunit"
+	"github.com/andornaut/faramir/internal/knownhosts"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -128,7 +144,7 @@ type Options struct {
 
 	// Agents names the coding agents whose settings get the deny rules, which
 	// refuse to open key material wherever the agent is working. Empty means
-	// AgentAuto: whichever agents the agent account's home already carries. A
+	// agentcfg.Auto: whichever agents the agent account's home already carries. A
 	// name writes them whether or not the agent is there, and composes with auto.
 	//
 	// The PreToolUse hook is per project, registering it auto-approving Bash
@@ -243,8 +259,8 @@ func recordConfigDigest(opts *Options, configFile string) error {
 
 type runner struct {
 	opts   Options
-	layout Layout
-	fs     fsys
+	layout hostlayout.Layout
+	fs     hostfs.FS
 	report Report
 
 	// The directory the running faramir came out of, so the binary that
@@ -263,7 +279,7 @@ type runner struct {
 
 	// The agents this run configures, resolved in stepPreconditions so the
 	// question asked there and the files written later are about the same set.
-	agentTargets []*agentTarget
+	agentTargets []*agentcfg.Target
 
 	// The keeper's own age recipient, empty when it could not be read. A
 	// .sops.yaml written without it encrypts every later value to everyone except
@@ -322,7 +338,7 @@ func newRunner(opts Options) (*runner, error) {
 	run := &runner{
 		opts:   opts,
 		layout: layout,
-		fs:     fsys{dryRun: opts.DryRun},
+		fs:     hostfs.FS{DryRun: opts.DryRun},
 		report: Report{
 			Version:   version.Version,
 			DryRun:    opts.DryRun,
@@ -406,13 +422,13 @@ func (r *runner) steps() []namedStep {
 
 func (o *Options) applyDefaults() {
 	if o.ClientGroup == "" {
-		o.ClientGroup = DefaultClientGroup
+		o.ClientGroup = hostlayout.DefaultClientGroup
 	}
 	if o.BrokerUser == "" {
-		o.BrokerUser = DefaultBrokerUser
+		o.BrokerUser = hostlayout.DefaultBrokerUser
 	}
 	if o.KeeperUser == "" {
-		o.KeeperUser = DefaultKeeperUser
+		o.KeeperUser = hostlayout.DefaultKeeperUser
 	}
 	// After KeeperUser, whose primary group this is: the keeper is the only
 	// account that opens a managed file, so there is no membership to keep.
@@ -420,10 +436,10 @@ func (o *Options) applyDefaults() {
 		o.SecretsGroup = o.KeeperUser
 	}
 	if o.ExecUser == "" {
-		o.ExecUser = DefaultExecUser
+		o.ExecUser = hostlayout.DefaultExecUser
 	}
 	if o.ConfigDir == "" {
-		o.ConfigDir = DefaultConfigDir
+		o.ConfigDir = hostlayout.DefaultConfigDir
 	}
 	// From the loader, so the file this writes and the file it would read agree
 	// on what a default is.
@@ -456,8 +472,8 @@ func (o *Options) applyDefaults() {
 }
 
 // layout derives the paths from the options and checks them.
-func (o *Options) layout() (Layout, error) {
-	layout := Layout{
+func (o *Options) layout() (hostlayout.Layout, error) {
+	layout := hostlayout.Layout{
 		ClientGroup:  o.ClientGroup,
 		SecretsGroup: o.SecretsGroup,
 		BrokerUser:   o.BrokerUser,
@@ -468,16 +484,16 @@ func (o *Options) layout() (Layout, error) {
 		BrokerGroup: o.BrokerUser,
 		KeeperGroup: o.KeeperUser,
 		ConfigDir:   filepath.Clean(o.ConfigDir),
-		BinDir:      DefaultBinDir,
-		LibexecDir:  DefaultLibexecDir,
-		DocDir:      DefaultDocDir,
-		RunDir:      DefaultRunDir,
-		LogDir:      DefaultLogDir,
+		BinDir:      hostlayout.DefaultBinDir,
+		LibexecDir:  hostlayout.DefaultLibexecDir,
+		DocDir:      hostlayout.DefaultDocDir,
+		RunDir:      hostlayout.DefaultRunDir,
+		LogDir:      hostlayout.DefaultLogDir,
 		SSHKey:      o.SSHKey,
 		// The broker execs these as the uid holding every plaintext value, so they
 		// are resolved here rather than left for a drop-in to point elsewhere.
-		SshAgent: lookPathOr("ssh-agent", "/usr/bin/ssh-agent"),
-		SshAdd:   lookPathOr("ssh-add", "/usr/bin/ssh-add"),
+		SshAgent: hostfs.LookPathOr("ssh-agent", "/usr/bin/ssh-agent"),
+		SshAdd:   hostfs.LookPathOr("ssh-add", "/usr/bin/ssh-add"),
 	}
 	layout.ConfigFile = filepath.Join(layout.ConfigDir, "config.toml")
 	// Beside the config, even inside the agent account's home: what keeps the
@@ -497,10 +513,10 @@ func (o *Options) layout() (Layout, error) {
 	// decides nothing, and a version probe run to say nothing is a command in the
 	// strace of every host that never asked for an escalation.
 	if o.AllowSudo {
-		layout.SudoRs = sudoRsProbe()
+		layout.SudoRs = hostsudo.RsProbe()
 	}
 	layout.NotifyCommand = resolveNotifyCommand(o.NotifyCommand)
-	layout.notifyAdopted = o.notifyAdopted
+	layout.NotifyAdopted = o.notifyAdopted
 	layout.Links = o.links
 	layout.Blocked = o.blocked
 	layout.CommandEnv = o.CommandEnv
@@ -509,11 +525,11 @@ func (o *Options) layout() (Layout, error) {
 	layout.CommandMaxTimeoutSec = o.CommandMaxTimeoutSec
 	layout.CommandConcurrency = o.CommandConcurrency
 	layout.CommandMaxMemoryPercent = o.CommandMaxMemoryPercent
-	layout.BrokerMaxMemoryPercent = BrokerMaxMemoryPercent
+	layout.BrokerMaxMemoryPercent = hostlayout.BrokerMaxMemoryPercent
 	layout.CommandMaxProcessMemoryMB = o.CommandMaxProcessMemoryMB
 	layout.SudoTimeoutSec = o.SudoTimeoutSec
 	layout.SecretMinLength = o.SecretMinLength
-	return layout, layout.validate()
+	return layout, layout.Validate()
 }
 
 // resolveNotifyCommand pins argv[0] to the file it names now, leaving the
@@ -527,7 +543,7 @@ func resolveNotifyCommand(argv []string) []string {
 		return nil
 	}
 	out := slices.Clone(argv)
-	out[0] = lookPathOr(out[0], out[0])
+	out[0] = hostfs.LookPathOr(out[0], out[0])
 	return out
 }
 
@@ -545,7 +561,7 @@ func (r *runner) preflight() error {
 			"sudo so SUDO_USER carries it, or record it with " +
 			"`faramir init --agent-user`. It must not be root")
 	}
-	if !userExists(r.opts.AgentUser) {
+	if !hostfs.UserExists(r.opts.AgentUser) {
 		return fmt.Errorf("no such user: %s", r.opts.AgentUser)
 	}
 	// Held to what the executor will fork, and here rather than at the loader
@@ -575,14 +591,14 @@ func (r *runner) preflight() error {
 	// Read before an account or a key exists: reporting a typo at the step would
 	// leave a half-finished install to re-run.
 	if r.opts.KnownHosts != "" {
-		if _, _, err := readKnownHosts(r.opts.KnownHosts); err != nil {
+		if _, _, err := knownhosts.Read(r.opts.KnownHosts); err != nil {
 			return fmt.Errorf("--known-hosts: %w", err)
 		}
 	}
 	// An encrypted home is a different directory before its owner logs in, so a
 	// write lands in the backing directory and is shadowed the moment it mounts.
 	// The config directory answers for the secrets directory and the key too.
-	if home := homeOf(r.layout.ConfigDir); home != "" && looksEncrypted(home) && !homeIsMounted(home) {
+	if home := hostlayout.HomeOf(r.layout.ConfigDir); home != "" && hostlayout.LooksEncrypted(home) && !hostlayout.HomeIsMounted(home) {
 		return fmt.Errorf("%s is an encrypted home and is not mounted, and %s is inside it: installing now "+
 			"writes plaintext to the backing directory. Log in as its owner first",
 			home, r.layout.ConfigDir)
@@ -591,7 +607,7 @@ func (r *runner) preflight() error {
 	// the operator, and ensureDir chowns every ancestor it creates: a ~/.config
 	// made that way is root-owned and breaks every other tool that keeps state
 	// there.
-	if parent := filepath.Dir(r.layout.ConfigDir); !exists(parent) {
+	if parent := filepath.Dir(r.layout.ConfigDir); !hostfs.Exists(parent) {
 		return fmt.Errorf("%s does not exist, and %s is inside it. Create it with "+
 			"the ownership you want first: creating it here would hand it to root",
 			parent, r.layout.ConfigDir)
@@ -609,7 +625,7 @@ func (r *runner) preflight() error {
 	}
 	var missing []string
 	for _, name := range installedBinaries {
-		if !exists(filepath.Join(r.binaries, name)) {
+		if !hostfs.Exists(filepath.Join(r.binaries, name)) {
 			missing = append(missing, name)
 		}
 	}
@@ -632,7 +648,7 @@ func (r *runner) preflight() error {
 // A flag-less re-run never reaches this: init resolves the config directory
 // from the running broker and then from the unit.
 func (r *runner) refuseRepoint() error {
-	installed := unitConfigDir(brokerUnit)
+	installed := hostunit.ConfigDir(hostunit.BrokerUnit)
 	if installed == "" || installed == r.layout.ConfigDir {
 		return nil
 	}
@@ -700,18 +716,18 @@ func (r *runner) stepPreconditions() error {
 // The targets are resolved here and kept, so the question and the writing agree
 // on which agents this run is about.
 func (r *runner) refuseUnwritableAgentFiles() error {
-	targets, err := resolveAgents(r.opts.Agents, scopeHome, r.operatorHome, r.operatorHome)
+	targets, err := agentcfg.Resolve(r.opts.Agents, agentcfg.ScopeHome, r.operatorHome, r.operatorHome)
 	if err != nil {
 		return err
 	}
 	r.agentTargets = targets
-	paths := homeEditedPaths(targets)
-	refused := refuseUnwritable(r.fs, r.operatorHome, r.operatorUID, "", paths)
+	paths := agentcfg.HomeEditedPaths(targets)
+	refused := agentcfg.RefuseUnwritable(r.fs, r.operatorHome, r.operatorUID, "", paths)
 	// And the directories those files sit in, which stepAgentConfig creates when
 	// they are missing. The home's own question, not the tree's: a symlinked
-	// component there is the operator's dotfiles, and writeAgentFiles reads
+	// component there is the operator's dotfiles, and agentcfg.WriteFiles reads
 	// through it on purpose. 0700 is the mode it makes them with.
-	refused = append(refused, refuseUncreatableDirs(
+	refused = append(refused, hostfs.RefuseUncreatableDirs(
 		r.operatorHome, 0o700, r.operatorUID, r.operatorGID, paths)...)
 	if len(refused) > 0 {
 		return errors.New(strings.Join(refused, "\n"))
@@ -723,7 +739,7 @@ func (r *runner) refuseUnwritableAgentFiles() error {
 // the answer costs nothing. Only for a key already on disk: one this run mints
 // is adopted by whoever it is minted for.
 func (r *runner) refuseUnadoptableSSHKey() error {
-	if !exists(r.layout.SSHKey) {
+	if !hostfs.Exists(r.layout.SSHKey) {
 		return nil
 	}
 	return r.checkSSHKey(r.layout.SSHKey, r.brokerUID, r.brokerGID)
@@ -736,14 +752,14 @@ func (r *runner) refuseUnadoptableSSHKey() error {
 func (r *runner) refuseInvalidSudoers() error {
 	// The same two directories stepSudoGrant needs: gating on sudoers.d alone
 	// would fail the install over a grant that step skips with a warning.
-	if !r.layout.AllowSudo || !exists(sudoersDir) || !exists(pamDir) {
+	if !r.layout.AllowSudo || !hostfs.Exists(hostlayout.SudoersDir) || !hostfs.Exists(hostlayout.PamDir) {
 		return nil
 	}
 	visudo, err := exec.LookPath("visudo")
 	if err != nil {
 		return nil
 	}
-	body, err := render("etc/sudoers.tmpl", r.layout)
+	body, err := agentcfg.Render("etc/sudoers.tmpl", r.layout)
 	if err != nil {
 		return err
 	}
@@ -763,95 +779,9 @@ func (r *runner) refuseInvalidSudoers() error {
 		CombinedOutput(); checkErr != nil {
 		return fmt.Errorf("visudo rejects the grant --allow-sudo would install, so "+
 			"nothing was written: %w: %s%s", checkErr, strings.TrimSpace(string(out)),
-			sudoRsNote(visudo))
+			hostsudo.VersionNote(visudo))
 	}
 	return nil
-}
-
-// sudoRsNote names the version floor the grant sits on, or "".
-//
-// The grant is rendered for whichever sudo this host has, so a rejection is no
-// longer a question of which implementation is installed but of how old it is.
-// Both grew `noninteractive_auth` after their first releases, and it is the one
-// setting here that a sudo old enough will not know: `unknown setting` from
-// visudo reads as a typo in a directive faramir wrote deliberately, and every
-// other line of the grant is reported as invalid with it.
-//
-// Read only once the check has failed. A version probe on every install would be
-// a command run to say nothing on every host that works.
-func sudoRsNote(visudo string) string {
-	out, err := exec.CommandContext(context.Background(), visudo, "-V").CombinedOutput()
-	if err != nil {
-		return ""
-	}
-	banner := strings.TrimSpace(firstLine(string(out)))
-	floor, older := "sudo 1.9.11", olderThanFloor(banner)
-	// bannerIsSudoRs, not a substring: sudo-rs 0.2.2 answers visudo -V with
-	// "visudo version 0.2.2" and names no implementation, and that is exactly the
-	// release this note is most likely to be printed for.
-	if bannerIsSudoRs(banner) {
-		floor = "sudo-rs 0.2.9"
-	}
-	// Only where the version is a cause this rejection could have. Every other
-	// rejection is about the file, which visudo has already said its piece about,
-	// and a note on all of them sends operators after a sudo upgrade they do not
-	// need. Silent where the version could not be read: a guess is worse than
-	// nothing.
-	if !older {
-		return ""
-	}
-	return "\nThis host reports " + banner + ". The grant needs " + floor +
-		"or newer, that being where noninteractive_auth arrived: without it `sudo -n` fails " +
-		"before the PAM stack runs, so no question is put. Upgrade sudo, or install without " +
-		"--allow-sudo"
-}
-
-// olderThanFloor reports whether a version banner names a release without
-// noninteractive_auth: sudo before 1.9.11, sudo-rs before 0.2.9. A banner it
-// cannot parse answers false, so an unrecognised sudo draws no note.
-func olderThanFloor(banner string) bool {
-	digits := func(s string) []int {
-		var out []int
-		for _, part := range strings.FieldsFunc(s, func(r rune) bool {
-			return r < '0' || r > '9'
-		}) {
-			n, err := strconv.Atoi(part)
-			if err != nil {
-				return nil
-			}
-			out = append(out, n)
-		}
-		return out
-	}
-	fields := strings.Fields(banner)
-	version := ""
-	for _, field := range fields {
-		if strings.ContainsAny(field, "0123456789") && strings.Contains(field, ".") {
-			version = field
-			break
-		}
-	}
-	parts := digits(version)
-	if len(parts) < 3 {
-		return false
-	}
-	floor := []int{1, 9, 11}
-	if bannerIsSudoRs(banner) {
-		floor = []int{0, 2, 9}
-	}
-	for i := range floor {
-		if parts[i] != floor[i] {
-			return parts[i] < floor[i]
-		}
-	}
-	return false
-}
-
-// firstLine is what a version banner's first line says, both implementations
-// printing more than one.
-func firstLine(text string) string {
-	head, _, _ := strings.Cut(text, "\n")
-	return head
 }
 
 // refuseSymlinks fails the run when any path this install asserts a mode or an
@@ -911,7 +841,7 @@ func (r *runner) skip(name, why string) { r.report.skip(name, why) }
 // reportPresence is the dry-run answer for a step that only asks whether a file
 // is there. Nothing is opened: several are key material.
 func (r *runner) reportPresence(name, path, wouldCreate string) {
-	present, known := probe(path)
+	present, known := hostfs.Probe(path)
 	switch {
 	case !known:
 		r.skip(name, "cannot tell whether "+path+" is there without root")
@@ -952,46 +882,4 @@ func (r *runner) restartFor(what string) {
 
 func (r *runner) warnf(format string, args ...any) {
 	r.report.warnf(format, args...)
-}
-
-// command runs a program and returns its standard output. stdout alone: the
-// broker prints its --check report there and logs on stderr, so a combined
-// capture would make every report unparseable. stderr is carried in the
-// error.
-func command(name string, args ...string) (string, error) {
-	return commandWithin(0, name, args...)
-}
-
-// commandWithin is command under a deadline, for doctor's probes: a hung
-// systemctl or broker hangs the one command an operator runs when the host is
-// already misbehaving. Zero is no deadline, which is init's own paths: a step
-// that takes long is a step to wait for, not one to abandon half-made.
-func commandWithin(within time.Duration, name string, args ...string) (string, error) {
-	ctx := context.Background()
-	if within > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, within)
-		defer cancel()
-	}
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return stdout.String(), fmt.Errorf("%s %s: %w: %s",
-			name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
-	}
-	return stdout.String(), nil
-}
-
-// commandCombined is command for the programs whose answer is on stderr.
-// systemd-analyze verify reports there and exits 0 either way.
-func commandCombined(name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(context.Background(), name, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(out), fmt.Errorf("%s %s: %w: %s",
-			name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return string(out), nil
 }

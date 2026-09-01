@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/sharetree"
 )
 
@@ -69,18 +70,18 @@ func TestEnrollingFaramirsOwnDirectoriesIsRefused(t *testing.T) {
 		// Above it, which the walk reaches on its way down.
 		{"/etc", true},
 		// What every hook and plugin execs, and where the deny list lives.
-		{DefaultBinDir, true},
-		{DefaultLibexecDir, true},
-		{DefaultLogDir, true},
+		{hostlayout.DefaultBinDir, true},
+		{hostlayout.DefaultLibexecDir, true},
+		{hostlayout.DefaultLogDir, true},
 		// The three daemons' own homes, which systemd creates from StateDirectory=
 		// and the units use as those accounts' homes. The caller here knows where
 		// the config is and not what the accounts are called, so these are the
 		// directories a list built from the config alone drops: enrolling one hands
 		// it to the client group at 2770 and regroups the .ssh inside it.
-		{"/var/lib/" + DefaultBrokerUser, true},
-		{"/var/lib/" + DefaultKeeperUser, true},
-		{"/var/lib/" + DefaultExecUser, true},
-		{"/var/lib/" + DefaultBrokerUser + "/project", true},
+		{"/var/lib/" + hostlayout.DefaultBrokerUser, true},
+		{"/var/lib/" + hostlayout.DefaultKeeperUser, true},
+		{"/var/lib/" + hostlayout.DefaultExecUser, true},
+		{"/var/lib/" + hostlayout.DefaultBrokerUser + "/project", true},
 		// The ordinary case, which none of the refusals may reach.
 		{"/home/someone/src/project", false},
 		{"/srv/project", false},

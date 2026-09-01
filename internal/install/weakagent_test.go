@@ -6,6 +6,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostfs"
 )
 
 // An agent that gets no rule file gets its refusals somewhere else, and where
@@ -21,40 +24,40 @@ import (
 // one the model may never be shown, which for this agent is the whole of what
 // it was given.
 func TestATreeRulesFileIsHeadedSoTheAgentLoadsIt(t *testing.T) {
-	target := agentTargets["antigravity"]
-	rules := target.treeInstructions
-	if rules.path == "" || rules.head == "" {
+	target := agentcfg.Targets["antigravity"]
+	rules := target.TreeInstructions
+	if rules.Path == "" || rules.Head == "" {
 		t.Fatal("antigravity names no rules file of its own, so this asserts nothing")
 	}
 	tree := t.TempDir()
 	run := &project{
 		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
-		uid:     keep,
-		gid:     keep,
-		targets: []*agentTarget{target},
+		uid:     hostfs.Keep,
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{target},
 	}
 
 	if err := run.instructions(); err != nil {
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(tree, rules.path)
+	path := filepath.Join(tree, rules.Path)
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(body), rules.head) {
+	if !strings.HasPrefix(string(body), rules.Head) {
 		t.Errorf("%s does not start with %q, so the rule is not always on:\n%s",
-			rules.path, rules.head, body)
+			rules.Path, rules.Head, body)
 	}
-	for _, want := range []string{sectionBegin, sectionEnd, "faramir run"} {
+	for _, want := range []string{agentcfg.SectionBegin, agentcfg.SectionEnd, "faramir run"} {
 		if !strings.Contains(string(body), want) {
-			t.Errorf("%s does not carry %q", rules.path, want)
+			t.Errorf("%s does not carry %q", rules.Path, want)
 		}
 	}
 	// The tree's own file is written as well: it is what every other agent
 	// reads, and enrolling one agent must not take it from the rest.
-	if !exists(filepath.Join(tree, "AGENTS.md")) {
+	if !hostfs.Exists(filepath.Join(tree, "AGENTS.md")) {
 		t.Error("the tree's own instructions file was not written")
 	}
 
@@ -76,9 +79,9 @@ func TestATreeRulesFileIsHeadedSoTheAgentLoadsIt(t *testing.T) {
 // something else keeps it: faramir owns the block between the markers, and the
 // file it sits in is theirs, as it is for every other instructions file.
 func TestAnExistingRulesFileKeepsItsOwnHead(t *testing.T) {
-	target := agentTargets["antigravity"]
+	target := agentcfg.Targets["antigravity"]
 	tree := t.TempDir()
-	path := filepath.Join(tree, target.treeInstructions.path)
+	path := filepath.Join(tree, target.TreeInstructions.Path)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -88,9 +91,9 @@ func TestAnExistingRulesFileKeepsItsOwnHead(t *testing.T) {
 	}
 	run := &project{
 		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
-		uid:     keep,
-		gid:     keep,
-		targets: []*agentTarget{target},
+		uid:     hostfs.Keep,
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{target},
 	}
 
 	if err := run.instructions(); err != nil {
@@ -104,7 +107,7 @@ func TestAnExistingRulesFileKeepsItsOwnHead(t *testing.T) {
 	if !strings.HasPrefix(string(body), theirs) {
 		t.Errorf("the file's own frontmatter was rewritten:\n%s", body)
 	}
-	if !strings.Contains(string(body), sectionBegin) {
+	if !strings.Contains(string(body), agentcfg.SectionBegin) {
 		t.Errorf("the section was not added:\n%s", body)
 	}
 }
@@ -114,10 +117,10 @@ func TestAnExistingRulesFileKeepsItsOwnHead(t *testing.T) {
 // pair shares a file, so the targets here are built rather than looked up.
 func TestAFileTwoAgentsReadIsNamedOnce(t *testing.T) {
 	const shared = "AGENTS.md"
-	first := &agentTarget{name: "first", homeInstructions: shared}
-	second := &agentTarget{name: "second", homeInstructions: shared}
+	first := &agentcfg.Target{Name: "first", HomeInstructions: shared}
+	second := &agentcfg.Target{Name: "second", HomeInstructions: shared}
 
-	paths := homeEditedPaths([]*agentTarget{first, second})
+	paths := agentcfg.HomeEditedPaths([]*agentcfg.Target{first, second})
 
 	if n := slices.Index(paths, shared); n < 0 {
 		t.Fatalf("paths = %v, want the file they share", paths)
@@ -133,26 +136,26 @@ func TestAFileTwoAgentsReadIsNamedOnce(t *testing.T) {
 // has been told the truth either way.
 func TestTheClaimInASharedHomeFileIsTheWeakerOne(t *testing.T) {
 	const path = "AGENTS.md"
-	guarded := &agentTarget{
-		name:             "guarded",
-		homeInstructions: path,
-		accountFiles:     []agentFile{{path: ".config/guarded.json"}},
+	guarded := &agentcfg.Target{
+		Name:             "guarded",
+		HomeInstructions: path,
+		AccountFiles:     []agentcfg.File{{Path: ".config/guarded.json"}},
 	}
-	bare := &agentTarget{name: "bare", homeInstructions: path}
+	bare := &agentcfg.Target{Name: "bare", HomeInstructions: path}
 
-	for _, order := range [][]*agentTarget{{guarded, bare}, {bare, guarded}} {
+	for _, order := range [][]*agentcfg.Target{{guarded, bare}, {bare, guarded}} {
 		files := homeInstructionFiles(order)
 		if len(files) != 1 {
 			t.Fatalf("%s then %s: %d files, want the one they share",
-				order[0].name, order[1].name, len(files))
+				order[0].Name, order[1].Name, len(files))
 		}
 		if files[0].path != path {
 			t.Errorf("%s then %s: the shared file is %q, want %q",
-				order[0].name, order[1].name, files[0].path, path)
+				order[0].Name, order[1].Name, files[0].path, path)
 		}
 	}
 	// And one agent alone still names it once.
-	files := homeInstructionFiles([]*agentTarget{guarded})
+	files := homeInstructionFiles([]*agentcfg.Target{guarded})
 	if len(files) != 1 || files[0].path != path {
 		t.Errorf("homeInstructionFiles = %+v, want the one file", files)
 	}
@@ -166,9 +169,9 @@ func TestEnrollingAntigravitySaysTheTreeIsInertUntilItIsOpened(t *testing.T) {
 	tree := t.TempDir()
 	run := &project{
 		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
-		uid:     keep,
-		gid:     keep,
-		targets: []*agentTarget{agentTargets["antigravity"]},
+		uid:     hostfs.Keep,
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["antigravity"]},
 	}
 
 	// The prose is the whole of what a tree gets: the hook that routes what it
@@ -205,46 +208,11 @@ func TestEnrollingAntigravitySaysTheTreeIsInertUntilItIsOpened(t *testing.T) {
 // one is an agent whose refusals reach only the trees somebody enrolled, and
 // nothing else here would say so.
 func TestEveryAgentIsCoveredAccountWide(t *testing.T) {
-	for _, name := range knownAgents() {
-		if len(agentTargets[name].accountFiles) == 0 {
+	for _, name := range agentcfg.Known() {
+		if len(agentcfg.Targets[name].AccountFiles) == 0 {
 			t.Errorf("%s writes nothing into a home, so a tree nobody enrolled has "+
 				"none of its refusals", name)
 		}
-	}
-}
-
-// `doctor` reports Antigravity as an agent with account-wide files rather than
-// one with none. It has no rule file and never will, its permission lists being
-// its own state, but the hook it reads for every workspace is written into a
-// home like any other account file, and the report an operator reads to check
-// coverage has to name it.
-func TestDoctorReportsAntigravitysAccountWideHook(t *testing.T) {
-	if len(agentTargets["antigravity"].accountFiles) == 0 {
-		t.Fatal("the IDE has no account-wide files, so nothing refuses its file " +
-			"tools outside an enrolled tree")
-	}
-	// A home the agent is in: an empty one is reported as an agent nobody runs
-	// here, which is a different finding and true of every target.
-	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".config/Antigravity"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	var report DoctorReport
-	reportAgentRules(&report, home, nil)
-
-	got := finding(t, report, "antigravity")
-	// Absent from a home nothing was installed into, which is a missing file
-	// rather than an agent that can have none.
-	if got.Status == StatusNA {
-		t.Errorf("doctor still reports it as an agent that can have no rules: %s",
-			got.Detail)
-	}
-	if !strings.Contains(got.Detail, "hooks.json") {
-		t.Errorf("doctor does not name the file its refusals are written into: %s",
-			got.Detail)
-	}
-	if strings.Contains(got.Detail, "extension") {
-		t.Errorf("doctor says an extension carries Antigravity's rules: %s", got.Detail)
 	}
 }
 
@@ -257,16 +225,16 @@ func TestTheDirectoriesTheInstructionsNeedAreSharedAtEveryLevel(t *testing.T) {
 	tree := t.TempDir()
 	run := &project{
 		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
-		uid:     keep,
-		gid:     keep,
-		targets: []*agentTarget{agentTargets["antigravity"]},
+		uid:     hostfs.Keep,
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["antigravity"]},
 	}
 
 	if err := run.instructions(); err != nil {
 		t.Fatal(err)
 	}
 
-	rules := agentTargets["antigravity"].treeInstructions.path
+	rules := agentcfg.Targets["antigravity"].TreeInstructions.Path
 	for dir := filepath.Dir(rules); dir != "."; dir = filepath.Dir(dir) {
 		info, err := os.Stat(filepath.Join(tree, dir))
 		if err != nil {
@@ -289,8 +257,8 @@ func TestTheDirectoriesTheInstructionsNeedAreSharedAtEveryLevel(t *testing.T) {
 func TestTheAntigravityWarningIsRepeatedOnEveryEnrolment(t *testing.T) {
 	tree := t.TempDir()
 	opts := ProjectOptions{Dir: tree, ConfigDir: t.TempDir()}
-	first := &project{opts: opts, uid: keep, gid: keep,
-		targets: []*agentTarget{agentTargets["antigravity"]}}
+	first := &project{opts: opts, uid: hostfs.Keep, gid: hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["antigravity"]}}
 	if err := first.agentConfig(); err != nil {
 		t.Fatal(err)
 	}
@@ -299,8 +267,8 @@ func TestTheAntigravityWarningIsRepeatedOnEveryEnrolment(t *testing.T) {
 	}
 
 	// The same tree again, with nothing left to write.
-	second := &project{opts: opts, uid: keep, gid: keep,
-		targets: []*agentTarget{agentTargets["antigravity"]}}
+	second := &project{opts: opts, uid: hostfs.Keep, gid: hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["antigravity"]}}
 	if err := second.agentConfig(); err != nil {
 		t.Fatal(err)
 	}
@@ -323,9 +291,9 @@ func TestTheInstructionsStepReportsWhatItWroteBeforeFailing(t *testing.T) {
 	}
 	run := &project{
 		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
-		uid:     keep,
-		gid:     keep,
-		targets: []*agentTarget{agentTargets["antigravity"]},
+		uid:     hostfs.Keep,
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["antigravity"]},
 	}
 
 	err := run.instructions()
@@ -399,10 +367,10 @@ func testNoDirectoryThroughALink(t *testing.T, tree, at, link, made string,
 	t.Helper()
 	run := &project{
 		opts: ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
-		uid:  keep,
-		gid:  keep,
-		targets: []*agentTarget{
-			agentTargets["antigravity"], agentTargets["opencode"],
+		uid:  hostfs.Keep,
+		gid:  hostfs.Keep,
+		targets: []*agentcfg.Target{
+			agentcfg.Targets["antigravity"], agentcfg.Targets["opencode"],
 		},
 	}
 
@@ -421,7 +389,7 @@ func testNoDirectoryThroughALink(t *testing.T, tree, at, link, made string,
 	if err := write(run); err == nil {
 		t.Error("the step created through a link")
 	}
-	if exists(filepath.Join(at, made)) {
+	if hostfs.Exists(filepath.Join(at, made)) {
 		t.Errorf("%s was created through the link", filepath.Join(at, made))
 	}
 }
@@ -430,17 +398,17 @@ func testNoDirectoryThroughALink(t *testing.T, tree, at, link, made string,
 // report claiming the Bash trade was taken would be naming a cost this agent
 // does not pay.
 func TestAnAgentWithNoHookTakesNothingAway(t *testing.T) {
-	target := agentTargets["antigravity"]
-	if target.autoApprovesBash {
+	target := agentcfg.Targets["antigravity"]
+	if target.AutoApprovesBash {
 		t.Error("antigravity claims to auto-approve Bash, having no hook that could")
 	}
 	// What it writes account-wide is a hook, not a permission rule: its lists are
 	// the IDE's own state, and an install that wrote one would be writing a file
 	// the agent does not read.
-	for _, file := range target.accountFiles {
-		if !strings.HasSuffix(file.path, "hooks.json") {
+	for _, file := range target.AccountFiles {
+		if !strings.HasSuffix(file.Path, "hooks.json") {
 			t.Errorf("antigravity writes %s account-wide, which is not a file it "+
-				"reads: its permission lists are the IDE's own state", file.path)
+				"reads: its permission lists are the IDE's own state", file.Path)
 		}
 	}
 }

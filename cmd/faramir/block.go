@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/guard"
 	"github.com/andornaut/faramir/internal/install"
@@ -382,7 +383,7 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 	// whatever it would do with it, there being no install for it to manage. A
 	// row that left the field off reported the strictest rules this host has as
 	// the loosest kind of entry.
-	for _, dir := range install.InstalledDirs(configDir) {
+	for _, dir := range agentcfg.InstalledDirs(configDir) {
 		rows = append(rows, blockRow{
 			Source: sourceBuiltIn, Kind: kindPath, Entry: dir, Strict: true,
 			Detail: strictDetail("this install's own, and everything under it", true),

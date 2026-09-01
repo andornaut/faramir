@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // What an uninstall must not take with it. Each is something the command's own
@@ -15,12 +17,12 @@ import (
 // was kept.
 func preservedPaths() []string {
 	return []string{
-		DefaultConfigDir,
-		DefaultConfigDir + "/age.key",
-		DefaultConfigDir + "/secrets",
-		DefaultConfigDir + "/config.toml",
-		DefaultLogDir,
-		DefaultLogDir + "/audit.log",
+		hostlayout.DefaultConfigDir,
+		hostlayout.DefaultConfigDir + "/age.key",
+		hostlayout.DefaultConfigDir + "/secrets",
+		hostlayout.DefaultConfigDir + "/config.toml",
+		hostlayout.DefaultLogDir,
+		hostlayout.DefaultLogDir + "/audit.log",
 	}
 }
 
@@ -55,7 +57,7 @@ func TestUninstallLeavesTheConfigDirectory(t *testing.T) {
 // one to watch: a fixed path under the config directory reads as a file of
 // faramir's own and removes the secret store.
 func TestTheConfigDirectoryGuardCatchesADirectoryForm(t *testing.T) {
-	for _, path := range []string{DefaultConfigDir, DefaultConfigDir + "/", "/etc"} {
+	for _, path := range []string{hostlayout.DefaultConfigDir, hostlayout.DefaultConfigDir + "/", "/etc"} {
 		caught := false
 		for _, preserved := range preservedPaths() {
 			if takes(strings.TrimSuffix(path, "/"), preserved) {
@@ -76,7 +78,7 @@ func TestTheConfigDirectoryGuardCatchesADirectoryForm(t *testing.T) {
 // reason it lives there: a file this install renders for its own use needs no
 // removal entry of its own.
 func TestUninstallRemovesTheSudoEnvironmentFile(t *testing.T) {
-	sudoEnv := Layout{ConfigDir: DefaultConfigDir, LibexecDir: DefaultLibexecDir}.SudoEnvFile()
+	sudoEnv := hostlayout.Layout{ConfigDir: hostlayout.DefaultConfigDir, LibexecDir: hostlayout.DefaultLibexecDir}.SudoEnvFile()
 	if slices.ContainsFunc(removed(), func(path string) bool { return takes(path, sudoEnv) }) {
 		return
 	}

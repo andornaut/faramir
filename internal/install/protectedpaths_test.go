@@ -1,117 +1,14 @@
 package install
 
 import (
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
-
-// What the list no longer carries, and so what a host nobody declares anything
-// on can read. Asserted rather than left implicit: these were built in, the
-// removal was deliberate, and a rule creeping back would otherwise be invisible
-// until a fleet found itself covered twice.
-var relocated = []string{
-	"/home/op/.ssh/id_rsa",
-	"/home/op/.ssh/id_ed25519",
-	"/srv/tls/server.key",
-	"/srv/tls/chain.pem",
-	"/home/op/.aws/credentials",
-	"/srv/app/.env",
-	"/srv/app/secrets.yml",
-	"/srv/group_vars/all.vault",
-	"/srv/vault.yml",
-	// A sops file outside this install's own store, which is ciphertext and is
-	// covered where it matters by the literal store path.
-	"/srv/ansible/group_vars/db.sops.yml",
-	// An age identity of the operator's own. faramir mints one key, in its own
-	// directory, and never learns where a second lives.
-	"/home/op/age.key",
-	"/home/op/.config/sops/age/keys.txt",
-}
-
-// A credential faramir neither writes nor reads is the operator's to declare,
-// so nothing is compiled in and a bare install does not block it.
-func TestTheRelocatedRulesAreGone(t *testing.T) {
-	reads := func(layout Layout, path string) bool {
-		for _, rule := range commandRules(layout) {
-			if regexp.MustCompile("(?i)" + rule).MatchString("cat " + path) {
-				return true
-			}
-		}
-		return false
-	}
-
-	bare := Layout{}
-	for _, path := range relocated {
-		if reads(bare, path) {
-			t.Errorf("%s is refused by a built-in rule, which was relocated", path)
-		}
-	}
-
-	// And they are refusable by declaring them, which is where they went. A path
-	// covers the hierarchy under it, so the directory answers for every key in
-	// it rather than for the names somebody thought to list.
-	declared := Layout{ConfigDir: "/etc/faramir", Blocked: []config.BlockedPath{
-		{Path: "/home/op/.ssh"},
-		{Path: "/srv/tls"},
-		{Path: "/srv/app/.env"},
-	}}
-	for _, path := range []string{
-		"/home/op/.ssh/id_rsa",
-		// The name no list would have carried, which is the case a path covers
-		// and an enumeration of file names does not.
-		"/home/op/.ssh/identity",
-		"/srv/tls/chain.pem",
-		"/srv/app/.env",
-	} {
-		if !reads(declared, path) {
-			t.Errorf("%s is not refused by the entry that declares it", path)
-		}
-	}
-}
-
-// Nothing about this install is compiled into the rules: every path it writes
-// is rendered as a literal out of the layout, so a host that moved one is
-// refused where the file actually is rather than where the default would have
-// put it. An install that took --config-dir is the case this covers, and the
-// defaults are asserted absent as well as the literals present: a rule holding
-// both refuses the right path and somebody else's at the same time.
-func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
-	// Every directory moved off its default, so a rule carrying a default is a
-	// rule that was compiled in rather than rendered.
-	layout := Layout{
-		ConfigDir:  "/opt/faramir",
-		LogDir:     "/srv/log/faramir",
-		LibexecDir: "/opt/faramir/libexec",
-	}
-	rules := claudeRules(layout)
-	for _, want := range []string{
-		"Read(/opt/faramir/**)",         // the age key, the SSH key, config.toml
-		"Read(/opt/faramir/secrets/**)", // the managed sops files
-		"Read(/srv/log/faramir/**)",     // the audit log
-		"Read(/opt/faramir/libexec/**)", // wrap.sh and the guard
-	} {
-		if !slices.Contains(rules, want) {
-			t.Errorf("the rules do not carry %q", want)
-		}
-	}
-	// And not the defaults beside them: a rule naming where the file would have
-	// been refuses a path on somebody else's host and leaves this one open.
-	for _, unwanted := range []string{
-		"Read(" + DefaultConfigDir + "/**)",
-		"Read(" + DefaultLogDir + "/**)",
-		"Read(" + DefaultLibexecDir + "/**)",
-	} {
-		if slices.Contains(rules, unwanted) {
-			t.Errorf("the rules carry %q, which this layout moved", unwanted)
-		}
-	}
-}
 
 // The point of the exercise: one list, and every agent that has a rule file
 // for it rendering the same paths. Each rendering is checked
@@ -128,7 +25,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 		"agent/claude/settings.json",
 		"agent/permissions.json.tmpl",
 	} {
-		body, err := renderAccount(asset, layout)
+		body, err := agentcfg.RenderAccount(asset, layout)
 		if err != nil {
 			t.Fatalf("%s: %v", asset, err)
 		}
@@ -138,7 +35,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	// instead, which reads the same list rendered into the pattern file it
 	// matches against. Their coverage is that file's, so it is checked here with
 	// the rest rather than being taken on trust.
-	patterns, err := RenderDenyPatterns(layout)
+	patterns, err := agentcfg.RenderDenyPatterns(layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +50,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 		// backslashes come out before the search: what is being asserted is that
 		// the path is in there at all, not how it had to be written.
 		flat := strings.ReplaceAll(r.body, `\`, "")
-		for _, dir := range installDirs(layout) {
+		for _, dir := range agentcfg.Dirs(layout) {
 			if !strings.Contains(flat, dir) {
 				t.Errorf("%s does not refuse %s", r.asset, dir)
 			}
@@ -165,7 +62,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 // can still destroy, and an age key replaced is every managed file unreadable
 // retroactively, so a list that covers one and not the other is half a rule.
 func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
-	body, err := renderAccount("agent/claude/settings.json", testLayout())
+	body, err := agentcfg.RenderAccount("agent/claude/settings.json", testLayout())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,8 +96,8 @@ func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 func TestBothPluginHostsGetTheSameRules(t *testing.T) {
 	assets := map[string][]string{}
 	for _, name := range []string{"opencode", "kilocode"} {
-		for _, file := range agentTargets[name].accountFiles {
-			assets[name] = append(assets[name], file.asset)
+		for _, file := range agentcfg.Targets[name].AccountFiles {
+			assets[name] = append(assets[name], file.Asset)
 		}
 	}
 	if len(assets["opencode"]) == 0 {
@@ -216,13 +113,13 @@ func TestBothPluginHostsGetTheSameRules(t *testing.T) {
 // Layout is built field by field and a caller filling only what it needs is the
 // ordinary way to reach one, so the partial layouts below are the cases.
 func TestInstallDirsAreNeverEmpty(t *testing.T) {
-	for _, layout := range []Layout{
+	for _, layout := range []hostlayout.Layout{
 		{},
 		{ConfigDir: "/opt/conf"},
 		{LogDir: "/var/log/x"},
 		testLayout(),
 	} {
-		dirs := installDirs(layout)
+		dirs := agentcfg.Dirs(layout)
 		if len(dirs) == 0 {
 			t.Errorf("installDirs(%+v) yielded nothing, so every rule built from it "+
 				"covers no path and the tests over it assert nothing", layout)
@@ -250,19 +147,19 @@ func TestInitWritesTheDenyRulesIntoTheHome(t *testing.T) {
 		{"kilocode", ".config/kilo/kilo.json", `"/etc/faramir/*": "deny"`},
 	} {
 		t.Run(tc.agent, func(t *testing.T) {
-			target := agentTargets[tc.agent]
-			var file agentFile
+			target := agentcfg.Targets[tc.agent]
+			var file agentcfg.File
 			// In a home: the rules an agent enforces itself are account-wide, so
 			// they hold in every directory rather than an enrolled one.
-			for _, candidate := range target.accountFiles {
-				if candidate.path == tc.file {
+			for _, candidate := range target.AccountFiles {
+				if candidate.Path == tc.file {
 					file = candidate
 				}
 			}
-			if file.path == "" {
+			if file.Path == "" {
 				t.Fatalf("%s writes no %s", tc.agent, tc.file)
 			}
-			body, err := assetFor(target, file, "/etc/faramir")
+			body, err := agentcfg.AssetFor(target, file, "/etc/faramir")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -280,42 +177,6 @@ func TestInitWritesTheDenyRulesIntoTheHome(t *testing.T) {
 	}
 }
 
-// The rules an enrolment writes are the rules doctor re-renders to compare
-// against. Both go through ruleLayout, so a tree that was just enrolled is not
-// reported as drifted.
-func TestWhatAnEnrolmentWritesIsWhatDoctorCompares(t *testing.T) {
-	dir := t.TempDir()
-	tree := filepath.Join(dir, "project")
-	if err := os.MkdirAll(filepath.Join(tree, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	target := agentTargets["claude"]
-	file := target.files[0]
-	body, err := assetFor(target, file, "/etc/faramir")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Through the merge, as writeAgentFiles writes it: the first write is
-	// byte-for-byte what a second would produce, and the asset as authored is
-	// not.
-	merged, err := mergeJSON(nil, body, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(tree, file.path)
-	if err := os.WriteFile(path, merged, 0o640); err != nil {
-		t.Fatal(err)
-	}
-	carries, err := carriesWhatWeWrite(target, file, path, "/etc/faramir")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !carries {
-		t.Error("a file written by an enrolment reads as drifted to the check that " +
-			"compares it, so doctor would report every enrolled tree")
-	}
-}
-
 // A caller that knows where the config is and not what the accounts are called
 // still has to be told the daemons' own homes are faramir's. init-project and
 // doctor both build a Layout out of the config directory alone, and with these
@@ -323,11 +184,11 @@ func TestWhatAnEnrolmentWritesIsWhatDoctorCompares(t *testing.T) {
 // home goes to the operator at 2770, and the walk regroups the .ssh inside it
 // from 0700 to the client group.
 func TestInstallDirsNamesTheDaemonHomesWithoutBeingToldTheAccounts(t *testing.T) {
-	dirs := installDirs(Layout{ConfigDir: "/etc/faramir"})
+	dirs := agentcfg.Dirs(hostlayout.Layout{ConfigDir: "/etc/faramir"})
 	for _, want := range []string{
-		"/var/lib/" + DefaultBrokerUser,
-		"/var/lib/" + DefaultKeeperUser,
-		"/var/lib/" + DefaultExecUser,
+		"/var/lib/" + hostlayout.DefaultBrokerUser,
+		"/var/lib/" + hostlayout.DefaultKeeperUser,
+		"/var/lib/" + hostlayout.DefaultExecUser,
 	} {
 		if !slices.Contains(dirs, want) {
 			t.Errorf("installDirs does not name %s: %v", want, dirs)
@@ -335,7 +196,7 @@ func TestInstallDirsNamesTheDaemonHomesWithoutBeingToldTheAccounts(t *testing.T)
 	}
 	// And a name it was given still wins, or renaming an account would protect
 	// the directory the install stopped using and not the one it moved to.
-	named := installDirs(Layout{ConfigDir: "/etc/faramir", ExecUser: "faramir-runner"})
+	named := agentcfg.Dirs(hostlayout.Layout{ConfigDir: "/etc/faramir", ExecUser: "faramir-runner"})
 	if !slices.Contains(named, "/var/lib/faramir-runner") {
 		t.Errorf("installDirs ignores a named exec account: %v", named)
 	}

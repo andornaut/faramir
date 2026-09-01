@@ -25,7 +25,12 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostsudo"
 	"github.com/andornaut/faramir/internal/protocol"
+	"github.com/andornaut/faramir/internal/runcmd"
 )
 
 // stepSudoGrant writes or removes the grant: a sudoers entry and the PAM
@@ -47,17 +52,17 @@ func (r *runner) stepSudoGrant() error {
 		if r.layout.SudoRs {
 			stack = "a faramir block in " + r.layout.SudoPamFile()
 		}
-		r.step("sudo grant", !exists(sudoersFile), "would grant "+r.layout.ExecUser+
+		r.step("sudo grant", !hostfs.Exists(hostlayout.SudoersFile), "would grant "+r.layout.ExecUser+
 			" sudo, authenticated by "+stack)
 		return nil
 	}
-	if !exists(sudoersDir) || !exists(pamDir) {
+	if !hostfs.Exists(hostlayout.SudoersDir) || !hostfs.Exists(hostlayout.PamDir) {
 		// A host with no sudo, or no PAM. Reported rather than failed: the rest of
 		// the install works.
 		r.warnf("%s or %s does not exist, so no grant was written and brokered "+
 			"commands cannot sudo here. Install sudo, then re-run this install",
-			sudoersDir, pamDir)
-		r.skip("sudo grant", "no "+sudoersDir+" or "+pamDir)
+			hostlayout.SudoersDir, hostlayout.PamDir)
+		r.skip("sudo grant", "no "+hostlayout.SudoersDir+" or "+hostlayout.PamDir)
 		return nil
 	}
 
@@ -80,12 +85,12 @@ func (r *runner) stepSudoGrant() error {
 		return err
 	}
 
-	body, err := render("etc/sudoers.tmpl", r.layout)
+	body, err := agentcfg.Render("etc/sudoers.tmpl", r.layout)
 	if err != nil {
 		return err
 	}
 	// 0440 root:root, which is what sudo requires of a file in sudoers.d.
-	granted, err := r.fs.writeFile(sudoersFile, body, 0o440, 0, 0)
+	granted, err := r.fs.WriteFile(hostlayout.SudoersFile, body, 0o440, 0, 0)
 	if err != nil {
 		return err
 	}
@@ -109,7 +114,7 @@ func (r *runner) stepSudoGrant() error {
 	if r.layout.SudoRs {
 		branchChanged, err = r.writeSudoPamBlock()
 	} else {
-		branchChanged, err = removeSudoPamBlock(r.fs)
+		branchChanged, err = hostsudo.RemoveBlock(r.fs)
 	}
 	if err != nil {
 		return err
@@ -117,7 +122,7 @@ func (r *runner) stepSudoGrant() error {
 	// The account authenticates through the broker and never with a password, so
 	// a usable hash would be a second way in that the broker is not asked about.
 	// Re-asserted every run.
-	if _, err := command("usermod", "-L", r.layout.ExecUser); err != nil {
+	if _, err := runcmd.Output("usermod", "-L", r.layout.ExecUser); err != nil {
 		r.warnf("could not lock %s's password (%v); it authenticates through the "+
 			"broker and should hold no password of its own: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
@@ -150,31 +155,31 @@ func (r *runner) stepSudoGrant() error {
 // switched, and misleading to anyone who finds it.
 func (r *runner) syncPamService() (bool, error) {
 	if r.layout.SudoRs {
-		if !exists(r.layout.PamFile()) {
+		if !hostfs.Exists(r.layout.PamFile()) {
 			return false, nil
 		}
 		return true, os.Remove(r.layout.PamFile())
 	}
-	pam, err := render("etc/pam.d.tmpl", r.layout)
+	pam, err := agentcfg.Render("etc/pam.d.tmpl", r.layout)
 	if err != nil {
 		return false, err
 	}
 	// 0644 root:root, as every file in /etc/pam.d is: an account that could write
 	// it would be choosing how it authenticates.
-	return r.fs.writeFile(r.layout.PamFile(), pam, 0o644, 0, 0)
+	return r.fs.WriteFile(r.layout.PamFile(), pam, 0o644, 0, 0)
 }
 
 // revokeSudoGrant is what an install without --allow-sudo does: it removes what
 // an install with it wrote, and leaves the account locked.
 func (r *runner) revokeSudoGrant() error {
 	stale := []string{
-		sudoersFile,
-		pamServiceFile,
+		hostlayout.SudoersFile,
+		hostlayout.PamServiceFile,
 		r.layout.SudoEnvFile(),
 	}
 	found := false
 	for _, path := range stale {
-		if exists(path) {
+		if hostfs.Exists(path) {
 			found = true
 		}
 	}
@@ -186,41 +191,41 @@ func (r *runner) revokeSudoGrant() error {
 	// reaches this, which is most of them, and none of them should fail over a
 	// /etc/pam.d this run cannot read. Treated as nothing to remove, and the
 	// removal below says so if there was.
-	branched, _ := sudoPamBlockPresent()
+	branched, _ := hostsudo.BlockPresent()
 	if !found && !branched {
 		// Never enabled, which is every default install: nothing to report.
 		return nil
 	}
 	if r.opts.DryRun {
-		r.step("sudo grant", true, "would revoke "+sudoersFile+
+		r.step("sudo grant", true, "would revoke "+hostlayout.SudoersFile+
 			": --allow-sudo was not passed, and this host has the grant")
 		return nil
 	}
 	for _, path := range stale {
-		if !exists(path) {
+		if !hostfs.Exists(path) {
 			continue
 		}
 		if err := os.Remove(path); err != nil {
 			return err
 		}
 	}
-	if _, err := removeSudoPamBlock(r.fs); err != nil {
+	if _, err := hostsudo.RemoveBlock(r.fs); err != nil {
 		// Reported rather than fatal, and named: the grant's own files are gone by
 		// now, so nothing can sudo either way, but a branch left in a shared stack
 		// is a line pointing at a helper this run deleted.
 		r.warnf("the faramir block could not be taken out of a shared PAM stack "+
 			"(%v). The grant is gone, so nothing can escalate, but remove the lines "+
-			"between %q and %q by hand", err, pamBlockBegin, pamBlockEnd)
+			"between %q and %q by hand", err, hostsudo.PamBlockBegin, hostsudo.PamBlockEnd)
 	}
 	// Locking rather than clearing: an account with an empty password field is one
 	// some PAM stacks let in without asking.
-	if _, err := command("usermod", "-L", r.layout.ExecUser); err != nil {
+	if _, err := runcmd.Output("usermod", "-L", r.layout.ExecUser); err != nil {
 		r.warnf("could not lock %s's password (%v); the grant is gone, so nothing "+
 			"can sudo, but lock it by hand: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
 	r.restartFor("sudo grant")
-	r.step("sudo grant", true, "revoked: "+sudoersFile+" and the PAM service "+
+	r.step("sudo grant", true, "revoked: "+hostlayout.SudoersFile+" and the PAM service "+
 		"removed, because --allow-sudo was not passed")
 	return nil
 }
@@ -235,14 +240,14 @@ func (r *runner) validateSudoers() error {
 		// operator input in it, so the risk this covers is a sudo too old for a
 		// directive rather than a typo.
 		r.warnf("visudo is not installed, so %s went unchecked; verify it with "+
-			"`visudo -cf %s` on a host that has it", sudoersFile, sudoersFile)
+			"`visudo -cf %s` on a host that has it", hostlayout.SudoersFile, hostlayout.SudoersFile)
 		return nil //nolint:nilerr // no visudo is a warning, not a failed install
 	}
-	if out, err := exec.CommandContext(context.Background(), path, "-cf", sudoersFile).
+	if out, err := exec.CommandContext(context.Background(), path, "-cf", hostlayout.SudoersFile).
 		CombinedOutput(); err != nil {
-		removeErr := os.Remove(sudoersFile)
+		removeErr := os.Remove(hostlayout.SudoersFile)
 		return fmt.Errorf("visudo rejected %s, so it was removed again (%w): %w: %s",
-			sudoersFile, removeErr, err, strings.TrimSpace(string(out)))
+			hostlayout.SudoersFile, removeErr, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -256,7 +261,7 @@ func (r *runner) validateSudoers() error {
 // so one is refused rather than written -- the operator is told, and the rest of
 // the file is still correct.
 func (r *runner) writeSudoEnv() (bool, error) {
-	body, err := render("etc/sudo-env.tmpl", r.sudoEnv())
+	body, err := agentcfg.Render("etc/sudo-env.tmpl", r.sudoEnv())
 	if err != nil {
 		return false, err
 	}
@@ -264,7 +269,7 @@ func (r *runner) writeSudoEnv() (bool, error) {
 	// install has already created by now. Nothing here makes a directory faramir
 	// does not own outright, which is how a path it merely shares ends up deleted
 	// by an uninstall that thinks it owns it.
-	return r.fs.writeFile(r.layout.SudoEnvFile(), body, 0o644, 0, 0)
+	return r.fs.WriteFile(r.layout.SudoEnvFile(), body, 0o644, 0, 0)
 }
 
 // sudoSetsItself is the reserved names sudo fills in on its own: PATH from
@@ -277,7 +282,7 @@ var sudoSetsItself = map[string]bool{"PATH": true, "HOME": true}
 // root. Split out so the filter is what a test exercises: it is the only thing
 // standing between that setting and root's environment, sudoers reading this
 // file without env_keep or env_check.
-func (r *runner) sudoEnv() Layout {
+func (r *runner) sudoEnv() hostlayout.Layout {
 	safe := map[string]string{}
 	for name, value := range r.layout.CommandEnv {
 		// The name first, and against what an environment variable may be called

@@ -6,16 +6,16 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/doctor"
 )
 
 // The report is read by someone looking for the one line that is not "ok".
 
 func TestARepeatedCheckIsNamedOnce(t *testing.T) {
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
-		{Name: "sockets", Status: install.StatusOK, Detail: "keeper is listening"},
-		{Name: "sockets", Status: install.StatusOK, Detail: "broker is listening"},
+	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+		{Name: "sockets", Status: doctor.StatusOK, Detail: "keeper is listening"},
+		{Name: "sockets", Status: doctor.StatusOK, Detail: "broker is listening"},
 	}})
 	if got := strings.Count(out.String(), "sockets"); got != 1 {
 		t.Errorf("named the check %d times, want 1:\n%s", got, out.String())
@@ -28,11 +28,11 @@ func TestARepeatedCheckIsNamedOnce(t *testing.T) {
 
 func TestTheCountsAreReported(t *testing.T) {
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
-		{Name: "a", Status: install.StatusOK},
-		{Name: "b", Status: install.StatusOK},
-		{Name: "c", Status: install.StatusWarn},
-		{Name: "d", Status: install.StatusFailed},
+	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+		{Name: "a", Status: doctor.StatusOK},
+		{Name: "b", Status: doctor.StatusOK},
+		{Name: "c", Status: doctor.StatusWarn},
+		{Name: "d", Status: doctor.StatusFailed},
 	}})
 	if !strings.Contains(out.String(), "2 ok, 1 warn, 1 failed") {
 		t.Errorf("no summary:\n%s", out.String())
@@ -43,10 +43,10 @@ func TestTheCountsAreReported(t *testing.T) {
 // passed a check it never had, which is the reason the status exists.
 func TestNotApplicableIsCountedApartFromAPass(t *testing.T) {
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
-		{Name: "sudo credential", Status: install.StatusOK},
-		{Name: "sudo grant", Status: install.StatusNA},
-		{Name: "ptrace scope", Status: install.StatusNA},
+	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+		{Name: "sudo credential", Status: doctor.StatusOK},
+		{Name: "sudo grant", Status: doctor.StatusNA},
+		{Name: "ptrace scope", Status: doctor.StatusNA},
 	}})
 	if !strings.Contains(out.String(), "1 ok, 2 n/a") {
 		t.Errorf("no summary telling the two apart:\n%s", out.String())
@@ -61,11 +61,11 @@ func TestNotApplicableAlignsWithEveryOtherStatus(t *testing.T) {
 		t.Setenv("LC_CTYPE", "")
 		t.Setenv("LANG", "")
 		var out bytes.Buffer
-		printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
-			{Name: "x", Status: install.StatusOK, Detail: "detail"},
-			{Name: "x", Status: install.StatusNA, Detail: "detail"},
-			{Name: "x", Status: install.StatusWarn, Detail: "detail"},
-			{Name: "x", Status: install.StatusFailed, Detail: "detail"},
+		printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+			{Name: "x", Status: doctor.StatusOK, Detail: "detail"},
+			{Name: "x", Status: doctor.StatusNA, Detail: "detail"},
+			{Name: "x", Status: doctor.StatusWarn, Detail: "detail"},
+			{Name: "x", Status: doctor.StatusFailed, Detail: "detail"},
 		}})
 		// Counted in columns rather than bytes: the glyphs are not all one byte
 		// wide, and it is the screen the detail lines up on.
@@ -89,8 +89,8 @@ func TestALongDetailWrapsUnderItself(t *testing.T) {
 	t.Setenv("COLUMNS", "60")
 	t.Setenv("LC_ALL", "C.UTF-8")
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
-		{Name: "broker", Status: install.StatusWarn, Detail: strings.Repeat("word ", 40)},
+	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+		{Name: "broker", Status: doctor.StatusWarn, Detail: strings.Repeat("word ", 40)},
 	}})
 	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if width := utf8.RuneCountInString(line); width > 60 {
@@ -119,9 +119,9 @@ func TestAnOverlongWordIsNotSplit(t *testing.T) {
 func TestTheStatusCarriesAGlyphAndTheWord(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
-		{Name: "config", Status: install.StatusOK},
-		{Name: "age key", Status: install.StatusFailed},
+	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+		{Name: "config", Status: doctor.StatusOK},
+		{Name: "age key", Status: doctor.StatusFailed},
 	}})
 	for _, want := range []string{"\u2713 ok", "\u2717 failed"} {
 		if !strings.Contains(out.String(), want) {
@@ -136,9 +136,9 @@ func TestWithoutAUnicodeLocaleTheWordStandsAlone(t *testing.T) {
 	t.Setenv("LC_CTYPE", "")
 	t.Setenv("LANG", "")
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
-		{Name: "config", Status: install.StatusOK, Detail: "/etc/faramir/config.toml"},
-		{Name: "age key", Status: install.StatusFailed, Detail: "readable by operator"},
+	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+		{Name: "config", Status: doctor.StatusOK, Detail: "/etc/faramir/config.toml"},
+		{Name: "age key", Status: doctor.StatusFailed, Detail: "readable by operator"},
 	}})
 	if strings.ContainsAny(out.String(), "\u2713\u2717") {
 		t.Errorf("printed a glyph under a non-UTF-8 locale:\n%s", out.String())

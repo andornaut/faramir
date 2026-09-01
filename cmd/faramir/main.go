@@ -28,7 +28,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/fserr"
-	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/hostunit"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/secretref"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -122,7 +122,7 @@ func operatorName(refused map[string]bool, flagValue string) string {
 // A parameter rather than read inside the resolver, so what a run refuses is
 // visible at the call site and a test can name accounts this host does not have.
 func notTheOperator(alsoRefused ...string) map[string]bool {
-	accounts := install.InstalledAccounts()
+	accounts := hostunit.InstalledAccounts()
 	refused := make(map[string]bool, len(accounts)+len(alsoRefused)+1)
 	// Whatever the units say, and root at every install.
 	refused["root"] = true

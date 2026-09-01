@@ -7,176 +7,10 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostfs"
 )
-
-// section is the credentials section as instructions() writes it into a tree.
-func section(t *testing.T) string {
-	t.Helper()
-	body, err := credentialsSection(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return body
-}
-
-// The four placements, and what each one licenses. The markers are what makes
-// a block replaceable: what is between them is faramir's whatever it now says,
-// and everything outside them is somebody else's.
-func TestWhereTheSectionGoes(t *testing.T) {
-	body := section(t)
-	wrapped := sectionBlock(body)
-	// An unmarked older copy is found by the shipped section's own heading, so
-	// the cases that turn on one derive it rather than spelling it out.
-	heading, _, _ := strings.Cut(body, "\n")
-	for _, tc := range []struct {
-		name    string
-		current string
-		want    sectionPlacement
-	}{
-		{"an empty file", "", placeAppend},
-		{"no sign of faramir", "# Project\n\nSome notes.\n", placeAppend},
-		{
-			// Naming the tool is not carrying a section: what delimits one is the
-			// markers, so this file gets a block appended like any other.
-			"prose that merely mentions the tool",
-			"# Project\n\nWe use faramir on this host.\n",
-			placeAppend,
-		},
-		{"a delimited block", "# Project\n\n" + wrapped + "\n", placeReplace},
-		{
-			// Not word for word what is written now, and replaced regardless.
-			"a delimited block that says something else",
-			sectionBegin + "\n# Credentials\n\nWhatever the last version said.\n" + sectionEnd + "\n",
-			placeReplace,
-		},
-		{"the section with its markers stripped", "# Project\n\n" + body, placeWrap},
-		{"the section and nothing else, unmarked", body, placeWrap},
-		{
-			// The wrap matches the text exactly, so a copy reworded past that is
-			// one it cannot delimit. Appending would leave two sets of
-			// credentials instructions contradicting each other.
-			"an unmarked section in words that are not these",
-			"# Project\n\n" + heading + "\n\nRun things with faramir run, or so we used to.\n",
-			placeStale,
-		},
-		// Both signs are needed to call a file stale: a heading of somebody's own
-		// is not this section, and merely naming the tool is the case the markers
-		// exist to unblock.
-		{"the heading with no mention of the tool", "# Project\n\n" + heading + "\n\nMy own keys.\n", placeAppend},
-		{"a begin with no end", sectionBegin + "\n" + body, placeRefuse},
-		{"an end with no begin", body + sectionEnd + "\n", placeRefuse},
-		{"the markers inverted", sectionEnd + "\n" + body + sectionBegin + "\n", placeRefuse},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, _, _ := placeSection([]byte(tc.current), body)
-			if got != tc.want {
-				t.Errorf("placeSection = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-// A block already written is replaced by what is written now, which is what the
-// markers are for: an updated snippet reaches a tree that was enrolled against
-// an older one.
-func TestAnUpdatedSectionReplacesTheOldOne(t *testing.T) {
-	body := section(t)
-	stale := "# Project\n\n" + sectionBegin + "\n# Credentials\n\nOld words.\n" + sectionEnd + "\n"
-
-	place, start, end := placeSection([]byte(stale), body)
-	out := string(writeSection([]byte(stale), body, place, start, end))
-
-	if strings.Contains(out, "Old words.") {
-		t.Errorf("the stale block survived:\n%s", out)
-	}
-	if !strings.Contains(out, body) {
-		t.Errorf("the current section was not written:\n%s", out)
-	}
-	if !strings.HasPrefix(out, "# Project\n\n") {
-		t.Errorf("the project's own text was disturbed:\n%s", out)
-	}
-}
-
-// Writing over a block twice yields the same bytes, so a tree that is already
-// current reports no change.
-func TestWritingTheSectionIsIdempotent(t *testing.T) {
-	body := section(t)
-	once := writeInstructions(t, []byte("# My project\n\nSome rules.\n"), body)
-	twice := writeInstructions(t, once, body)
-
-	if string(once) != string(twice) {
-		t.Errorf("a second write changed the file:\n%s\n---\n%s", once, twice)
-	}
-	if n := strings.Count(string(twice), sectionBegin); n != 1 {
-		t.Errorf("the file carries %d begin markers, want 1:\n%s", n, twice)
-	}
-}
-
-// A section with no markers around it is wrapped where it stands, whether it
-// was written before there were markers or had them stripped by something
-// tidying the file. Appending would leave the tree with two of them.
-func TestAnUnmarkedSectionIsWrappedInPlace(t *testing.T) {
-	body := section(t)
-	before := []byte("# My project\n\n" + body + "\n## After\n\nMore notes.\n")
-
-	out := string(writeInstructions(t, before, body))
-
-	heading, _, _ := strings.Cut(body, "\n")
-	if n := strings.Count(out, heading); n != 1 {
-		t.Errorf("%q appears %d times, want 1:\n%s", heading, n, out)
-	}
-	if !strings.Contains(out, sectionBegin) || !strings.Contains(out, sectionEnd) {
-		t.Errorf("the section was not wrapped:\n%s", out)
-	}
-	if !strings.Contains(out, "## After\n\nMore notes.\n") {
-		t.Errorf("what followed the section was lost:\n%s", out)
-	}
-}
-
-// Appending keeps what is there and adds the block below it.
-func TestTheSectionIsAppendedAndTheFileKept(t *testing.T) {
-	body := section(t)
-	out := string(writeInstructions(t, []byte("# My project\n\nSome rules.\n"), body))
-
-	if !strings.HasPrefix(out, "# My project\n\nSome rules.\n") {
-		t.Errorf("the project's own text was disturbed:\n%s", out)
-	}
-	if !strings.Contains(out, body) {
-		t.Errorf("the section was not added:\n%s", out)
-	}
-}
-
-// An empty file gets the block and no leading blank line.
-func TestAnEmptyFileGetsTheSectionAlone(t *testing.T) {
-	body := section(t)
-	want := sectionBlock(body) + "\n"
-	for _, current := range []string{"", "\n\n"} {
-		if got := string(writeInstructions(t, []byte(current), body)); got != want {
-			t.Errorf("a file of %q got %q, want %q", current, got, want)
-		}
-	}
-}
-
-// Changing the shipped snippet must not give an already-enrolled tree a second
-// section. The wording changes; the heading is what an older copy is found by,
-// so a change that drops it silently turns every such file into a duplicate.
-func TestARewordedSectionIsNeverAppendedBesideTheOldOne(t *testing.T) {
-	body := section(t)
-	heading, _, ok := strings.Cut(body, "\n")
-	if !ok || !strings.HasPrefix(heading, "#") {
-		t.Fatalf("the section does not open with a heading (%q), which is what an "+
-			"older copy of it is recognised by", heading)
-	}
-	// What an earlier snippet left behind: this heading, this tool, other words.
-	older := "# My project\n\n" + heading + "\n\nWhatever the last version said about " +
-		"faramir run.\n"
-
-	place, _, _ := placeSection([]byte(older), body)
-	if place != placeStale {
-		t.Errorf("placeSection = %v, want %v: an older section would be left in "+
-			"place beside a new one", place, placeStale)
-	}
-}
 
 // A symlinked instructions file is followed and the section written into what
 // it points at. A dotfiles manager keeps such a file as a link into a
@@ -184,7 +18,7 @@ func TestARewordedSectionIsNeverAppendedBesideTheOldOne(t *testing.T) {
 // the link was and the repository's copy stale and no longer read.
 func TestASymlinkedHomeFileIsWrittenThroughToItsTarget(t *testing.T) {
 	home := t.TempDir()
-	path := filepath.Join(home, agentTargets["claude"].homeInstructions)
+	path := filepath.Join(home, agentcfg.Targets["claude"].HomeInstructions)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +45,7 @@ func TestASymlinkedHomeFileIsWrittenThroughToItsTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), sectionBegin) {
+	if !strings.Contains(string(body), agentcfg.SectionBegin) {
 		t.Errorf("the file the link points at did not get the section:\n%s", body)
 	}
 	if !strings.HasPrefix(string(body), "# My rules\n") {
@@ -242,12 +76,12 @@ func TestALinkToAFileTheOperatorDoesNotOwnIsRefused(t *testing.T) {
 	}
 
 	// An operator that is not this file's owner, which is what the check asks.
-	_, err := (fsys{}).sectionFile(path, section(t), "", os.Getuid()+1, keep, "")
+	_, err := agentcfg.SectionFile(hostfs.FS{}, path, section(t), "", os.Getuid()+1, hostfs.Keep, "")
 
-	if !errors.Is(err, errNotOperators) {
+	if !errors.Is(err, hostfs.ErrNotOperators) {
 		t.Fatalf("err = %v, want the link refused", err)
 	}
-	if !outOfDate(err) {
+	if !agentcfg.OutOfDate(err) {
 		t.Error("a link this will not follow does not fail the run")
 	}
 	if body, readErr := os.ReadFile(target); readErr != nil {
@@ -268,52 +102,13 @@ func TestADanglingLinkIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := (fsys{}).sectionFile(path, section(t), "", keep, keep, "")
+	_, err := agentcfg.SectionFile(hostfs.FS{}, path, section(t), "", hostfs.Keep, hostfs.Keep, "")
 
-	if !errors.Is(err, errNotOperators) {
+	if !errors.Is(err, hostfs.ErrNotOperators) {
 		t.Fatalf("err = %v, want the link refused", err)
 	}
-	if exists(target) {
+	if hostfs.Exists(target) {
 		t.Error("the dangling link was created through")
-	}
-}
-
-// faramir owns the block between the markers, not the file it sits in, and the
-// block is documentation rather than something enforcement rests on. So an
-// instructions file that is already there keeps the mode it has, and only one
-// this creates is given one.
-func TestAnExistingInstructionsFileKeepsItsMode(t *testing.T) {
-	dir := t.TempDir()
-	body := section(t)
-
-	kept := filepath.Join(dir, "AGENTS.md")
-	const theirs = os.FileMode(0o644)
-	if err := os.WriteFile(kept, []byte("# My project\n"), theirs); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := (fsys{}).sectionFile(kept, body, "", keep, keep, ""); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(kept)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != theirs {
-		t.Errorf("mode = %04o, want the %04o it already had: faramir owns the "+
-			"section, not the file", got, theirs)
-	}
-
-	// A file this creates has no mode of its own to keep.
-	made := filepath.Join(dir, "CLAUDE.md")
-	if _, err := (fsys{}).sectionFile(made, body, "", keep, keep, ""); err != nil {
-		t.Fatal(err)
-	}
-	info, err = os.Stat(made)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != instructionsMode {
-		t.Errorf("a created file got mode %04o, want %04o", got, os.FileMode(instructionsMode))
 	}
 }
 
@@ -330,7 +125,7 @@ func TestADryRunSurvivesAnUnreadableInstructionsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	changed, err := fsys{dryRun: true}.sectionFile(path, section(t), "", keep, keep, "")
+	changed, err := agentcfg.SectionFile(hostfs.FS{DryRun: true}, path, section(t), "", hostfs.Keep, hostfs.Keep, "")
 	if err != nil {
 		t.Fatalf("a dry run stopped on a file it cannot read: %v", err)
 	}
@@ -339,29 +134,19 @@ func TestADryRunSurvivesAnUnreadableInstructionsFile(t *testing.T) {
 	}
 }
 
-// writeInstructions is instructions()'s file handling without the filesystem.
-func writeInstructions(t *testing.T, current []byte, body string) []byte {
-	t.Helper()
-	place, start, end := placeSection(current, body)
-	if place == placeRefuse {
-		t.Fatalf("placeSection refused:\n%s", current)
-	}
-	return writeSection(current, body, place, start, end)
-}
-
 // What an agent is told about waiting for an escalation only holds where one can
 // be raised. On any other host it describes a refusal that never happens, and
 // instructions an agent cannot act on are instructions it learns to skim.
 func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
 	const marker = "escalation_in_progress"
-	granted, err := credentialsSection(true)
+	granted, err := agentcfg.CredentialsSection(true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(granted, marker) {
 		t.Errorf("a host with a sudo grant is not told about %s:\n%s", marker, granted)
 	}
-	withheld, err := credentialsSection(false)
+	withheld, err := agentcfg.CredentialsSection(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +156,7 @@ func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
 	// The home says how to raise one, which holds for the same hosts and no
 	// others: the grant is the host's rather than any tree's.
 	const homeMarker = "Never background it"
-	grantedHome, err := homeSection(true)
+	grantedHome, err := agentcfg.HomeSection(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +164,7 @@ func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
 		t.Errorf("a home on a host with a sudo grant is not told %q:\n%s",
 			homeMarker, grantedHome)
 	}
-	withheldHome, err := homeSection(false)
+	withheldHome, err := agentcfg.HomeSection(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -408,8 +193,8 @@ func initHomeErr(t *testing.T, home string, agents ...string) (*runner, error) {
 	run := &runner{
 		opts:         Options{Agents: agents},
 		layout:       testLayout(),
-		operatorUID:  keep,
-		operatorGID:  keep,
+		operatorUID:  hostfs.Keep,
+		operatorGID:  hostfs.Keep,
 		operatorHome: home,
 	}
 	if err := run.refuseUnwritableAgentFiles(); err != nil {
@@ -424,22 +209,22 @@ func initHomeErr(t *testing.T, home string, agents ...string) (*runner, error) {
 func TestInitWritesTheSectionIntoEveryAgentsHomeFile(t *testing.T) {
 	home := t.TempDir()
 
-	initHome(t, home, knownAgents()...)
+	initHome(t, home, agentcfg.Known()...)
 
-	for _, name := range knownAgents() {
-		target := agentTargets[name]
-		if target.homeInstructions == "" {
+	for _, name := range agentcfg.Known() {
+		target := agentcfg.Targets[name]
+		if target.HomeInstructions == "" {
 			t.Errorf("%s names no home instructions file, so it is told nothing", name)
 			continue
 		}
-		body, err := os.ReadFile(filepath.Join(home, target.homeInstructions))
+		body, err := os.ReadFile(filepath.Join(home, target.HomeInstructions))
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 			continue
 		}
-		for _, want := range []string{sectionBegin, sectionEnd, "Never route around a refusal"} {
+		for _, want := range []string{agentcfg.SectionBegin, agentcfg.SectionEnd, "Never route around a refusal"} {
 			if !strings.Contains(string(body), want) {
-				t.Errorf("%s: %s does not carry %q", name, target.homeInstructions, want)
+				t.Errorf("%s: %s does not carry %q", name, target.HomeInstructions, want)
 			}
 		}
 	}
@@ -449,12 +234,12 @@ func TestInitWritesTheSectionIntoEveryAgentsHomeFile(t *testing.T) {
 // it must not do is disturb anything outside the markers.
 func TestInitKeepsTheOperatorsOwnProseInTheirHomeFile(t *testing.T) {
 	home := t.TempDir()
-	path := filepath.Join(home, agentTargets["claude"].homeInstructions)
+	path := filepath.Join(home, agentcfg.Targets["claude"].HomeInstructions)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	before := "# My rules\n\nAlways run the tests.\n\n" +
-		sectionBegin + "\n# Credentials\n\nWhat an older run wrote.\n" + sectionEnd +
+		agentcfg.SectionBegin + "\n# Credentials\n\nWhat an older run wrote.\n" + agentcfg.SectionEnd +
 		"\n\n## After\n\nAnd this.\n"
 	if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
 		t.Fatal(err)
@@ -475,7 +260,7 @@ func TestInitKeepsTheOperatorsOwnProseInTheirHomeFile(t *testing.T) {
 	if strings.Contains(got, "What an older run wrote.") {
 		t.Errorf("the stale block survived:\n%s", got)
 	}
-	if n := strings.Count(got, sectionBegin); n != 1 {
+	if n := strings.Count(got, agentcfg.SectionBegin); n != 1 {
 		t.Errorf("the file carries %d begin markers, want 1:\n%s", n, got)
 	}
 }
@@ -486,11 +271,11 @@ func TestInitKeepsTheOperatorsOwnProseInTheirHomeFile(t *testing.T) {
 // is, where the block stops not being readable off it.
 func TestInitFailsOnAHomeFileItCannotBringUpToDate(t *testing.T) {
 	home := t.TempDir()
-	path := filepath.Join(home, agentTargets["claude"].homeInstructions)
+	path := filepath.Join(home, agentcfg.Targets["claude"].HomeInstructions)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	before := "# My rules\n\n" + sectionBegin + "\n# Credentials\n\nHalf a block.\n"
+	before := "# My rules\n\n" + agentcfg.SectionBegin + "\n# Credentials\n\nHalf a block.\n"
 	if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -513,13 +298,13 @@ func TestInitFailsOnAHomeFileItCannotBringUpToDate(t *testing.T) {
 		t.Errorf("the file was rewritten:\n%s", body)
 	}
 	// The rules are the enforcement and land regardless of the prose.
-	if !exists(filepath.Join(home, ".claude", "settings.json")) {
+	if !hostfs.Exists(filepath.Join(home, ".claude", "settings.json")) {
 		t.Error("the deny rules were not written")
 	}
 	// And the run does not stop at the first one: every other agent's section is
 	// brought up to date, and the failure names them all at the end.
-	other := filepath.Join(home, agentTargets["opencode"].homeInstructions)
-	if !exists(other) {
+	other := filepath.Join(home, agentcfg.Targets["opencode"].HomeInstructions)
+	if !hostfs.Exists(other) {
 		t.Error("opencode's section was skipped because claude's file was broken")
 	}
 	// What was written is still reported, so a failure is not a blank report.
@@ -539,11 +324,11 @@ func TestInitFailsOnAHomeFileItCannotBringUpToDate(t *testing.T) {
 func TestInitProjectFailsOnAnInstructionsFileItCannotBringUpToDate(t *testing.T) {
 	tree := t.TempDir()
 	path := filepath.Join(tree, "AGENTS.md")
-	before := "# Project\n\n" + sectionEnd + "\n"
+	before := "# Project\n\n" + agentcfg.SectionEnd + "\n"
 	if err := os.WriteFile(path, []byte(before), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	run := &project{opts: ProjectOptions{Dir: tree}, uid: keep, gid: keep}
+	run := &project{opts: ProjectOptions{Dir: tree}, uid: hostfs.Keep, gid: hostfs.Keep}
 
 	err := run.instructions()
 
@@ -564,8 +349,8 @@ func TestInitProjectFailsOnAnInstructionsFileItCannotBringUpToDate(t *testing.T)
 // where nothing loads it. Checked here because it is not visible at runtime:
 // the file is written, and the agent never says anything different.
 func TestEveryHomeInstructionsPathIsRelativeToTheHome(t *testing.T) {
-	for _, name := range knownAgents() {
-		path := agentTargets[name].homeInstructions
+	for _, name := range agentcfg.Known() {
+		path := agentcfg.Targets[name].HomeInstructions
 		if path == "" {
 			t.Errorf("%s names no home instructions file", name)
 			continue
@@ -588,16 +373,16 @@ func TestEveryHomeInstructionsPathIsRelativeToTheHome(t *testing.T) {
 func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
 	const everywhere = "wherever you are working"
 	seen := map[bool]int{}
-	for _, name := range knownAgents() {
-		target := agentTargets[name]
-		body, err := homeSection(true)
+	for _, name := range agentcfg.Known() {
+		target := agentcfg.Targets[name]
+		body, err := agentcfg.HomeSection(true)
 		if err != nil {
 			t.Fatal(err)
 		}
 		// Whitespace-normalised, the prose being wrapped: a phrase that spans a
 		// line break is still the phrase, and rewrapping must not fail this.
 		flat := strings.Join(strings.Fields(body), " ")
-		hasRules := len(target.accountFiles) > 0
+		hasRules := len(target.AccountFiles) > 0
 		seen[hasRules]++
 		switch claims := strings.Contains(flat, everywhere); {
 		case hasRules && !claims:
@@ -623,43 +408,10 @@ func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
 	}
 }
 
-// The rules both sections state are one asset rendered into each, so a home and
-// a tree cannot come to state the same policy in two ways that do not quite
-// agree. An agent in an enrolled tree reads both at once.
-func TestBothSectionsStateTheSharedRulesIdentically(t *testing.T) {
-	shared, err := credentialRules()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Substantial, or containing it proves nothing: an empty string is in
-	// everything.
-	if lines := strings.Count(shared, "\n"); lines < 8 {
-		t.Fatalf("the shared rules are %d lines, which is too little to be the "+
-			"policy both sections rest on:\n%s", lines, shared)
-	}
-	project, err := credentialsSection(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(project, shared) {
-		t.Errorf("the tree's section does not carry the shared rules verbatim:\n%s", project)
-	}
-	for _, name := range knownAgents() {
-		home, err := homeSection(true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(home, shared) {
-			t.Errorf("%s's home section does not carry the shared rules verbatim:\n%s",
-				name, home)
-		}
-	}
-}
-
 // Each section still says what only it can, so neither is a copy of the other
 // and neither depends on the other being there.
 func TestEachSectionSaysWhatOnlyItCan(t *testing.T) {
-	project, err := credentialsSection(false)
+	project, err := agentcfg.CredentialsSection(false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -670,7 +422,7 @@ func TestEachSectionSaysWhatOnlyItCan(t *testing.T) {
 			t.Errorf("the tree's section does not say %q", want)
 		}
 	}
-	home, err := homeSection(true)
+	home, err := agentcfg.HomeSection(true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,14 +461,14 @@ func TestAgentSettingsNotOwnedByTheOperatorFailTheRun(t *testing.T) {
 	if err := os.WriteFile(path, []byte(before), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
-	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
+	render := func(agentcfg.File) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentcfg.File{{Path: ".claude/settings.json", Mode: 0o640, Merge: true}}
 
 	// An operator that is not this file's owner, which is what the check asks.
-	_, _, err := writeAgentFiles(
-		fsys{}, nil, home, "", os.Getuid()+1, keep, 0o700, false, render, files)
+	_, _, err := agentcfg.WriteFiles(
+		hostfs.FS{}, nil, home, "", os.Getuid()+1, hostfs.Keep, 0o700, false, render, files)
 
-	if !errors.Is(err, errNotOperators) {
+	if !errors.Is(err, hostfs.ErrNotOperators) {
 		t.Fatalf("err = %v, want the file refused", err)
 	}
 	if !strings.Contains(err.Error(), path) {
@@ -745,11 +497,11 @@ func TestSymlinkedAgentSettingsAreWrittenThroughToTheirTarget(t *testing.T) {
 	if err := os.Symlink(target, path); err != nil {
 		t.Fatal(err)
 	}
-	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
-	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
+	render := func(agentcfg.File) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentcfg.File{{Path: ".claude/settings.json", Mode: 0o640, Merge: true}}
 
-	if _, _, err := writeAgentFiles(
-		fsys{}, nil, home, "", os.Getuid(), keep, 0o700, false, render, files); err != nil {
+	if _, _, err := agentcfg.WriteFiles(
+		hostfs.FS{}, nil, home, "", os.Getuid(), hostfs.Keep, 0o700, false, render, files); err != nil {
 		t.Fatal(err)
 	}
 
@@ -789,8 +541,8 @@ func TestTheGroupIsAssertedOnlyWhereItIsLoadBearing(t *testing.T) {
 	if other < 0 {
 		t.Skip("this account has no second group to tell the two apart")
 	}
-	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
-	files := []agentFile{{path: "settings.json", mode: 0o640, merge: true}}
+	render := func(agentcfg.File) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentcfg.File{{Path: "settings.json", Mode: 0o640, Merge: true}}
 
 	for _, tc := range []struct {
 		name         string
@@ -810,7 +562,7 @@ func TestTheGroupIsAssertedOnlyWhereItIsLoadBearing(t *testing.T) {
 				t.Skipf("cannot move the file into %d: %v", other, err)
 			}
 
-			if _, _, err := writeAgentFiles(fsys{}, nil, root, "", os.Getuid(), os.Getgid(),
+			if _, _, err := agentcfg.WriteFiles(hostfs.FS{}, nil, root, "", os.Getuid(), os.Getgid(),
 				0o700, tc.groupMatters, render, files); err != nil {
 				t.Fatal(err)
 			}
@@ -848,8 +600,8 @@ func TestInitWritesEveryOtherAgentBeforeFailingOnOne(t *testing.T) {
 	run := &runner{
 		opts:         Options{Agents: []string{"claude", "opencode"}},
 		layout:       testLayout(),
-		operatorUID:  keep,
-		operatorGID:  keep,
+		operatorUID:  hostfs.Keep,
+		operatorGID:  hostfs.Keep,
 		operatorHome: home,
 	}
 
@@ -859,7 +611,7 @@ func TestInitWritesEveryOtherAgentBeforeFailingOnOne(t *testing.T) {
 	// Asked again at the step, which is where the collecting is: preconditions
 	// stop a run before anything is written, and this asserts what the step does
 	// when it is reached anyway.
-	run.agentTargets, _ = resolveAgents(run.opts.Agents, scopeHome, run.operatorHome, "")
+	run.agentTargets, _ = agentcfg.Resolve(run.opts.Agents, agentcfg.ScopeHome, run.operatorHome, "")
 	err := run.stepAgentConfig()
 
 	if err == nil {
@@ -869,7 +621,7 @@ func TestInitWritesEveryOtherAgentBeforeFailingOnOne(t *testing.T) {
 		t.Errorf("the error does not name the file: %v", err)
 	}
 	// Claude's rules landed, and the step says so.
-	if !exists(filepath.Join(home, ".claude", "settings.json")) {
+	if !hostfs.Exists(filepath.Join(home, ".claude", "settings.json")) {
 		t.Error("claude's rules were skipped because opencode's file was refused")
 	}
 	var reported bool
@@ -884,8 +636,8 @@ func TestInitWritesEveryOtherAgentBeforeFailingOnOne(t *testing.T) {
 	// And every agent still got its credentials section, opencode's rule file
 	// being a separate question from opencode's prose.
 	for _, name := range []string{"claude", "opencode"} {
-		path := filepath.Join(home, agentTargets[name].homeInstructions)
-		if !exists(path) {
+		path := filepath.Join(home, agentcfg.Targets[name].HomeInstructions)
+		if !hostfs.Exists(path) {
 			t.Errorf("%s got no credentials section", name)
 		}
 	}
@@ -949,7 +701,7 @@ func TestRefusingOneFileTwiceAllowsTheSamePathTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	refused := refuseUnwritable(fsys{}, home, os.Getuid(), "", []string{rel, rel})
+	refused := agentcfg.RefuseUnwritable(hostfs.FS{}, home, os.Getuid(), "", []string{rel, rel})
 
 	if len(refused) > 0 {
 		t.Errorf("one path named twice was refused as two files: %v", refused)
@@ -967,8 +719,8 @@ func TestALinkOutOfAnEnrolledTreeIsRefused(t *testing.T) {
 	if err := os.WriteFile(target, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
-	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
+	render := func(agentcfg.File) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentcfg.File{{Path: ".claude/settings.json", Mode: 0o640, Merge: true}}
 
 	for _, tc := range []struct {
 		name   string
@@ -991,11 +743,11 @@ func TestALinkOutOfAnEnrolledTreeIsRefused(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, _, err := writeAgentFiles(fsys{}, nil, root, "", os.Getuid(), os.Getgid(),
+			_, _, err := agentcfg.WriteFiles(hostfs.FS{}, nil, root, "", os.Getuid(), os.Getgid(),
 				0o700, tc.inTree, render, files)
 
 			if tc.refuse {
-				if !errors.Is(err, errNotOperators) {
+				if !errors.Is(err, hostfs.ErrNotOperators) {
 					t.Fatalf("err = %v, want the link out of the tree refused", err)
 				}
 				info, statErr := os.Stat(target)
@@ -1015,150 +767,6 @@ func TestALinkOutOfAnEnrolledTreeIsRefused(t *testing.T) {
 	}
 }
 
-// A plain file is pinned the same way a followed link is. The check and the
-// write are two operations, and a path checked and then written by path is
-// resolved twice: the directories these sit in are the operator's, and in an
-// enrolled tree the client group's, so either can replace one in between.
-func TestAPlainEditedFileIsPinnedToo(t *testing.T) {
-	home := t.TempDir()
-	realDir := filepath.Join(home, "agent")
-	if err := os.MkdirAll(realDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(realDir, "settings.json")
-	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	spot, err := (fsys{}).editedFile(path, os.Getuid(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer spot.close()
-	if spot.root == nil {
-		t.Fatal("a plain file left no pinned directory, so the write resolves the " +
-			"path a second time")
-	}
-
-	decoy := filepath.Join(home, "decoy")
-	if err := os.MkdirAll(decoy, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(realDir, filepath.Join(home, "moved")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(decoy, realDir); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := (fsys{}).writeEdited(spot, []byte(`{"a":1}`+"\n"), 0o600, keep, keep); err != nil {
-		t.Fatal(err)
-	}
-
-	if exists(filepath.Join(decoy, "settings.json")) {
-		t.Error("the write followed the swapped directory")
-	}
-	body, err := os.ReadFile(filepath.Join(home, "moved", "settings.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != `{"a":1}`+"\n" {
-		t.Errorf("the write did not land in the directory that was checked:\n%s", body)
-	}
-}
-
-// A followed link is written through a descriptor opened on the target's
-// directory, so the path is resolved once. What that buys, asserted the only
-// way it can be from here: the directory the write goes into is the one that
-// was checked, so replacing it afterwards reaches nothing this run does.
-func TestAFollowedLinkIsWrittenThroughAPinnedDirectory(t *testing.T) {
-	home := t.TempDir()
-	path := filepath.Join(home, "AGENTS.md")
-	realDir := filepath.Join(home, "dotfiles")
-	if err := os.MkdirAll(realDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	target := filepath.Join(realDir, "AGENTS.md")
-	if err := os.WriteFile(target, []byte("# Mine\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(target, path); err != nil {
-		t.Fatal(err)
-	}
-
-	spot, err := (fsys{}).editedFile(path, os.Getuid(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer spot.close()
-	if spot.root == nil {
-		t.Fatal("a followed link left no pinned directory, so the write resolves " +
-			"the path a second time")
-	}
-
-	// The directory is swapped after the check, as an agent owning it could.
-	// The descriptor still names the old one, so that is where the write lands.
-	decoy := filepath.Join(home, "decoy")
-	if err := os.MkdirAll(decoy, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(realDir, filepath.Join(home, "moved")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(decoy, realDir); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := (fsys{}).writeEdited(spot, []byte("# Written\n"), 0o600, keep, keep); err != nil {
-		t.Fatal(err)
-	}
-
-	if exists(filepath.Join(decoy, "AGENTS.md")) {
-		t.Error("the write followed the swapped directory")
-	}
-	body, err := os.ReadFile(filepath.Join(home, "moved", "AGENTS.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != "# Written\n" {
-		t.Errorf("the write did not land in the directory that was checked:\n%s", body)
-	}
-}
-
-// And it keeps the temp-and-rename, so a run that dies partway leaves the file
-// it found rather than half of a new one.
-func TestAFollowedLinkKeepsTheTempAndRename(t *testing.T) {
-	home := t.TempDir()
-	path := filepath.Join(home, "AGENTS.md")
-	target := filepath.Join(home, "real.md")
-	if err := os.WriteFile(target, []byte("# Mine\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(target, path); err != nil {
-		t.Fatal(err)
-	}
-	spot, err := (fsys{}).editedFile(path, os.Getuid(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer spot.close()
-
-	// A temp already sitting there is an error rather than something to
-	// truncate: it is not this run's file, and the target is untouched.
-	planted := target + ".faramir-tmp"
-	if err := os.WriteFile(planted, []byte("theirs\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := (fsys{}).writeEdited(spot, []byte("# Written\n"), 0o600, keep, keep); err == nil {
-		t.Error("a planted temp file was written over")
-	}
-	if body, readErr := os.ReadFile(target); readErr != nil {
-		t.Fatal(readErr)
-	} else if string(body) != "# Mine\n" {
-		t.Errorf("the target was changed by a write that failed:\n%s", body)
-	}
-}
-
 // The bound is on the directory, not the file: Lstat declines to follow only
 // the last component, so a symlinked parent would carry the write out of the
 // tree before the leaf is looked at. Blocked at the directory, which is the
@@ -1169,15 +777,15 @@ func TestASymlinkedParentCannotCarryTheWriteOutOfTheTree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(outside, "settings.json"), []byte(before), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
-	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
+	render := func(agentcfg.File) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentcfg.File{{Path: ".claude/settings.json", Mode: 0o640, Merge: true}}
 
 	tree := t.TempDir()
 	if err := os.Symlink(outside, filepath.Join(tree, ".claude")); err != nil {
 		t.Fatal(err)
 	}
 
-	_, _, err := writeAgentFiles(fsys{}, nil, tree, "", os.Getuid(), os.Getgid(),
+	_, _, err := agentcfg.WriteFiles(hostfs.FS{}, nil, tree, "", os.Getuid(), os.Getgid(),
 		0o2770|os.ModeSetgid, true, render, files)
 
 	if err == nil {
@@ -1204,16 +812,16 @@ func TestASymlinkedParentCannotCarryACreationOutOfTheTree(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(tree, ".claude")); err != nil {
 		t.Fatal(err)
 	}
-	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
-	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
+	render := func(agentcfg.File) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentcfg.File{{Path: ".claude/settings.json", Mode: 0o640, Merge: true}}
 
-	_, _, err := writeAgentFiles(fsys{}, nil, tree, "", os.Getuid(), os.Getgid(),
+	_, _, err := agentcfg.WriteFiles(hostfs.FS{}, nil, tree, "", os.Getuid(), os.Getgid(),
 		0o2770|os.ModeSetgid, true, render, files)
 
 	if err == nil {
 		t.Fatal("a creation through a symlinked parent was accepted")
 	}
-	if exists(filepath.Join(outside, "settings.json")) {
+	if hostfs.Exists(filepath.Join(outside, "settings.json")) {
 		t.Error("a file was created outside the tree being enrolled")
 	}
 }
@@ -1229,10 +837,10 @@ func TestASymlinkedParentIsFollowedInAHome(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(home, ".claude")); err != nil {
 		t.Fatal(err)
 	}
-	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
-	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
+	render := func(agentcfg.File) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentcfg.File{{Path: ".claude/settings.json", Mode: 0o640, Merge: true}}
 
-	if _, _, err := writeAgentFiles(fsys{}, nil, home, "", os.Getuid(), os.Getgid(),
+	if _, _, err := agentcfg.WriteFiles(hostfs.FS{}, nil, home, "", os.Getuid(), os.Getgid(),
 		0o700, false, render, files); err != nil {
 		t.Fatal(err)
 	}
@@ -1257,9 +865,9 @@ func TestAnEnrolmentWritesClaudeCodeItsOwnFileBesideTheTreesAgentsFile(t *testin
 	}
 	run := &project{
 		opts:    ProjectOptions{Dir: tree},
-		uid:     keep,
-		gid:     keep,
-		targets: []*agentTarget{agentTargets["claude"]},
+		uid:     hostfs.Keep,
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["claude"]},
 	}
 
 	if err := run.instructions(); err != nil {
@@ -1271,7 +879,7 @@ func TestAnEnrolmentWritesClaudeCodeItsOwnFileBesideTheTreesAgentsFile(t *testin
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if !strings.Contains(string(body), sectionBegin) {
+		if !strings.Contains(string(body), agentcfg.SectionBegin) {
 			t.Errorf("%s carries no credentials section:\n%s", name, body)
 		}
 	}
@@ -1294,8 +902,8 @@ func TestALinkedClaudeFileIsOneFileWrittenOnce(t *testing.T) {
 	run := &project{
 		opts:    ProjectOptions{Dir: tree},
 		uid:     os.Getuid(),
-		gid:     keep,
-		targets: []*agentTarget{agentTargets["claude"]},
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["claude"]},
 	}
 
 	// Asked before the write, and the write itself: the pair has to pass both.
@@ -1310,7 +918,7 @@ func TestALinkedClaudeFileIsOneFileWrittenOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Count(string(body), sectionBegin); got != 1 {
+	if got := strings.Count(string(body), agentcfg.SectionBegin); got != 1 {
 		t.Errorf("the file carries %d credentials sections, want 1:\n%s", got, body)
 	}
 	info, err := os.Lstat(link)

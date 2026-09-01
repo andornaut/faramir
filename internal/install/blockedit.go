@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 )
 
@@ -28,7 +29,7 @@ import (
 // and the agent rule files rendered from it. No grant, so no step for one.
 //
 // Named for the entry rather than for the verb. In this package refuseX aborts
-// a run because of X (refuseSymlinks, refuseUnwritable), so a name built the
+// a run because of X (refuseSymlinks, agentcfg.RefuseUnwritable), so a name built the
 // same way would read as the opposite of what this is.
 func (r *runner) BlockedSteps() []namedStep {
 	return []namedStep{
@@ -130,7 +131,7 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 // on its own. A directory under a tree is left alone, that being the ordinary
 // entry: `--path ~/proj/.env` is what this is for.
 func refuseEnrolledTrees(configDir string, paths []string) error {
-	trees := readEnrolled(configDir)
+	trees := agentcfg.ReadEnrolled(configDir)
 	if len(trees) == 0 {
 		return nil
 	}
@@ -316,7 +317,7 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 			if entry.Blocks() == "" {
 				continue
 			}
-			if dir, ok := InstalledDirCovering(configDir, entry.Path); ok {
+			if dir, ok := agentcfg.InstalledDirCovering(configDir, entry.Path); ok {
 				report.Warnings = append(report.Warnings, fmt.Sprintf(
 					"%s is still blocked: it is under %s, which this install occupies and "+
 						"renders a rule for on every run. What was removed is this install's "+
@@ -367,7 +368,7 @@ func BuiltInRuleError(configDir string, refused config.BlockedPath) error {
 // ~/.ssh/id_rsa" is answered by what renders that rule, which may be a
 // directory this install occupies rather than anything the config declares.
 func builtInRuleError(configDir string, refused config.BlockedPath) error {
-	dir, ok := InstalledDirCovering(configDir, refused.Path)
+	dir, ok := agentcfg.InstalledDirCovering(configDir, refused.Path)
 	if !ok {
 		return nil
 	}

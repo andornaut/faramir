@@ -22,10 +22,12 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/runcmd"
 )
 
 // serviceAccount is one of the three uids and where its state lives.
@@ -64,9 +66,9 @@ func (r *runner) stepAccounts() error {
 	// groupadd allocates in without -r. The secrets group is not created here:
 	// it defaults to the keeper's primary group, which useradd creates below, and
 	// shadow refuses to create an account whose group name is taken.
-	if !groupExists(r.layout.ClientGroup) {
+	if !hostfs.GroupExists(r.layout.ClientGroup) {
 		if !r.opts.DryRun {
-			if _, err := command("groupadd", r.layout.ClientGroup); err != nil {
+			if _, err := runcmd.Output("groupadd", r.layout.ClientGroup); err != nil {
 				return err
 			}
 		}
@@ -81,9 +83,9 @@ func (r *runner) stepAccounts() error {
 	}
 	// A secrets group named with --secrets-group, or a keeper whose primary group
 	// was not named after it. -r puts it in the system range below GID_MIN.
-	if !groupExists(r.layout.SecretsGroup) {
+	if !hostfs.GroupExists(r.layout.SecretsGroup) {
 		if !r.opts.DryRun {
-			if _, err := command("groupadd", "-r", r.layout.SecretsGroup); err != nil {
+			if _, err := runcmd.Output("groupadd", "-r", r.layout.SecretsGroup); err != nil {
 				return err
 			}
 		}
@@ -106,7 +108,7 @@ func (r *runner) stepAccounts() error {
 	// A secrets group allocated without -r sits in the login-account range, where
 	// the next allocation collides with it. Reported rather than moved: groupmod
 	// leaves every file owned by the old gid behind.
-	if gid, err := lookupGroup(r.layout.SecretsGroup); err == nil {
+	if gid, err := hostfs.LookupGroup(r.layout.SecretsGroup); err == nil {
 		if first := firstLoginGID(); gid >= first {
 			r.warnf("group %s has gid %d, in the range login.defs reserves for "+
 				"login accounts; it holds only service accounts and belongs "+
@@ -141,15 +143,15 @@ func (r *runner) stepAccounts() error {
 func (r *runner) ensureInGroup(account, group string) (bool, error) {
 	// A dry run reports the accounts it would create, so the membership one of
 	// them would gain is part of that report rather than a lookup failure.
-	if r.opts.DryRun && !userExists(account) {
+	if r.opts.DryRun && !hostfs.UserExists(account) {
 		return true, nil
 	}
-	in, err := inGroup(account, group)
+	in, err := hostfs.InGroup(account, group)
 	if err != nil || in {
 		return false, err
 	}
 	if !r.opts.DryRun {
-		if _, err := command("usermod", "-aG", group, account); err != nil {
+		if _, err := runcmd.Output("usermod", "-aG", group, account); err != nil {
 			return false, err
 		}
 	}
@@ -159,27 +161,27 @@ func (r *runner) ensureInGroup(account, group string) (bool, error) {
 func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 	changed := false
 	switch {
-	case !userExists(account.name):
+	case !hostfs.UserExists(account.name):
 		argv := []string{"useradd", "-r", "-m", "-d", account.home}
 		if account.clientGroup {
 			argv = append(argv, "-G", r.layout.ClientGroup)
 		}
 		argv = append(argv, "-s", "/usr/sbin/nologin", account.name)
 		if !r.opts.DryRun {
-			if _, err := command(argv[0], argv[1:]...); err != nil {
+			if _, err := runcmd.Output(argv[0], argv[1:]...); err != nil {
 				return false, err
 			}
 		}
 		changed = true
 	default:
 		if account.clientGroup {
-			in, err := inGroup(account.name, r.layout.ClientGroup)
+			in, err := hostfs.InGroup(account.name, r.layout.ClientGroup)
 			if err != nil {
 				return false, err
 			}
 			if !in {
 				if !r.opts.DryRun {
-					if _, err := command("usermod", "-aG", r.layout.ClientGroup, account.name); err != nil {
+					if _, err := runcmd.Output("usermod", "-aG", r.layout.ClientGroup, account.name); err != nil {
 						return false, err
 					}
 				}
@@ -190,30 +192,30 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 		// holds the SSH keys while StateDirectory= names the new one.
 		if current, err := homeDir(account.name); err == nil && current != account.home {
 			if !r.opts.DryRun {
-				if _, err := command("usermod", "-d", account.home, account.name); err != nil {
+				if _, err := runcmd.Output("usermod", "-d", account.home, account.name); err != nil {
 					return false, err
 				}
 			}
 			changed = true
 		}
 	}
-	if r.opts.DryRun && !userExists(account.name) {
+	if r.opts.DryRun && !hostfs.UserExists(account.name) {
 		return changed, nil
 	}
-	uid, gid := keep, keep
-	if id, err := lookupUser(account.name); err == nil {
+	uid, gid := hostfs.Keep, hostfs.Keep
+	if id, err := hostfs.LookupUser(account.name); err == nil {
 		uid = id
 	}
 	// The account's primary group, not a group that happens to share its name:
 	// an adopted account's need not be called after it, and the home and the
 	// .ssh below are chowned to whatever this answers. resolveIDs reads the
 	// same way, and this runs before it.
-	if id, _, err := primaryGroup(account.name); err == nil {
+	if id, _, err := hostfs.PrimaryGroup(account.name); err == nil {
 		gid = id
 	}
 	// Created but not re-asserted: each home is a StateDirectory=, and systemd
 	// applies StateDirectoryMode on every start.
-	made, err := r.fs.ensureDir(account.home, 0o700, uid, gid, false)
+	made, err := r.fs.EnsureDir(account.home, 0o700, uid, gid, false)
 	if err != nil {
 		return false, err
 	}
@@ -221,19 +223,19 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 	if !account.sshDir {
 		return changed, nil
 	}
-	made, err = r.fs.ensureDir(filepath.Join(account.home, ".ssh"), 0o700, uid, gid, true)
+	made, err = r.fs.EnsureDir(filepath.Join(account.home, ".ssh"), 0o700, uid, gid, true)
 	return changed || made, err
 }
 
 func (r *runner) joinOperatorToGroup() (bool, error) {
-	in, err := inGroup(r.opts.AgentUser, r.layout.ClientGroup)
+	in, err := hostfs.InGroup(r.opts.AgentUser, r.layout.ClientGroup)
 	if err != nil || in {
 		return false, err
 	}
 	if r.opts.DryRun {
 		return true, nil
 	}
-	if _, err := command("usermod", "-aG", r.layout.ClientGroup, r.opts.AgentUser); err != nil {
+	if _, err := runcmd.Output("usermod", "-aG", r.layout.ClientGroup, r.opts.AgentUser); err != nil {
 		return false, err
 	}
 	// New group membership does not reach a session that is already open.
@@ -299,7 +301,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		skip("could not read %s (%v)", profile, err)
 		return false, nil
 	}
-	operatorUID, err := lookupUser(r.opts.AgentUser)
+	operatorUID, err := hostfs.LookupUser(r.opts.AgentUser)
 	if err != nil {
 		skip("cannot resolve %s (%v)", r.opts.AgentUser, err)
 		return false, nil
@@ -308,7 +310,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		skip("%s is not a regular file", profile)
 		return false, nil
 	}
-	if wrong, err := wrongOwner(info, operatorUID, keep); err != nil {
+	if wrong, err := hostfs.WrongOwner(info, operatorUID, hostfs.Keep); err != nil {
 		return false, err
 	} else if wrong {
 		skip("%s resolves to a file %s does not own, and appending to it as "+
@@ -337,9 +339,9 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 // writing files owned by them. Under DryRun they may not exist, and ownership
 // is then left alone.
 func (r *runner) resolveIDs() error {
-	r.operatorUID, r.brokerUID, r.keeperUID, r.execUID = keep, keep, keep, keep
-	r.operatorGID, r.brokerGID, r.keeperGID, r.execGID = keep, keep, keep, keep
-	r.secretsGID = keep
+	r.operatorUID, r.brokerUID, r.keeperUID, r.execUID = hostfs.Keep, hostfs.Keep, hostfs.Keep, hostfs.Keep
+	r.operatorGID, r.brokerGID, r.keeperGID, r.execGID = hostfs.Keep, hostfs.Keep, hostfs.Keep, hostfs.Keep
+	r.secretsGID = hostfs.Keep
 	lookups := []struct {
 		name string
 		into *int
@@ -355,9 +357,9 @@ func (r *runner) resolveIDs() error {
 		var id int
 		var err error
 		if lookup.user {
-			id, err = lookupUser(lookup.name)
+			id, err = hostfs.LookupUser(lookup.name)
 		} else {
-			id, err = lookupGroup(lookup.name)
+			id, err = hostfs.LookupGroup(lookup.name)
 		}
 		if err != nil {
 			if r.opts.DryRun {
@@ -380,7 +382,7 @@ func (r *runner) resolveIDs() error {
 		{r.layout.BrokerUser, &r.layout.BrokerGroup, &r.brokerGID},
 		{r.layout.KeeperUser, &r.layout.KeeperGroup, &r.keeperGID},
 	} {
-		if gid, name, err := primaryGroup(account.user); err == nil {
+		if gid, name, err := hostfs.PrimaryGroup(account.user); err == nil {
 			*account.group = name
 			*account.gid = gid
 		} else if !r.opts.DryRun {
@@ -390,7 +392,7 @@ func (r *runner) resolveIDs() error {
 	// The operator's own group, by the same reasoning: a directory created under
 	// their home has to end up grouped to them rather than to the creating
 	// process's group.
-	if gid, _, err := primaryGroup(r.opts.AgentUser); err == nil {
+	if gid, _, err := hostfs.PrimaryGroup(r.opts.AgentUser); err == nil {
 		r.operatorGID = gid
 	} else if !r.opts.DryRun {
 		return err
@@ -440,7 +442,7 @@ func (r *runner) refuseOpenBoundaries() error {
 		if who == "" {
 			continue
 		}
-		if in, err := inGroup(who, r.layout.SecretsGroup); err == nil && in {
+		if in, err := hostfs.InGroup(who, r.layout.SecretsGroup); err == nil && in {
 			add(who, r.layout.SecretsGroup, "so it can read and replace the managed "+
 				"sops files directly, and the secrets directory is only as protected "+
 				"as whatever runs as that account")
@@ -449,7 +451,7 @@ func (r *runner) refuseOpenBoundaries() error {
 	// A command that could read the broker's or the keeper's group holds the
 	// audit log or the age key.
 	for _, forbidden := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
-		if in, err := inGroup(r.layout.ExecUser, forbidden); err == nil && in {
+		if in, err := hostfs.InGroup(r.layout.ExecUser, forbidden); err == nil && in {
 			add(r.layout.ExecUser, forbidden, "which is the boundary between a "+
 				"brokered command and the age key or the audit log")
 		}
@@ -493,23 +495,4 @@ func homeDir(name string) (string, error) {
 		return "", fmt.Errorf("no such user %q: %w", name, err)
 	}
 	return entry.HomeDir, nil
-}
-
-// inGroup reports membership, primary or supplementary.
-func inGroup(name, group string) (bool, error) {
-	entry, err := user.Lookup(name)
-	if err != nil {
-		return false, err
-	}
-	// A group that does not exist is one nobody is in, which is the dry-run
-	// case.
-	target, err := user.LookupGroup(group)
-	if err != nil {
-		return false, nil //nolint:nilerr // an absent group is an answer, not a failure
-	}
-	ids, err := entry.GroupIds()
-	if err != nil {
-		return false, err
-	}
-	return slices.Contains(ids, target.Gid), nil
 }

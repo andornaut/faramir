@@ -1,13 +1,11 @@
 package install
 
 import (
-	"os"
-	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
 )
@@ -29,106 +27,8 @@ func TestADeclaredCommandIsTheWords(t *testing.T) {
 		"a.b c":         head + `a\.b\s+c\b`,
 		"gh auth token": head + `gh\s+auth\s+token\b`,
 	} {
-		if got := BlockedCommandRule(command); got != want {
+		if got := agentcfg.BlockedCommandRule(command); got != want {
 			t.Errorf("%q rendered %q, want %q", command, got, want)
-		}
-	}
-}
-
-// Where a declared command is matched: at a command position, not wherever the
-// words happen to appear. The difference is whether an entry is safe to write
-// at all, or safe only if it is long enough that no flag on any host carries
-// it, which is not a question an operator can answer about a fleet.
-func TestADeclaredCommandIsMatchedAtACommandPosition(t *testing.T) {
-	layout := Layout{ConfigDir: "/etc/faramir", Blocked: []config.BlockedPath{
-		{Command: "op read"}, {Command: "pass"},
-	}}
-	rules := commandRules(layout)
-	for _, tc := range []struct {
-		command string
-		denied  bool
-		why     string
-	}{
-		{"op read op://v/i/f", true, "the command itself"},
-		{"  op read x", true, "after leading whitespace"},
-		{"foo; op read x", true, "after a separator"},
-		{"foo && op read x", true, "after a conditional"},
-		{"foo | op read x", true, "after a pipe"},
-		{"(op read x)", true, "in a subshell"},
-		{"sudo op read x", true, "behind sudo"},
-		{"sudo -u me op read x", true, "behind sudo with a flag that takes an argument"},
-		{"sudo -n op read x", true, "and one that does not"},
-		{"sudo nice op read x", true, "two prefixes deep"},
-		{"env FOO=1 op read x", true, "behind env"},
-		{"FOO=1 op read x", true, "behind a bare assignment"},
-		{"sh -c 'op read x'", true, "inside a shell's command string"},
-		{`bash -lc "op read x"`, true, "whichever shell and quote"},
-		{"pass personal/router", true, "a one-word entry at a command position"},
-		// The same command, spelled with the path the program is at. Without it
-		// the spelling an agent reaches for after meeting the refusal is the one
-		// that is not refused.
-		{"/usr/bin/op read x", true, "named by absolute path"},
-		{"./op read x", true, "named relative to the working directory"},
-		{"sudo /usr/local/bin/op read x", true, "by path behind a prefix"},
-		{"/usr/local/bin/pass personal/router", true, "a one-word entry by path"},
-
-		{"grep -r 'op read' defaults.yml", false, "a search naming it is not running it"},
-		{"echo op read", false, "and nor is echoing it"},
-		{"ansible-playbook --ask-become-pass site.yml", false,
-			"a flag carrying the word: the case a one-word entry could not be written for"},
-		{"vim notes-op-read.md", false, "and a file named after it"},
-		{"opera read", false, "a longer command starting the same way"},
-		{"/usr/bin/opera read", false, "and by path it is still a different program"},
-		{"cat /etc/op read", false, "the words as an argument, path or not"},
-		{"vim /home/me/develop read", false, "a path ending in a word that is not one"},
-		{"cat README.md", false, "ordinary work"},
-	} {
-		t.Run(tc.command, func(t *testing.T) {
-			if denied := matchesAny(t, rules, tc.command); denied != tc.denied {
-				t.Errorf("denied = %v, want %v: %s", denied, tc.denied, tc.why)
-			}
-		})
-	}
-}
-
-// It reaches the command guard and nothing else: a command is not a path, so no
-// agent's file-tool rules can carry one.
-func TestADeclaredCommandReachesTheGuardAlone(t *testing.T) {
-	layout := Layout{
-		ConfigDir: "/etc/faramir",
-		Blocked: []config.BlockedPath{
-			{Command: "op read"},
-			{Command: "sops -d"},
-			{Path: "/srv/certs/server.pem"},
-		},
-	}
-	rules := commandRules(layout)
-	for _, tc := range []struct {
-		command string
-		denied  bool
-		why     string
-	}{
-		{"op read op://vault/item/field", true, "the declared command"},
-		{"sops -d secrets.sops.yml", true, "and the one with a flag in it"},
-		{"sops   -d x.yml", true, "whitespace between the words is any run of it"},
-		{"echo op read", false, "echoing the words is not running the command"},
-		{"opera read", false, "a longer word starting the same way"},
-		{"op readme", false, "and one ending it"},
-		{"sops -e x.yml", false, "a different flag is a different command"},
-		{"cat README.md", false, "ordinary work"},
-	} {
-		t.Run(tc.command, func(t *testing.T) {
-			if denied := matchesAny(t, rules, tc.command); denied != tc.denied {
-				t.Errorf("denied = %v, want %v: %s", denied, tc.denied, tc.why)
-			}
-		})
-	}
-	// The file-tool spellings carry the name and not the commands.
-	for _, rule := range claudeRules(layout) {
-		for _, word := range []string{"op", "sops"} {
-			if rule == "Read(**/"+word+")" {
-				t.Errorf("a command reached Claude Code's rules as %q", rule)
-			}
 		}
 	}
 }
@@ -185,59 +85,6 @@ func TestACommandEntryWarnsAboutItselfRatherThanAnEmptyPath(t *testing.T) {
 	}
 }
 
-// The one check that can see a command entry. The blocked paths check compares
-// against the agents' rule files, where a command never appears, so without
-// this a declared command refused by nothing reads as a converged host: which
-// is what it did while `block add` was not rendering the guard's file.
-func TestDoctorSeesACommandMissingFromTheGuardsFile(t *testing.T) {
-	dir := writeBlockConfig(t, "[[secret.block]]\ncommand = \"op read\"\n")
-	libexec := t.TempDir()
-	path := filepath.Join(libexec, "deny-patterns.txt")
-	opts := DoctorOptions{ConfigDir: dir}
-
-	// A file rendered without the entry, which is what an add that wrote the
-	// config and stopped leaves behind.
-	if err := os.WriteFile(path, []byte(regexp.QuoteMeta(dir)+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var missing DoctorReport
-	reportDenyPatterns(&missing, opts, path)
-	if len(missing.Findings) != 1 || missing.Findings[0].Status != StatusFailed {
-		t.Fatalf("findings = %+v, want one failure", missing.Findings)
-	}
-	if !strings.Contains(missing.Findings[0].Detail, "op read") {
-		t.Errorf("the finding does not name the command: %s", missing.Findings[0].Detail)
-	}
-
-	// And the file this install would actually write, which carries the command
-	// among everything else it renders.
-	rendered, err := RenderDenyPatterns(ruleLayout(dir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(rendered), BlockedCommandRule("op read")) {
-		t.Fatal("the render does not carry the declared command")
-	}
-	if err := os.WriteFile(path, rendered, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var present DoctorReport
-	reportDenyPatterns(&present, opts, path)
-	if len(present.Findings) != 1 || present.Findings[0].Status != StatusOK {
-		t.Errorf("findings = %+v, want one ok", present.Findings)
-	}
-
-	// A rule nobody renders is untidy rather than unguarded, so it warns.
-	if err := os.WriteFile(path, append(rendered, []byte("\n\\bleftover\\b\n")...), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var spare DoctorReport
-	reportDenyPatterns(&spare, opts, path)
-	if len(spare.Findings) != 1 || spare.Findings[0].Status != StatusWarn {
-		t.Errorf("findings = %+v, want one warning", spare.Findings)
-	}
-}
-
 // Two commands are two entries. They share an empty path and an empty name, so
 // an identity that reads only those two fields folds every command an operator
 // declares into whichever one they declared first, and `block add --command`
@@ -276,46 +123,5 @@ func TestACommandAndAPathAreNotOneEntry(t *testing.T) {
 	}
 	if len(entries) != 3 {
 		t.Fatalf("the set holds %d entries, want 3: %+v", len(entries), entries)
-	}
-}
-
-// The hook skips a rule it cannot compile rather than failing every command
-// over one typo, which is right there and leaves the loss silent: what should
-// have been four rules is however many of them compiled. A re-render cannot
-// notice, comparing the file against itself, so the check compiles each rule
-// before it compares. Without this, an entry that split a rule across two lines
-// took every path protection with it and doctor reported ok.
-func TestDoctorFailsOnARenderedRuleThatWillNotCompile(t *testing.T) {
-	dir := writeBlockConfig(t, "[secret]\n")
-	path := filepath.Join(t.TempDir(), "deny-patterns.txt")
-	opts := DoctorOptions{ConfigDir: dir}
-
-	rendered, err := RenderDenyPatterns(ruleLayout(dir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	// What this install renders, which must pass, and the same with one rule
-	// broken the way a split leaves both halves.
-	if err := os.WriteFile(path, rendered, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var clean DoctorReport
-	reportDenyPatterns(&clean, opts, path)
-	if len(clean.Findings) != 1 || clean.Findings[0].Status != StatusOK {
-		t.Fatalf("a file this install rendered was not ok: %+v", clean.Findings)
-	}
-
-	if err := os.WriteFile(path, append(rendered, "\n((unbalanced\n"...), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var broken DoctorReport
-	reportDenyPatterns(&broken, opts, path)
-	if len(broken.Findings) != 1 || broken.Findings[0].Status != StatusFailed {
-		t.Fatalf("findings = %+v, want one failure", broken.Findings)
-	}
-	for _, want := range []string{"will not compile", "refuses nothing"} {
-		if !strings.Contains(broken.Findings[0].Detail, want) {
-			t.Errorf("the finding does not say %q: %s", want, broken.Findings[0].Detail)
-		}
 	}
 }

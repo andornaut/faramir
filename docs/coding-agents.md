@@ -104,7 +104,7 @@ A tree's own file is whichever of `AGENTS.md` and `CLAUDE.md` it already has. Th
 
 ### One list, rendered per agent
 
-What the rules name is written once, in [internal/install/protectedpaths.go](../internal/install/protectedpaths.go), and rendered into each agent's own spelling from there. A copy per agent would drift, and the drift is silent: a rule that covers nothing looks exactly like a rule that covers everything, one character apart.
+What the rules name is written once, in [internal/agentcfg/protectedpaths.go](../internal/agentcfg/protectedpaths.go), and rendered into each agent's own spelling from there. A copy per agent would drift, and the drift is silent: a rule that covers nothing looks exactly like a rule that covers everything, one character apart.
 
 No pattern is compiled in. The list is the directories this install occupies, taken from the layout so they are this host's real paths, plus the file each `[[secret.link]]` entry reads and every `[[secret.block]]` entry the operator declared.
 

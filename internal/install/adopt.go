@@ -9,7 +9,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/asaccount"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostunit"
 )
 
 // stepAdopted names what this run took from the install it found, before
@@ -39,7 +42,7 @@ func (r *runner) stepAdopted() error {
 func (o *Options) adoptInstalled() (took []string, err error) {
 	dir := o.ConfigDir
 	if dir == "" {
-		dir = DefaultConfigDir
+		dir = hostlayout.DefaultConfigDir
 	}
 	// Recorded only where the adopted value differs from the default: the report
 	// is what a flag would have reverted.
@@ -54,14 +57,14 @@ func (o *Options) adoptInstalled() (took []string, err error) {
 		flag     string
 		fallback string
 	}{
-		{brokerUnit, &o.BrokerUser, BrokerUserFlag, DefaultBrokerUser},
-		{keeperUnit, &o.KeeperUser, KeeperUserFlag, DefaultKeeperUser},
-		{execUnit, &o.ExecUser, ExecUserFlag, DefaultExecUser},
+		{hostunit.BrokerUnit, &o.BrokerUser, hostlayout.BrokerUserFlag, hostlayout.DefaultBrokerUser},
+		{hostunit.KeeperUnit, &o.KeeperUser, hostlayout.KeeperUserFlag, hostlayout.DefaultKeeperUser},
+		{hostunit.ExecUnit, &o.ExecUser, hostlayout.ExecUserFlag, hostlayout.DefaultExecUser},
 	} {
 		if *role.into != "" {
 			continue
 		}
-		account, err := unitUser(role.unit)
+		account, err := hostunit.User(role.unit)
 		if err != nil {
 			continue
 		}
@@ -82,9 +85,9 @@ func (o *Options) adoptInstalled() (took []string, err error) {
 	if o.SecretsGroup == "" {
 		fallback := o.KeeperUser
 		if fallback == "" {
-			fallback = DefaultKeeperUser
+			fallback = hostlayout.DefaultKeeperUser
 		}
-		if group, groupErr := groupOf(filepath.Join(dir, "secrets")); groupErr == nil {
+		if group, groupErr := asaccount.GroupOf(filepath.Join(dir, "secrets")); groupErr == nil {
 			o.SecretsGroup = group
 			keep("--secrets-group", group, fallback)
 		}
@@ -108,7 +111,7 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 	}
 	if o.ClientGroup == "" && cfg.Server.AllowedGroup != "" {
 		o.ClientGroup = cfg.Server.AllowedGroup
-		keep("--client-group", o.ClientGroup, DefaultClientGroup)
+		keep("--client-group", o.ClientGroup, hostlayout.DefaultClientGroup)
 	}
 	if o.SSHKey == "" && cfg.Ssh.Key != "" {
 		o.SSHKey = cfg.Ssh.Key

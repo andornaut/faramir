@@ -1,24 +1,14 @@
 package install
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
-
-// configDirWith is an install directory holding this config.toml, for the
-// commands that take a directory and join the file name onto it.
-func configDirWith(t *testing.T, body string) string {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
 
 const sharedGroupConfig = "[command]\ntimeout_sec = 600\n\n[server]\nallowed_group = \"faramir-clients\"\n"
 
@@ -146,7 +136,7 @@ func TestTheSectionFollowsTheGrantTheEnrolmentRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body, err := credentialsSection(run.allowSudo)
+	body, err := agentcfg.CredentialsSection(run.allowSudo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,19 +151,19 @@ func TestTheSectionFollowsTheGrantTheEnrolmentRead(t *testing.T) {
 // a run with no --client-group creates. A host installed by one and read by
 // the other would admit a group nobody is in.
 func TestTheDefaultClientGroupNamesTheGrant(t *testing.T) {
-	if DefaultClientGroup != "faramir-client" {
+	if hostlayout.DefaultClientGroup != "faramir-client" {
 		t.Errorf("DefaultClientGroup = %q; a name like \"dev\" is one a host is "+
 			"likely to have already, and an install adopts a group that exists "+
 			"rather than refusing, so every current member gains the broker",
-			DefaultClientGroup)
+			hostlayout.DefaultClientGroup)
 	}
 	dir := configDirWith(t, "[command]\ntimeout_sec = 600\n")
 	cfg, err := config.Load(filepath.Join(dir, "config.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.AllowedGroup != DefaultClientGroup {
+	if cfg.Server.AllowedGroup != hostlayout.DefaultClientGroup {
 		t.Errorf("a config naming no group admits %q, an install with no flag "+
-			"creates %q", cfg.Server.AllowedGroup, DefaultClientGroup)
+			"creates %q", cfg.Server.AllowedGroup, hostlayout.DefaultClientGroup)
 	}
 }

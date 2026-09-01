@@ -1,0 +1,1668 @@
+package doctor
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"os/user"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/andornaut/faramir/internal/agekey"
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/asaccount"
+	"github.com/andornaut/faramir/internal/brokercheck"
+	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostunit"
+	"github.com/andornaut/faramir/internal/keeper"
+	"github.com/andornaut/faramir/internal/runcmd"
+	"github.com/andornaut/faramir/internal/sopsrule"
+	"github.com/andornaut/faramir/internal/termsafe"
+	"github.com/andornaut/faramir/internal/version"
+)
+
+// Options names the accounts, groups and paths Diagnose examines.
+type Options struct {
+	ConfigDir   string
+	AgentUser   string
+	ClientGroup string
+	// The three service accounts, so the group audit does not report them as
+	// unexpected members.
+	BrokerUser string
+	KeeperUser string
+	ExecUser   string
+	// SecretsGroup owns the managed sops files, defaulting to the keeper's own
+	// group as install leaves it.
+	SecretsGroup string
+
+	// SecretsPatterns is the managed store, for the rule coverage check.
+	// Diagnose fills it from the config it loads; a test may set it to reach the
+	// check without a config. Empty leaves the check reported as unasked rather
+	// than as a pass.
+	SecretsPatterns []string
+
+	// BrokerVersion is what the running broker reported, empty when it did not
+	// answer.
+	BrokerVersion string
+
+	// BrokerBuild is which build of that version the broker is, empty from a
+	// release and from a broker that predates the field.
+	BrokerBuild string
+
+	// SocketStates maps each socket unit to what `systemctl is-active` said
+	// before the broker was asked anything. The caller samples it because
+	// opening the broker socket activates the service, which Requires= the keeper
+	// and executor sockets, so a socket that was down comes up. Empty when the
+	// caller did not sample, and then the state is read here.
+	SocketStates map[string]string
+	// deadProbers is the accounts this run could not ask anything as: the
+	// liveness probe against / failed for them, so a refusal from one is the
+	// asking failing rather than a boundary holding. Filled by
+	// diagnoseBoundaries; askable drops them. Unexported: a probe result, not a
+	// caller's setting.
+	deadProbers map[string]bool
+}
+
+// unitUnreportable is systemctl itself failing to answer, which is a subject
+// out of reach rather than a state.
+const unitUnreportable = "unreportable"
+
+// SampleSockets is each socket unit's state now. Called before anything opens
+// the broker socket; see [Options.SocketStates].
+func SampleSockets() map[string]string {
+	if !hostunit.Running() {
+		return nil
+	}
+	states := make(map[string]string, len(hostunit.Sockets))
+	for _, socket := range hostunit.Sockets {
+		out, err := runcmd.OutputWithin(30*time.Second, "systemctl", "is-active", socket)
+		state := strings.TrimSpace(out)
+		// systemctl prints the state even when it exits non-zero, so an empty
+		// answer is systemctl itself having failed, as is an error alongside
+		// "active".
+		if state == "" || (err != nil && state == hostunit.Active) {
+			state = unitUnreportable
+		}
+		states[socket] = state
+	}
+	return states
+}
+
+// Status is a finding's verdict.
+//
+// Warn means the question could not be put, for want of root, runuser, systemd
+// or a broker holding values; the install may be perfect. A check that can
+// reach its subject and cannot establish it fails instead of guessing.
+//
+// N/a means the subject belongs to an arrangement this host was not installed
+// with. It is reported rather than left out, and is not counted in NotAsked:
+// re-running as root would not answer it.
+type Status string
+
+const (
+	StatusOK     Status = "ok"
+	StatusNA     Status = "n/a"
+	StatusWarn   Status = "warn"
+	StatusFailed Status = "failed"
+)
+
+// brokerServes is what the --check probe established about the value set. A
+// probe that did not run stays distinct from one that ran and found nothing:
+// --check needs root, so conflating them would report every broker examined
+// without sudo as one holding no values.
+type brokerServes int
+
+const (
+	servesUnknown brokerServes = iota
+	servesNothing
+	servesValues
+)
+
+// refusedCode is the error code the broker returns for an op it will not serve
+// while a managed file went unread.
+const refusedCode = "no_secrets"
+
+// sshAgentRefused is reported both before the probe runs and after the broker
+// refuses it.
+const sshAgentRefused = "not asked: a managed file did not load, so the broker " +
+	"refuses the brokered command this probe runs"
+
+// sshAgentUnanswered is the other reason the probe cannot be put: a broker that
+// answered nothing when the install was looked up answers a brokered command no
+// better.
+const sshAgentUnanswered = "not asked: the broker did not answer, so the " +
+	"brokered command this probe runs cannot be sent"
+
+// checkConfig names the check the config file gets. The same word the install
+// names its own config step with, so an operator reading a report and a run
+// sees one subject; the two are separate lists, and neither is derived from the
+// other.
+const checkConfig = "config"
+
+// Finding is one check.
+type Finding struct {
+	Name   string `json:"check"`
+	Status Status `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// Report is the whole examination; Failed is the exit code a caller reads.
+//
+// NotAsked counts the checks that could not be put. A caller has to report it
+// alongside the findings: one warn line can stand for a dozen unasked
+// questions.
+type Report struct {
+	Failed   bool      `json:"failed"`
+	NotAsked int       `json:"not_asked"`
+	Findings []Finding `json:"findings"`
+}
+
+func (d *Report) addf(name string, status Status, format string, args ...any) {
+	d.Findings = append(d.Findings, Finding{
+		Name: name, Status: status, Detail: fmt.Sprintf(format, args...),
+	})
+	if status == StatusFailed {
+		d.Failed = true
+	}
+}
+
+// unaskedf records a check that could not be put: the warn line a reader sees
+// and the count under the totals, which have to move together. count is what
+// the one line stands for, more than one wherever a bail-out skips a list. A
+// warn added through addf is the other kind, something this host has that
+// re-running as root would not change.
+func (d *Report) unaskedf(name string, count int, format string, args ...any) {
+	d.NotAsked += count
+	d.addf(name, StatusWarn, format, args...)
+}
+
+// merge appends another report's findings, carrying its verdict and its unasked
+// count with them.
+func (d *Report) merge(other Report) {
+	d.Findings = append(d.Findings, other.Findings...)
+	d.Failed = d.Failed || other.Failed
+	d.NotAsked += other.NotAsked
+}
+
+// abandoned marks the rest of an examination that stopped before it began:
+// one line under the totals, so a report holding a single failure cannot read
+// as a host where everything else passed. The count is the checks the full
+// examination reports, held to reality by a test rather than recounted here.
+const remainingChecks = 41
+
+func abandoned(report *Report, why string) {
+	report.unaskedf("examination", remainingChecks, "every other check was not "+
+		"run: %s", why)
+}
+
+// Diagnose reports whether an install is doing its job, which the install steps
+// cannot answer: everything can be written correctly and still protect
+// nothing.
+func Diagnose(opts Options) Report {
+	if opts.ConfigDir == "" {
+		opts.ConfigDir = hostlayout.DefaultConfigDir
+	}
+	var report Report
+	configFile := filepath.Join(opts.ConfigDir, "config.toml")
+
+	// Before anything is examined. Every check that asks what the agent account
+	// can reach answers about a uid that is not there, so the report reads as an
+	// examination of a host rather than of a name nothing on it has.
+	if opts.AgentUser != "" {
+		if _, err := hostfs.LookupUser(opts.AgentUser); err != nil {
+			report.addf("identities", StatusFailed, "there is no account %q on this "+
+				"host, so what the agent can reach was not examined. Name the account "+
+				"the coding agent runs as; `faramir init --agent-user` is what records "+
+				"one", opts.AgentUser)
+			abandoned(&report, "the agent account does not resolve")
+			return report
+		}
+	}
+
+	if !hostfs.Exists(configFile) {
+		report.addf(checkConfig, StatusFailed, "%s is missing; the daemons read it at "+
+			"startup and exit without one", configFile)
+		abandoned(&report, "there is no config to examine against")
+		return report
+	}
+	report.addf(checkConfig, StatusOK, "%s", configFile)
+
+	// The daemons' own paths rather than the defaults, or a host whose store and
+	// sockets moved is examined at addresses nothing uses.
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		report.addf(checkConfig, StatusFailed, "%s does not load: %v", configFile, err)
+		abandoned(&report, "the config did not load")
+		return report
+	}
+	// A test that set the patterns keeps them, having no config to take them
+	// from.
+	if len(opts.SecretsPatterns) == 0 {
+		opts.SecretsPatterns = cfg.Secret.Patterns
+	}
+
+	// Before every other check, which each name an account: a wrong name here
+	// would be repeated as a confident answer by all of them.
+	opts, ok := resolveIdentities(&report, opts, cfg)
+	if !ok {
+		abandoned(&report, "the install's identities did not resolve")
+		return report
+	}
+
+	// The broker probe first, whatever order it is reported in: the ssh agent and
+	// boundaries checks both need to know whether the broker serves anything. Its
+	// findings are buffered so they still land in name order below.
+	var brokerReport Report
+	serves := diagnoseBroker(&brokerReport, configFile, opts.BrokerUser)
+
+	// What any account can answer, in name order. The ssh agent probe runs a
+	// brokered command as the caller's own account.
+	diagnoseGroup(&report, opts)
+	diagnoseLogRotation(&report, cfg)
+	diagnoseUnits(&report, opts)
+	diagnoseSocketEnablement(&report)
+	diagnoseDropIns(&report)
+	diagnoseMemoryBounds(&report)
+	diagnoseBrokerMemory(&report)
+	diagnoseSSHAgent(&report, opts, cfg, serves)
+	diagnoseVersion(&report, opts)
+
+	// Then the checks that need root, grouped so a run without it reads as one
+	// block of warnings at the end rather than as gaps between the answers above.
+	diagnoseBoundaries(&report, opts, cfg, serves)
+	diagnoseKnownHosts(&report, opts, cfg)
+	report.merge(brokerReport)
+	diagnoseSopsConfig(&report, opts)
+	diagnoseAgentRules(&report, opts)
+	diagnoseHookReach(&report, opts)
+	diagnoseCodexTrust(&report, opts)
+	diagnoseAgentCode(&report, opts)
+	diagnoseAgentRuleDrift(&report, opts)
+	diagnoseLinkedFiles(&report, opts, cfg)
+	diagnoseInstallRules(&report, opts)
+	diagnoseBlockedPaths(&report, opts, cfg)
+	diagnoseLinkedAccess(&report, opts, cfg)
+	diagnoseTreeConfig(&report, opts)
+	diagnoseTreeModes(&report, opts)
+	diagnoseEditableFiles(&report, opts)
+	return report
+}
+
+// diagnoseAgentRules reports every agent and what is configured for it. The
+// rules are what refuse the agent's file tools the operator's own key material
+// -- ~/.ssh, ~/.config/sops and the like -- which no uid boundary reaches
+// because the agent runs as the operator. `faramir init --agent` writes them;
+// enrolling a tree does not.
+//
+// One row each, in use or not: which agents an operator runs cannot be inferred
+// from a directory. Only rules missing from an agent in use is a fault.
+func diagnoseAgentRules(report *Report, opts Options) {
+	if opts.AgentUser == "" {
+		report.unaskedf("agent rules", 1, "the agent account is not named, so what "+
+			"each agent has in its home was not asked: run through sudo so SUDO_USER "+
+			"carries it, or record the account with `faramir init --agent-user`")
+		return
+	}
+	home, err := agentcfg.HomeFor(opts.AgentUser)
+	if err != nil || home == "" {
+		report.unaskedf("agent rules", 1, "could not read %s's home, so what each "+
+			"agent has there was not asked", opts.AgentUser)
+		return
+	}
+	enrolled, stale := agentcfg.EnrolledAgents(opts.ConfigDir)
+	reportAgentRules(report, home, enrolled)
+	// A tree that has moved or been deleted since it was enrolled. Reported
+	// rather than removed: an unmounted tree is not a deleted one.
+	for _, tree := range stale {
+		report.addf("agent rules", StatusWarn, "%s was enrolled for %s and is no "+
+			"longer there, so that entry says nothing about this host. Re-run "+
+			"`faramir init-project` where the tree is now, or ignore it",
+			tree.Dir, strings.Join(tree.Agents, ", "))
+	}
+}
+
+// reportAgentRules is diagnoseAgentRules against a home already resolved, every
+// question being about files under a directory rather than about the passwd
+// database. enrolled names the agents some tree was enrolled for, which the
+// home cannot show: an enrolled agent may leave no trace in this account.
+func reportAgentRules(report *Report, home string, enrolled []string) {
+	for _, name := range agentcfg.Known() {
+		target := agentcfg.Targets[name]
+		var missing []string
+		for _, file := range target.AccountFiles {
+			if !hostfs.Exists(filepath.Join(home, file.Path)) {
+				missing = append(missing, "~/"+file.Path)
+			}
+		}
+		switch {
+		case len(missing) == 0:
+			report.addf("agent rules", StatusOK, "%s: %s", name,
+				strings.Join(accountPaths(target), ", "))
+		// The rules cover what this install writes and what a [[secret.link]] or
+		// [[secret.block]] entry names, which is agentcfg's protected set. Said that
+		// way rather than by naming a key elsewhere: a path faramir did not choose
+		// is one it does not rule on, and a message that names one makes the
+		// default look more protective than it is.
+		case slices.Contains(enrolled, name):
+			report.addf("agent rules", StatusFailed, "a tree is enrolled for %s and %s is not there, so its file tools are refused "+
+				"nothing this install protects, and no uid boundary refuses them either. Run "+
+				"`sudo faramir init --agent %s`", name, strings.Join(missing, ", "), name)
+		case agentInUse(home, target):
+			report.addf("agent rules", StatusFailed, "%s is in this home and %s is not, so its file tools are refused nothing this "+
+				"install protects, and no uid boundary refuses them either. Run `sudo faramir "+
+				"init --agent %s`",
+				name, strings.Join(missing, ", "), name)
+		default:
+			report.addf("agent rules", StatusNA, "%s: nothing here, so nobody runs it "+
+				"from this account", name)
+		}
+	}
+}
+
+// hookReachFiles are the settings files whose PreToolUse registration decides
+// which tools reach the guard at all: the account-wide one and each enrolled
+// tree's. Claude Code only, being the one agent whose registration ever carried
+// a matcher narrower than every tool.
+func hookReachFiles(home string, dirs []string) []string {
+	paths := make([]string, 0, 1+len(dirs))
+	paths = append(paths, filepath.Join(home, ".claude/settings.json"))
+	for _, dir := range dirs {
+		paths = append(paths, filepath.Join(dir, ".claude/settings.local.json"))
+	}
+	return paths
+}
+
+// hookMatchers is the matcher of every PreToolUse group in one settings file
+// that runs faramir's guard, and whether the file could be read at all.
+//
+// An absent file returns nothing and read=true: what a missing file says is
+// diagnoseAgentRules' question, and two checks reporting one missing file is one
+// report too many. A file that is there and cannot be opened or parsed returns
+// read=false, which is not the same answer and must not be reported as one: a
+// run without sudo against another account's home reaches every settings file
+// this way, and calling that a pass would pass the very host this check exists
+// to catch.
+func hookMatchers(path string) (matchers []string, read bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, os.IsNotExist(err)
+	}
+	var doc struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher *string `json:"matcher"`
+				Hooks   []struct {
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if json.Unmarshal(data, &doc) != nil {
+		return nil, false
+	}
+	var out []string
+	for _, group := range doc.Hooks.PreToolUse {
+		for _, h := range group.Hooks {
+			if !strings.Contains(h.Command, "faramir guard") {
+				continue
+			}
+			matcher := ""
+			if group.Matcher != nil {
+				matcher = *group.Matcher
+			}
+			out = append(out, matcher)
+			break
+		}
+	}
+	return out, true
+}
+
+// diagnoseHookReach asks which tools the registered hook is invoked for.
+//
+// A registration written before the guard refused paths matches "Bash" alone, so
+// the file tools never reach it. That leaves them to the deny rules in the same
+// file, which are applied in some of the agent's permission modes and not in
+// others: a session started in bypassPermissions applies none of them, and a
+// read of the age key is then refused by nothing but the file's own mode.
+//
+// Reported rather than repaired, an agent's settings being the operator's file:
+// re-running the enrolment rewrites the matcher.
+func diagnoseHookReach(report *Report, opts Options) {
+	if opts.AgentUser == "" {
+		return
+	}
+	home, err := agentcfg.HomeFor(opts.AgentUser)
+	if err != nil || home == "" {
+		return
+	}
+	var dirs []string
+	for _, tree := range agentcfg.ReadEnrolled(opts.ConfigDir) {
+		if slices.Contains(tree.Agents, "claude") {
+			dirs = append(dirs, tree.Dir)
+		}
+	}
+	var narrow, unread []string
+	for _, path := range hookReachFiles(home, dirs) {
+		matchers, read := hookMatchers(path)
+		if !read {
+			unread = append(unread, path)
+			continue
+		}
+		for _, matcher := range matchers {
+			if matcher != "*" {
+				narrow = append(narrow, fmt.Sprintf("%s (%q)", path, matcher))
+			}
+		}
+	}
+	// Before the pass, and not folded into it. A file that is there and could not
+	// be read is the case this check exists for, seen from the outside: a stale
+	// registration and an unreadable one look identical from here, and reporting
+	// the second as the first is how a host that needs re-enrolling reads as done.
+	if len(unread) > 0 && len(narrow) == 0 {
+		report.unaskedf("hook reach", len(unread), "could not read %s, so which tools "+
+			"the guard answers for was not asked: run through sudo, or as the account "+
+			"that owns them", strings.Join(unread, ", "))
+		return
+	}
+	if len(narrow) == 0 {
+		report.addf("hook reach", StatusOK, "every registration of the guard answers "+
+			"for all tools, so a file tool reaches it whatever permission mode the "+
+			"agent is in")
+		return
+	}
+	report.addf("hook reach", StatusFailed, "the guard is registered for some tools "+
+		"and not others in %s, so its file tools reach the guard only through the "+
+		"deny rules beside it, and a session in a permission mode that ignores those "+
+		"is refused nothing. Re-run `sudo faramir init` for the account-wide one and "+
+		"`faramir init-project` in the tree for the rest",
+		strings.Join(narrow, ", "))
+}
+
+// agentInUse reports whether this agent is present in the home at all: its own
+// directory, or any of the rules faramir writes for it. The home markers
+// rather than the tree ones, so this agrees with `init --agent auto`.
+func agentInUse(home string, target *agentcfg.Target) bool {
+	for _, marker := range target.DetectHome {
+		if hostfs.Exists(filepath.Join(home, marker)) {
+			return true
+		}
+	}
+	for _, file := range target.AccountFiles {
+		if hostfs.Exists(filepath.Join(home, file.Path)) {
+			return true
+		}
+	}
+	return false
+}
+
+// accountPaths is an agent's account-wide files, for a finding that names them.
+func accountPaths(target *agentcfg.Target) []string {
+	out := make([]string, 0, len(target.AccountFiles))
+	for _, file := range target.AccountFiles {
+		out = append(out, "~/"+file.Path)
+	}
+	return out
+}
+
+// diagnoseSopsConfig reports a creation rule left inside the secrets directory.
+// sops takes the first .sops.yaml it finds walking up from the working
+// directory, so a copy there shadows the one above it and new values encrypt to
+// different recipients depending on where sops was run from. Reported rather
+// than moved: guessing which is current wrongly writes values nothing can
+// decrypt.
+func diagnoseSopsConfig(report *Report, opts Options) {
+	layout := hostlayout.Layout{ConfigDir: opts.ConfigDir}
+	current, stale := layout.SopsConfigPath(), layout.StaleSopsConfigPath()
+	switch {
+	case hostfs.Exists(stale) && hostfs.Exists(current):
+		report.addf("sops config", StatusWarn, "%s shadows %s for anything run from "+
+			"the secrets directory, sops taking the nearest one walking up. Compare the recipients, "+
+			"then: sudo rm %s", stale, current, stale)
+	case hostfs.Exists(stale):
+		report.addf("sops config", StatusWarn, "%s is where earlier installs put it, "+
+			"and the secrets directory is globbed by the managed store. Move it: sudo mv %s %s",
+			stale, stale, current)
+	case hostfs.Exists(current):
+		diagnoseSopsRecipients(report, opts, current)
+		diagnoseSopsRuleCoverage(report, opts, current)
+		diagnoseRecipientDrift(report, opts, current)
+	default:
+		report.addf("sops config", StatusWarn, "no %s, so sops has no creation rule "+
+			"and refuses to encrypt a new file in the secrets directory", current)
+	}
+}
+
+// diagnoseSopsRecipients answers who can decrypt what the secrets directory
+// will hold next. The keeper's own recipient has to be there: without it the
+// broker cannot read the next value and still starts and reports healthy. init
+// writes this file once, so a key restored or re-minted leaves the rule naming
+// the recipient it used to have.
+func diagnoseSopsRecipients(report *Report, opts Options, path string) {
+	listed, err := sopsrule.AllRecipients(path)
+	if err != nil {
+		// An unreadable file and one that does not parse are different faults
+		// with different remedies, and only the second is sops's concern too.
+		if errors.Is(err, fs.ErrPermission) {
+			report.unaskedf("sops config", 1, "%s could not be read (%v), so who can "+
+				"decrypt the secrets directory went unchecked here. The operator can re-run this as root", path, err)
+			return
+		}
+		report.addf("sops config", StatusFailed, "%s does not parse (%v), so who can "+
+			"decrypt the secrets directory is unknown here. sops has to read this file too", path, err)
+		return
+	}
+	if len(listed) == 0 {
+		report.addf("sops config", StatusWarn, "%s lists no age recipient, so sops "+
+			"encrypts a new file in the secrets directory to nobody and refuses", path)
+		return
+	}
+	// The file is 0644, so root can edit it directly, and nothing on that path
+	// looks at what was typed: `faramir reader add` validates a key and a hand
+	// edit does not. A private half pasted here is the key to the secrets
+	// directory, readable by every account. Asked first, the rest assuming
+	// entries that at least parse as recipients.
+	if !recipientsAreWellFormed(report, listed, path) {
+		return
+	}
+	// The key is 0400 and the keeper's, so this answers only under sudo, and is
+	// reported as unchecked rather than as a pass.
+	keyPath := filepath.Join(opts.ConfigDir, "age.key")
+	keeper, err := agekey.Recipient(keyPath)
+	if err != nil {
+		// A key that is not there is not a privilege problem, and telling root to
+		// re-run as root would send the operator in a circle: the keeper can
+		// decrypt nothing until the key is restored.
+		if errors.Is(err, fs.ErrNotExist) {
+			report.addf("sops config", StatusFailed, "%s is missing, so %s can decrypt "+
+				"nothing and every managed value is unreadable. Restore the key from "+
+				"backup; there is no re-minting a key the store is sealed to",
+				keyPath, opts.KeeperUser)
+			return
+		}
+		report.unaskedf("sops config", 1, "%s lists %s, and whether %s is among "+
+			"them went unchecked: %v. The operator can re-run this as root", path, strings.Join(listed, ", "),
+			keyPath, err)
+		return
+	}
+	// Warn, not failed: the values already in the secrets directory still decrypt,
+	// so this is a host that works today and cannot take a new value tomorrow.
+	if !slices.Contains(listed, keeper) {
+		report.addf("sops config", StatusWarn, "%s lists %s, none of which is %s's recipient (%s), so every value encrypted from "+
+			"now on is one %s cannot decrypt. Put it back with `sudo faramir reader add %s`, "+
+			"which re-seals the store to it",
+			path, strings.Join(listed, ", "), keyPath, keeper, opts.KeeperUser, keeper)
+		return
+	}
+	report.addf("sops config", StatusOK, "%s, %d recipient(s) including %s's",
+		path, len(listed), opts.KeeperUser)
+}
+
+// recipientsAreWellFormed reports every entry sops would refuse, and whether
+// there were none. Failed rather than warned: sops encrypts nothing into this
+// directory while one is there.
+func recipientsAreWellFormed(report *Report, listed []string, path string) bool {
+	ok := true
+	for _, recipient := range listed {
+		err := agekey.ValidateRecipient(recipient)
+		if err == nil {
+			continue
+		}
+		ok = false
+		// The error names what to do, including the rotation a private half needs,
+		// so it is carried rather than summarised.
+		report.addf("sops config", StatusFailed, "%s lists something sops will not "+
+			"take as a recipient: %v", path, err)
+	}
+	return ok
+}
+
+// diagnoseSopsRuleCoverage asks whether the creation rules reach every managed
+// file, which decides whether `faramir vault edit` and `faramir reader
+// reseal` can write one back: sops refuses a file no rule covers.
+//
+// Each file is put to sops as an encryption of a throwaway document under its
+// own name, rather than matching path_regex here: a second implementation of
+// that match is free to disagree with sops.
+func diagnoseSopsRuleCoverage(report *Report, opts Options, rulePath string) {
+	if len(opts.SecretsPatterns) == 0 {
+		report.unaskedf("rule coverage", 1, "the managed store could not be read, so "+
+			"which files %s has to cover is unknown here", rulePath)
+		return
+	}
+	// filepath.Glob reports a directory it cannot list as no matches and no
+	// error, so a caller who cannot read one pattern's directory would get a
+	// confident answer about half a store. What did resolve is still checked.
+	unlistable := unlistableDirs(opts.SecretsPatterns)
+	if len(unlistable) > 0 {
+		report.unaskedf("rule coverage", 1, "the directories the managed store "+
+			"names cannot be listed by this account (%s), so any managed file under "+
+			"them went unchecked. The operator can re-run this as root",
+			strings.Join(unlistable, ", "))
+	}
+	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
+	if len(managed) == 0 {
+		if len(unlistable) > 0 {
+			// Nothing resolved and a directory was unreadable, so the count above
+			// stands on its own: reporting nothing to cover would read as an empty
+			// store.
+			return
+		}
+		report.addf("rule coverage", StatusNA, "no managed file matches [secret] "+
+			"patterns yet, so there is nothing for %s to cover", rulePath)
+		return
+	}
+	sops, err := exec.LookPath("sops")
+	if err != nil {
+		report.unaskedf("rule coverage", 1, "sops is not on this PATH, and it is what "+
+			"decides which rule governs a file: %v", err)
+		return
+	}
+	// The rule's own recipients, named on the command line, so what is asked is
+	// whether a rule matches rather than whether its keys work.
+	recipients, err := sopsrule.AllRecipients(rulePath)
+	if err != nil {
+		report.unaskedf("rule coverage", 1, "%s could not be read, so which files it "+
+			"covers went unchecked: %v", rulePath, err)
+		return
+	}
+	covered := 0
+	for _, target := range managed {
+		switch matched, err := sopsrule.Covers(sops, rulePath, recipients, target); {
+		case err != nil:
+			report.unaskedf("rule coverage", 1, "whether %s covers %s went unchecked: %v",
+				rulePath, target, err)
+		case matched:
+			covered++
+		default:
+			report.addf("rule coverage", StatusFailed, "%s has no creation rule matching %s, so `faramir vault edit` and `faramir reader "+
+				"reseal` cannot write it back. Widen path_regex to reach it, or keep the store "+
+				"where the rule looks", rulePath, target)
+		}
+	}
+	// Only where every file was asked about and answered yes: an unreadable
+	// directory would otherwise be claimed as covered.
+	if covered == len(managed) && len(unlistable) == 0 {
+		report.addf("rule coverage", StatusOK, "%s covers all %d managed file(s)",
+			rulePath, covered)
+	}
+}
+
+// diagnoseRecipientDrift asks whether every managed file is sealed to what the
+// rule names. A store passes `sops config` and `rule coverage` while its
+// ciphertext is sealed to a set the rule no longer names: a reseal that failed
+// partway, or a rule changed by hand and never applied. Nothing fails in that
+// state until somebody reaches for a value with a key they were told they had.
+//
+// The recipients sops writes into a file are cleartext, so this needs no key,
+// only the ability to read the file.
+func diagnoseRecipientDrift(report *Report, opts Options, rulePath string) {
+	if len(opts.SecretsPatterns) == 0 {
+		report.unaskedf("recipient drift", 1, "the managed store could not be read, "+
+			"so which files %s has to agree with is unknown here", rulePath)
+		return
+	}
+	wanted, err := sopsrule.AllRecipients(rulePath)
+	if err != nil {
+		report.unaskedf("recipient drift", 1, "%s could not be read, so what the "+
+			"store should be sealed to is unknown: %v", rulePath, err)
+		return
+	}
+	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
+	if len(managed) == 0 {
+		report.addf("recipient drift", StatusNA, "no managed file matches [secret] "+
+			"patterns yet, so nothing can disagree with %s", rulePath)
+		return
+	}
+	drifted, checked, sealedToNothing := 0, 0, 0
+	for _, target := range managed {
+		was, err := sopsrule.SealedTo(target)
+		switch {
+		// Not drift: a file sealed to nothing is unencrypted or sealed to something
+		// other than age, which `rule coverage` and the broker's --check report.
+		case errors.Is(err, sopsrule.ErrNoRecipients):
+			sealedToNothing++
+			continue
+		// Unasked rather than failed: a caller who cannot open the file has learned
+		// nothing about whether it agrees.
+		case err != nil:
+			report.unaskedf("recipient drift", 1, "%s could not be read, so whether "+
+				"it agrees with %s went unchecked: %v", target, rulePath, err)
+			continue
+		}
+		checked++
+		if sopsrule.Same(was, wanted) {
+			continue
+		}
+		drifted++
+		report.addf("recipient drift", StatusFailed, "%s is sealed to %s while %s "+
+			"names %s, so a key the rule grants may not open it and one it no longer "+
+			"grants may. Run: sudo faramir reader reseal",
+			target, strings.Join(was, ", "), rulePath, strings.Join(wanted, ", "))
+	}
+	// Only where every file sealed to anything was reached and agreed. With none
+	// sealed there is nothing to pass.
+	if drifted == 0 && checked > 0 && checked+sealedToNothing == len(managed) {
+		report.addf("recipient drift", StatusOK, "all %d encrypted file(s) are sealed "+
+			"to what %s names", checked, rulePath)
+	}
+}
+
+// unlistableDirs names the directories behind these patterns that this account
+// cannot read, which is the difference between a store with no files in it and
+// a store this caller cannot see into.
+func unlistableDirs(patterns []string) []string {
+	var out []string
+	for _, pattern := range patterns {
+		dir := filepath.Dir(pattern)
+		handle, err := os.Open(dir)
+		if err != nil {
+			// Only a directory that is there and closed to this account; an absent one
+			// is a store not written yet.
+			if os.IsPermission(err) && !slices.Contains(out, dir) {
+				out = append(out, dir)
+			}
+			continue
+		}
+		_, err = handle.Readdirnames(1)
+		_ = handle.Close()
+		if err != nil && !errors.Is(err, io.EOF) && !slices.Contains(out, dir) {
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
+// diagnoseLogRotation asks whether anything bounds the audit log. The record
+// cap bounds one record and nothing in faramir bounds the file: rotation is
+// logrotate's, which has to be installed, has to name this log, and has to be
+// run on it. A record carries a brokered command's output, so an agent that
+// prints enough fills the disk, and a full disk is where brokered commands stop
+// running at all.
+//
+// Every question is asked of what is on disk: a rule bounding the path
+// config.toml named before it was edited, and a rule no run of logrotate ever
+// reads, both look like a working rotation from the install's side. The last
+// two read logrotate's state and the log itself, which belong to root and to
+// the broker, so a caller without root is told they went unasked rather than
+// given the pass a failed stat would otherwise imply.
+func diagnoseLogRotation(report *Report, cfg *config.Config) {
+	if cfg == nil || cfg.Audit.LogPath == "" {
+		return
+	}
+	logPath := cfg.Audit.LogPath
+	if !hostfs.Exists(hostlayout.LogrotateConfig) {
+		report.addf("log rotation", StatusFailed, "%s does not exist, so nothing "+
+			"bounds %s. Re-run `faramir init`, or bound it some other way",
+			hostlayout.LogrotateConfig, logPath)
+		return
+	}
+	if _, err := exec.LookPath("logrotate"); err != nil {
+		report.addf("log rotation", StatusFailed, "%s exists and logrotate does not, "+
+			"so it is inert and %s grows without a ceiling. Install logrotate, or "+
+			"bound that file some other way", hostlayout.LogrotateConfig, logPath)
+		return
+	}
+
+	// The rule has to name the file the broker appends to. Both are rendered
+	// from one layout, so they part only where [audit] log_path moved after init,
+	// leaving the rule bounding a path nothing writes.
+	named, err := logrotateLogs(hostlayout.LogrotateConfig)
+	switch {
+	case err != nil:
+		report.addf("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
+			"anything bounds %s cannot be established", hostlayout.LogrotateConfig, err, logPath)
+		return
+	case len(named) == 0:
+		report.addf("log rotation", StatusWarn, "%s names no log file, so it is empty "+
+			"or written in a form this check cannot read. Confirm it covers %s with "+
+			"`logrotate -d %s`", hostlayout.LogrotateConfig, logPath, hostlayout.LogrotateConfig)
+		return
+	case !logrotateCovers(named, logPath):
+		report.addf("log rotation", StatusFailed, "%s bounds %s and the broker appends to %s, so nothing bounds the log this host "+
+			"writes. Point [audit] log_path back at the rotated file, or re-run `faramir init`", hostlayout.LogrotateConfig, strings.Join(named, ", "), logPath)
+		return
+	}
+
+	// What logrotate has processed, the only evidence that the rule is read rather
+	// than merely installed: one the include line does not reach, or that a syntax
+	// error earlier in the set abandons, is skipped every run.
+	statePath := firstExisting(hostlayout.LogrotateStatePaths)
+	if statePath == "" {
+		report.addf("log rotation", StatusWarn, "logrotate keeps no state at %s, so it "+
+			"has not run on this host and %s is bounded by a rule nothing has applied. "+
+			"Check the logrotate timer or cron job",
+			strings.Join(hostlayout.LogrotateStatePaths, " or "), logPath)
+		return
+	}
+	rotated, err := logrotateStateLogs(statePath)
+	switch {
+	case os.IsPermission(err):
+		report.unaskedf("log rotation", 1, "the operator can run doctor as root to ask the rest: %s says which logs logrotate has processed "+
+			"and %s is the broker's, both root's to read. %s does name %s",
+			statePath, logPath, hostlayout.LogrotateConfig, logPath)
+		return
+	case err != nil:
+		report.addf("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
+			"logrotate has ever applied %s cannot be established",
+			statePath, err, hostlayout.LogrotateConfig)
+		return
+	case !slices.Contains(rotated, logPath):
+		report.addf("log rotation", StatusWarn, "%s names %d logs and not %s, so logrotate has not applied the rule to it. A first "+
+			"run that has not come round yet is the ordinary reason; past that, check the "+
+			"logrotate timer or cron job",
+			statePath, len(rotated), logPath)
+		return
+	}
+
+	// The rule rotates at 16MB, so a log far past it is one logrotate is not being
+	// run on. A multiple rather than the size itself: rotation is scheduled, so a
+	// log over it between two runs is ordinary.
+	const rotateSize = 16 << 20
+	info, err := os.Stat(logPath)
+	switch {
+	case os.IsPermission(err):
+		report.unaskedf("log rotation", 1, "the operator can run doctor as root to ask the last of "+
+			"this: %s is the broker's, so its size is root's to read. %s does name "+
+			"it, and %s records that logrotate has applied the rule",
+			logPath, hostlayout.LogrotateConfig, statePath)
+		return
+	// Absent is not a fault: the rule is missingok and the broker opens the file
+	// with O_CREATE, so the next record makes it again.
+	case err == nil && info.Size() > 4*rotateSize:
+		report.addf("log rotation", StatusWarn, "%s is %d bytes, well past the %d "+
+			"the rule rotates at, so logrotate is installed and is not being run on "+
+			"it. Check the logrotate timer or cron job",
+			logPath, info.Size(), rotateSize)
+		return
+	}
+	report.addf("log rotation", StatusOK, "%s bounds %s, logrotate is installed to "+
+		"apply it, and %s records that it has", hostlayout.LogrotateConfig, logPath, statePath)
+}
+
+// logrotateLogs is the log files a rule file names: every path outside a
+// directive block, which is where logrotate takes its file list from. A parser
+// rather than `logrotate -d`, whose output is prose that differs between
+// versions. Blocks are skipped by brace depth, so a postrotate script carrying
+// braces of its own can hide a path from this; the caller reports finding none
+// as a rule it could not read.
+func logrotateLogs(path string) ([]string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var logs []string
+	depth := 0
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if comment := strings.IndexByte(line, '#'); comment >= 0 {
+			line = line[:comment]
+		}
+		for field := range strings.FieldsSeq(line) {
+			// logrotate lexes the brace as its own token, so a path can carry one
+			// with no space between them.
+			if trimmed, ok := strings.CutSuffix(field, "{"); ok {
+				if depth == 0 && trimmed != "" {
+					logs = append(logs, unquoteField(trimmed))
+				}
+				depth++
+				continue
+			}
+			switch {
+			case field == "}":
+				depth = max(depth-1, 0)
+			case depth > 0:
+				// A directive rather than a path.
+			default:
+				logs = append(logs, unquoteField(field))
+			}
+		}
+	}
+	return logs, nil
+}
+
+// logrotateCovers reports whether a rule naming these logs covers the one the
+// broker writes. Globs count: a rule may name /var/log/faramir/*.log, which
+// bounds audit.log without spelling it.
+func logrotateCovers(named []string, logPath string) bool {
+	for _, candidate := range named {
+		if candidate == logPath {
+			return true
+		}
+		if matched, err := filepath.Match(candidate, logPath); err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
+// logrotateStateLogs is every log logrotate's state file names, which is every
+// log it has processed. One line per log, the path first and quoted since
+// version 2, then the date it was last rotated, which is not read here: under
+// notifempty a quiet log is never rotated, so the date says how busy the host
+// has been rather than whether the rule is applied.
+func logrotateStateLogs(path string) ([]string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var logs []string
+	for line := range strings.SplitSeq(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "logrotate state") {
+			continue
+		}
+		if strings.HasPrefix(line, `"`) {
+			// A quoted path may hold spaces, so it ends at its own quote rather
+			// than at the first field boundary.
+			if end := strings.IndexByte(line[1:], '"'); end >= 0 {
+				logs = append(logs, line[1:end+1])
+				continue
+			}
+		}
+		logs = append(logs, strings.Fields(line)[0])
+	}
+	return logs, nil
+}
+
+// firstExisting is the first of these paths this host has, or "" for none.
+func firstExisting(paths []string) string {
+	for _, path := range paths {
+		if hostfs.Exists(path) {
+			return path
+		}
+	}
+	return ""
+}
+
+// unquoteField drops one matching pair of quotes.
+func unquoteField(field string) string {
+	for _, quote := range []string{`"`, `'`} {
+		if len(field) > 1 && strings.HasPrefix(field, quote) && strings.HasSuffix(field, quote) {
+			return field[1 : len(field)-1]
+		}
+	}
+	return field
+}
+
+// diagnoseUnits reports the sockets, not the services: all three are socket
+// activated, so an inactive service is ordinary.
+func diagnoseUnits(report *Report, opts Options) {
+	if !hostunit.Running() {
+		report.unaskedf("sockets", len(hostunit.Sockets), "systemd is not running here, so whether "+
+			"%d socket unit(s) are listening was not asked", len(hostunit.Sockets))
+		return
+	}
+	// What the caller saw before it opened the broker socket. Reading the state
+	// here would read it after that round trip, which starts any socket the broker
+	// depends on, so all three would report as listening.
+	states := opts.SocketStates
+	if len(states) == 0 {
+		states = SampleSockets()
+	}
+	for _, socket := range hostunit.Sockets {
+		state, sampled := states[socket]
+		if !sampled {
+			state = unitUnreportable
+		}
+		// systemctl failing to answer is a subject this could not reach, not a
+		// socket known to be down: failing would point an operator at a
+		// journalctl that fails the same way.
+		if state == unitUnreportable {
+			report.unaskedf("sockets", 1, "systemctl could not report %s, so its "+
+				"state was not asked", socket)
+			continue
+		}
+		if state != hostunit.Active {
+			report.addf("sockets", StatusFailed, "%s is %s; check journalctl -u %s",
+				socket, state, socket)
+			continue
+		}
+		report.addf("sockets", StatusOK, "%s is listening", socket)
+	}
+}
+
+// diagnoseSocketEnablement: enabled as well as active. A socket somebody
+// disabled keeps listening until the next reboot, which is when nothing starts
+// and every brokered command meets a dead socket with nothing in this report
+// having said so.
+func diagnoseSocketEnablement(report *Report) {
+	if !hostunit.Running() {
+		return
+	}
+	for _, socket := range hostunit.Sockets {
+		out, err := runcmd.OutputWithin(30*time.Second, "systemctl", "is-enabled", socket)
+		state := strings.TrimSpace(out)
+		// is-enabled exits non-zero for disabled while still printing the state;
+		// only an empty answer is systemctl failing.
+		if state == "" {
+			if err != nil {
+				report.unaskedf("sockets", 1, "systemctl could not report whether "+
+					"%s is enabled, so what happens at the next boot was not asked", socket)
+			}
+			continue
+		}
+		if state != "enabled" {
+			report.addf("sockets", StatusWarn, "%s is %s, so it does not come back "+
+				"at the next boot: `sudo systemctl enable %s`", socket, state, socket)
+		}
+	}
+}
+
+// diagnoseDropIns names any drop-in overriding a faramir unit: a
+// units.d/override.conf can change User=, drop ProtectSystem= or repoint the
+// config, and until now nothing in this report said a file did it. Warned, not
+// failed: a drop-in is the operator's own arrangement, and what this buys is
+// that it is named next to the checks that read the resolved values.
+func diagnoseDropIns(report *Report) {
+	if !hostunit.Running() {
+		return
+	}
+	var dropIns []string
+	for _, unit := range []string{hostunit.BrokerUnit, hostunit.KeeperUnit, hostunit.ExecUnit,
+		"faramir-broker.socket", "faramir-keeper.socket", "faramir-exec.socket"} {
+		if paths, ok := hostunit.Property(unit, "DropInPaths"); ok && paths != "" {
+			dropIns = append(dropIns, unit+" ("+paths+")")
+		}
+	}
+	if len(dropIns) == 0 {
+		report.addf("unit drop-ins", StatusOK, "no drop-in overrides a faramir unit")
+		return
+	}
+	report.addf("unit drop-ins", StatusWarn, "%d faramir unit(s) carry a drop-in, "+
+		"so what runs is not what the installed unit says: %s. The values the "+
+		"other checks read are the resolved ones", len(dropIns), strings.Join(dropIns, "; "))
+}
+
+// gib renders a byte count the way an operator sizes one of these: the config
+// key is in MB and the unit resolves to bytes, and neither reads at a glance.
+func gib(bytes int64) string {
+	return fmt.Sprintf("%.1f GB", float64(bytes)/(1<<30))
+}
+
+// diagnoseMemoryBounds reads what the executor unit's two memory limits resolve
+// to and reports when the per-process one is out of reach.
+//
+// They answer different questions and are sized against different things, so
+// nothing stops an operator setting a per-process bound above the cgroup total.
+// Where that happens the cgroup is met first and the OOM killer picks a victim,
+// which is the outcome the per-process bound was chosen over: it hands the
+// process an allocation failure it can report instead. The defaults cross on a
+// host with less memory than four times the percentage, so a laptop reaches
+// this without anybody configuring anything.
+//
+// Read from systemd rather than computed from the config: the percentage
+// resolves against the cgroup's own limit, which inside a container is the
+// container's and not the machine's, and only systemd knows which.
+func diagnoseMemoryBounds(report *Report) {
+	const check = "memory bounds"
+	if !hostunit.Running() {
+		report.unaskedf(check, 1, "systemd is not running here, so what the "+
+			"executor's memory limits resolve to was not asked")
+		return
+	}
+	maxMemory, haveMax := hostunit.Int(hostunit.ExecUnit, "MemoryMax")
+	perProcess, havePer := hostunit.Int(hostunit.ExecUnit, "LimitDATA")
+	reportMemoryBounds(report, perProcess, havePer, maxMemory, haveMax)
+}
+
+// reportMemoryBounds is the verdict on two resolved limits, apart from reading
+// them so the judgement can be asserted without systemd.
+func reportMemoryBounds(report *Report, perProcess int64, havePer bool,
+	maxMemory int64, haveMax bool) {
+	const check = "memory bounds"
+	switch {
+	case !haveMax && !havePer:
+		report.addf(check, StatusWarn, "%s bounds neither the executor's memory "+
+			"nor one process's, so a brokered command that runs away is bounded by "+
+			"the machine. `sudo faramir init` writes both", hostunit.ExecUnit)
+	case !havePer:
+		report.addf(check, StatusWarn, "%s bounds the executor at %s and one "+
+			"process not at all, so a runaway is stopped by the OOM killer rather "+
+			"than by an allocation failure it can report", hostunit.ExecUnit, gib(maxMemory))
+	case !haveMax:
+		// The cgroup total is the half that catches fan-out, which no per-process
+		// bound sees, so its absence is the condition this check exists for.
+		report.addf(check, StatusWarn, "one brokered process may allocate %s, and "+
+			"the executor as a whole is unbounded, so fan-out is bounded by the "+
+			"machine. `sudo faramir init` writes MemoryMax back", gib(perProcess))
+	case perProcess >= maxMemory:
+		report.addf(check, StatusWarn, "one process may allocate %s while the "+
+			"executor as a whole is held to %s, so the per-process bound is out of "+
+			"reach and a runaway meets the OOM killer. Lower [command] "+
+			"max_process_memory_mb below %d, or raise [command] max_memory_percent, "+
+			"then `sudo faramir init`",
+			gib(perProcess), gib(maxMemory), maxMemory/(1<<20))
+	default:
+		report.addf(check, StatusOK, "one brokered process may allocate %s, and "+
+			"every brokered command together %s",
+			gib(perProcess), gib(maxMemory))
+	}
+}
+
+// diagnoseBrokerMemory reports what the broker is holding against what it is
+// allowed to hold. The broker's memory is the size of the value set rather than
+// a property of the code -- the automaton it scans with costs roughly 15 KB per
+// byte of secret -- so this grows as the store does, and it is met by an
+// operator who added secrets rather than by a bug.
+//
+// Read from systemd for the same reason the executor's is: the percentage
+// resolves against the cgroup's own limit, which inside a container is the
+// container's and not the machine's.
+func diagnoseBrokerMemory(report *Report) {
+	const check = "broker memory"
+	if !hostunit.Running() {
+		report.unaskedf(check, 1, "systemd is not running here, so what the "+
+			"broker's memory limit resolves to was not asked")
+		return
+	}
+	limit, haveLimit := hostunit.Int(hostunit.BrokerUnit, "MemoryMax")
+	used, haveUsed := hostunit.Int(hostunit.BrokerUnit, "MemoryCurrent")
+	reportBrokerMemory(report, used, haveUsed, limit, haveLimit)
+}
+
+// reportBrokerMemory is the verdict on the two, apart from reading them so the
+// judgement can be asserted without systemd.
+func reportBrokerMemory(report *Report, used int64, haveUsed bool,
+	limit int64, haveLimit bool) {
+	const check = "broker memory"
+	// The share at which a store is close enough to the ceiling to say so: past
+	// it, adding a few more secrets is what meets it.
+	const crowded = 80
+	switch {
+	// A drop-in may set MemoryMax=0, which parses as a number and is a broker
+	// that may hold nothing. Answered before the share below, which would
+	// divide by it.
+	case haveLimit && limit == 0:
+		report.addf(check, StatusFailed, "%s holds the broker to nothing, so it is "+
+			"killed as soon as it loads the value set. Remove the MemoryMax=0 "+
+			"drop-in, or `sudo faramir init` to write the bound faramir renders",
+			hostunit.BrokerUnit)
+	case !haveLimit:
+		report.addf(check, StatusWarn, "%s bounds the broker's memory not at all, "+
+			"so a value set that outgrows the machine is answered by the host's OOM "+
+			"killer, which need not choose the broker. `sudo faramir init` writes "+
+			"the bound", hostunit.BrokerUnit)
+	case !haveUsed:
+		report.addf(check, StatusOK, "the broker is held to %s", gib(limit))
+	case used*100/limit >= crowded:
+		report.addf(check, StatusWarn, "the broker holds %s of the %s it is allowed, "+
+			"and its memory is the size of the value set: roughly 15 KB per byte of "+
+			"secret. Past the bound it is killed and restarted, and nothing is "+
+			"redacted while it is down. Take secrets out of the store, or raise the "+
+			"machine's memory", gib(used), gib(limit))
+	default:
+		report.addf(check, StatusOK, "the broker holds %s of the %s it is allowed",
+			gib(used), gib(limit))
+	}
+}
+
+// diagnoseVersion compares the running broker against the binary asking. They
+// diverge when a new binary was installed and the daemons were not restarted
+// onto it, which leaves every other finding describing the wrong build: the
+// checks read this build's paths, modes and config rules. A fail rather than a
+// warn: an upgrade did not finish, and re-running init is what finishes it.
+func diagnoseVersion(report *Report, opts Options) {
+	switch {
+	case opts.BrokerVersion == "":
+		// A broker that is running answers this even when it refuses the
+		// request for naming another version, every error naming the build
+		// that answered, so nothing here is a broker that is not up.
+		report.unaskedf("version", 1, "the broker did not answer, so which build "+
+			"is running is unknown; this binary is %s", version.Version)
+	case opts.BrokerVersion != version.Version:
+		report.addf("version", StatusFailed, "the broker is running %s and this binary "+
+			"is %s, so the daemons were never restarted onto what is installed and "+
+			"every check made against it describes the wrong build. Run `sudo faramir init`",
+			opts.BrokerVersion, version.Version)
+	// Same version, different build. Every unstamped binary reports "dev", so
+	// the comparison above passes between two of them and this is what catches
+	// a daemon left on the binary it was started from. Both sides have to name
+	// a build for the difference to mean anything: a release names none, and
+	// neither does a broker older than the field.
+	case version.Build != "" && opts.BrokerBuild != "" &&
+		opts.BrokerBuild != version.Build:
+		report.addf("version", StatusFailed, "the broker and this binary are both %s "+
+			"but they are different builds, %s against %s, so the daemons were never "+
+			"restarted onto what is installed and every check made against it "+
+			"describes the wrong build. Run `sudo faramir init`",
+			version.Version, opts.BrokerBuild, version.Build)
+	case version.Build != "":
+		report.addf("version", StatusOK, "broker and binary are both %s (%s)",
+			version.Version, version.Build)
+	default:
+		report.addf("version", StatusOK, "broker and binary are both %s", version.Version)
+	}
+}
+
+// diagnoseBroker asks the broker what it can do. A value absent from the set
+// is neither injectable nor redacted, so a broker serving zero refs from a
+// secrets directory that exists is protecting nothing and looks healthy.
+//
+// Run as the broker's own uid, which is why this needs root: --check opens the
+// keeper socket, the SSH keys and the secrets files itself.
+func diagnoseBroker(report *Report, configFile, brokerUser string) brokerServes {
+	if os.Geteuid() != 0 {
+		report.unaskedf("broker", 1, "the operator can run doctor as root to ask this: --check "+
+			"has to run as %s, and any other account gets an answer that is not "+
+			"the broker's", brokerUser)
+		return servesUnknown
+	}
+	// Read the report before the exit code is judged. --check exits non-zero on
+	// every state below, so trusting the status alone would report all of them
+	// as one unexplained failure.
+	// Ten minutes: --check decrypts the whole store, which has its own five
+	// minute budget inside, and a broker past this is hung rather than slow.
+	out, checkErr := runcmd.OutputWithin(10*time.Minute, "runuser", "-u", brokerUser, "--",
+		"env", "FARAMIR_CONFIG="+configFile,
+		filepath.Join(hostlayout.DefaultBinDir, "faramir"), "broker", "--check")
+	var check brokercheck.CheckReport
+	if err := json.Unmarshal([]byte(out), &check); err != nil {
+		if checkErr != nil {
+			report.addf("broker", StatusFailed, "--check failed as %s: %v", brokerUser, checkErr)
+			return servesUnknown
+		}
+		report.addf("broker", StatusFailed, "could not read the --check report: %v", err)
+		return servesUnknown
+	}
+	return judgeBrokerCheck(report, brokerUser, check, checkErr)
+}
+
+// judgeBrokerCheck is diagnoseBroker past the probe: the report parsed and the
+// exit judged, split out so what gets named for which exit can be asserted
+// without a broker.
+func judgeBrokerCheck(report *Report, brokerUser string, check brokercheck.CheckReport,
+	checkErr error) brokerServes {
+	const store = "secrets store"
+	status, detail := storeFinding(check)
+	report.addf(store, status, "%s", detail)
+	// Whether something in this report named a cause --check exits non-zero
+	// for. A failed store finding is one (load errors); a warning is not, an
+	// empty or unwritten store being a state --check reports and exits zero
+	// over. Socket policy problems are in the report too, under `policy` from
+	// diagnoseSocketPolicy's own examination. Several causes at once can still
+	// leave one unnamed, which the fallback's %v carries as --check's stderr.
+	explained := status == StatusFailed || len(check.Policy) > 0
+
+	// Refs the store read and the redactor refused. Named here rather than left
+	// to the fallback below, which would report a condition --check describes
+	// precisely as one it cannot explain. A failure: a ref the config names does
+	// not answer, which is the same degraded host `faramir status` exits non-zero
+	// over, and doctor saying warn where status says fail would leave the two
+	// describing different hosts.
+	if len(check.Secrets.NotRedactable) > 0 {
+		report.addf("refused refs", StatusFailed, "%d ref(s) cannot be redacted, so "+
+			"they are never injected and never redacted: %s. Fix each with `sudo "+
+			"faramir vault edit`; the reason beside it says how",
+			len(check.Secrets.NotRedactable), check.RefusedRefs())
+		explained = true
+	}
+	// A ref two managed files both defined. Reported beside the refused refs because
+	// the consequence is the same one: a value this host manages that is injected
+	// by nothing and covered by nothing, so a command printing it prints it. The
+	// difference is that a short value is knowingly outside the redactor and this
+	// one is not, which is why it is named rather than left to a daemon log line.
+	if len(check.Secrets.ShadowedRefs) > 0 {
+		report.addf("shadowed refs", StatusFailed, "%d ref(s) are defined with "+
+			"different values by more than one managed file, so one value is in no "+
+			"redactor and a command that prints it prints it in the clear: %s. Take "+
+			"the ref out of one file with `sudo faramir vault edit`",
+			len(check.Secrets.ShadowedRefs), brokercheck.RefsWithReasons(check.Secrets.ShadowedRefs))
+		explained = true
+	}
+	// Links that did not load, read out of the file rather than off its mode:
+	// this catches a selector the owning tool stopped writing, which no mode says
+	// anything about, and which diagnoseLinkedAccess therefore cannot see.
+	//
+	// What a fresh load of this config produces, not what the running daemon
+	// holds. The two differ after a linked file is repaired by hand: the broker
+	// fingerprints one by mtime and size, and a `chgrp` changes neither, so its
+	// view stands until it is restarted. Nothing does that on its own, which is
+	// why the remedy says so.
+	//
+	// A failure: the ref answers nothing, and nothing else surfaces that until a
+	// command asks for it.
+	if len(check.Secrets.DegradedLinks) > 0 {
+		report.addf("linked refs", StatusFailed, "%s did not load, so those refs "+
+			"answer nothing while every other ref is served: %s. Fix what each one "+
+			"needs, then `sudo systemctl restart faramir-broker`: the broker "+
+			"fingerprints a linked file by mtime and size, so a repair that changes "+
+			"neither leaves its view as it was",
+			brokercheck.LinkEntries(len(check.Secrets.DegradedLinks)), check.DegradedRefs())
+		explained = true
+	}
+	// --check fails for reasons the switch does not cover: an unusable [ssh] key,
+	// a bound socket with world bits. Judged on whether this function accounted
+	// for the exit code rather than on whether anything else in the report
+	// failed.
+	if checkErr != nil && !explained {
+		report.addf("broker", StatusFailed, "--check failed as %s for a reason not "+
+			"reported above: %v", brokerUser, checkErr)
+	}
+	// A probe that ran a brokered command against a refusing broker would report
+	// the refusal as whatever it was probing for.
+	if check.Serves() {
+		return servesValues
+	}
+	return servesNothing
+}
+
+// diagnoseSSHAgent asks what a brokered command would actually get, rather than
+// reading the key off disk, and asks as the operator: root is not in the client
+// group the broker checks against.
+//
+// Skipped when no key is configured: SSH is then arranged for the executor's
+// uid some other way, and `ssh-add -l` exits non-zero for want of an agent,
+// which is not a fault. Not skipped for want of root.
+func diagnoseSSHAgent(report *Report, opts Options, cfg *config.Config, serves brokerServes) {
+	if cfg == nil {
+		report.unaskedf("ssh agent", 1, "the config did not load, so which key the "+
+			"broker lends is unknown")
+		return
+	}
+	// An install always writes one: `init` mints a key whether or not the host
+	// turns out to need it, and renders the path into [ssh] key, so an empty one
+	// is an edit rather than a host that authenticates some other way. Reported
+	// as a fault because nothing else would say so: the broker comes up, every
+	// other check passes, and a brokered command reaching a managed host fails
+	// with ssh's own error at the point of use.
+	if cfg.Ssh.Key == "" {
+		where := cfg.Path
+		if where == "" {
+			where = "the config"
+		}
+		report.addf("ssh agent", StatusFailed, "no [ssh] key is configured, so the "+
+			"broker lends no identity and a brokered command that reaches a managed "+
+			"host fails at the point of use, with ssh's own error. `faramir init` "+
+			"writes one on every run, so this is an edit to %s. Re-run `sudo faramir "+
+			"init`, with --ssh-key to name one of your own", where)
+		return
+	}
+	if reason := skipSSHProbe(serves, opts.BrokerVersion); reason != "" {
+		report.unaskedf("ssh agent", 1, "%s", reason)
+		return
+	}
+	// The probe stands for the agent account's reach, so it must run as that
+	// account. Root gets there through runuser; the agent running doctor is
+	// already it; anybody else's answer would be reported as the operator's.
+	if os.Geteuid() != 0 {
+		if current, err := user.Current(); err != nil || current.Username != opts.AgentUser {
+			report.unaskedf("ssh agent", 1, "the probe has to run as %s and this is "+
+				"not that account: run as it, or as root", opts.AgentUser)
+			return
+		}
+	}
+	// -C /, so the probe asks about the agent rather than about where doctor was
+	// run from. A brokered command runs in its caller's directory, and every
+	// faramir unit has PrivateTmp=true, so a caller standing anywhere the daemon
+	// cannot see, a host-created directory under /tmp among them, gets
+	// `bad_request: cwd does not exist for this daemon` and this check reports a
+	// working agent as failed. Root is a directory every account can enter.
+	out, err := asOperator(opts, filepath.Join(hostlayout.DefaultBinDir, "faramir"),
+		"run", "-C", "/", "--quiet", "--", "ssh-add", "-l")
+	reportSSHProbe(report, cfg, serves, out, err)
+}
+
+// skipSSHProbe reports why the probe cannot be put, empty when it can. The
+// probe sends a brokered command, so a broker that refuses one or answers
+// nothing leaves no answer to be had, and reporting either as the agent's own
+// would fail a host whose agent is fine. The established refusal comes first:
+// it names the fault to fix.
+func skipSSHProbe(serves brokerServes, brokerVersion string) string {
+	switch {
+	case serves == servesNothing:
+		return sshAgentRefused
+	case brokerVersion == "":
+		return sshAgentUnanswered
+	}
+	return ""
+}
+
+// reportSSHProbe turns the probe's answer into a finding. A refusal from a
+// broker --check found holding values is neither the agent's answer nor a skip:
+// --check reads the managed files itself, so a daemon refusing what those files
+// cover came up before they were written.
+func reportSSHProbe(report *Report, cfg *config.Config, serves brokerServes, out string, err error) {
+	switch classifySSHProbe(out, err) {
+	case sshProbeHasKey:
+		report.addf("ssh agent", StatusOK, "holds a usable key")
+	case sshProbeRefused:
+		if serves == servesValues {
+			report.addf("ssh agent", StatusFailed, "the broker refuses brokered commands "+
+				"though --check read every managed file as the broker: the running daemon "+
+				"came up before the values were there and has not read them since. "+
+				"Restart faramir-broker")
+			return
+		}
+		report.unaskedf("ssh agent", 1, "%s", sshAgentRefused)
+	case sshProbeEmpty:
+		report.addf("ssh agent", StatusFailed, "the agent holds nothing, though [ssh] "+
+			"key names %s, so every brokered command that reaches a managed host "+
+			"fails to authenticate. Place the key and restart faramir-broker",
+			cfg.Ssh.Key)
+	case sshProbeUnreachable:
+		// Bounded: out is a brokered command's whole output, and a finding is a
+		// line an operator reads, not the record.
+		report.addf("ssh agent", StatusFailed, "could not ask the broker: %v: %s",
+			err, termsafe.Bound(strings.TrimSpace(out), 512))
+	}
+}
+
+// sshProbeResult is what `ssh-add -l` through the broker came back as.
+type sshProbeResult int
+
+const (
+	sshProbeHasKey sshProbeResult = iota
+	sshProbeRefused
+	sshProbeEmpty
+	sshProbeUnreachable
+)
+
+// classifySSHProbe reads the probe's answer. Success first: ssh-add exits
+// non-zero both when the agent is empty and when it could not be reached, so
+// err alone does not say which and the output decides. The refusal is the
+// broker declining to run the probe at all.
+func classifySSHProbe(out string, err error) sshProbeResult {
+	switch {
+	case strings.Contains(out, "SHA256"):
+		return sshProbeHasKey
+	case err != nil && strings.Contains(err.Error(), refusedCode):
+		return sshProbeRefused
+	case strings.Contains(out, "no identities"):
+		return sshProbeEmpty
+	}
+	return sshProbeUnreachable
+}
+
+// diagnoseGroup lists members of the two granting groups that this install does
+// not account for. Reported rather than removed: whose grant that is, is not
+// this command's to decide.
+//
+// Both groups, because both survive a re-run that renames what they are for:
+// changing --client-group leaves the old group intact with every member, and a
+// new --keeper-user leaves the retired account in the group owning the
+// ciphertext.
+func diagnoseGroup(report *Report, opts Options) {
+	// A list so the bail-out below can say how many went unasked.
+	type granting struct{ label, name, grants string }
+	groups := []granting{
+		{"client group", opts.ClientGroup,
+			"reach the broker socket, and enter a tree enrolled with it"},
+	}
+	// Only where the secrets group is not the client group, which is already
+	// listed.
+	if opts.SecretsGroup != "" && opts.SecretsGroup != opts.ClientGroup {
+		groups = append(groups, granting{"secrets group", opts.SecretsGroup,
+			"read and replace the ciphertext in the secrets directory"})
+	}
+	// The operator is a member of the client group by construction, so without
+	// their name the account this install admitted cannot be told from one left
+	// behind, and the remedy printed would be the one change that shuts the agent
+	// out of the broker socket.
+	if opts.AgentUser == "" {
+		report.unaskedf("client group", len(groups), "the agent account is not "+
+			"named, so a member of %s cannot be told from an account left behind: "+
+			"run through sudo so SUDO_USER carries it, or record the account with "+
+			"`faramir init --agent-user`", opts.ClientGroup)
+		return
+	}
+	// The agent's account belongs in the client group and nowhere near the
+	// secrets group: membership there is read on the ciphertext, which is the one
+	// grant this install exists to keep from it. Calling it expected in both left
+	// one line saying "no unexpected members" beside another failing over that
+	// exact member.
+	service := []string{opts.BrokerUser, opts.KeeperUser, opts.ExecUser}
+	for _, group := range groups {
+		known := service
+		if group.name == opts.ClientGroup {
+			known = append(append([]string{}, service...), opts.AgentUser)
+		}
+		diagnoseGroupOutsiders(report, group.label, group.name, known, group.grants)
+	}
+}
+
+// diagnoseGroupOutsiders is one group's membership against the accounts this
+// install uses. Primary membership as well as supplementary: /etc/group lists
+// only the second, and a renamed --keeper-user leaves an account holding the
+// secrets group as its primary, which is the case worth reporting.
+func diagnoseGroupOutsiders(report *Report, label, name string, known []string, grants string) {
+	gid, members, err := groupEntry(name)
+	if err != nil {
+		report.addf(label, StatusFailed, "no group %q, so nothing can %s", name, grants)
+		return
+	}
+	primary, err := primaryMembers(gid)
+	if err != nil {
+		report.addf(label, StatusFailed, "could not read who holds %s as a primary "+
+			"group (%v), so who can %s went unverified", name, err, grants)
+		return
+	}
+	var outsiders []string
+	for _, member := range append(members, primary...) {
+		if member != "" && !slices.Contains(known, member) &&
+			!slices.Contains(outsiders, member) {
+			outsiders = append(outsiders, member)
+		}
+	}
+	if len(outsiders) == 0 {
+		report.addf(label, StatusOK, "%s has no unexpected members", name)
+		return
+	}
+	report.addf(label, StatusWarn, "%s has members this install does not use: %s. "+
+		"Membership is what lets them %s. Drop one with: gpasswd -d <account> %s, "+
+		"or usermod -g <other> <account> where it is the primary group",
+		name, strings.Join(outsiders, ", "), grants, name)
+}
+
+// passwdFile is where the accounts are. A variable so a test can point at one
+// it wrote.
+var passwdFile = "/etc/passwd"
+
+// primaryMembers is the accounts whose primary gid is this group, which
+// /etc/group does not record.
+func primaryMembers(gid string) ([]string, error) {
+	body, err := os.ReadFile(passwdFile)
+	if err != nil {
+		return nil, err
+	}
+	var accounts []string
+	for line := range strings.Lines(string(body)) {
+		fields := strings.Split(strings.TrimSpace(line), ":")
+		if len(fields) >= 4 && fields[3] == gid {
+			accounts = append(accounts, fields[0])
+		}
+	}
+	return accounts, nil
+}
+
+// groupFile is where the groups are. A variable so a test can point at one it
+// wrote.
+var groupFile = "/etc/group"
+
+// groupEntry is a group's gid and its supplementary members, read from the same
+// line so both describe one entry. The gid is what the primary members are
+// found by.
+func groupEntry(name string) (gid string, members []string, err error) {
+	body, readErr := os.ReadFile(groupFile)
+	if readErr != nil {
+		return "", nil, readErr
+	}
+	for line := range strings.Lines(string(body)) {
+		fields := strings.Split(strings.TrimSpace(line), ":")
+		if len(fields) < 4 || fields[0] != name {
+			continue
+		}
+		if fields[3] == "" {
+			return fields[2], nil, nil
+		}
+		return fields[2], strings.Split(fields[3], ","), nil
+	}
+	return "", nil, fmt.Errorf("no group %q in %s", name, groupFile)
+}
+
+// resolveIdentities finds the accounts and groups this install actually uses,
+// rather than the ones a default would name: every check below asks what a
+// named account can reach, so a wrong name answers confidently about an account
+// this host may not have.
+//
+// The unit is the source of truth for a service account, being what systemd
+// reads; the config for the client group, being what the broker checks; and the
+// secrets directory's own group for the secrets group, being what the modes are
+// set to. A flag still wins, for a host whose install is not this machine's.
+//
+// Failing rather than falling back: each of these is readable on any working
+// install.
+func resolveIdentities(report *Report, opts Options, cfg *config.Config) (Options, bool) {
+	for _, role := range []struct {
+		unit string
+		into *string
+		flag string
+	}{
+		{hostunit.BrokerUnit, &opts.BrokerUser, hostlayout.BrokerUserFlag},
+		{hostunit.KeeperUnit, &opts.KeeperUser, hostlayout.KeeperUserFlag},
+		{hostunit.ExecUnit, &opts.ExecUser, hostlayout.ExecUserFlag},
+	} {
+		if *role.into != "" {
+			continue
+		}
+		account, err := hostunit.User(role.unit)
+		if err != nil {
+			report.addf("identities", StatusFailed, "cannot tell which account runs "+
+				"%s (%v), so nothing below could be asked about the right one. Reinstall, "+
+				"or pass %s", role.unit, err, role.flag)
+			return opts, false
+		}
+		*role.into = account
+	}
+
+	if opts.ClientGroup == "" {
+		if cfg.Server.AllowedGroup == "" {
+			report.addf("identities", StatusFailed, "[server] allowed_group is unset, so "+
+				"the broker admits nobody but root and itself. Run `faramir init "+
+				"--client-group NAME`, or pass --client-group to examine anyway")
+			return opts, false
+		}
+		opts.ClientGroup = cfg.Server.AllowedGroup
+	}
+	if opts.SecretsGroup == "" {
+		dir := filepath.Join(opts.ConfigDir, "secrets")
+		group, err := asaccount.GroupOf(dir)
+		if err != nil {
+			report.addf("identities", StatusFailed, "cannot read the group owning %s "+
+				"(%v), which is what keeps every account but the keeper out of the "+
+				"ciphertext. Reinstall, or pass --secrets-group", dir, err)
+			return opts, false
+		}
+		opts.SecretsGroup = group
+	}
+
+	report.addf("identities", StatusOK, "%s, %s, %s, in %s, secrets owned by %s",
+		opts.BrokerUser, opts.KeeperUser, opts.ExecUser, opts.ClientGroup, opts.SecretsGroup)
+	return opts, true
+}

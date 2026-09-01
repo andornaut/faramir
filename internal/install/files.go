@@ -12,19 +12,18 @@ import (
 	"strings"
 
 	faramir "github.com/andornaut/faramir"
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostunit"
 	"github.com/andornaut/faramir/internal/sharetree"
 )
-
-// binaryName is what the installed program is called, wherever it is installed.
-// Spelled once: a merge recognises faramir's own entries in an agent's config by
-// the program they invoke.
-const binaryName = "faramir"
 
 // installedBinaries goes to BinDir. There is one; the daemons and the guard are
 // subcommands of it, and it is also how the agent reaches the broker.
 // LibexecDir holds the guard's deny list and wrap script.
-var installedBinaries = []string{binaryName}
+var installedBinaries = []string{agentcfg.BinaryName}
 
 // stepDirectories creates what everything below writes into.
 func (r *runner) stepDirectories() error {
@@ -34,7 +33,7 @@ func (r *runner) stepDirectories() error {
 	// what the executor runs when a command names a bare program. An agent runs
 	// as the operator, so operator-writable would hand that choice to the agent.
 	// own=true, so a directory already operator-owned is taken back.
-	if made, err := r.fs.ensureDir(r.layout.ConfigDir, 0o755, 0, 0, true); err != nil {
+	if made, err := r.fs.EnsureDir(r.layout.ConfigDir, 0o755, 0, 0, true); err != nil {
 		return err
 	} else if made {
 		changed = true
@@ -51,7 +50,7 @@ func (r *runner) stepDirectories() error {
 	// whoever ran sudo. Group read and traverse without write, the keeper only
 	// decrypting and fingerprinting. Owned by root, owning the directory being
 	// permission to unlink and rename what is in it.
-	storeChanged, err := r.fs.ensureDir(r.layout.SecretsDir(), 0o2750|os.ModeSetgid, 0, r.secretsGID, true)
+	storeChanged, err := r.fs.EnsureDir(r.layout.SecretsDir(), 0o2750|os.ModeSetgid, 0, r.secretsGID, true)
 	if err != nil {
 		return err
 	}
@@ -73,7 +72,7 @@ func (r *runner) stepDirectories() error {
 		if entry.IsDir() {
 			continue
 		}
-		made, err := r.fs.ensureOwnership(
+		made, err := r.fs.EnsureOwnership(
 			filepath.Join(r.layout.SecretsDir(), entry.Name()), 0o640, 0, r.secretsGID)
 		if err != nil {
 			return err
@@ -92,7 +91,7 @@ func (r *runner) stepDirectories() error {
 	// Created but not re-asserted: LogsDirectory= on the broker's unit applies
 	// LogsDirectoryMode on every start, so a mode set here would be undone and
 	// reported as a change on every run.
-	made, err := r.fs.ensureDir(r.layout.LogDir, 0o750, r.brokerUID, r.brokerGID, false)
+	made, err := r.fs.EnsureDir(r.layout.LogDir, 0o750, r.brokerUID, r.brokerGID, false)
 	if err != nil {
 		return err
 	}
@@ -102,7 +101,7 @@ func (r *runner) stepDirectories() error {
 	// creates it, and `faramir vault edit` runs as root, so on a fresh host the
 	// log would land root-owned and every later append from the broker would fail
 	// silently. logrotate re-creates it broker-owned thereafter.
-	made, err = r.fs.ensurePrivateFile(r.layout.AuditLogPath(), r.brokerUID, r.brokerGID)
+	made, err = r.fs.EnsurePrivateFile(r.layout.AuditLogPath(), r.brokerUID, r.brokerGID)
 	if err != nil {
 		return err
 	}
@@ -121,7 +120,7 @@ func (r *runner) stepDirectories() error {
 // file-tool half, so an add reported changed and the agent's shell could still
 // run it until the next `init`.
 func (r *runner) stepDenyPatterns() error {
-	if _, err := r.fs.ensureDir(r.layout.LibexecDir, 0o755, 0, 0, true); err != nil {
+	if _, err := r.fs.EnsureDir(r.layout.LibexecDir, 0o755, 0, 0, true); err != nil {
 		return err
 	}
 	changed, err := r.writeDenyPatterns()
@@ -142,11 +141,11 @@ func (r *runner) stepDenyPatterns() error {
 // rules naming where it is. A hook that cannot find the file falls back to the
 // compiled defaults.
 func (r *runner) writeDenyPatterns() (bool, error) {
-	patterns, err := render("agent/hooks/deny-patterns.txt", r.layout)
+	patterns, err := agentcfg.Render("agent/hooks/deny-patterns.txt", r.layout)
 	if err != nil {
 		return false, err
 	}
-	return r.fs.writeFile(filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"),
+	return r.fs.WriteFile(filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"),
 		patterns, 0o644, 0, 0)
 }
 
@@ -154,14 +153,14 @@ func (r *runner) writeDenyPatterns() (bool, error) {
 func (r *runner) stepBinaries() error {
 	changed := false
 	for _, name := range installedBinaries {
-		made, err := r.fs.copyFile(filepath.Join(r.binaries, name),
+		made, err := r.fs.CopyFile(filepath.Join(r.binaries, name),
 			filepath.Join(r.layout.BinDir, name), 0o755, 0, 0)
 		if err != nil {
 			return err
 		}
 		changed = changed || made
 	}
-	if _, err := r.fs.ensureDir(r.layout.LibexecDir, 0o755, 0, 0, true); err != nil {
+	if _, err := r.fs.EnsureDir(r.layout.LibexecDir, 0o755, 0, 0, true); err != nil {
 		return err
 	}
 
@@ -185,11 +184,11 @@ func (r *runner) stepBinaries() error {
 	// without a PAM service and a sudoers entry nothing execs it, and a stale one
 	// left behind would be worse. Executable, unlike wrap.sh: PAM execs this, as
 	// root.
-	helper, err := render("agent/hooks/pam-escalate.tmpl", r.layout)
+	helper, err := agentcfg.Render("agent/hooks/pam-escalate.tmpl", r.layout)
 	if err != nil {
 		return err
 	}
-	made, err = r.fs.writeFile(r.layout.PamHelper(), helper, 0o755, 0, 0)
+	made, err = r.fs.WriteFile(r.layout.PamHelper(), helper, 0o755, 0, 0)
 	if err != nil {
 		return err
 	}
@@ -214,10 +213,10 @@ func (r *runner) installDocs() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := r.fs.ensureDir(r.layout.DocDir, 0o755, 0, 0, true); err != nil {
+	if _, err := r.fs.EnsureDir(r.layout.DocDir, 0o755, 0, 0, true); err != nil {
 		return false, err
 	}
-	if _, err := r.fs.ensureDir(filepath.Join(r.layout.DocDir, "docs"), 0o755, 0, 0, true); err != nil {
+	if _, err := r.fs.EnsureDir(filepath.Join(r.layout.DocDir, "docs"), 0o755, 0, 0, true); err != nil {
 		return false, err
 	}
 	changed := false
@@ -233,7 +232,7 @@ func (r *runner) installDocs() (bool, error) {
 
 // docTargets maps each embedded doc to the same path under the doc directory,
 // unchanged: everything that cites a doc cites it by the checkout's path.
-func docTargets(layout Layout) (map[string]string, error) {
+func docTargets(layout hostlayout.Layout) (map[string]string, error) {
 	targets := map[string]string{
 		"README.md": filepath.Join(layout.DocDir, "README.md"),
 		// Beside the README: nothing cites it, and that is where a licence
@@ -253,29 +252,20 @@ func docTargets(layout Layout) (map[string]string, error) {
 	return targets, nil
 }
 
-// readAsset reads one embedded file.
-func readAsset(assetPath string) ([]byte, error) {
-	data, err := faramir.Assets.ReadFile(assetPath)
-	if err != nil {
-		return nil, fmt.Errorf("embedded asset %s: %w", assetPath, err)
-	}
-	return data, nil
-}
-
 // writeAsset copies an embedded file out verbatim.
 func (r *runner) writeAsset(assetPath, dst string, mode os.FileMode) (bool, error) {
-	data, err := readAsset(assetPath)
+	data, err := agentcfg.Asset(assetPath)
 	if err != nil {
 		return false, err
 	}
-	return r.fs.writeFile(dst, data, mode, 0, 0)
+	return r.fs.WriteFile(dst, data, mode, 0, 0)
 }
 
 // stepConfig writes the config on every run. Rewritten rather than kept: the
 // file is faramir's, and what an operator sets is adopted off the installed one
 // and rendered back into it.
 func (r *runner) stepConfig() error {
-	body, err := render("etc/config.toml.tmpl", r.layout)
+	body, err := agentcfg.Render("etc/config.toml.tmpl", r.layout)
 	if err != nil {
 		return err
 	}
@@ -297,11 +287,11 @@ func (r *runner) stepConfig() error {
 	// is preserving, and refusing it would leave a re-run unable to rewrite its
 	// own config.
 	owner, group := 0, 0
-	prior := unread()
+	prior := hostfs.Unread()
 	if r.opts.configRead {
-		prior = after(r.opts.configDigest)
+		prior = hostfs.After(r.opts.configDigest)
 	}
-	changed, err := r.fs.writeFileWith(r.layout.ConfigFile, body, 0o644, owner, group, prior)
+	changed, err := r.fs.WriteFileWith(r.layout.ConfigFile, body, 0o644, owner, group, prior)
 	if err != nil {
 		return err
 	}
@@ -318,12 +308,12 @@ func (r *runner) stepConfig() error {
 // either is a re-run without the flag.
 func (r *runner) stepUnits() error {
 	changed := false
-	for _, name := range unitNames() {
-		body, err := render(units[name], r.layout)
+	for _, name := range agentcfg.UnitNames() {
+		body, err := agentcfg.Render(agentcfg.Units[name], r.layout)
 		if err != nil {
 			return err
 		}
-		made, err := r.fs.writeFile(filepath.Join(systemUnitDir, name), body, 0o644, 0, 0)
+		made, err := r.fs.WriteFile(filepath.Join(hostunit.SystemUnitDir, name), body, 0o644, 0, 0)
 		if err != nil {
 			return err
 		}
@@ -331,18 +321,18 @@ func (r *runner) stepUnits() error {
 	}
 	// Nothing here removes a drop-in from an earlier arrangement: init installs,
 	// it does not migrate.
-	body, err := render("systemd/faramir.tmpfiles.conf.tmpl", r.layout)
+	body, err := agentcfg.Render("systemd/faramir.tmpfiles.conf.tmpl", r.layout)
 	if err != nil {
 		return err
 	}
-	made, err := r.fs.writeFile("/etc/tmpfiles.d/faramir.conf", body, 0o644, 0, 0)
+	made, err := r.fs.WriteFile("/etc/tmpfiles.d/faramir.conf", body, 0o644, 0, 0)
 	if err != nil {
 		return err
 	}
 	if changed || made {
 		r.restartFor("units")
 	}
-	r.step("units", changed || made, strings.Join(unitNames(), ", "))
+	r.step("units", changed || made, strings.Join(agentcfg.UnitNames(), ", "))
 	return r.stepLogrotate()
 }
 
@@ -350,11 +340,11 @@ func (r *runner) stepUnits() error {
 // no daemon reads it, so a host managing its logs another way deletes this one
 // file.
 func (r *runner) stepLogrotate() error {
-	body, err := render("etc/logrotate.conf.tmpl", r.layout)
+	body, err := agentcfg.Render("etc/logrotate.conf.tmpl", r.layout)
 	if err != nil {
 		return err
 	}
-	made, err := r.fs.writeFile(logrotateConfig, body, 0o644, 0, 0)
+	made, err := r.fs.WriteFile(hostlayout.LogrotateConfig, body, 0o644, 0, 0)
 	if err != nil {
 		return err
 	}
@@ -365,9 +355,9 @@ func (r *runner) stepLogrotate() error {
 		r.warnf("logrotate is not installed, so %s is inert and %s grows without a "+
 			"ceiling: the record cap bounds one record, not the file. "+
 			"Install logrotate, or manage that file some other way",
-			logrotateConfig, r.layout.AuditLogPath())
+			hostlayout.LogrotateConfig, r.layout.AuditLogPath())
 	}
-	r.step("logrotate", made, logrotateConfig)
+	r.step("logrotate", made, hostlayout.LogrotateConfig)
 	return nil
 }
 
@@ -385,7 +375,7 @@ func (r *runner) stepReachable() error {
 		return nil
 	}
 	dir := r.layout.ConfigDir
-	if homeOf(dir) == "" {
+	if hostlayout.HomeOf(dir) == "" {
 		r.skip("reachable", "nothing the daemons read is inside a home")
 		return nil
 	}

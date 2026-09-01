@@ -7,14 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 )
-
-// writeBlockConfig is an install whose config declares the entries given.
-func writeBlockConfig(t *testing.T, entries string) string {
-	t.Helper()
-	return configDirWith(t, "[command]\ntimeout_sec = 600\n"+entries)
-}
 
 // Every refusal `block add` can make before it touches anything. There is no
 // grant and no probe to get wrong here, so unlike `link add` these are the only
@@ -356,7 +351,7 @@ func TestAddRefusedWillNotBlockAnEnrolledTree(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(tree, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := recordEnrolment(dir, EnrolledTree{
+	if err := agentcfg.RecordEnrolment(dir, agentcfg.EnrolledTree{
 		Dir: tree, AgentUser: "op", Agents: []string{"claude"},
 	}); err != nil {
 		t.Fatal(err)

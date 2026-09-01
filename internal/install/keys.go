@@ -9,6 +9,9 @@ import (
 	"strconv"
 
 	"github.com/andornaut/faramir/internal/agekey"
+	"github.com/andornaut/faramir/internal/asaccount"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/sopsrule"
 	"github.com/andornaut/faramir/internal/sshkey"
 )
 
@@ -44,7 +47,7 @@ func (r *runner) stepAgeKey() error {
 		if err != nil {
 			return err
 		}
-		wrong, err := wrongOwner(info, r.keeperUID, r.keeperGID)
+		wrong, err := hostfs.WrongOwner(info, r.keeperUID, r.keeperGID)
 		if err != nil {
 			return err
 		}
@@ -71,12 +74,12 @@ func (r *runner) stepAgeKey() error {
 // should not.
 func (r *runner) stepSopsConfig() error {
 	path := r.layout.SopsConfigPath()
-	if exists(path) {
+	if hostfs.Exists(path) {
 		// The contents are kept (see keepSopsConfig) but the mode and ownership are
 		// re-asserted: an operator-created file left operator-writable lets the
 		// account the secrets group exists to keep out choose the recipients of
 		// everything written from then on.
-		if _, err := r.fs.ensureOwnership(path, 0o644, 0, 0); err != nil {
+		if _, err := r.fs.EnsureOwnership(path, 0o644, 0, 0); err != nil {
 			return err
 		}
 		r.keepSopsConfig(path)
@@ -104,7 +107,7 @@ func (r *runner) stepSopsConfig() error {
 	// Root-owned like the rest of the config directory, or the recipients could
 	// be rewritten by an account the secrets group exists to keep out.
 	// World-readable, holding public keys and a rule and no value.
-	changed, err := r.fs.writeFile(path, []byte(body), 0o644, 0, 0)
+	changed, err := r.fs.WriteFile(path, []byte(body), 0o644, 0, 0)
 	if err != nil {
 		return err
 	}
@@ -124,7 +127,7 @@ func (r *runner) stepSopsConfig() error {
 // works today and cannot take a new value tomorrow, so it warns rather than
 // failing the run.
 func (r *runner) keepSopsConfig(path string) {
-	listed, err := sopsRecipients(path)
+	listed, err := sopsrule.AllRecipients(path)
 	if err != nil {
 		// The file is the operator's to edit and sops is what parses it, so a shape
 		// this does not understand is a question that went unasked.
@@ -165,7 +168,7 @@ func (r *runner) stepSSHKey() error {
 	}
 	// own=false: the directory may be the config directory, which is root's, or
 	// one the operator made to hold a key of their own.
-	if _, err := r.fs.ensureDir(filepath.Dir(r.layout.SSHKey), 0o700,
+	if _, err := r.fs.EnsureDir(filepath.Dir(r.layout.SSHKey), 0o700,
 		r.brokerUID, r.brokerGID, false); err != nil {
 		return err
 	}
@@ -215,7 +218,7 @@ func (r *runner) checkSSHKey(path string, uid, gid int) error {
 		return fmt.Errorf("%s is %s, and [ssh] key names it, so %s cannot load it and brokered commands "+
 			"reach no managed host. Hand both halves over:\n    chown %s:%s %s %s\n    chmod "+
 			"0600 %s && chmod 0644 %s\nOr unset [ssh] key",
-			half.path, ownsWithGroup(half.path), r.layout.BrokerUser,
+			half.path, asaccount.OwnsWithGroup(half.path), r.layout.BrokerUser,
 			r.layout.BrokerUser, r.brokerGroupName(), path, path+".pub",
 			path, path+".pub")
 	})
@@ -232,7 +235,7 @@ func wrongSSHKeyHalves(path string, uid, gid int, visit func(half sshKeyHalf) er
 				"Regenerate the public half with: ssh-keygen -y -f %s > %s",
 				half.path, err, path, path+".pub")
 		}
-		wrong, err := wrongOwner(info, uid, gid)
+		wrong, err := hostfs.WrongOwner(info, uid, gid)
 		if err != nil {
 			return err
 		}

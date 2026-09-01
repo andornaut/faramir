@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // An existing .sops.yaml is kept, applying a changed rule meaning every managed
@@ -49,7 +51,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			run := &runner{
-				layout: Layout{ConfigDir: dir, KeeperUser: "faramir-keeper",
+				layout: hostlayout.Layout{ConfigDir: dir, KeeperUser: "faramir-keeper",
 					AgeKeyPath: filepath.Join(dir, "age.key")},
 				keeperRecipient: tc.keeper,
 			}
@@ -85,7 +87,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 func TestKeepSopsConfigDoesNotInventAnAnswerForAnUnreadableFile(t *testing.T) {
 	dir := t.TempDir()
 	run := &runner{
-		layout:          Layout{ConfigDir: dir, KeeperUser: "faramir-keeper"},
+		layout:          hostlayout.Layout{ConfigDir: dir, KeeperUser: "faramir-keeper"},
 		keeperRecipient: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
 	}
 	path := run.layout.SopsConfigPath()
@@ -122,7 +124,7 @@ func TestOwnSSHKeyRepairsOnlyWhatItMinted(t *testing.T) {
 	// separates the two cases is the flag, not the privilege.
 	run := &runner{
 		brokerUID: os.Getuid(), brokerGID: os.Getgid(),
-		layout: Layout{BrokerUser: DefaultBrokerUser},
+		layout: hostlayout.Layout{BrokerUser: hostlayout.DefaultBrokerUser},
 	}
 
 	t.Run("a key it did not mint is refused", func(t *testing.T) {
@@ -193,7 +195,7 @@ func TestOwnSSHKeyRepairsOnlyWhatItMinted(t *testing.T) {
 func TestStepSopsConfigRefusesASymlinkedRule(t *testing.T) {
 	dir := t.TempDir()
 	run := &runner{
-		layout: Layout{ConfigDir: dir, KeeperUser: "faramir-keeper",
+		layout: hostlayout.Layout{ConfigDir: dir, KeeperUser: "faramir-keeper",
 			AgeKeyPath: filepath.Join(dir, "age.key")},
 	}
 	target := filepath.Join(dir, "elsewhere.yaml")

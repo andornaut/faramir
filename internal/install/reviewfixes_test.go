@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostunit"
 )
 
 // A drop-in setting Environment=FARAMIR_CONFIG is what the daemons load, and
@@ -15,8 +16,8 @@ import (
 // lets init re-provision a directory nothing loads.
 func TestUnitConfigDirReadsDropIns(t *testing.T) {
 	dir := t.TempDir()
-	systemUnitDir = dir
-	t.Cleanup(func() { systemUnitDir = "/etc/systemd/system" })
+	hostunit.SystemUnitDir = dir
+	t.Cleanup(func() { hostunit.SystemUnitDir = "/etc/systemd/system" })
 	unit := "faramir-broker.service"
 	write := func(path, body string) {
 		t.Helper()
@@ -29,7 +30,7 @@ func TestUnitConfigDirReadsDropIns(t *testing.T) {
 	}
 	write(filepath.Join(dir, unit),
 		"[Service]\nEnvironment=FARAMIR_CONFIG=/etc/faramir/config.toml\n")
-	if got := unitConfigDir(unit); got != "/etc/faramir" {
+	if got := hostunit.ConfigDir(unit); got != "/etc/faramir" {
 		t.Fatalf("the unit alone: got %q", got)
 	}
 
@@ -38,12 +39,12 @@ func TestUnitConfigDirReadsDropIns(t *testing.T) {
 		"[Service]\nEnvironment=FARAMIR_CONFIG=/srv/one/config.toml\n")
 	write(filepath.Join(dir, unit+".d", "20-second.conf"),
 		"[Service]\nEnvironment=FARAMIR_CONFIG=/srv/two/config.toml\n")
-	if got := unitConfigDir(unit); got != "/srv/two" {
+	if got := hostunit.ConfigDir(unit); got != "/srv/two" {
 		t.Errorf("a drop-in overriding the config directory was ignored: got %q", got)
 	}
 
 	// And the consequence: init must see that as a move.
-	run := &runner{layout: Layout{ConfigDir: "/etc/faramir"}}
+	run := &runner{layout: hostlayout.Layout{ConfigDir: "/etc/faramir"}}
 	if err := run.refuseRepoint(); err == nil {
 		t.Error("re-provisioning /etc/faramir while the daemons load /srv/two was " +
 			"allowed, which moves them without saying so")
@@ -54,15 +55,15 @@ func TestUnitConfigDirReadsDropIns(t *testing.T) {
 // Refusing would make previewing one impossible without consenting to it first.
 func TestADryRunPreviewsAConfigMoveInsteadOfRefusingIt(t *testing.T) {
 	dir := t.TempDir()
-	systemUnitDir = dir
-	t.Cleanup(func() { systemUnitDir = "/etc/systemd/system" })
+	hostunit.SystemUnitDir = dir
+	t.Cleanup(func() { hostunit.SystemUnitDir = "/etc/systemd/system" })
 	if err := os.WriteFile(filepath.Join(dir, "faramir-broker.service"),
 		[]byte("[Service]\nEnvironment=FARAMIR_CONFIG=/etc/faramir/config.toml\n"),
 		0o644); err != nil {
 		t.Fatal(err)
 	}
 	run := &runner{
-		layout: Layout{ConfigDir: "/opt/faramir2"},
+		layout: hostlayout.Layout{ConfigDir: "/opt/faramir2"},
 		opts:   Options{DryRun: true},
 	}
 	if err := run.refuseRepoint(); err != nil {
@@ -86,14 +87,14 @@ func TestTheSudoersPreconditionGatesOnWhatTheStepNeeds(t *testing.T) {
 		t.Fatal("the fixture is meant to carry the grant")
 	}
 	dir := t.TempDir()
-	realSudoers, realPam := sudoersDir, pamDir
-	t.Cleanup(func() { sudoersDir, pamDir = realSudoers, realPam })
+	realSudoers, realPam := hostlayout.SudoersDir, hostlayout.PamDir
+	t.Cleanup(func() { hostlayout.SudoersDir, hostlayout.PamDir = realSudoers, realPam })
 
 	// sudo, no PAM: the grant step skips with a warning, so the precondition must
 	// not fail the whole install ahead of it.
-	sudoersDir = filepath.Join(dir, "sudoers.d")
-	pamDir = filepath.Join(dir, "absent-pam.d")
-	if err := os.MkdirAll(sudoersDir, 0o755); err != nil {
+	hostlayout.SudoersDir = filepath.Join(dir, "sudoers.d")
+	hostlayout.PamDir = filepath.Join(dir, "absent-pam.d")
+	if err := os.MkdirAll(hostlayout.SudoersDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	run := &runner{layout: layout}
@@ -103,7 +104,7 @@ func TestTheSudoersPreconditionGatesOnWhatTheStepNeeds(t *testing.T) {
 	}
 
 	// Neither: the same.
-	sudoersDir = filepath.Join(dir, "absent-sudoers.d")
+	hostlayout.SudoersDir = filepath.Join(dir, "absent-sudoers.d")
 	if err := run.refuseInvalidSudoers(); err != nil {
 		t.Errorf("the precondition failed the install on a host with no sudo: %v", err)
 	}
@@ -115,65 +116,5 @@ func TestTheSudoersPreconditionGatesOnWhatTheStepNeeds(t *testing.T) {
 	}
 	if err := noGrant.refuseInvalidSudoers(); err != nil {
 		t.Errorf("the precondition ran without --allow-sudo: %v", err)
-	}
-}
-
-// The executor unit cannot set RestrictNamespaces=: it denies clone3(), which is
-// how every run is spawned into its cgroup. That leaves a brokered command able
-// to unshare a user namespace and hold capabilities in it, and nothing applies
-// the kernel switch that closes it, so doctor reports it, and only where the
-// grant makes it worth acting on.
-func TestDiagnoseUsernsReportsWhatTheUnitStoppedBounding(t *testing.T) {
-	dir := t.TempDir()
-	open := filepath.Join(dir, "apparmor_restrict_unprivileged_userns")
-	if err := os.WriteFile(open, []byte("0\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	usernsSwitches = []struct {
-		path string
-		open string
-		shut string
-	}{{open, "0", "1"}}
-	t.Cleanup(func() {
-		usernsSwitches = []struct {
-			path string
-			open string
-			shut string
-		}{
-			{"/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "0", "1"},
-			{"/proc/sys/kernel/unprivileged_userns_clone", "1", "0"},
-		}
-	})
-
-	// No grant: the seccomp filter bounds this, so the check has no subject.
-	// Reported n/a rather than dropped, like the ptrace scope check beside it: a
-	// line that is absent reads the same as one that was never written.
-	var quiet DoctorReport
-	diagnoseUserns(&quiet, DoctorOptions{ExecUser: "faramir-exec"}, &config.Config{})
-	if len(quiet.Findings) != 1 || quiet.Findings[0].Status != StatusNA {
-		t.Errorf("a host with no sudo grant should report n/a: %v", quiet.Findings)
-	}
-
-	granted := &config.Config{}
-	granted.Sudo.ExecUser = "faramir-exec"
-
-	var loose DoctorReport
-	diagnoseUserns(&loose, DoctorOptions{ExecUser: "faramir-exec"}, granted)
-	if len(loose.Findings) != 1 || loose.Findings[0].Status != StatusWarn {
-		t.Fatalf("an open switch on a host that grants an escalation: %v", loose.Findings)
-	}
-	for _, want := range []string{"sysctl -w", "=1", "clone3"} {
-		if !strings.Contains(loose.Findings[0].Detail, want) {
-			t.Errorf("the finding does not mention %q: %s", want, loose.Findings[0].Detail)
-		}
-	}
-
-	if err := os.WriteFile(open, []byte("1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	var shut DoctorReport
-	diagnoseUserns(&shut, DoctorOptions{ExecUser: "faramir-exec"}, granted)
-	if len(shut.Findings) != 1 || shut.Findings[0].Status != StatusOK {
-		t.Errorf("a closed switch should read as closed: %v", shut.Findings)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 )
 
@@ -14,7 +15,7 @@ import (
 func TestALinkNamingAnEnrolledTreeIsRefused(t *testing.T) {
 	dir := writeBlockConfig(t, "")
 	tree := t.TempDir()
-	if err := recordEnrolment(dir, EnrolledTree{Dir: tree, AgentUser: "op"}); err != nil {
+	if err := agentcfg.RecordEnrolment(dir, agentcfg.EnrolledTree{Dir: tree, AgentUser: "op"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -44,7 +45,7 @@ func TestALinkNamingAnEnrolledTreeIsRefused(t *testing.T) {
 func TestBothFormsRefuseAnEnrolledTree(t *testing.T) {
 	dir := writeBlockConfig(t, "")
 	tree := t.TempDir()
-	if err := recordEnrolment(dir, EnrolledTree{Dir: tree, AgentUser: "op"}); err != nil {
+	if err := agentcfg.RecordEnrolment(dir, agentcfg.EnrolledTree{Dir: tree, AgentUser: "op"}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -4,13 +4,15 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/agentcfg"
 )
 
 // everyTarget is every agent this can enrol, in the order resolveAgents returns
 // them.
-func everyTarget(t *testing.T) []*agentTarget {
+func everyTarget(t *testing.T) []*agentcfg.Target {
 	t.Helper()
-	targets, err := resolveAgents(knownAgents(), scopeTree, "", "")
+	targets, err := agentcfg.Resolve(agentcfg.Known(), agentcfg.ScopeTree, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,10 +36,10 @@ func TestEveryFileAnEnrolmentWritesIsKeptFromTheShare(t *testing.T) {
 	keep := run.keepModes()
 
 	for _, target := range run.targets {
-		for _, file := range target.files {
-			if !slices.Contains(keep, file.path) {
+		for _, file := range target.Files {
+			if !slices.Contains(keep, file.Path) {
 				t.Errorf("%s writes %s and the share would widen it: keep = %v",
-					target.name, file.path, keep)
+					target.Name, file.Path, keep)
 			}
 		}
 	}
@@ -54,7 +56,7 @@ func TestTheInstructionsFilesAreKeptFromTheShareToo(t *testing.T) {
 	keep := run.keepModes()
 
 	for _, file := range run.instructionsFiles() {
-		rel, err := filepath.Rel(dir, file.path)
+		rel, err := filepath.Rel(dir, file.Path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,7 +86,7 @@ func TestATreeWithNoAgentStillKeepsItsInstructionsFile(t *testing.T) {
 
 	keep := run.keepModes()
 
-	if len(keep) != 1 || keep[0] != agentInstructionFiles[0] {
-		t.Errorf("keep = %v, want just %s", keep, agentInstructionFiles[0])
+	if len(keep) != 1 || keep[0] != agentcfg.InstructionFiles[0] {
+		t.Errorf("keep = %v, want just %s", keep, agentcfg.InstructionFiles[0])
 	}
 }

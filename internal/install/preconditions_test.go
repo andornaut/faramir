@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/asaccount"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostunit"
 )
 
 // The refusal an unadoptable SSH key raises has to name what a repair needs.
@@ -21,7 +25,7 @@ func TestTheSSHKeyRefusalNamesBothHalvesAndTheGroup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	run := &runner{layout: Layout{BrokerUser: "faramir-broker2"}}
+	run := &runner{layout: hostlayout.Layout{BrokerUser: "faramir-broker2"}}
 
 	// A uid nothing on this filesystem belongs to, so the check refuses whatever
 	// account the test runs as.
@@ -58,7 +62,7 @@ func TestOwnsReportsOwnerAndGroup(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o640); err != nil {
 		t.Fatal(err)
 	}
-	got := ownsWithGroup(path)
+	got := asaccount.OwnsWithGroup(path)
 	if !strings.HasPrefix(got, "0640 ") {
 		t.Errorf("ownsWithGroup() lost the mode: %q", got)
 	}
@@ -66,15 +70,15 @@ func TestOwnsReportsOwnerAndGroup(t *testing.T) {
 		t.Errorf("ownsWithGroup() names no group, so a remedy written from it will "+
 			"not satisfy a check that compares one: %q", got)
 	}
-	if ownsWithGroup(filepath.Join(t.TempDir(), "absent")) != ownsMissing {
+	if asaccount.OwnsWithGroup(filepath.Join(t.TempDir(), "absent")) != asaccount.Missing {
 		t.Error("an absent file should read as missing")
 	}
 	// owns() is compared against "%04o account" by the age key and audit log
 	// checks, which a group would break on any host whose service accounts do not
 	// have same-named primary groups.
-	if strings.Contains(strings.TrimPrefix(owns(path), "0640 "), ":") {
+	if strings.Contains(strings.TrimPrefix(asaccount.Owns(path), "0640 "), ":") {
 		t.Errorf("owns() grew a group, which the checks comparing it do not "+
-			"expect: %q", owns(path))
+			"expect: %q", asaccount.Owns(path))
 	}
 }
 
@@ -119,8 +123,8 @@ func TestPreconditionsRunBeforeAnythingIsChowned(t *testing.T) {
 // unless the run said so.
 func TestRepointingTheDaemonsIsRefusedUnlessAskedFor(t *testing.T) {
 	dir := t.TempDir()
-	systemUnitDir = dir
-	t.Cleanup(func() { systemUnitDir = "/etc/systemd/system" })
+	hostunit.SystemUnitDir = dir
+	t.Cleanup(func() { hostunit.SystemUnitDir = "/etc/systemd/system" })
 	unit := "[Service]\nUser=faramir-broker\n" +
 		"Environment=FARAMIR_CONFIG=/etc/faramir/config.toml\n"
 	if err := os.WriteFile(filepath.Join(dir, "faramir-broker.service"),
@@ -128,7 +132,7 @@ func TestRepointingTheDaemonsIsRefusedUnlessAskedFor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	run := &runner{layout: Layout{ConfigDir: "/opt/faramir2"}}
+	run := &runner{layout: hostlayout.Layout{ConfigDir: "/opt/faramir2"}}
 	err := run.refuseRepoint()
 	if err == nil {
 		t.Fatal("a run that repoints the daemons at another config directory was allowed")
@@ -141,7 +145,7 @@ func TestRepointingTheDaemonsIsRefusedUnlessAskedFor(t *testing.T) {
 
 	// Consented to: allowed, and still said out loud, what is left behind being
 	// key material.
-	moving := &runner{layout: Layout{ConfigDir: "/opt/faramir2"},
+	moving := &runner{layout: hostlayout.Layout{ConfigDir: "/opt/faramir2"},
 		opts: Options{RepointConfig: true}}
 	if err := moving.refuseRepoint(); err != nil {
 		t.Fatalf("--repoint-config did not permit it: %v", err)
@@ -154,7 +158,7 @@ func TestRepointingTheDaemonsIsRefusedUnlessAskedFor(t *testing.T) {
 	}
 
 	// Provisioning the install this host already has is not a move.
-	same := &runner{layout: Layout{ConfigDir: "/etc/faramir"}}
+	same := &runner{layout: hostlayout.Layout{ConfigDir: "/etc/faramir"}}
 	if err := same.refuseRepoint(); err != nil {
 		t.Errorf("re-provisioning the installed directory was refused: %v", err)
 	}
@@ -162,7 +166,7 @@ func TestRepointingTheDaemonsIsRefusedUnlessAskedFor(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "faramir-broker.service")); err != nil {
 		t.Fatal(err)
 	}
-	first := &runner{layout: Layout{ConfigDir: "/opt/faramir2"}}
+	first := &runner{layout: hostlayout.Layout{ConfigDir: "/opt/faramir2"}}
 	if err := first.refuseRepoint(); err != nil {
 		t.Errorf("a first install was refused: %v", err)
 	}

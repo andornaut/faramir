@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // The config directory is the only one faramir creates whose parent can belong
@@ -36,7 +38,7 @@ func TestPreflightRefusesAConfigDirWhoseParentIsAbsent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			run := &runner{
 				opts:   Options{AgentUser: me.Username, DryRun: true},
-				layout: Layout{ConfigDir: tc.configDir},
+				layout: hostlayout.Layout{ConfigDir: tc.configDir},
 			}
 
 			err := run.preflight()
@@ -112,7 +114,7 @@ func TestPreflightRefusesASymlinkedPath(t *testing.T) {
 
 			run := &runner{
 				opts: Options{AgentUser: me.Username, DryRun: true},
-				layout: Layout{ConfigDir: configDir, LogDir: logDir,
+				layout: hostlayout.Layout{ConfigDir: configDir, LogDir: logDir,
 					AgeKeyPath: filepath.Join(configDir, "age.key")},
 			}
 
@@ -156,7 +158,7 @@ func TestPreflightAllowsATreeWithNoSymlinks(t *testing.T) {
 	}
 	run := &runner{
 		opts:   Options{AgentUser: me.Username, DryRun: true},
-		layout: Layout{ConfigDir: configDir, LogDir: logDir},
+		layout: hostlayout.Layout{ConfigDir: configDir, LogDir: logDir},
 	}
 	if err := run.refuseSymlinks(); err != nil {
 		t.Errorf("refuseSymlinks() = %v, want nil for a tree with no links", err)
@@ -180,9 +182,9 @@ func TestLayoutRefusesAnOperatorThatIsAServiceAccount(t *testing.T) {
 		opts  Options
 		names string
 	}{
-		{"the executor's own account", Options{AgentUser: DefaultExecUser}, "executor"},
-		{"the broker's", Options{AgentUser: DefaultBrokerUser}, "broker"},
-		{"the keeper's", Options{AgentUser: DefaultKeeperUser}, "keeper"},
+		{"the executor's own account", Options{AgentUser: hostlayout.DefaultExecUser}, "executor"},
+		{"the broker's", Options{AgentUser: hostlayout.DefaultBrokerUser}, "broker"},
+		{"the keeper's", Options{AgentUser: hostlayout.DefaultKeeperUser}, "keeper"},
 		// A renamed daemon is refused under the name this run gives it, not the
 		// compiled-in one: the flag decides the account here. A name no host has,
 		// deliberately: the layout asks the passwd database nothing, so a test that
@@ -214,7 +216,7 @@ func TestLayoutRefusesAnOperatorThatIsAServiceAccount(t *testing.T) {
 // run, not from the binary.
 func TestLayoutAllowsADefaultNameWhenTheDaemonMoved(t *testing.T) {
 	opts := Options{
-		AgentUser: DefaultExecUser,
+		AgentUser: hostlayout.DefaultExecUser,
 		ExecUser:  "faramir-runner",
 		ConfigDir: t.TempDir(),
 		DryRun:    true,
@@ -225,7 +227,7 @@ func TestLayoutAllowsADefaultNameWhenTheDaemonMoved(t *testing.T) {
 
 	if err != nil && strings.Contains(err.Error(), "the executor runs as") {
 		t.Errorf("%q was refused as the operator, but this run's executor is %q: %v",
-			DefaultExecUser, "faramir-runner", err)
+			hostlayout.DefaultExecUser, "faramir-runner", err)
 	}
 }
 
@@ -264,7 +266,7 @@ func TestPreflightBoundsCommandConcurrency(t *testing.T) {
 				CommandConcurrency: tc.asked,
 			}
 			opts.applyDefaults()
-			run := &runner{opts: opts, layout: Layout{ConfigDir: opts.ConfigDir}}
+			run := &runner{opts: opts, layout: hostlayout.Layout{ConfigDir: opts.ConfigDir}}
 
 			err := run.preflight()
 
@@ -290,7 +292,7 @@ func anyNonRootAccount(t *testing.T) string {
 		return me.Username
 	}
 	for _, name := range []string{"nobody", "daemon", "bin"} {
-		if userExists(name) {
+		if hostfs.UserExists(name) {
 			return name
 		}
 	}
@@ -347,9 +349,9 @@ func TestInitWarnsWhenTheSudoTimeoutOutlastsTheLongestCommand(t *testing.T) {
 // So the check is lifted for the duration and put back after.
 func installDir(t *testing.T) string {
 	t.Helper()
-	was := privateTmp
-	privateTmp = nil
-	t.Cleanup(func() { privateTmp = was })
+	was := hostlayout.PrivateTmp
+	hostlayout.PrivateTmp = nil
+	t.Cleanup(func() { hostlayout.PrivateTmp = was })
 	return t.TempDir()
 }
 
@@ -374,7 +376,7 @@ func TestAConfigDirUnderATemporaryHierarchyIsRefused(t *testing.T) {
 			t.Errorf("%s was accepted, and no daemon would find what it wrote", dir)
 			continue
 		}
-		for _, want := range []string{"PrivateTmp", dir, DefaultConfigDir} {
+		for _, want := range []string{"PrivateTmp", dir, hostlayout.DefaultConfigDir} {
 			if !strings.Contains(err.Error(), want) {
 				t.Errorf("%s: the refusal does not say %q: %v", dir, want, err)
 			}

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
@@ -138,8 +138,8 @@ func TestInitConfigDirFallsBackToTheDefault(t *testing.T) {
 	pointBrokerUnit(t, "")
 	t.Setenv("FARAMIR_CONFIG", "")
 	missing := filepath.Join(t.TempDir(), "absent.sock")
-	if got := initConfigDir("", missing); got != install.DefaultConfigDir {
-		t.Errorf("initConfigDir = %q, want %q", got, install.DefaultConfigDir)
+	if got := initConfigDir("", missing); got != hostlayout.DefaultConfigDir {
+		t.Errorf("initConfigDir = %q, want %q", got, hostlayout.DefaultConfigDir)
 	}
 	if got := initConfigDir("/etc/elsewhere", missing); got != "/etc/elsewhere" {
 		t.Errorf("initConfigDir = %q, want the flag to win", got)

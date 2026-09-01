@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	faramir "github.com/andornaut/faramir"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // The installed docs sit the way the checkout does, everything citing one by
 // the checkout's path. Against the mapping, a real install writing root-owned
 // files.
 func TestTheDocsInstallNestedUnderDocs(t *testing.T) {
-	targets, err := docTargets(Layout{DocDir: "/usr/local/share/doc/faramir"})
+	targets, err := docTargets(hostlayout.Layout{DocDir: "/usr/local/share/doc/faramir"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +49,7 @@ func TestTheDocsInstallNestedUnderDocs(t *testing.T) {
 // Every link the shipped README makes resolves from where it lands, that being
 // what every unit's Documentation= names.
 func TestTheInstalledReadmeLinksResolve(t *testing.T) {
-	layout := Layout{DocDir: "/usr/local/share/doc/faramir"}
+	layout := hostlayout.Layout{DocDir: "/usr/local/share/doc/faramir"}
 	targets, err := docTargets(layout)
 	if err != nil {
 		t.Fatal(err)

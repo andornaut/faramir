@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/doctor"
 )
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -130,10 +130,10 @@ func TestColumnsAlignAtTheWidthATerminalDraws(t *testing.T) {
 // status beside it, on the one command an operator runs to find out whether the
 // install is sound.
 func TestADoctorDetailCannotReachTheTerminal(t *testing.T) {
-	report := install.DoctorReport{Findings: []install.Finding{
-		{Name: "config", Status: install.StatusFailed, Detail: "cannot read /etc/f\rSAFE/x"},
-		{Name: "secrets", Status: install.StatusWarn, Detail: "a file named boom\x1bc will not load"},
-		{Name: "store", Status: install.StatusWarn, Detail: "a title\x1b]0;pwned\a here"},
+	report := doctor.Report{Findings: []doctor.Finding{
+		{Name: "config", Status: doctor.StatusFailed, Detail: "cannot read /etc/f\rSAFE/x"},
+		{Name: "secrets", Status: doctor.StatusWarn, Detail: "a file named boom\x1bc will not load"},
+		{Name: "store", Status: doctor.StatusWarn, Detail: "a title\x1b]0;pwned\a here"},
 	}}
 	var out bytes.Buffer
 	printDiagnosis(&out, palette{}, report)
@@ -150,8 +150,8 @@ func TestADoctorDetailCannotReachTheTerminal(t *testing.T) {
 func TestAnOrdinaryDoctorDetailKeepsItsWords(t *testing.T) {
 	const detail = "/etc/faramir/config.toml is what this install renders: 12 rule(s)"
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
-		{Name: "deny patterns", Status: install.StatusOK, Detail: detail},
+	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+		{Name: "deny patterns", Status: doctor.StatusOK, Detail: detail},
 	}})
 	got := strings.Join(strings.Fields(out.String()), " ")
 	if !strings.Contains(got, strings.Join(strings.Fields(detail), " ")) {

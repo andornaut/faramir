@@ -5,15 +5,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // installedConfig writes what `init` would have written into a directory an
 // enrolment can be pointed at, and answers with that directory. Rendered from
 // the shipped template rather than hand-written, so what is read here is what a
 // host actually carries.
-func installedConfig(t *testing.T, layout Layout) string {
+func installedConfig(t *testing.T, layout hostlayout.Layout) string {
 	t.Helper()
-	body, err := render("etc/config.toml.tmpl", layout)
+	body, err := agentcfg.Render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +40,7 @@ func resolved(t *testing.T, configDir, clientGroup string) (*project, error) {
 func TestTheGroupAndTheGrantAreReadFromTheInstalledConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
-		layout    Layout
+		layout    hostlayout.Layout
 		wantSudo  bool
 		wantGroup string
 	}{

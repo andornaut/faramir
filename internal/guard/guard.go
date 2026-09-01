@@ -43,7 +43,7 @@ func patternsFile() string {
 }
 
 // defaultInstallPaths is what an install at the compiled defaults occupies, in
-// the order installDirs renders them.
+// the order agentcfg.Dirs renders them.
 //
 // Written here rather than taken from internal/install, which cannot be
 // imported: this package's own tests import that one, so the arrow only points

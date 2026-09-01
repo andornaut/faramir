@@ -3,7 +3,6 @@ package install
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -142,63 +141,5 @@ func TestOneBadEntryWritesNoneOfTheList(t *testing.T) {
 	}
 	if string(after) != string(before) {
 		t.Errorf("a refused list wrote part of itself:\n%s", after)
-	}
-}
-
-// A declared path reached through a variable, in the spellings a shell accepts.
-// The read rules need a command before the path; a binding names it with none
-// near it, so the binding is what refuses it.
-//
-// The quoted forms matter because a declared path may carry a space: "Local
-// Storage" is one, and a rule that ended the value at the first space would
-// never see the half that matters.
-func TestADeclaredPathIsRefusedWhenBoundToAVariable(t *testing.T) {
-	layout := Layout{ConfigDir: "/etc/faramir", Blocked: []config.BlockedPath{
-		{Path: "/srv/secrets.yml"},
-		{Path: "/home/op/.ssh/id_rsa"},
-		{Path: "/home/op/.config/chromium/Default/Local Storage"},
-	}}
-	rules := commandRules(layout)
-	res := make([]*regexp.Regexp, 0, len(rules))
-	for _, rule := range rules {
-		res = append(res, regexp.MustCompile("(?i)"+rule))
-	}
-	matches := func(cmd string) bool {
-		for _, re := range res {
-			if re.MatchString(cmd) {
-				return true
-			}
-		}
-		return false
-	}
-	for _, cmd := range []string{
-		`p=/srv/secrets.yml`,
-		`p="/srv/secrets.yml"`,
-		`p='/srv/secrets.yml'`,
-		`export KEY="/home/op/.ssh/id_rsa"`,
-		`p="/home/op/.config/chromium/Default/Local Storage"`,
-		`for d in /srv; do cat /srv/secrets.yml; done`,
-		// Anywhere inside the quotes, not only where the value opens: the value
-		// is bounded by the quote rather than by the first space.
-		`p="see /srv/secrets.yml for it"`,
-	} {
-		if !matches(cmd) {
-			t.Errorf("%q is allowed, and it names a declared file", cmd)
-		}
-	}
-	// A quoted value that opens with something other than a path character is
-	// prose. Refusing a sentence for holding a word out of a declared path costs
-	// an operator a refusal they cannot act on.
-	for _, cmd := range []string{
-		`echo "my secrets talk"`,
-		`git commit -m "rotate the secrets"`,
-		`title="my writing about ordinary things"`,
-		`msg=hello secrets`,
-		`title="my secrets talk"`,
-		`msg='the secrets are safe'`,
-	} {
-		if matches(cmd) {
-			t.Errorf("%q is refused, and it reaches no declared file", cmd)
-		}
 	}
 }

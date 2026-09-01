@@ -17,7 +17,8 @@ import (
 
 	"github.com/andornaut/faramir/internal/cli"
 	"github.com/andornaut/faramir/internal/escalation"
-	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/hostunit"
 	"github.com/andornaut/faramir/internal/protocol"
 )
 
@@ -278,15 +279,15 @@ func TestOperatorNameResolution(t *testing.T) {
 		// the grant's env_file, so it outranks what sudo filled in.
 		{"the broker's marker outranks SUDO_USER", "", "brokered", "sudo", "brokered"},
 		{"and names the operator where sudo named the executor", "",
-			"brokered", install.DefaultExecUser, "brokered"},
+			"brokered", hostlayout.DefaultExecUser, "brokered"},
 		// Without the marker there is nothing to correct SUDO_USER with, so the
 		// service account falls through rather than being taken for a person: an
 		// enrolment that believed it would chown a checkout to an account holding
 		// nothing.
 		{"a faramir account in SUDO_USER is not an answer", "", "",
-			install.DefaultExecUser, fallback},
-		{"nor is the broker's own", "", "", install.DefaultBrokerUser, fallback},
-		{"nor the keeper's", "", "", install.DefaultKeeperUser, fallback},
+			hostlayout.DefaultExecUser, fallback},
+		{"nor is the broker's own", "", "", hostlayout.DefaultBrokerUser, fallback},
+		{"nor the keeper's", "", "", hostlayout.DefaultKeeperUser, fallback},
 		// Nobody named, so the caller is who this is about: doctor run by hand would
 		// otherwise report them as an account nothing created.
 		{"nothing at all falls back to the caller", "", "", "", fallback},
@@ -963,11 +964,11 @@ func TestARewriteKeepsTheRecordedOperator(t *testing.T) {
 	for _, tc := range []struct{ name, recorded, operator, sudoUser, want string }{
 		{"the recorded operator wins over SUDO_USER", "op", "", "someoneelse", "op"},
 		// The case this exists for.
-		{"and over the executor a brokered sudo names", "op", "", install.DefaultExecUser, "op"},
+		{"and over the executor a brokered sudo names", "op", "", hostlayout.DefaultExecUser, "op"},
 		// Ahead of the marker too: the marker says who the host belongs to, which is
 		// what the config already recorded, so they agree unless the config is what
 		// went wrong, and this command is not the one that repairs it.
-		{"and over the broker's own marker", "op", "brokered", install.DefaultExecUser, "op"},
+		{"and over the broker's own marker", "op", "brokered", hostlayout.DefaultExecUser, "op"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(protocol.OperatorEnv, tc.operator)
@@ -996,7 +997,7 @@ func TestARewriteFallsBackWhereNothingIsRecorded(t *testing.T) {
 func TestARewriteDoesNotKeepAServiceAccountAsTheOperator(t *testing.T) {
 	t.Setenv(protocol.OperatorEnv, "")
 	t.Setenv("SUDO_USER", "op")
-	if got := recordedOperator(writeAgentUserConfig(t, install.DefaultExecUser)); got != "op" {
+	if got := recordedOperator(writeAgentUserConfig(t, hostlayout.DefaultExecUser)); got != "op" {
 		t.Errorf("recordedOperator = %q, want %q: a recorded service account is not "+
 			"an operator to keep", got, "op")
 	}
@@ -1018,10 +1019,10 @@ func TestARenamedServiceAccountIsStillNotTheOperator(t *testing.T) {
 	}
 	// And the compiled-in name is not refused on such a host, there being no
 	// account of that name to refuse: the set says what this install has.
-	t.Setenv("SUDO_USER", install.DefaultExecUser)
-	if got := operatorName(renamed, ""); got != install.DefaultExecUser {
+	t.Setenv("SUDO_USER", hostlayout.DefaultExecUser)
+	if got := operatorName(renamed, ""); got != hostlayout.DefaultExecUser {
 		t.Errorf("operatorName = %q, want %q: the default name is not this host's "+
-			"executor, so it is an ordinary account here", got, install.DefaultExecUser)
+			"executor, so it is an ordinary account here", got, hostlayout.DefaultExecUser)
 	}
 }
 
@@ -1033,14 +1034,14 @@ func TestTheRefusalSetCarriesRootAndEveryServiceAccount(t *testing.T) {
 	if !refused["root"] {
 		t.Error("root is not refused")
 	}
-	for _, account := range install.InstalledAccounts() {
+	for _, account := range hostunit.InstalledAccounts() {
 		if !refused[account] {
 			t.Errorf("%q is installed as a service account and is not refused", account)
 		}
 	}
-	if len(refused) != len(install.InstalledAccounts())+1 {
+	if len(refused) != len(hostunit.InstalledAccounts())+1 {
 		t.Errorf("the set holds %d entries, want root plus the %d service accounts",
-			len(refused), len(install.InstalledAccounts()))
+			len(refused), len(hostunit.InstalledAccounts()))
 	}
 }
 
@@ -1063,7 +1064,7 @@ func TestInitRefusesTheAccountsItIsNaming(t *testing.T) {
 		t.Error("the empty string is refused, so a flag left out names an account")
 	}
 	// And the installed names are still there beside them.
-	for _, account := range install.InstalledAccounts() {
+	for _, account := range hostunit.InstalledAccounts() {
 		if !refused[account] {
 			t.Errorf("%q is installed and is not refused", account)
 		}

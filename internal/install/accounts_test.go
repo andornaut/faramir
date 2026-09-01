@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/hostfs"
 )
 
 // The secrets group holds nologin service accounts and belongs below GID_MIN.
@@ -82,7 +84,7 @@ func TestPrimaryGroupResolvesTheAccountsOwnGroup(t *testing.T) {
 	if err != nil {
 		t.Skipf("no current user: %v", err)
 	}
-	gid, name, err := primaryGroup(self.Username)
+	gid, name, err := hostfs.PrimaryGroup(self.Username)
 	if err != nil {
 		t.Fatalf("primaryGroup(%s): %v", self.Username, err)
 	}
@@ -100,7 +102,7 @@ func TestPrimaryGroupResolvesTheAccountsOwnGroup(t *testing.T) {
 }
 
 func TestPrimaryGroupRefusesAnAccountThatIsNotThere(t *testing.T) {
-	if _, _, err := primaryGroup("no-such-account-faramir-test"); err == nil {
+	if _, _, err := hostfs.PrimaryGroup("no-such-account-faramir-test"); err == nil {
 		t.Error("primaryGroup accepted an account that does not exist")
 	}
 }

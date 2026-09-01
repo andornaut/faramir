@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostfs"
 )
 
 // The irreversible step goes first and everything else runs after it: the share
@@ -119,9 +122,9 @@ func TestAgentDirectoriesInATreeAreSharedLikeTheRest(t *testing.T) {
 	tree := t.TempDir()
 	run := &project{
 		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
-		uid:     keep,
-		gid:     keep,
-		targets: []*agentTarget{agentTargets["claude"]},
+		uid:     hostfs.Keep,
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["claude"]},
 	}
 
 	if err := run.agentConfig(); err != nil {
@@ -177,8 +180,8 @@ func TestAnEnrolmentRefusesAnUnwritableFileBeforeSharing(t *testing.T) {
 	run := &project{
 		opts:    ProjectOptions{Dir: tree},
 		uid:     os.Getuid(),
-		gid:     keep,
-		targets: []*agentTarget{agentTargets["claude"]},
+		gid:     hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["claude"]},
 	}
 
 	err := run.refuseUnwritableFiles()
@@ -221,7 +224,7 @@ func TestPreflightRefusesBeforeAnyStepRuns(t *testing.T) {
 			Dir: tree, AgentUser: me.Username, ClientGroup: "shared",
 			DryRun: true,
 		},
-		uid: keep, gid: keep,
+		uid: hostfs.Keep, gid: hostfs.Keep,
 	}
 	run.report = ProjectReport{ClientGroup: "shared"}
 

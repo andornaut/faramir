@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostfs"
 )
 
 // The share walks the tree chowning and chmodding every file in it and nothing
@@ -14,14 +17,14 @@ import (
 // into the operator's file and will not replace a file it cannot read.
 func TestAnUnparsableAgentConfigIsRefusedBeforeTheShare(t *testing.T) {
 	dir := t.TempDir()
-	targets, err := resolveAgents([]string{"claude"}, scopeTree, dir, "")
+	targets, err := agentcfg.Resolve([]string{"claude"}, agentcfg.ScopeTree, dir, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var merged string
-	for _, file := range targets[0].files {
-		if file.merge {
-			merged = file.path
+	for _, file := range targets[0].Files {
+		if file.Merge {
+			merged = file.Path
 			break
 		}
 	}
@@ -36,7 +39,7 @@ func TestAnUnparsableAgentConfigIsRefusedBeforeTheShare(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := &project{opts: ProjectOptions{Dir: dir}, targets: targets, uid: keep, gid: keep}
+	p := &project{opts: ProjectOptions{Dir: dir}, targets: targets, uid: hostfs.Keep, gid: hostfs.Keep}
 	err = p.refuseUnparsableAgentConfig()
 	if err == nil {
 		t.Fatal("an unparseable agent config was accepted")

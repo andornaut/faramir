@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/knownhosts"
 )
 
 // The flag takes a path from the operator and what it names is copied into the
@@ -76,7 +78,7 @@ func TestReadKnownHostsCountsEntriesAndRefusesAnythingElse(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			data, entries, err := readKnownHosts(path)
+			data, entries, err := knownhosts.Read(path)
 			if tc.refuses != "" {
 				if err == nil {
 					t.Fatalf("accepted %s, which would be copied to the executor as host keys", tc.name)
@@ -114,16 +116,16 @@ func TestCountKnownHostsCountsPastALineItCannotParse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := countKnownHosts(mixed); got != 2 {
+	if got := knownhosts.Count(mixed); got != 2 {
 		t.Errorf("countKnownHosts = %d, want 2: the entries either side of a bad line "+
 			"still verify their hosts", got)
 	}
 	// The strict read is a different question, asked of a path the operator named
 	// before it is copied, and it still refuses the same file.
-	if _, _, err := readKnownHosts(mixed); err == nil {
+	if _, _, err := knownhosts.Read(mixed); err == nil {
 		t.Error("--known-hosts accepted a file with a line it could not parse")
 	}
-	if got := countKnownHosts(filepath.Join(dir, "absent")); got != 0 {
+	if got := knownhosts.Count(filepath.Join(dir, "absent")); got != 0 {
 		t.Errorf("countKnownHosts(absent) = %d, want 0", got)
 	}
 }
@@ -132,7 +134,7 @@ func TestCountKnownHostsCountsPastALineItCannotParse(t *testing.T) {
 // /etc/ssh/ssh_known_hosts already covers every account, and a line on every
 // install saying what was not done is noise.
 func TestStepKnownHostsIsSilentWithoutTheFlag(t *testing.T) {
-	run := &runner{layout: Layout{ExecUser: "faramir-exec"}, fs: fsys{dryRun: true}}
+	run := &runner{layout: hostlayout.Layout{ExecUser: "faramir-exec"}, fs: hostfs.FS{DryRun: true}}
 
 	if err := run.stepKnownHosts(); err != nil {
 		t.Fatal(err)
@@ -151,10 +153,10 @@ func TestStepKnownHostsReportsWhatWasPinnedAndFromWhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := &runner{
-		layout:  Layout{ExecUser: "faramir-exec"},
+		layout:  hostlayout.Layout{ExecUser: "faramir-exec"},
 		opts:    Options{KnownHosts: source, DryRun: true},
-		fs:      fsys{dryRun: true},
-		execUID: keep, execGID: keep,
+		fs:      hostfs.FS{DryRun: true},
+		execUID: hostfs.Keep, execGID: hostfs.Keep,
 	}
 
 	if err := run.stepKnownHosts(); err != nil {
@@ -183,10 +185,10 @@ func TestStepKnownHostsWarnsWhenTheFilePinsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := &runner{
-		layout:  Layout{ExecUser: "faramir-exec"},
+		layout:  hostlayout.Layout{ExecUser: "faramir-exec"},
 		opts:    Options{KnownHosts: source, DryRun: true},
-		fs:      fsys{dryRun: true},
-		execUID: keep, execGID: keep,
+		fs:      hostfs.FS{DryRun: true},
+		execUID: hostfs.Keep, execGID: hostfs.Keep,
 	}
 
 	if err := run.stepKnownHosts(); err != nil {
@@ -197,43 +199,8 @@ func TestStepKnownHostsWarnsWhenTheFilePinsNothing(t *testing.T) {
 		t.Errorf("warned about an empty file without saying it removes what was "+
 			"pinned: %v", run.report.Warnings)
 	}
-	if !strings.Contains(warnings, globalKnownHosts) {
+	if !strings.Contains(warnings, knownhosts.GlobalFile) {
 		t.Errorf("warning does not name what is left verifying the fleet: %s", warnings)
-	}
-}
-
-// The executor's file is inside a 0700 home, so without root the answer is
-// unknown rather than none, and it counts against what doctor did not ask.
-func TestDiagnoseKnownHostsDoesNotGuessWithoutRoot(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root reads the executor's home, so the check is answered rather than skipped")
-	}
-	var report DoctorReport
-	cfg := &config.Config{}
-	cfg.Ssh.Key = "/etc/faramir/id_ed25519"
-
-	diagnoseKnownHosts(&report, DoctorOptions{ExecUser: "faramir-exec"}, cfg)
-
-	if report.NotAsked != 1 {
-		t.Errorf("NotAsked = %d, want 1: an unanswered check is not a passing one", report.NotAsked)
-	}
-	if len(report.Findings) != 1 || report.Findings[0].Status != StatusWarn {
-		t.Fatalf("findings = %+v, want one warning", report.Findings)
-	}
-	if !strings.Contains(report.Findings[0].Detail, "/var/lib/faramir-exec/.ssh/known_hosts") {
-		t.Errorf("does not name the file it could not read: %s", report.Findings[0].Detail)
-	}
-}
-
-// A host that authenticates some other way has no key and no host keys to hold,
-// so nothing is reported: doctor answers for what was installed.
-func TestDiagnoseKnownHostsSaysNothingWithoutAKey(t *testing.T) {
-	var report DoctorReport
-
-	diagnoseKnownHosts(&report, DoctorOptions{ExecUser: "faramir-exec"}, &config.Config{})
-
-	if len(report.Findings) != 0 {
-		t.Errorf("reported %+v for a host with no [ssh] key", report.Findings)
 	}
 }
 

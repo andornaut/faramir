@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/hostfs"
 )
 
 // agentStep runs the account-level agent step against a home the test built,
@@ -16,9 +19,9 @@ func agentStep(t *testing.T, home string, agents ...string) Step {
 	run := &runner{
 		opts:         Options{Agents: agents, DryRun: true},
 		layout:       testLayout(),
-		fs:           fsys{dryRun: true},
-		operatorUID:  keep,
-		operatorGID:  keep,
+		fs:           hostfs.FS{DryRun: true},
+		operatorUID:  hostfs.Keep,
+		operatorGID:  hostfs.Keep,
 		operatorHome: home,
 	}
 	// The ordering a run uses: preconditions resolve the targets and ask of
@@ -87,7 +90,7 @@ func TestInitUnionsAutoWithANamedAgent(t *testing.T) {
 	home := t.TempDir()
 	touch(t, home, ".config/opencode/opencode.json")
 
-	got := agentStep(t, home, AgentAuto, "claude")
+	got := agentStep(t, home, agentcfg.Auto, "claude")
 
 	for _, want := range []string{".config/opencode/opencode.json", ".claude/settings.json"} {
 		if !strings.Contains(got.Detail, want) {
