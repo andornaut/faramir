@@ -194,7 +194,7 @@ func For(home string, ownDirs []string, sshKey string, secret config.SecretConfi
 		out = append(out, Rule{
 			Kind:     blockedKind(entry.Strict),
 			Entry:    entry.Path,
-			Remedy:   "`faramir block rm`",
+			Remedy:   "`sudo faramir block rm --path <path>`",
 			Strict:   entry.Strict,
 			Subjects: subjectsUnder(home, entry.Path),
 		})
@@ -204,7 +204,7 @@ func For(home string, ownDirs []string, sshKey string, secret config.SecretConfi
 			Kind:     linkedKind(link.Strict),
 			Entry:    link.Path,
 			Ref:      link.Ref,
-			Remedy:   "`faramir link rm`",
+			Remedy:   "`sudo faramir link rm <ref>`",
 			Strict:   link.Strict,
 			Subjects: subjectsUnder(home, link.Path),
 		})
@@ -220,7 +220,7 @@ func For(home string, ownDirs []string, sshKey string, secret config.SecretConfi
 			out = append(out, Rule{
 				Kind:     KindCommand,
 				Entry:    entry.Command,
-				Remedy:   "`faramir block rm --command`",
+				Remedy:   "`sudo faramir block rm --command <command>`",
 				Patterns: []string{rule},
 			})
 		}

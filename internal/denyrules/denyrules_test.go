@@ -44,6 +44,44 @@ func TestTheHomeSpellingsDoNotWiden(t *testing.T) {
 	}
 }
 
+// The tail spelling reaches the same tail under any root, and that is the
+// bargain rather than an oversight.
+//
+// A rule is matched against one command's text and has no working directory to
+// follow, so the only way to refuse `cd $HOME && cat .private/x` is to refuse
+// the tail wherever it appears. What may precede it is a separator, and a `/`
+// is one: `/home/other/.private/x` carries the tail after a slash and is
+// refused by this account's entry.
+//
+// So a second account's identically named file is refused, and the refusal
+// names the entry that matched, which is the operator's own path and not the
+// file the command touched. That reads like a bug and is not one. Narrowing the
+// class to exclude a bare `/` would take the false positive away and take the
+// variable spellings with it -- `$PWD/.private/x` and `"${dir}/.private/x"`
+// are caught today by this same looseness -- so the cost was weighed and kept.
+//
+// Asserted rather than described, because a comment cannot fail: a later change
+// to what may precede a name would silently drop either half of this.
+func TestTheTailSpellingReachesAnotherRootOnPurpose(t *testing.T) {
+	const home = "/home/op"
+	subject := DirUnder(home, home+"/.private")
+	re := regexp.MustCompile("(?i)" + ReadCommands + ArgSpan + `(` + subject + `)`)
+	for _, cmd := range []string{
+		// Another account's file of the same name, which is the false positive.
+		"cat /home/other/.private/x",
+		// A path built from a variable that expands to this home, which is what
+		// the same looseness buys.
+		"cat $PWD/.private/x",
+		"cat \"${dir}/.private/x\"",
+		// And the case the tail spelling exists for.
+		"cd $HOME && cat .private/x",
+	} {
+		if !re.MatchString(cmd) {
+			t.Errorf("%q is allowed; the tail spelling is meant to reach it", cmd)
+		}
+	}
+}
+
 // A path outside every home keeps the one spelling it has, so the alternation
 // is not carried where nothing expands to it.
 func TestAPathOutsideAHomeGetsNoExtraSpellings(t *testing.T) {
