@@ -215,14 +215,53 @@ func quotePath(path string) string {
 	return strings.ReplaceAll(regexp.QuoteMeta(path), " ", `(?: |\\ )`)
 }
 
+// TrailingPrefix splits an entry written as a trailing-wildcard prefix into the
+// literal a name has to start with, and reports whether it is one. The loader
+// accepts that form only with a literal character before the "*" and no other
+// wildcard anywhere, so a caller here can take the split at face value.
+//
+// The one place the form is recognised, so the two subject builders below and
+// anything that grows beside them read it the same way.
+func TrailingPrefix(path string) (string, bool) {
+	literal, ok := strings.CutSuffix(path, "*")
+	if !ok || literal == "" || strings.HasSuffix(literal, "/") {
+		return path, false
+	}
+	return literal, true
+}
+
+// nameRest is what may follow a prefix inside the component it names: the rest
+// of that name, up to the separator that ends it or the end of the word.
+//
+// A class rather than ".*", which would cross a "/" and make a rule for
+// <dir>/ssfn* refuse <dir>/ssfnx/../other. The name a prefix stands for is one
+// component, so the rule stops where the component does. pathEnd's characters
+// are excluded for the same reason it bounds a literal: a name ends at a quote
+// or a separator as surely as at a space.
+const nameRest = `[^\s"';&|)/]*`
+
 // DirUnder is Dir for a path that may sit under a home, bounded the same way
 // and matching each spelling of it.
+//
+// An entry written as a trailing-wildcard prefix is the same rule with the last
+// component left open: the literal is matched as written and the rest of that
+// name is whatever the file is actually called. So an entry for <dir>/ssfn*
+// refuses <dir>/ssfn682576826927347580 without this config ever carrying that
+// number, and refuses <dir>/ssfn* typed as a pattern with it.
+//
+// The bound after it is the literal's: a name may end there, or carry on into a
+// path below it, which is what covers a prefix standing for a directory.
 func DirUnder(home, dir string) string {
+	tail := `(?:/|` + pathEnd + `)`
+	if literal, isPrefix := TrailingPrefix(dir); isPrefix {
+		dir = literal
+		tail = nameRest + tail
+	}
 	spellings := homeSpellings(home, dir)
 	if len(spellings) == 1 {
-		return spellings[0] + `(?:/|` + pathEnd + `)`
+		return spellings[0] + tail
 	}
-	return `(?:` + strings.Join(spellings, `|`) + `)(?:/|` + pathEnd + `)`
+	return `(?:` + strings.Join(spellings, `|`) + `)` + tail
 }
 
 // GlobUnder refuses a shell glob that could expand to path, and is "" where
@@ -253,7 +292,16 @@ func DirUnder(home, dir string) string {
 // time. Those are the limits the rules already have, and
 // this is the list that catches an accident.
 func GlobUnder(home, path string) string {
-	trimmed := strings.TrimSuffix(path, "/")
+	// A prefix entry knows the start of the name and not the end of it, so the
+	// suffix half below has nothing to constrain: any pattern whose literal
+	// opening is a prefix of the declared one could expand to a name that starts
+	// with it, whatever follows. openSuffix says so, and the prefixes are taken
+	// from the literal exactly as they are for a name written in full.
+	//
+	// Wider than the rule for a literal, and bounded by the same directory: a
+	// pattern is refused only where it sits under the parent the entry named.
+	literal, isPrefix := TrailingPrefix(path)
+	trimmed := strings.TrimSuffix(literal, "/")
 	i := strings.LastIndex(trimmed, "/")
 	if i <= 0 {
 		return ""
@@ -264,9 +312,19 @@ func GlobUnder(home, path string) string {
 	}
 	// A home, or anything above one, gets no rule. The parent of a home is
 	// /home, and a pattern rule there answers for every account on the host.
-	if cleanHome := strings.TrimSuffix(home, "/"); cleanHome != "" &&
-		strings.HasPrefix(cleanHome+"/", trimmed+"/") {
-		return ""
+	//
+	// A prefix entry is held to the same bound by the literal it opens on, not by
+	// the whole of it: "/home/o*" is not "/home/op" by the element comparison
+	// below and its parent is /home, so the rule it would render refuses
+	// `cat /home/*` for every account -- the thing this exists to prevent, reached
+	// by an entry one character short of the home's own name.
+	if cleanHome := strings.TrimSuffix(home, "/"); cleanHome != "" {
+		if strings.HasPrefix(cleanHome+"/", trimmed+"/") {
+			return ""
+		}
+		if isPrefix && strings.HasPrefix(cleanHome, trimmed) {
+			return ""
+		}
 	}
 	// What a pattern that could produce this name looks like: a prefix of it, a
 	// wildcard, then a suffix of it, and then the end of the word.
@@ -295,8 +353,13 @@ func GlobUnder(home, path string) string {
 		return out
 	}()
 	suffixes := make([]string, 0, len(name)+1)
-	for n := 0; n <= len(name); n++ {
-		suffixes = append(suffixes, quotePath(name[n:]))
+	if isPrefix {
+		// The end of the name is not declared, so nothing here may constrain it.
+		suffixes = append(suffixes, nameRest)
+	} else {
+		for n := 0; n <= len(name); n++ {
+			suffixes = append(suffixes, quotePath(name[n:]))
+		}
 	}
 	pattern := `/(?:` + strings.Join(parts, `|`) + `)` + globChar +
 		`(?:` + strings.Join(suffixes, `|`) + `)(?:` + pathEnd + `)`

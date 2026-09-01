@@ -369,21 +369,50 @@ func validateRulePath(path, at string) error {
 		return fmt.Errorf("%s: path is /, which would refuse the agent every file "+
 			"on the host. Name the file or the directory that holds it", at)
 	}
-	// A path is matched as a literal, so a wildcard in one is not expanded: it
-	// renders a rule that refuses a command typing that same pattern and leaves
-	// every file the pattern names readable. Refused rather than accepted,
-	// because an operator writing it believes the files are blocked, and a rule
-	// covering nothing reads exactly like one covering everything.
+	// One wildcard is accepted and only in one place: a trailing "*" on the last
+	// component, after at least one literal character. That form names a file
+	// whose name this config cannot write in full -- a sentry carrying a
+	// per-account number, a dated key -- and it renders a rule that matches the
+	// name as it appears rather than the pattern as it is typed.
 	//
-	// The directory is the answer. An entry covers what is under it, so naming
-	// the directory refuses every file in it, including the ones a pattern was
-	// reaching for and the ones added later.
+	// Every other placement is refused. A path is otherwise matched as a literal,
+	// so a wildcard in one is not expanded: it renders a rule that refuses a
+	// command typing that same pattern and leaves every file the pattern names
+	// readable. Refused rather than accepted, because an operator writing it
+	// believes the files are blocked, and a rule covering nothing reads exactly
+	// like one covering everything.
+	//
+	// The bound is what keeps the accepted form from being the refused one under
+	// another name. The literal parent decides the blast radius, so "*/token" and
+	// "*.json" stay out: the first names a directory this cannot know and the
+	// second names every such file on the host. A bare "<dir>/*" is out for the
+	// same reason it always was -- the directory is what to name, and an entry
+	// covers everything under it, including the files added later.
+	//
+	// And the parent has to be a directory rather than the root. "/h*" otherwise
+	// passes every check above it -- absolute, clean, not "/", a literal
+	// character before the wildcard -- and renders a rule that reaches /home and
+	// /etc alike, which is the outcome the "/" check exists to prevent. A
+	// top-level prefix has no literal parent to bound it, so there is nothing for
+	// the blast radius to be measured against.
+	if literal, isPrefix := strings.CutSuffix(path, "*"); isPrefix &&
+		!strings.HasSuffix(literal, "/") && !strings.ContainsAny(literal, globChars) {
+		if filepath.Dir(literal) == "/" {
+			return fmt.Errorf("%s: path %q opens a top-level name, and a rule is not "+
+				"anchored on the left: it would reach every directory under / whose "+
+				"name begins that way. Name a directory first, so the literal parent "+
+				"bounds what the wildcard can reach", at, Shown(path))
+		}
+		return nil
+	}
 	if i := strings.IndexAny(path, globChars); i >= 0 {
 		return fmt.Errorf("%s: path %q carries %q, and a path is matched as written "+
 			"rather than expanded: the rule would refuse a command typing that "+
-			"pattern and leave the files it names readable. Name the directory that "+
-			"holds them, which covers everything under it",
-			at, Shown(path), string(path[i]))
+			"pattern and leave the files it names readable. The one wildcard a path "+
+			"may carry is a trailing %q after at least one literal character of the "+
+			"last component. Otherwise name the directory that holds them, which "+
+			"covers everything under it",
+			at, Shown(path), string(path[i]), "*")
 	}
 	return nil
 }
@@ -419,6 +448,20 @@ func validateLink(link Link, at string) error {
 	}
 	// The same checks a blocked path gets: this one renders into the same rules,
 	// so a spelling that renders a rule matching nothing is the same fault here.
+	// A link opens the file it names -- `link add` stats it, and the store stats
+	// it again on every load -- so the trailing-wildcard form a blocked path may
+	// carry is refused here. It would render a rule and never resolve a value,
+	// which is a ref that is permanently degraded: `faramir doctor` reports it
+	// and the exit status is non-zero, for an entry that loaded cleanly.
+	//
+	// Checked before validateRulePath so the refusal says why a link differs,
+	// rather than the shared message offering a form this side cannot use.
+	if _, isPrefix := strings.CutSuffix(link.Path, "*"); isPrefix {
+		return fmt.Errorf("%s: path %q ends in a wildcard, and a link opens the file "+
+			"it names rather than matching text: the ref would never resolve. Name "+
+			"the file. A [[secret.block]] entry is what may carry that form", at,
+			Shown(link.Path))
+	}
 	if err := validateRulePath(link.Path, at); err != nil {
 		return err
 	}

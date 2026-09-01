@@ -9,6 +9,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/denyrules"
 )
 
 // A [[secret.block]] entry against a [[secret.link]] one: both render the path
@@ -140,7 +141,7 @@ func refuseEnrolledTrees(configDir string, paths []string) error {
 			continue
 		}
 		for _, tree := range trees {
-			if !containsPath(path, tree.Dir) {
+			if !coversPath(path, tree.Dir) {
 				continue
 			}
 			if path == tree.Dir {
@@ -155,6 +156,25 @@ func refuseEnrolledTrees(configDir string, paths []string) error {
 		}
 	}
 	return nil
+}
+
+// coversPath reports whether the rule an entry renders would reach inner. It is
+// containsPath for a literal entry, and a prefix match for the trailing-wildcard
+// form, which containsPath answers "no" for while the rendered rule answers
+// "yes": filepath.Rel compares path elements, so "/home/op/pro*" does not hold
+// "/home/op/project" by that reading, and DirUnder's subject matches every file
+// in it. An entry that reached a tree without ever spelling its name was
+// accepted here and refused the agent its whole checkout after the reload.
+//
+// The prefix is compared against the literal rather than the entry: the
+// wildcard opens the end of the last component, so any tree whose path begins
+// with that literal is reached, whether the rest of the component follows it or
+// a separator does.
+func coversPath(entry, inner string) bool {
+	if literal, isPrefix := denyrules.TrailingPrefix(entry); isPrefix {
+		return strings.HasPrefix(filepath.Clean(inner), literal)
+	}
+	return containsPath(entry, inner)
 }
 
 // containsPath reports whether inner is dir itself or somewhere under it, by
