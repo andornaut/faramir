@@ -9,8 +9,10 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/enroll"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/steps"
 )
 
 // stepAgentConfig registers the broker with the operator's own account, which
@@ -47,7 +49,7 @@ func (r *runner) stepAgentConfig() error {
 	if len(targets) == 0 {
 		// Not an error and not a silent pass: nothing was written, and the reason
 		// is a home with no agent in it.
-		r.step(labelAgentConfig, false, fmt.Sprintf(
+		r.step(steps.LabelAgentConfig, false, fmt.Sprintf(
 			"no coding agent found in %s, so no deny rules were written. "+
 				"`faramir init --agent NAME` writes them anyway (%s)",
 			r.operatorHome, strings.Join(agentcfg.Known(), ", ")))
@@ -103,7 +105,7 @@ func (r *runner) stepAgentConfig() error {
 			r.warnf("%s: %s", target.Name, target.AccountNote)
 		}
 	}
-	r.step(labelAgentConfig, changed, strings.Join(written, ", "))
+	r.step(steps.LabelAgentConfig, changed, strings.Join(written, ", "))
 	// The sections first, so one refused rule file does not cost every agent its
 	// instructions, and then both halves together: an operator who fixes the rule
 	// files should not then meet section failures they were never shown.
@@ -247,11 +249,11 @@ func (r *runner) stepEnrolledTrees() error {
 		// this, an entry for one of faramir's own directories has every `init`
 		// writing an agent's settings back into it after an operator has cleaned
 		// them out.
-		if err := refuseInstallDirs(tree.Dir, r.layout.ConfigDir); err != nil {
+		if err := enroll.RefuseInstallDirs(tree.Dir, r.layout.ConfigDir); err != nil {
 			refused = append(refused, tree.Dir)
 			continue
 		}
-		if err := refuseOversharing(tree.Dir, tree.AgentUser); err != nil {
+		if err := enroll.RefuseOversharing(tree.Dir, tree.AgentUser); err != nil {
 			refused = append(refused, tree.Dir)
 			continue
 		}
@@ -285,15 +287,15 @@ func (r *runner) stepEnrolledTrees() error {
 		// Said rather than reported as an empty record: the trees are enrolled
 		// either way, and nothing here or in doctor will look at them again until
 		// the file is readable.
-		r.step(labelEnrolledTrees, false, "the record of what is enrolled could not "+
+		r.step(steps.LabelEnrolledTrees, false, "the record of what is enrolled could not "+
 			"be read, so no enrolled tree was rewritten and `faramir doctor` reports "+
 			"none of them: "+unreadable)
 	case len(trees) == 0:
-		r.step(labelEnrolledTrees, false, "no tree is recorded as enrolled")
+		r.step(steps.LabelEnrolledTrees, false, "no tree is recorded as enrolled")
 	case len(written) == 0 && len(skipped) == 0:
-		r.step(labelEnrolledTrees, false, "nothing to write into "+treeCount(len(trees)))
+		r.step(steps.LabelEnrolledTrees, false, "nothing to write into "+treeCount(len(trees)))
 	default:
-		r.step(labelEnrolledTrees, changed, strings.Join(written, ", "))
+		r.step(steps.LabelEnrolledTrees, changed, strings.Join(written, ", "))
 	}
 	if len(refused) > 0 {
 		// A different remedy from the one below: this tree is not one an

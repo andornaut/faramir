@@ -1,4 +1,4 @@
-package install
+package enroll
 
 import (
 	"path/filepath"
@@ -31,7 +31,7 @@ func everyTarget(t *testing.T) []*agentcfg.Target {
 // later is covered without anybody remembering this.
 func TestEveryFileAnEnrolmentWritesIsKeptFromTheShare(t *testing.T) {
 	dir := t.TempDir()
-	run := &project{opts: ProjectOptions{Dir: dir}, targets: everyTarget(t)}
+	run := &project{opts: Options{Dir: dir}, targets: everyTarget(t)}
 
 	keep := run.keepModes()
 
@@ -51,7 +51,7 @@ func TestEveryFileAnEnrolmentWritesIsKeptFromTheShare(t *testing.T) {
 // policy the agent reads.
 func TestTheInstructionsFilesAreKeptFromTheShareToo(t *testing.T) {
 	dir := t.TempDir()
-	run := &project{opts: ProjectOptions{Dir: dir}, targets: everyTarget(t)}
+	run := &project{opts: Options{Dir: dir}, targets: everyTarget(t)}
 
 	keep := run.keepModes()
 
@@ -70,7 +70,7 @@ func TestTheInstructionsFilesAreKeptFromTheShareToo(t *testing.T) {
 // Relative to the tree, which is how sharetree matches them: an absolute path
 // in this list matches nothing in the walk and reads as covered.
 func TestWhatIsKeptIsNamedTheWaySharetreeMatchesIt(t *testing.T) {
-	run := &project{opts: ProjectOptions{Dir: t.TempDir()}, targets: everyTarget(t)}
+	run := &project{opts: Options{Dir: t.TempDir()}, targets: everyTarget(t)}
 
 	for _, path := range run.keepModes() {
 		if filepath.IsAbs(path) || path != filepath.Clean(path) {
@@ -82,7 +82,7 @@ func TestWhatIsKeptIsNamedTheWaySharetreeMatchesIt(t *testing.T) {
 // An enrolment that configured no agent still writes the tree's own
 // instructions, so that file is still kept.
 func TestATreeWithNoAgentStillKeepsItsInstructionsFile(t *testing.T) {
-	run := &project{opts: ProjectOptions{Dir: t.TempDir()}}
+	run := &project{opts: Options{Dir: t.TempDir()}}
 
 	keep := run.keepModes()
 

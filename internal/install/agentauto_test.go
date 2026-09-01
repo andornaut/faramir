@@ -8,13 +8,14 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/steps"
 )
 
 // agentStep runs the account-level agent step against a home the test built,
 // and returns what it reported. Dry run: what is asserted is which agents it
 // decided on, and writing into a temporary home to find that out would only
 // test the filesystem.
-func agentStep(t *testing.T, home string, agents ...string) Step {
+func agentStep(t *testing.T, home string, agents ...string) steps.Step {
 	t.Helper()
 	run := &runner{
 		opts:         Options{Agents: agents, DryRun: true},
@@ -38,7 +39,7 @@ func agentStep(t *testing.T, home string, agents ...string) Step {
 		}
 	}
 	t.Fatal("the step reported nothing")
-	return Step{}
+	return steps.Step{}
 }
 
 // A home with no coding agent in it gets no rules, and is told so. The other

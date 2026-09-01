@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/enroll"
 	"github.com/andornaut/faramir/internal/hostlayout"
-	"github.com/andornaut/faramir/internal/install"
 )
 
 // initProjectFlags is one `init-project` run. The tree defaults to the working
@@ -61,7 +61,7 @@ func runInitProject(f initProjectFlags, args []string) int {
 		dir = hostlayout.DefaultConfigDir
 	}
 
-	opts := install.ProjectOptions{
+	opts := enroll.Options{
 		Dir:         firstArg(args),
 		AgentUser:   operatorFromConfig(filepath.Join(dir, "config.toml")),
 		ConfigDir:   dir,
@@ -73,7 +73,7 @@ func runInitProject(f initProjectFlags, args []string) int {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
 	}
 
-	report, projectErr := install.Project(opts)
+	report, projectErr := enroll.Tree(opts)
 	// The failure before the document; see runInit.
 	if projectErr != nil {
 		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", projectErr)

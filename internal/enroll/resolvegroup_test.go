@@ -1,4 +1,4 @@
-package install
+package enroll
 
 import (
 	"os"
@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // installedConfig writes what `init` would have written into a directory an
@@ -27,11 +29,36 @@ func installedConfig(t *testing.T, layout hostlayout.Layout) string {
 	return dir
 }
 
+// installed is the layout the rendering fixture gives, plus the tunables an
+// install fills in from the config defaults. They are needed here and nowhere
+// else in that fixture: this test loads the config it renders, and a
+// timeout_sec of zero is refused by the loader rather than defaulted.
+func installed() hostlayout.Layout {
+	layout := layouttest.Layout()
+	command := config.DefaultCommand()
+	layout.CommandTimeoutSec = command.TimeoutSec
+	layout.CommandMaxTimeoutSec = command.MaxTimeoutSec
+	layout.CommandConcurrency = command.Concurrency
+	layout.CommandMaxMemoryPercent = command.MaxMemoryPercent
+	layout.CommandMaxProcessMemoryMB = command.MaxProcessMemoryMB
+	layout.SudoTimeoutSec = config.DefaultSudoTimeoutSec
+	layout.SecretMinLength = config.DefaultSecret().MinLength
+	return layout
+}
+
+// sudoGranted is the same install with --allow-sudo, which is the one field
+// that decides whether the rendered config carries a [sudo] section at all.
+func sudoGranted() hostlayout.Layout {
+	layout := installed()
+	layout.AllowSudo = true
+	return layout
+}
+
 // resolved runs the group resolution against a config directory and returns the
 // enrolment it decided on.
 func resolved(t *testing.T, configDir, clientGroup string) (*project, error) {
 	t.Helper()
-	run := &project{opts: ProjectOptions{ConfigDir: configDir, ClientGroup: clientGroup}}
+	run := &project{opts: Options{ConfigDir: configDir, ClientGroup: clientGroup}}
 	return run, run.resolveGroup()
 }
 
@@ -44,8 +71,8 @@ func TestTheGroupAndTheGrantAreReadFromTheInstalledConfig(t *testing.T) {
 		wantSudo  bool
 		wantGroup string
 	}{
-		{"a host with a sudo grant", sudoGrantLayout(t), true, "shared"},
-		{"a host without one", testLayout(), false, "shared"},
+		{"a host with a sudo grant", sudoGranted(), true, "shared"},
+		{"a host without one", installed(), false, "shared"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			run, err := resolved(t, installedConfig(t, tc.layout), "")
@@ -92,7 +119,7 @@ func TestANamedGroupStillNeedsAConfigToRead(t *testing.T) {
 // A dry run writes nothing, so it has no incomplete rules to prevent: asking
 // about a tree from a host that has not been provisioned yet is what it is for.
 func TestADryRunReportsOnATreeWithNoConfigToRead(t *testing.T) {
-	run := &project{opts: ProjectOptions{
+	run := &project{opts: Options{
 		ConfigDir: t.TempDir(), ClientGroup: "elsewhere", DryRun: true,
 	}}
 	if err := run.resolveGroup(); err != nil {
@@ -114,7 +141,7 @@ func TestADryRunReportsOnATreeWithNoConfigToRead(t *testing.T) {
 // group just named, which is what says the flag named this install rather than
 // another one.
 func TestTheGrantIsReadOnlyWhereTheNamedGroupIsThisInstalls(t *testing.T) {
-	configDir := installedConfig(t, sudoGrantLayout(t))
+	configDir := installedConfig(t, sudoGranted())
 
 	same, err := resolved(t, configDir, "shared")
 	if err != nil {

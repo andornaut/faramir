@@ -8,6 +8,7 @@ import (
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
+	"github.com/andornaut/faramir/internal/steps"
 )
 
 // A declared command is the words, taken literally, with any run of whitespace
@@ -42,8 +43,8 @@ func TestABlockRunRendersBothEntryPoints(t *testing.T) {
 	var run runner
 	var agents, patterns bool
 	for _, step := range run.BlockedSteps() {
-		switch step.name {
-		case labelAgentConfig:
+		switch step.Name {
+		case steps.LabelAgentConfig:
 			agents = true
 		case "deny patterns":
 			patterns = true
@@ -58,7 +59,7 @@ func TestABlockRunRendersBothEntryPoints(t *testing.T) {
 	// A link is a subject in both too.
 	patterns = false
 	for _, step := range run.LinkSteps() {
-		if step.name == "deny patterns" {
+		if step.Name == "deny patterns" {
 			patterns = true
 		}
 	}

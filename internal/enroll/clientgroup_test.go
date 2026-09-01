@@ -1,4 +1,4 @@
-package install
+package enroll
 
 import (
 	"path/filepath"
@@ -16,7 +16,7 @@ const sharedGroupConfig = "[command]\ntimeout_sec = 600\n\n[server]\nallowed_gro
 // makes a shared tree usable: a tree shared with any other group is one the
 // executor can enter and the broker will not serve.
 func TestTheClientGroupIsReadOffTheInstalledConfig(t *testing.T) {
-	run := &project{opts: ProjectOptions{ConfigDir: configDirWith(t, sharedGroupConfig)}}
+	run := &project{opts: Options{ConfigDir: configDirWith(t, sharedGroupConfig)}}
 
 	if err := run.resolveGroup(); err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestTheClientGroupIsReadOffTheInstalledConfig(t *testing.T) {
 // shared with nothing: the walk would run, regroup the tree to whatever it
 // resolved, and leave a tree the broker still will not serve.
 func TestAConfigThatAdmitsNoGroupIsRefused(t *testing.T) {
-	run := &project{opts: ProjectOptions{
+	run := &project{opts: Options{
 		ConfigDir: configDirWith(t,
 			"[command]\ntimeout_sec = 600\n\n[server]\nallowed_group = \"\"\n"),
 	}}
@@ -52,7 +52,7 @@ func TestAConfigThatAdmitsNoGroupIsRefused(t *testing.T) {
 // rules either, the linked and blocked paths among them being only in that
 // file. The message carries both ways out.
 func TestAnEnrolmentWithNoConfigToReadSaysWhatToDo(t *testing.T) {
-	run := &project{opts: ProjectOptions{ConfigDir: t.TempDir()}}
+	run := &project{opts: Options{ConfigDir: t.TempDir()}}
 
 	err := run.resolveGroup()
 
@@ -106,7 +106,7 @@ func TestANamedGroupTakesTheSudoGrantOnlyFromTheSameInstall(t *testing.T) {
 			if tc.config != "" {
 				configDir = configDirWith(t, tc.config)
 			}
-			run := &project{opts: ProjectOptions{
+			run := &project{opts: Options{
 				ConfigDir: configDir, ClientGroup: tc.group,
 			}}
 
@@ -128,7 +128,7 @@ func TestANamedGroupTakesTheSudoGrantOnlyFromTheSameInstall(t *testing.T) {
 // than each against its own fixture.
 func TestTheSectionFollowsTheGrantTheEnrolmentRead(t *testing.T) {
 	const marker = "escalation_in_progress"
-	run := &project{opts: ProjectOptions{
+	run := &project{opts: Options{
 		ConfigDir: configDirWith(t,
 			sharedGroupConfig+"\n[sudo]\nexec_user = \"faramir-exec\"\n"),
 	}}

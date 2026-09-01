@@ -1,4 +1,4 @@
-package install
+package enroll
 
 import (
 	"os"
@@ -11,7 +11,7 @@ import (
 
 // dryRunProject enrols dir without privilege and without writing, which is the
 // only form of the command a test can run: everything else chowns.
-func dryRunProject(t *testing.T, dir string) (ProjectReport, error) {
+func dryRunProject(t *testing.T, dir string) (Report, error) {
 	t.Helper()
 	if os.Geteuid() == 0 {
 		t.Skip("an enrolment refuses root as the operator, so it never reaches this")
@@ -20,7 +20,7 @@ func dryRunProject(t *testing.T, dir string) (ProjectReport, error) {
 	if err != nil {
 		t.Skipf("cannot name this account: %v", err)
 	}
-	return Project(ProjectOptions{
+	return Tree(Options{
 		Dir: dir, AgentUser: me.Username, ClientGroup: "nosuchgroup",
 		ConfigDir: t.TempDir(), DryRun: true,
 	})
@@ -75,7 +75,7 @@ func TestADryRunEnrolmentLeavesTheTreeExactlyAsItWas(t *testing.T) {
 
 // reportedWriting is whether the report says this step would change that file,
 // which is what makes an untouched tree evidence rather than a coincidence.
-func reportedWriting(report ProjectReport, step, file string) bool {
+func reportedWriting(report Report, step, file string) bool {
 	for _, got := range report.Steps {
 		if got.Name == step && got.Changed && strings.Contains(got.Detail, file) {
 			return true

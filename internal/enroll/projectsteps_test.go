@@ -1,4 +1,4 @@
-package install
+package enroll
 
 import (
 	"os"
@@ -20,8 +20,8 @@ func TestTheShareIsAnEnrolmentsFirstStep(t *testing.T) {
 	if len(steps) == 0 {
 		t.Fatal("an enrolment has no steps")
 	}
-	if steps[0].name != "share tree" {
-		t.Errorf("the first step is %q, want the share", steps[0].name)
+	if steps[0].Name != "share tree" {
+		t.Errorf("the first step is %q, want the share", steps[0].Name)
 	}
 }
 
@@ -31,7 +31,7 @@ func TestTheShareIsAnEnrolmentsFirstStep(t *testing.T) {
 // an owner, which is what 0 would mean and what `keep` avoids: uid 0 hands the
 // operator's own file to root, and keep leaves ownership alone.
 func TestUnresolvedIDsAreLeftAloneRatherThanTakenByRoot(t *testing.T) {
-	run := &project{opts: ProjectOptions{AgentUser: "nosuchuser-faramir", DryRun: true}}
+	run := &project{opts: Options{AgentUser: "nosuchuser-faramir", DryRun: true}}
 	run.uid, run.gid = 12345, 12345
 
 	if err := run.resolveIDs(); err != nil {
@@ -42,7 +42,7 @@ func TestUnresolvedIDsAreLeftAloneRatherThanTakenByRoot(t *testing.T) {
 	}
 	// And the real path still refuses, an enrolment that cannot name the owner
 	// having nothing to hand the tree to.
-	named := &project{opts: ProjectOptions{AgentUser: "nosuchuser-faramir"}}
+	named := &project{opts: Options{AgentUser: "nosuchuser-faramir"}}
 	if err := named.resolveIDs(); err == nil {
 		t.Error("an enrolment proceeded with an account that does not exist")
 	}
@@ -51,7 +51,7 @@ func TestUnresolvedIDsAreLeftAloneRatherThanTakenByRoot(t *testing.T) {
 // Project starts them at keep, so a write that somehow lands before preflight
 // leaves ownership as it is rather than giving the file to root.
 func TestAnEnrolmentStartsWithNoOwnerToImpose(t *testing.T) {
-	report, err := Project(ProjectOptions{
+	report, err := Tree(Options{
 		Dir: t.TempDir(), AgentUser: "operator", ClientGroup: "nosuchgroup",
 		ConfigDir: t.TempDir(), DryRun: true,
 	})
@@ -63,7 +63,7 @@ func TestAnEnrolmentStartsWithNoOwnerToImpose(t *testing.T) {
 	}
 }
 
-func stepNames(report ProjectReport) []string {
+func stepNames(report Report) []string {
 	out := make([]string, 0, len(report.Steps))
 	for _, step := range report.Steps {
 		out = append(out, step.Name)
@@ -77,7 +77,7 @@ func stepNames(report ProjectReport) []string {
 func TestEnrolmentWarnsWhenTheBinaryTheHookExecsIsAbsent(t *testing.T) {
 	tree := t.TempDir()
 
-	absent := &project{opts: ProjectOptions{Dir: tree}}
+	absent := &project{opts: Options{Dir: tree}}
 	absent.warnMissingBinary(filepath.Join(t.TempDir(), "faramir"))
 	warnings := strings.Join(absent.report.Warnings, "\n")
 	if !strings.Contains(warnings, "not installed") || !strings.Contains(warnings, tree) {
@@ -88,7 +88,7 @@ func TestEnrolmentWarnsWhenTheBinaryTheHookExecsIsAbsent(t *testing.T) {
 	if err := os.WriteFile(installed, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	present := &project{opts: ProjectOptions{Dir: tree}}
+	present := &project{opts: Options{Dir: tree}}
 	present.warnMissingBinary(installed)
 	if len(present.report.Warnings) != 0 {
 		t.Errorf("an installed binary was reported as missing: %v", present.report.Warnings)
@@ -121,7 +121,7 @@ func TestAnEnrolmentCanRecordASkippedStep(t *testing.T) {
 func TestAgentDirectoriesInATreeAreSharedLikeTheRest(t *testing.T) {
 	tree := t.TempDir()
 	run := &project{
-		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
+		opts:    Options{Dir: tree, ConfigDir: t.TempDir()},
 		uid:     hostfs.Keep,
 		gid:     hostfs.Keep,
 		targets: []*agentcfg.Target{agentcfg.Targets["claude"]},
@@ -145,21 +145,6 @@ func TestAgentDirectoriesInATreeAreSharedLikeTheRest(t *testing.T) {
 	}
 }
 
-// The same directory in the agent account's home is not shared with anybody.
-func TestAgentDirectoriesInAHomeStayPrivate(t *testing.T) {
-	home := t.TempDir()
-
-	initHome(t, home, "claude")
-
-	info, err := os.Stat(filepath.Join(home, ".claude"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := info.Mode().Perm(); got != 0o700 {
-		t.Errorf(".claude is %04o, want 0700: nothing else has business in it", got)
-	}
-}
-
 // The refusals are asked before the share, which chowns and chmods every file
 // in the tree and cannot be undone. Finding out afterwards that a settings
 // file is not the operator's is finding out too late.
@@ -178,7 +163,7 @@ func TestAnEnrolmentRefusesAnUnwritableFileBeforeSharing(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := &project{
-		opts:    ProjectOptions{Dir: tree},
+		opts:    Options{Dir: tree},
 		uid:     os.Getuid(),
 		gid:     hostfs.Keep,
 		targets: []*agentcfg.Target{agentcfg.Targets["claude"]},
@@ -220,13 +205,13 @@ func TestPreflightRefusesBeforeAnyStepRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := &project{
-		opts: ProjectOptions{
+		opts: Options{
 			Dir: tree, AgentUser: me.Username, ClientGroup: "shared",
 			DryRun: true,
 		},
 		uid: hostfs.Keep, gid: hostfs.Keep,
 	}
-	run.report = ProjectReport{ClientGroup: "shared"}
+	run.report = Report{ClientGroup: "shared"}
 
 	err = run.preflight()
 

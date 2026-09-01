@@ -1,4 +1,4 @@
-package install
+package enroll
 
 import (
 	"os"
@@ -48,9 +48,9 @@ func TestOversharingIsRefused(t *testing.T) {
 		{"/srv/project", false},
 		{"/opt/checkouts/project", false},
 	} {
-		err := refuseOversharing(tc.dir, me.Username)
+		err := RefuseOversharing(tc.dir, me.Username)
 		if refused := err != nil; refused != tc.wantRefused {
-			t.Errorf("refuseOversharing(%q) refused = %v (%v), want %v",
+			t.Errorf("RefuseOversharing(%q) refused = %v (%v), want %v",
 				tc.dir, refused, err, tc.wantRefused)
 		}
 	}
@@ -86,9 +86,9 @@ func TestEnrollingFaramirsOwnDirectoriesIsRefused(t *testing.T) {
 		{"/home/someone/src/project", false},
 		{"/srv/project", false},
 	} {
-		err := refuseInstallDirs(tc.dir, configDir)
+		err := RefuseInstallDirs(tc.dir, configDir)
 		if refused := err != nil; refused != tc.wantRefused {
-			t.Errorf("refuseInstallDirs(%q) refused = %v (%v), want %v",
+			t.Errorf("RefuseInstallDirs(%q) refused = %v (%v), want %v",
 				tc.dir, refused, err, tc.wantRefused)
 		}
 	}
@@ -99,13 +99,13 @@ func TestEnrollingFaramirsOwnDirectoriesIsRefused(t *testing.T) {
 func TestEnrollingAConfigDirUnderAHomeIsRefused(t *testing.T) {
 	const configDir = "/home/op/.config/faramir"
 	for _, dir := range []string{configDir, "/home/op/.config", configDir + "/secrets"} {
-		if err := refuseInstallDirs(dir, configDir); err == nil {
-			t.Errorf("refuseInstallDirs(%q) with the config at %s was not refused",
+		if err := RefuseInstallDirs(dir, configDir); err == nil {
+			t.Errorf("RefuseInstallDirs(%q) with the config at %s was not refused",
 				dir, configDir)
 		}
 	}
 	// The positive control: the operator's checkout beside it is still enrollable.
-	if err := refuseInstallDirs("/home/op/src/project", configDir); err != nil {
+	if err := RefuseInstallDirs("/home/op/src/project", configDir); err != nil {
 		t.Errorf("an ordinary tree was refused: %v", err)
 	}
 }
@@ -126,11 +126,11 @@ func TestOversharingIsRefusedThroughASymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := refuseOversharing(resolved, me.Username); err == nil {
+	if err := RefuseOversharing(resolved, me.Username); err == nil {
 		t.Errorf("a symlink to %s resolved to %s and was not refused", me.HomeDir, resolved)
 	}
 	// And the whole command, where the resolution has to happen.
-	_, err = Project(ProjectOptions{Dir: link, AgentUser: me.Username, DryRun: true})
+	_, err = Tree(Options{Dir: link, AgentUser: me.Username, DryRun: true})
 	if err == nil {
 		t.Error("init-project enrolled a symlink pointing at a home")
 	}

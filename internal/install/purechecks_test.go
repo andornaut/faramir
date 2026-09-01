@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/hostsudo"
+	"github.com/andornaut/faramir/internal/steps"
 )
 
 // The pure parts of the diagnosis. Reaching permissiveAuth through a doctor run
@@ -53,8 +54,8 @@ func TestDetailWithCountNamesTheCountOnlyWhenSomethingChanged(t *testing.T) {
 		{"many paths", "/srv/tree", 4096, "/srv/tree (4096 path(s) regrouped or rechmodded)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := detailWithCount(tc.path, tc.changed); got != tc.want {
-				t.Errorf("detailWithCount(%q, %d) = %q, want %q", tc.path, tc.changed, got, tc.want)
+			if got := steps.DetailWithCount(tc.path, tc.changed); got != tc.want {
+				t.Errorf("steps.DetailWithCount(%q, %d) = %q, want %q", tc.path, tc.changed, got, tc.want)
 			}
 		})
 	}

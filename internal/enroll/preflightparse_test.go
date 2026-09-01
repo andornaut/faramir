@@ -1,4 +1,4 @@
-package install
+package enroll
 
 import (
 	"os"
@@ -39,7 +39,7 @@ func TestAnUnparsableAgentConfigIsRefusedBeforeTheShare(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := &project{opts: ProjectOptions{Dir: dir}, targets: targets, uid: hostfs.Keep, gid: hostfs.Keep}
+	p := &project{opts: Options{Dir: dir}, targets: targets, uid: hostfs.Keep, gid: hostfs.Keep}
 	err = p.refuseUnparsableAgentConfig()
 	if err == nil {
 		t.Fatal("an unparseable agent config was accepted")

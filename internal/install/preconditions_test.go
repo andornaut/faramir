@@ -90,7 +90,7 @@ func TestPreconditionsRunBeforeAnythingIsChowned(t *testing.T) {
 	steps := (&runner{}).steps()
 	order := make([]string, 0, len(steps))
 	for _, step := range steps {
-		order = append(order, step.name)
+		order = append(order, step.Name)
 	}
 	index := func(name string) int {
 		for i, step := range order {

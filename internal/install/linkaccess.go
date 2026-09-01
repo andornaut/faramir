@@ -16,6 +16,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/secretlink"
 	"github.com/andornaut/faramir/internal/sharetree"
+	"github.com/andornaut/faramir/internal/steps"
 )
 
 // linkFault is why one linked file is not usable as it stands, phrased as what
@@ -145,18 +146,18 @@ func (r *runner) stepLinkAccess() error {
 // install. stepPreconditions is not optional here: it resolves the agents
 // whose files stepAgentConfig writes, so a list without it writes no deny
 // rule.
-func (r *runner) LinkSteps() []namedStep {
-	return []namedStep{
-		{labelResolveIDs, r.resolveIDs},
-		{labelPreconditions, r.stepPreconditions},
-		{labelConfig, r.stepConfig},
-		{"linked files", r.stepLinkAccess},
-		{labelAgentConfig, r.stepAgentConfig},
+func (r *runner) LinkSteps() []steps.Named {
+	return []steps.Named{
+		{Name: steps.LabelResolveIDs, Run: r.resolveIDs},
+		{Name: steps.LabelPreconditions, Run: r.stepPreconditions},
+		{Name: steps.LabelConfig, Run: r.stepConfig},
+		{Name: "linked files", Run: r.stepLinkAccess},
+		{Name: steps.LabelAgentConfig, Run: r.stepAgentConfig},
 		// And into every tree already enrolled, for the reason BlockedSteps gives.
-		{labelEnrolledTrees, r.stepEnrolledTrees},
+		{Name: steps.LabelEnrolledTrees, Run: r.stepEnrolledTrees},
 		// A linked path is a subject in the command guard's rules as well as in
 		// the agents' own, so both are rendered here.
-		{"deny patterns", r.stepDenyPatterns},
+		{Name: "deny patterns", Run: r.stepDenyPatterns},
 	}
 }
 

@@ -1,4 +1,4 @@
-package install
+package enroll
 
 import (
 	"testing"
@@ -20,13 +20,13 @@ func TestARecordedTreeIsHeldToWhatAnEnrolmentWouldAllow(t *testing.T) {
 		"/etc/faramir/secrets",
 		"/var/log/faramir",
 	} {
-		if err := refuseInstallDirs(dir, "/etc/faramir"); err == nil {
+		if err := RefuseInstallDirs(dir, "/etc/faramir"); err == nil {
 			t.Errorf("a recorded %s would be written into: init-project refuses to "+
 				"enrol it, and the step that reads the record asks the same question", dir)
 		}
 	}
 	// The ordinary case the check must not reach.
-	if err := refuseInstallDirs("/home/op/project", "/etc/faramir"); err != nil {
+	if err := RefuseInstallDirs("/home/op/project", "/etc/faramir"); err != nil {
 		t.Errorf("a recorded project tree was refused: %v", err)
 	}
 }

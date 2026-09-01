@@ -1,8 +1,17 @@
-package install
-
-// Enrolling one project, as against provisioning the host. `init` runs once
-// per machine; this runs once per tree. That is also what makes the working
-// directory safe to default to here and unsafe there.
+// Package enroll enrols one project tree: the group and modes that let a
+// brokered command run there, and the agent configuration that makes the broker
+// worth using.
+//
+// Separate from internal/install, which provisions the host. The split is what
+// each run is about rather than what it writes: provisioning happens once per
+// machine and this once per tree, which is also what makes the working
+// directory safe to default to here and unsafe there. The two share only the
+// recording, in internal/steps.
+//
+// internal/install depends on this rather than the other way round: every
+// `faramir init` re-asserts the trees already enrolled, and the refusals a tree
+// is held to have to be the same ones on both paths.
+package enroll
 
 import (
 	"bytes"
@@ -22,11 +31,12 @@ import (
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/sharetree"
+	"github.com/andornaut/faramir/internal/steps"
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// ProjectOptions is one enrolment.
-type ProjectOptions struct {
+// Options is one enrolment.
+type Options struct {
 	// Dir is the tree to enrol. Defaults to the working directory.
 	Dir string
 	// Operator owns the tree and keeps owning it; this grants group access for the
@@ -53,9 +63,9 @@ type ProjectOptions struct {
 	Log    func(string)
 }
 
-// ProjectReport is one enrolment's outcome.
-type ProjectReport struct {
-	runReport
+// Report is one enrolment's outcome.
+type Report struct {
+	steps.Report
 
 	Version     string `json:"version"`
 	Dir         string `json:"dir"`
@@ -63,26 +73,26 @@ type ProjectReport struct {
 	DryRun      bool   `json:"dry_run,omitempty"`
 }
 
-// Project enrols one tree: the group and modes that let a brokered command run
-// there, and the agent configuration that makes the broker worth using.
-func Project(opts ProjectOptions) (ProjectReport, error) {
+// Tree enrols one project tree: the group and modes that let a brokered command
+// run there, and the agent configuration that makes the broker worth using.
+func Tree(opts Options) (Report, error) {
 	if opts.Dir == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return ProjectReport{}, err
+			return Report{}, err
 		}
 		opts.Dir = cwd
 	}
 	named := opts.Dir
 	info, err := os.Stat(named)
 	if err != nil || !info.IsDir() {
-		return ProjectReport{}, fmt.Errorf("no directory at %s", named)
+		return Report{}, fmt.Errorf("no directory at %s", named)
 	}
 	// Symlinks out before anything is decided: sharing follows a link with its
 	// chmod and chown and not with its walk. See sharetree.Resolve.
 	dir, err := sharetree.Resolve(named)
 	if err != nil {
-		return ProjectReport{}, fmt.Errorf("resolving %s: %w", named, err)
+		return Report{}, fmt.Errorf("resolving %s: %w", named, err)
 	}
 	opts.Dir = dir
 	if opts.ConfigDir == "" {
@@ -93,12 +103,8 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	// that lands before that leaves ownership as it is rather than handing the
 	// operator's file to root.
 	run := &project{opts: opts, fs: hostfs.FS{DryRun: opts.DryRun}, uid: hostfs.Keep, gid: hostfs.Keep}
-	run.report = ProjectReport{
-		Version: version.Version,
-		Dir:     dir,
-		DryRun:  opts.DryRun,
-		log:     opts.Log,
-	}
+	run.report = Report{Version: version.Version, Dir: dir, DryRun: opts.DryRun}
+	run.report.LogTo(opts.Log)
 	// The tree being changed is somewhere other than where it was named. Made
 	// absolute and cleaned first: `.`, a relative path and a trailing slash all
 	// name the tree in front of the operator, and saying that one of them
@@ -111,11 +117,11 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		return run.report, err
 	}
 	for _, step := range run.steps() {
-		if err := step.run(); err != nil {
+		if err := step.Run(); err != nil {
 			// Named, as `init` names its own: a run that stops partway has applied
 			// everything before it and nothing after, and the first step here is the
 			// one that cannot be undone.
-			return run.report, fmt.Errorf("%s: %w", step.name, err)
+			return run.report, fmt.Errorf("%s: %w", step.Name, err)
 		}
 	}
 	// Recorded last: `doctor` reads this rather than guessing which agents are in
@@ -148,11 +154,11 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 // everything else runs after the irreversible part and every refusal belongs in
 // preflight. The share goes first because what follows writes into the tree,
 // and a file written before the walk is one the walk then regroups.
-func (p *project) steps() []namedStep {
-	return []namedStep{
-		{"share tree", p.shareTree},
-		{labelAgentConfig, p.agentConfig},
-		{"instructions", p.instructions},
+func (p *project) steps() []steps.Named {
+	return []steps.Named{
+		{Name: "share tree", Run: p.shareTree},
+		{Name: steps.LabelAgentConfig, Run: p.agentConfig},
+		{Name: "instructions", Run: p.instructions},
 	}
 }
 
@@ -169,10 +175,10 @@ func (p *project) preflight() error {
 		return errors.New("faramir init-project must run as root: it " +
 			"changes group ownership and modes on the tree it enrols")
 	}
-	if err := refuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {
+	if err := RefuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {
 		return err
 	}
-	if err := refuseInstallDirs(p.opts.Dir, p.opts.ConfigDir); err != nil {
+	if err := RefuseInstallDirs(p.opts.Dir, p.opts.ConfigDir); err != nil {
 		return err
 	}
 	// auto looks at the tree, enrolling costing something here. Resolved before
@@ -334,13 +340,13 @@ func (p *project) warnMissingBinary(binary string) {
 		"`sudo faramir init` on the host that runs this tree", binary, p.opts.Dir)
 }
 
-// refuseOversharing stops an enrolment that would share far more than a
+// RefuseOversharing stops an enrolment that would share far more than a
 // project. Sharing grants the client group read and write on every file in the
 // tree, and faramir-exec is in that group: for a home that is ~/.ssh,
 // ~/.config/sops/age/keys.txt, and group write on the shell configuration that
 // decides what the operator's next login runs. Blocked rather than warned
 // about, the walk not being reversible.
-func refuseOversharing(dir, operator string) error {
+func RefuseOversharing(dir, operator string) error {
 	tooBig := func(what string) error {
 		return fmt.Errorf("refusing to enrol %s: it is %s. Enrolling gives the client group read and write "+
 			"on every file in it. Name the project directory instead", dir, what)
@@ -396,7 +402,7 @@ var systemRoots = []string{
 	"/usr/libx32", "/usr/local", "/usr/sbin", "/usr/share", "/var/tmp",
 }
 
-// refuseInstallDirs stops an enrolment that would walk faramir's own
+// RefuseInstallDirs stops an enrolment that would walk faramir's own
 // directories. The age key is 0400 and keeper-owned, and sharing ORs group read
 // and write onto every file in the tree and regroups it: one walk over the
 // config directory hands the client group, which faramir-exec is in, the key
@@ -406,7 +412,7 @@ var systemRoots = []string{
 // tree inside one is part of it. systemRoots names /etc and its kind; this
 // names what an install puts inside them, and reaches a --config-dir moved
 // under a home, which no fixed list can name.
-func refuseInstallDirs(dir, configDir string) error {
+func RefuseInstallDirs(dir, configDir string) error {
 	// BinDir with them: it holds the binary every hook and plugin execs, and
 	// group write there is a brokered command replacing what the agent runs.
 	//
@@ -435,9 +441,9 @@ func refuseInstallDirs(dir, configDir string) error {
 }
 
 type project struct {
-	opts   ProjectOptions
+	opts   Options
 	fs     hostfs.FS
-	report ProjectReport
+	report Report
 	uid    int
 	gid    int
 	// allowSudo is whether this host was installed with --allow-sudo, read off
@@ -458,13 +464,13 @@ type project struct {
 // step, skip and warnf are the report's, forwarded so a step here spells them
 // the way a step in `init` does.
 func (p *project) step(name string, changed bool, detail string) {
-	p.report.step(name, changed, detail)
+	p.report.Record(name, changed, detail)
 }
 
-func (p *project) skip(name, why string) { p.report.skip(name, why) }
+func (p *project) skip(name, why string) { p.report.Skip(name, why) }
 
 func (p *project) warnf(format string, args ...any) {
-	p.report.warnf(format, args...)
+	p.report.Warnf(format, args...)
 }
 
 // resolveGroup reads the shared group out of the installed config.
@@ -590,7 +596,7 @@ func (p *project) shareTree() error {
 	// that changes a path it does not own: a bare "1200 paths regrouped" does not
 	// say that the agent's own files kept their mode and their directories were
 	// closed to unlink by anyone but their owner.
-	detail := detailWithCount(fmt.Sprintf("%s with group %s, setgid, "+
+	detail := steps.DetailWithCount(fmt.Sprintf("%s with group %s, setgid, "+
 		"owner %s", p.opts.Dir, p.report.ClientGroup, p.opts.AgentUser), result.Changed)
 	if result.Kept > 0 {
 		detail += fmt.Sprintf("; %d agent file(s) left at their own mode, in %d "+
@@ -614,7 +620,7 @@ func (p *project) agentConfig() error {
 		p.warnf("no coding agent is configured in %s, so nothing this tree runs is "+
 			"redacted. `sudo faramir init-project --agent NAME` enrols one anyway (%s)",
 			p.opts.Dir, strings.Join(agentcfg.Known(), ", "))
-		p.step(labelAgentConfig, false, "no coding agent is configured in "+p.opts.Dir)
+		p.step(steps.LabelAgentConfig, false, "no coding agent is configured in "+p.opts.Dir)
 		return nil
 	}
 	changed := false
@@ -657,7 +663,7 @@ func (p *project) agentConfig() error {
 		p.warnUncommittableFiles(target)
 	}
 	// Named rather than counted, so an operator knows which file to merge.
-	p.step(labelAgentConfig, changed, strings.Join(written, ", "))
+	p.step(steps.LabelAgentConfig, changed, strings.Join(written, ", "))
 
 	// What auto would have taken and this run did not, which only happens when
 	// the operator named agents explicitly.

@@ -244,7 +244,7 @@ func TestLinkStepsResolveTheAgentsBeforeWritingThem(t *testing.T) {
 	steps := (&runner{}).LinkSteps()
 	names := make([]string, 0, len(steps))
 	for _, step := range steps {
-		names = append(names, step.name)
+		names = append(names, step.Name)
 	}
 	preconditions := slices.Index(names, "preconditions")
 	agentConfig := slices.Index(names, "agent config")

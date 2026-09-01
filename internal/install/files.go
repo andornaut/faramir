@@ -18,6 +18,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostunit"
 	"github.com/andornaut/faramir/internal/sharetree"
+	"github.com/andornaut/faramir/internal/steps"
 )
 
 // installedBinaries goes to BinDir. There is one; the daemons and the guard are
@@ -296,9 +297,9 @@ func (r *runner) stepConfig() error {
 		return err
 	}
 	if changed {
-		r.restartFor(labelConfig)
+		r.restartFor(steps.LabelConfig)
 	}
-	r.step(labelConfig, changed, r.layout.ConfigFile)
+	r.step(steps.LabelConfig, changed, r.layout.ConfigFile)
 	return nil
 }
 
@@ -394,14 +395,4 @@ func (r *runner) stepReachable() error {
 	// Never changed: this step asks a question and alters nothing.
 	r.step("reachable", false, dir)
 	return nil
-}
-
-// detailWithCount names the path and, when this run altered something, how many
-// paths that was. A count rather than a list: a tree is thousands of
-// entries.
-func detailWithCount(path string, changed int) string {
-	if changed == 0 {
-		return path
-	}
-	return fmt.Sprintf("%s (%d path(s) regrouped or rechmodded)", path, changed)
 }

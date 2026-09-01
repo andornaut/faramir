@@ -10,6 +10,7 @@ import (
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
+	"github.com/andornaut/faramir/internal/steps"
 )
 
 // A [[secret.block]] entry against a [[secret.link]] one: both render the path
@@ -32,22 +33,22 @@ import (
 // Named for the entry rather than for the verb. In this package refuseX aborts
 // a run because of X (refuseSymlinks, agentcfg.RefuseUnwritable), so a name built the
 // same way would read as the opposite of what this is.
-func (r *runner) BlockedSteps() []namedStep {
-	return []namedStep{
-		{labelResolveIDs, r.resolveIDs},
-		{labelPreconditions, r.stepPreconditions},
-		{labelConfig, r.stepConfig},
-		{labelAgentConfig, r.stepAgentConfig},
+func (r *runner) BlockedSteps() []steps.Named {
+	return []steps.Named{
+		{Name: steps.LabelResolveIDs, Run: r.resolveIDs},
+		{Name: steps.LabelPreconditions, Run: r.stepPreconditions},
+		{Name: steps.LabelConfig, Run: r.stepConfig},
+		{Name: steps.LabelAgentConfig, Run: r.stepAgentConfig},
 		// And the same rules in every tree already enrolled. An enrolment writes
 		// this set into the tree as well as into the home, so without this the
 		// home carried the new entry and every tree carried the set from before
 		// it.
-		{labelEnrolledTrees, r.stepEnrolledTrees},
+		{Name: steps.LabelEnrolledTrees, Run: r.stepEnrolledTrees},
 		// Both entry points, because an entry feeds both: the agents' rule files
 		// above, and the file the command guard reads here. Without this an add
 		// reported changed while half of what it declared, or all of it for a
 		// command, waited for the next `init`.
-		{"deny patterns", r.stepDenyPatterns},
+		{Name: "deny patterns", Run: r.stepDenyPatterns},
 	}
 }
 
