@@ -631,8 +631,7 @@ func TestExecIsRefusedWhenOneFileDidNotLoad(t *testing.T) {
 
 // The set kept when the keeper cannot be reached is the last one known to be
 // true, so it is unconfirmed rather than short, and the store stays servable:
-// refusing on it would turn a keeper hiccup into refused commands. What the
-// gate does with that answer is TestExecAndRedactAreRefusedWhileNoManagedFileWasRead.
+// refusing on it would turn a keeper hiccup into refused commands.
 func TestTheStoreStaysServableWhileTheKeeperIsUnreachable(t *testing.T) {
 	file := managedFile(t)
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"}, file)

@@ -21,7 +21,7 @@ func TestListingNothingIsAnEmptyArray(t *testing.T) {
 		"link ls": func() int { return runLinkList(linkFlags{json: true}) },
 		// --declared, which is the half a configuration manager converges. The
 		// bare form carries the built-in rules, which are compiled in and are
-		// never none: TestRefuseLsCarriesTheBuiltInRules.
+		// never none.
 		"block ls --declared": func() int {
 			return runBlockList(blockFlags{json: true, declared: true})
 		},
