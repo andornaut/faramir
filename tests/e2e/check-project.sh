@@ -1,5 +1,5 @@
 #!/bin/bash
-# `faramir init-project`, the enrolment that makes a tree protected.
+# `faramir enrol`, the enrolment that makes a tree protected.
 #
 # The stakes are the reason this is a suite of its own. Every other command
 # fails loudly; this one fails silently. If enrolment writes the wrong thing,
@@ -26,10 +26,10 @@ tree() {
 }
 enrol() { # dir, then --agent flags
   local d=$1; shift
-  /usr/local/bin/faramir init-project "$@" "$d" 2>&1
+  /usr/local/bin/faramir enrol "$@" "$d" 2>&1
 }
 # owned asserts a path exists and belongs to the operator, not to root:
-# init-project runs as root over somebody else's checkout.
+# enrol runs as root over somebody else's checkout.
 owned() { # path, label
   if [ ! -e "$1" ]; then bad "$2 was not written ($1)"; return; fi
   local who; who=$(stat -c '%U' "$1")
@@ -110,7 +110,7 @@ grep -q 'trigger: always_on' "$D/.agents/rules/faramir.md" \
   || bad "the rules file carries no always-on frontmatter, so it may never be read"
 
 # The account-wide files are `faramir init --agent`'s half of enrolment, not
-# this command's: init-project writes the per-project hook, init writes the deny
+# this command's: enrol writes the per-project hook, init writes the deny
 # rules that hold wherever the agent works.
 /usr/local/bin/faramir init --agent-user $OP --agent claude --agent codex --agent antigravity \
   --agent agy --agent opencode --agent kilocode >/tmp/p-init.log 2>&1
@@ -345,7 +345,7 @@ now=$(find "$D" -type f -exec stat -c '%n %i' {} \; | sort)
 [ "$inodes" = "$now" ] && ok "and rewrites none of them" \
   || bad "every file is rewritten on a no-op run (inodes move, bytes do not): $(diff <(echo "$inodes") <(echo "$now") | grep -c '^<') file(s)"
 # Which is what the report tells the operator.
-n=$(/usr/local/bin/faramir init-project --agent claude --json "$D" 2>/dev/null \
+n=$(/usr/local/bin/faramir enrol --agent claude --json "$D" 2>/dev/null \
   | jq '[.steps[]|select(.changed)]|length')
 [ "$n" -eq 0 ] && ok "and reports nothing changed" \
   || bad "a no-op enrolment reports $n step(s) changed, so an operator cannot tell a real run from this one"
@@ -433,7 +433,7 @@ for own in /etc/faramir /etc/faramir/secrets /var/log/faramir \
            /usr/local/libexec/faramir /usr/local/bin \
            /var/lib/faramir-broker /var/lib/faramir-keeper /var/lib/faramir-exec; do
   mode=$(stat -c '%U:%G %a' "$own" 2>/dev/null)
-  out=$(/usr/local/bin/faramir init-project --agent claude "$own" 2>&1)
+  out=$(/usr/local/bin/faramir enrol --agent claude "$own" 2>&1)
   if grep -q "which is faramir's own" <<<"$out"; then
     ok "  $own is refused"
   else
@@ -491,7 +491,7 @@ agentUserOf() { jq -r --arg d "$1" '[.[]|select(.dir==$d)|.agent_user]|join(",")
 entriesFor() { jq -r --arg d "$1" '[.[]|select(.dir==$d)]|length' $REC 2>/dev/null; }
 
 mode=$(stat -c '%a %U:%G' $REC 2>/dev/null)
-[ "$mode" = "600 root:root" ] && ok "the record is $mode: init-project writes it and doctor reads it, both as root" \
+[ "$mode" = "600 root:root" ] && ok "the record is $mode: enrol writes it and doctor reads it, both as root" \
   || bad "the record is [$mode], want 600 root:root"
 jq -e . $REC >/dev/null 2>&1 && ok "and parses as JSON" \
   || bad "the record does not parse: $(head -c 120 $REC 2>/dev/null)"
@@ -541,7 +541,7 @@ grep -q "would refuse to enrol" <<<"$out" \
 [ -e /var/lib/faramir-broker/.claude ] \
   && bad "init created .claude inside the broker's own home" \
   || ok "  and nothing was written into it"
-# Told apart from a tree that has simply gone: re-running init-project there is
+# Told apart from a tree that has simply gone: re-running enrol there is
 # the remedy for that one and is refused for this one.
 grep -q "Remove their entries" <<<"$out" \
   && ok "  with the remedy that fits, which is not to enrol it again" \
@@ -556,7 +556,7 @@ for i in 1 2 3 4; do
   C=/home/op/p-conc$i; rm -rf $C; install -d -o $OP -g $OP $C
 done
 for i in 1 2 3 4; do
-  ( /usr/local/bin/faramir init-project --agent claude \
+  ( /usr/local/bin/faramir enrol --agent claude \
       "/home/op/p-conc$i" >/dev/null 2>&1; echo $? > /tmp/conc.$i.rc ) &
 done
 wait
@@ -576,7 +576,7 @@ done
   || bad "$lost enrolment(s) reported success and are not in the record"
 # The ones that lost say so rather than exiting 0: the tree is enrolled either
 # way, and the exit code is the only thing that says it needs doing again.
-out=$(/usr/local/bin/faramir init-project --agent claude /home/op/p-conc1 2>&1)
+out=$(/usr/local/bin/faramir enrol --agent claude /home/op/p-conc1 2>&1)
 grep -q 'p-conc1' <<<"$out" && ok "  and a serial re-run of one of them works" \
   || bad "  a serial enrolment after the race failed: ${out:0:110}"
 for i in 1 2 3 4; do rm -rf "/home/op/p-conc$i"; done
@@ -623,7 +623,7 @@ grep -q "$D" <<<"$(rules)" && ok "a tree that has gone since is named rather tha
 # --------------------------------------------------------------------------
 head_ "11. --agent auto, which the two commands ask of different places"
 #
-# The default on both. `init` asks the operator's home and `init-project` asks
+# The default on both. `init` asks the operator's home and `enrol` asks
 # the tree, and naming an agent configures it whether or not it is there. So
 # the two compose into the union, and there is no rule about which wins.
 #

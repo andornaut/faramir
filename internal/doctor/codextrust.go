@@ -29,7 +29,7 @@ import (
 // The trigger is routine. The hook assets are templates: a release that adjusts
 // the guard invocation rewrites them, which changes the identity Codex hashes
 // and drops trust across every enrolled tree on the same run that installed the
-// new binary. `init-project` in a new checkout writes a hook that starts
+// new binary. `enrol` in a new checkout writes a hook that starts
 // untrusted for the same reason.
 //
 // Failed rather than warned. A hook that does not run refuses nothing and

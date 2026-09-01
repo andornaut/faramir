@@ -13,7 +13,7 @@ import (
 // here rather than in the struct it happens to be built from. Report embeds
 // steps.Report, and an embedded struct is inlined by encoding/json, so a change
 // from embedding to a named field would rename every one of these without
-// touching a tag. internal/enroll holds the same test for its own report.
+// touching a tag. internal/enrol holds the same test for its own report.
 func TestTheReportSerialisesTheFieldsItPromises(t *testing.T) {
 	body, err := json.Marshal(Report{Version: "v", Steps: []steps.Step{{Name: "s"}}})
 	if err != nil {

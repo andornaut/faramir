@@ -1,7 +1,7 @@
 // Package steps is the recording a provisioning command keeps: one line per
 // step, whether it changed anything, and the warnings that are not failures.
 //
-// Shared by internal/install, which provisions a host, and internal/enroll,
+// Shared by internal/install, which provisions a host, and internal/enrol,
 // which enrols a tree. Written once rather than once per command: the two run
 // some of the same steps, doctor reports on the same concerns, and a name or a
 // log line the two spelled differently would read as two hosts.

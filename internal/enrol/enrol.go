@@ -1,4 +1,4 @@
-// Package enroll enrols one project tree: the group and modes that let a
+// Package enrol enrols one project tree: the group and modes that let a
 // brokered command run there, and the agent configuration that makes the broker
 // worth using.
 //
@@ -11,7 +11,7 @@
 // internal/install depends on this rather than the other way round: every
 // `faramir init` re-asserts the trees already enrolled, and the refusals a tree
 // is held to have to be the same ones on both paths.
-package enroll
+package enrol
 
 import (
 	"fmt"

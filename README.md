@@ -28,10 +28,10 @@ Agent | Registered in | Enrolment cost
 [opencode](https://open-code.ai/) | [The same plugin API](https://open-code.ai/en/docs/plugins) in `~/.config/opencode/plugin/`; deny patterns in `~/.config/opencode/opencode.json` | Same as Kilo Code
 [Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) in `~/.pi/agent/extensions/` | None. Installed in a home rather than a tree, which Pi loads for every project without the project being trusted
 
-Choosing agents with `--agent`, repeatable on `init` and `init-project`:
+Choosing agents with `--agent`, repeatable on `init` and `enrol`:
 
 - Names are `agy`, `antigravity`, `claude`, `codex`, `kilocode`, `opencode` and `pi`. `agy` is the Antigravity CLI and `antigravity` the IDE; they share one tree enrolment, so naming either writes the same files.
-- The default is `auto`: whichever agents are already there, which `init` asks of your home and `init-project` of the tree. Codex is asked of your home either way, a tree carrying nothing of its own for it.
+- The default is `auto`: whichever agents are already there, which `init` asks of your home and `enrol` of the tree. Codex is asked of your home either way, a tree carrying nothing of its own for it.
 - A name configures that agent regardless and composes, so `--agent auto --agent pi` is "whatever is installed, plus pi".
 - Claude Code and the Antigravity CLI are the only two that refuse a path from a rule file of their own. Pi and the Antigravity IDE have none an install can write; Codex has none either, its own `.rules` files being an exec policy that decides commands and names no path; and opencode's and Kilo Code's are not refusals: an entry of `deny` is put to the operator as a prompt, and an autonomous run approves it. Faramir refuses a path itself for all seven, from the plugin, the extension or the hook, so the two with a rule file are refused twice: a rule file is applied in some of the permission modes an agent runs in and a hook in all of them.
 
@@ -167,7 +167,7 @@ A bare host to a redacted command, in six steps. Each names the section that car
 2. **Provision the host** with `sudo faramir init`. It creates the accounts, mints the age key, renders the config and the units, and starts the sockets. [What it does](#what-init-does), and [every flag](docs/installing.md).
 3. **Check it** with `sudo faramir doctor`. It reports whether the install is doing its job, and as root what each account can reach. Without root it still runs, reporting what it could not ask as unasked rather than as passing. [What it checks](docs/operating.md#checking-an-install).
 4. **Name what this machine should block.** A fresh install refuses its own files and nothing else, so your SSH key is readable by your agent until you say otherwise. [Below](#naming-what-this-machine-should-block).
-5. **Enrol a project** with `cd <project> && sudo faramir init-project`, in the trees where managed credentials are in play rather than in every tree. [What an enrolment writes, and the three steps before it](#onboarding-a-project).
+5. **Enrol a project** with `cd <project> && sudo faramir enrol`, in the trees where managed credentials are in play rather than in every tree. [What an enrolment writes, and the three steps before it](#onboarding-a-project).
 6. **Run something.** `faramir refs` names what the broker serves, and `faramir run` is how a command receives one:
 
 ```bash
@@ -219,7 +219,7 @@ A fleet declares these where it declares everything else: every `block` command 
 1. **Write the values**, one file per thing that consumes them. `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from an editor faramir picks, on a `0600` file in a tmpfs, so no plaintext reaches a disk. That editor runs as root over the decrypted value, so what runs has to be a program no account but root can change: `--editor`, `$VISUAL` and `$EDITOR` each name one by absolute path with no arguments, and each is held to that check ([how the editor is chosen](docs/operating.md#choosing-the-editor)). Nothing restarts: the next refresh picks the file up. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
 2. **Have the project read each credential from an environment variable** rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
 3. **Write the refs beside the project**, one per line, in a file that holds refs and never values: [the two line forms](docs/integrations.md#onboarding-in-three-steps).
-4. **`cd <project> && sudo faramir init-project`.** Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
+4. **`cd <project> && sudo faramir enrol`.** Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
 `faramir init` installs the guard into the agent's home, where it holds in every directory: a command the deny list names is refused wherever the agent is working, which is what a `[[secret.block]]` entry is for. An enrolment adds the credentials section to the tree's own instructions file, and to a file of its own for the two agents that read a name that is not it ([which name](docs/layout.md)), and shares the tree so the broker's account can reach it. For Claude Code it also registers the routing hook, that being the one agent where routing costs a permission and so the one thing still taken tree by tree.
 
@@ -270,14 +270,14 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 
 Group | Commands
 --- | ---
-The install | `doctor`, `init`, `init-project`, `reload`, `uninstall`
+The install | `doctor`, `enrol`, `init`, `reload`, `uninstall`
 The managed store | `vault add`, `vault edit`, `vault ls`, `vault rm`
 Who can decrypt it | `reader add`, `reader ls`, `reader reseal`, `reader rm`
 A secret another tool owns | `link add`, `link ls`, `link rm`
 A path, name or command blocked from the agent | `block add`, `block ls`, `block rm`
 The record, and sudo | `logs`, `sudo approve`, `sudo ls`, `sudo reject`, `sudo watch`
 
-`init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run.
+`init`, `enrol` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run.
 
 ### What the agent runs
 

@@ -102,7 +102,7 @@ func Dirs(layout hostlayout.Layout) []string {
 	//
 	// Defaulted like the directories above, and for the same reason: a caller
 	// that knows where the config is and not what the accounts are called still
-	// has to be told these are faramir's. Without them `init-project` enrols a
+	// has to be told these are faramir's. Without them `enrol` enrols a
 	// daemon's own home, which hands it to the client group and regroups the .ssh
 	// inside it. A renamed account is covered only where the caller carries the
 	// name.

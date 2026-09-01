@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
-	"github.com/andornaut/faramir/internal/enroll"
+	"github.com/andornaut/faramir/internal/enrol"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/steps"
@@ -223,7 +223,7 @@ func homeInstructionFiles(targets []*agentcfg.Target) []homeInstructionFile {
 // the home. Declaring a blocked path or a linked file afterwards rewrote the
 // home alone, and every enrolled tree then carried a rule set one entry short:
 // `faramir doctor` reported each of them as drifted, and the remedy was to run
-// `init-project` again in each tree by hand. The install already records where
+// `enrol` again in each tree by hand. The install already records where
 // they are, so it can write them itself.
 //
 // Best effort per tree. A checkout that has moved, been deleted, or become
@@ -243,17 +243,17 @@ func (r *runner) stepEnrolledTrees() error {
 			skipped = append(skipped, tree.Dir)
 			continue
 		}
-		// The same question `init-project` asks before it enrols one. The record
+		// The same question `enrol` asks before it enrols one. The record
 		// is advisory and is written by more than one release, so a directory it
 		// names is not proof that enrolling it would be allowed today: without
 		// this, an entry for one of faramir's own directories has every `init`
 		// writing an agent's settings back into it after an operator has cleaned
 		// them out.
-		if err := enroll.RefuseInstallDirs(tree.Dir, r.layout.ConfigDir); err != nil {
+		if err := enrol.RefuseInstallDirs(tree.Dir, r.layout.ConfigDir); err != nil {
 			refused = append(refused, tree.Dir)
 			continue
 		}
-		if err := enroll.RefuseOversharing(tree.Dir, tree.AgentUser); err != nil {
+		if err := enrol.RefuseOversharing(tree.Dir, tree.AgentUser); err != nil {
 			refused = append(refused, tree.Dir)
 			continue
 		}
@@ -299,9 +299,9 @@ func (r *runner) stepEnrolledTrees() error {
 	}
 	if len(refused) > 0 {
 		// A different remedy from the one below: this tree is not one an
-		// enrolment would make now, so re-running init-project in it would be
+		// enrolment would make now, so re-running enrol in it would be
 		// refused too. The entry is what has to go.
-		r.warnf("%d recorded tree(s) `faramir init-project` would refuse to enrol, "+
+		r.warnf("%d recorded tree(s) `faramir enrol` would refuse to enrol, "+
 			"so they were left alone: %s. Remove their entries from %s, and anything "+
 			"an earlier enrolment left in them",
 			len(refused), strings.Join(refused, ", "),
@@ -309,7 +309,7 @@ func (r *runner) stepEnrolledTrees() error {
 	}
 	if len(skipped) > 0 {
 		r.warnf("%d enrolled tree(s) were not rewritten and are now stale: %s. "+
-			"Re-run `sudo faramir init-project` in each once it is reachable",
+			"Re-run `sudo faramir enrol` in each once it is reachable",
 			len(skipped), strings.Join(skipped, ", "))
 	}
 	return nil

@@ -50,7 +50,7 @@ func TestARewordedSectionStopsTheWriteAndKeepsTheFile(t *testing.T) {
 // own prose, so the message has to carry enough to do it by.
 func TestEveryRefusalNamesTheFileAndTheCommandToRunAgain(t *testing.T) {
 	const path = "/home/operator/project/AGENTS.md"
-	const command = "`sudo faramir init-project`"
+	const command = "`sudo faramir enrol`"
 	for _, tc := range []struct {
 		name string
 		err  error

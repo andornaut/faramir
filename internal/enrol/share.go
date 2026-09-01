@@ -1,4 +1,4 @@
-package enroll
+package enrol
 
 // Sharing the tree: the group and modes that let a brokered command run in it,
 // and what the walk leaves alone.

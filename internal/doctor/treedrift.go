@@ -15,7 +15,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostfs"
 )
 
-// What an enrolled tree still carries of what `init-project` wrote into it,
+// What an enrolled tree still carries of what `enrol` wrote into it,
 // which is Claude Code's routing hook and nothing else: every other agent is
 // guarded from a home, and routing costs a permission on this one alone.
 //
@@ -47,7 +47,7 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 	case err != nil:
 		report.addf("tree config", StatusFailed, "%s, so which trees are enrolled "+
 			"is unknown and none were examined. Restore the record, or re-run "+
-			"`sudo faramir init-project` in each tree to rewrite it", err)
+			"`sudo faramir enrol` in each tree to rewrite it", err)
 		return
 	}
 	if len(trees) == 0 {
@@ -118,7 +118,7 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 	if len(unguarded) > 0 {
 		report.addf("tree config", StatusWarn, "%d enrolled tree(s) registered no "+
 			"agent, so they are shared with the client group and nothing they run "+
-			"is redacted: %s. Enrol one with `sudo faramir init-project --agent "+
+			"is redacted: %s. Enrol one with `sudo faramir enrol --agent "+
 			"NAME` in the tree, or take the enrolment back",
 			len(unguarded), strings.Join(unguarded, ", "))
 	}
@@ -128,19 +128,19 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 			return
 		}
 		report.addf("tree config", StatusOK, "%d enrolled tree(s) carry what "+
-			"`faramir init-project` wrote", checked)
+			"`faramir enrol` wrote", checked)
 		return
 	}
 	if len(prose) > 0 {
 		report.addf("tree config", StatusWarn, "%d instructions file(s) an "+
 			"enrolment wrote no longer carry the credentials section or the "+
 			"frontmatter that loads them, so an agent refused a path is not told "+
-			"the route: %s. Re-run `sudo faramir init-project` in the tree",
+			"the route: %s. Re-run `sudo faramir enrol` in the tree",
 			len(prose), strings.Join(prose, ", "))
 	}
 	if len(unread) > 0 {
 		report.unaskedf("tree config", len(unread), "could not read %s, so what "+
-			"they carry was not compared with what `faramir init-project` writes",
+			"they carry was not compared with what `faramir enrol` writes",
 			strings.Join(unread, ", "))
 	}
 	if len(drifted) > 0 {
@@ -152,7 +152,7 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 		report.addf("tree config", StatusWarn, "%d file(s) an enrolment wrote no "+
 			"longer carry all of it, so the hook that redacts, the rules that refuse "+
 			"a path, or the registration that reaches the broker is missing from "+
-			"them: %s. Re-run `sudo faramir init-project` in the tree, which writes "+
+			"them: %s. Re-run `sudo faramir enrol` in the tree, which writes "+
 			"all three again",
 			len(drifted), strings.Join(drifted, ", "))
 	}
@@ -274,7 +274,7 @@ func diagnoseTreeModes(report *Report, opts Options) {
 		report.addf("tree modes", StatusFailed, "%d enrolment-written file(s) are "+
 			"group- or world-writable, so the accounts the tree is shared with can "+
 			"rewrite what refuses them: %s. `chmod go-w` each, or re-run `sudo "+
-			"faramir init-project` in the tree", len(writable), strings.Join(writable, "; "))
+			"faramir enrol` in the tree", len(writable), strings.Join(writable, "; "))
 	case len(unsticky) > 0:
 		report.addf("tree modes", StatusWarn, "%d directory(ies) holding an "+
 			"enrolment-written file lost the sticky bit, so a brokered command may "+
@@ -295,7 +295,7 @@ func treeInstructionsRel(dir string) []string {
 	return nil
 }
 
-// diagnoseEditableFiles asks what `init` and `init-project` would refuse to
+// diagnoseEditableFiles asks what `init` and `enrol` would refuse to
 // write, without writing. Both stop rather than take over a file faramir edits
 // and does not own, or follow a link out of the tree, and the operator would
 // otherwise find that out when a run they wanted stops.
@@ -394,7 +394,7 @@ func reportEditableFiles(report *Report, home string, uid int, opts Options) {
 		return
 	}
 	report.addf("agent file ownership", StatusWarn, "%d file(s) `faramir init` or "+
-		"`faramir init-project` would refuse to write, so the next run stops rather "+
+		"`faramir enrol` would refuse to write, so the next run stops rather "+
 		"than taking one over or writing one of them twice: %s",
 		len(refused), strings.Join(refused, "; "))
 }

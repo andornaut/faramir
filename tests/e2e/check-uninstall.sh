@@ -119,7 +119,7 @@ systemctl list-unit-files 'faramir-*' 2>/dev/null | grep -q faramir \
 # --------------------------------------------------------------------------
 head_ "5. an enrolled working tree"
 #
-# init-project shares a tree with the executor. Uninstall does not walk the
+# enrol shares a tree with the executor. Uninstall does not walk the
 # operator's directories, so what it leaves is worth stating: the grant on the
 # tree outlives the broker, and the account it names still exists.
 

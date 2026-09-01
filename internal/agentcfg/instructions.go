@@ -4,7 +4,7 @@ package agentcfg
 // reads, at two scopes. `init` writes the account-wide section into each
 // agent's home instructions file, the deny rules there holding wherever the
 // agent works and otherwise arriving at the model as a bare refusal;
-// `init-project` writes the fuller section into the tree's.
+// `enrol` writes the fuller section into the tree's.
 //
 // Documentation, not enforcement: deleting either block changes nothing about
 // what is reachable.

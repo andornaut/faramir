@@ -85,7 +85,7 @@ run, because nothing else would.
 Command | Where `auto` looks
 --- | ---
 `faramir init` | the operator's home
-`faramir init-project` | the tree, and the home for an agent that keeps nothing beside a project
+`faramir enrol` | the tree, and the home for an agent that keeps nothing beside a project
 
 Codex is that agent: the only thing a tree can carry for it is the hook an enrolment writes, so a tree asked on its own could only ever report Codex where Codex was already enrolled. `auto` reads `~/.codex` instead. The enrolment record is a separate question and still counts only what the tree carries, so a tree does not keep an agent it never had.
 
@@ -97,8 +97,8 @@ Beside the rules, faramir writes prose saying what they refuse and why. A model 
 
 There are two such sections:
 
-- **The account-wide one**, in the file each agent reads for every project. In a tree `init-project` has never been run in, this is the only thing faramir says: the deny rules still hold there, and there is no broker to point at.
-- **The tree's own**, written by `init-project`. It is the longer of the two, because in an enrolled tree there is a route to name.
+- **The account-wide one**, in the file each agent reads for every project. In a tree `enrol` has never been run in, this is the only thing faramir says: the deny rules still hold there, and there is no broker to point at.
+- **The tree's own**, written by `enrol`. It is the longer of the two, because in an enrolled tree there is a route to name.
 
 A tree's own file is whichever of `AGENTS.md` and `CLAUDE.md` it already has. Three agents read a name of their own beside it and get one there as well: Claude Code a `CLAUDE.md`, which is the name it reads and `AGENTS.md` is not, Codex an `AGENTS.md`, which is the mirror image, and Antigravity a `.agents/rules/faramir.md`. Every one of these carries the same section, so an operator who keeps a single file for every agent links `CLAUDE.md` at `AGENTS.md` and the section is written once into the file both names. Two agents' settings files linked that way are refused instead: those are different bytes, and only the last write would survive.
 
@@ -169,7 +169,7 @@ The tool is also invocable from a shell, and the documented spelling puts the en
 
 Reads need none of that. Codex reads a file by running one of the shell's own readers, so the command guard covers every read it makes.
 
-**A hook has to be trusted before it runs.** Codex skips a hook it has not been told to trust and says nothing when it does, so what `faramir init` and `faramir init-project` write is inert until you start Codex once and trust it. The trust is a hash of the hook as Codex parses it, so it is yours to grant and it has to be granted again after a change. Both commands say so on every run, and `faramir doctor` fails on a hook that is still untrusted: it is the only misconfiguration here that produces no refusal, no failed play and no degraded ref, so nothing else would report it.
+**A hook has to be trusted before it runs.** Codex skips a hook it has not been told to trust and says nothing when it does, so what `faramir init` and `faramir enrol` write is inert until you start Codex once and trust it. The trust is a hash of the hook as Codex parses it, so it is yours to grant and it has to be granted again after a change. Both commands say so on every run, and `faramir doctor` fails on a hook that is still untrusted: it is the only misconfiguration here that produces no refusal, no failed play and no degraded ref, so nothing else would report it.
 
 > [!IMPORTANT]
 > **Codex must run without its own sandbox** (`codex --dangerously-bypass-approvals-and-sandbox`). Sandboxed, it is refused the broker socket: `read-only` and `workspace-write` both deny the `AF_UNIX` connect and deny writes to `XDG_RUNTIME_DIR`, and `network_access` governs `AF_INET` alone and does not lift it. The wrapper fails closed, so what that costs is every command's output withheld rather than redacted.

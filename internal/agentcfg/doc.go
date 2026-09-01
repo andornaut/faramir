@@ -2,7 +2,7 @@
 // agent's configuration, and what it renders those files from.
 //
 // One catalogue, read by three callers that must agree. `init` writes the
-// account-wide files, `init-project` writes a tree's, and `doctor` re-renders
+// account-wide files, `enrol` writes a tree's, and `doctor` re-renders
 // both to compare them with what is on disk: a re-render that disagreed with
 // the write would report every enrolled host as having drifted.
 //

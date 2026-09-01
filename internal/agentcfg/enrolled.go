@@ -19,7 +19,7 @@ import (
 // they were written for, and a home carries deny rules without naming the trees
 // that need them.
 //
-// Written by `init-project` and read by `doctor`, which otherwise guesses which
+// Written by `enrol` and read by `doctor`, which otherwise guesses which
 // agents are in use from what is in the home. A guess is wrong in both
 // directions: a leftover directory reads as in use, and a tree enrolled for an
 // agent that leaves no trace in the home reads as absent.
@@ -82,7 +82,7 @@ func ReadEnrolledWhy(configDir string) ([]EnrolledTree, error) {
 // RecordEnrolment adds or updates this tree's entry. One entry per directory,
 // sorted so the file does not churn between runs, and the agents are the ones
 // this run enrolled plus the ones an earlier run did that the tree still
-// carries. 0600: `init-project` writes it and `doctor` reads it, both as
+// carries. 0600: `enrol` writes it and `doctor` reads it, both as
 // root.
 //
 // An entry naming no agent is still recorded. The enrolment shared the tree and

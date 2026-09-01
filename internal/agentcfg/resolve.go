@@ -22,7 +22,7 @@ import (
 const Auto = "auto"
 
 // Scope is where auto looks for evidence: `init` writes into the agent
-// account's home, and `init-project` into one tree.
+// account's home, and `enrol` into one tree.
 type Scope int
 
 const (

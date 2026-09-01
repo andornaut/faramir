@@ -13,7 +13,7 @@ import (
 
 // WriteFiles writes one list of an agent's files under root, and reports
 // whether it changed anything and what it wrote. One function for both
-// commands: `init` writes the account-wide rules into a home and `init-project`
+// commands: `init` writes the account-wide rules into a home and `enrol`
 // Claude Code's routing hook into a tree.
 //
 // render is the caller's, the two rendering against different things: the

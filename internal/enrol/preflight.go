@@ -1,4 +1,4 @@
-package enroll
+package enrol
 
 // Everything settled before the share, which chowns and chmods every file in
 // the tree and cannot be undone: the refusals, and the group and ids the rest
@@ -33,7 +33,7 @@ func (p *project) preflight() error {
 			"here would chown a checkout away from its owner", p.opts.Dir)
 	}
 	if os.Geteuid() != 0 && !p.opts.DryRun {
-		return errors.New("faramir init-project must run as root: it " +
+		return errors.New("faramir enrol must run as root: it " +
 			"changes group ownership and modes on the tree it enrols")
 	}
 	if err := RefuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {

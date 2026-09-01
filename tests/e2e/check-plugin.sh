@@ -104,7 +104,7 @@ for agent in opencode kilocode; do
 
   head_ "$agent"
   if [ ! -f "$plugin" ]; then
-    /usr/local/bin/faramir init-project --agent "$agent" "$PROJECT" >/dev/null 2>&1
+    /usr/local/bin/faramir enrol --agent "$agent" "$PROJECT" >/dev/null 2>&1
   fi
   if [ ! -f "$plugin" ]; then
     bad "$agent: enrolment wrote no plugin at $plugin"
@@ -155,7 +155,7 @@ head_ "pi"
 # guard; what is checked here is the enrolled file against the real binary.
 
 PI_EXT=$HOME_OP/.pi/agent/extensions/faramir.ts
-# `init` rather than `init-project`: the extension goes into the account's home,
+# `init` rather than `enrol`: the extension goes into the account's home,
 # which pi loads for every project, so a tree enrolment writes nothing for it.
 [ -f "$PI_EXT" ] || /usr/local/bin/faramir init --agent-user op --agent pi >/dev/null 2>&1
 if [ ! -f "$PI_EXT" ]; then

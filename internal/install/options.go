@@ -119,7 +119,7 @@ type Options struct {
 	RepointConfig bool
 
 	// No tree is enrolled here: a tree is per project and this runs once per
-	// machine. See `faramir init-project`.
+	// machine. See `faramir enrol`.
 
 	// Agents names the coding agents whose settings get the deny rules, which
 	// refuse to open key material wherever the agent is working. Empty means
@@ -127,7 +127,7 @@ type Options struct {
 	// name writes them whether or not the agent is there, and composes with auto.
 	//
 	// The PreToolUse hook is per project, registering it auto-approving Bash
-	// there; `faramir init-project --agent` takes the same names.
+	// there; `faramir enrol --agent` takes the same names.
 	Agents []string
 
 	// DryRun computes every answer and writes nothing. A step needing accounts

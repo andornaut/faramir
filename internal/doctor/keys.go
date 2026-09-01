@@ -48,7 +48,7 @@ func diagnoseAgeKey(report *Report, opts Options, cfg *config.Config) {
 	report.addf("age key", StatusOK, "%s, and only %s can read it", want, opts.KeeperUser)
 }
 
-// diagnoseOperatorKeys checks what enrolling a tree granted. init-project
+// diagnoseOperatorKeys checks what enrolling a tree granted. enrol
 // makes every directory from the home down to the tree traversable by the
 // client group, which faramir-exec is in; traversal is execute without read, so
 // only the enrolled tree is shared. A home that was itself enrolled is
@@ -83,7 +83,7 @@ func diagnoseOperatorKeys(report *Report, opts Options) {
 	if asaccount.CanRead(opts.ExecUser, home) {
 		report.addf("agent keys", StatusFailed, "%s can list %s: the home was enrolled "+
 			"rather than a project inside it, so every credential in it is group-shared. "+
-			"init-project grants traversal, not read", opts.ExecUser, home)
+			"enrol grants traversal, not read", opts.ExecUser, home)
 		return
 	}
 	// Asked rather than assumed, the OK below claiming traversal: a home is
@@ -100,12 +100,12 @@ func diagnoseOperatorKeys(report *Report, opts Options) {
 		if blocked := asaccount.BlockingDir(opts.ExecUser, filepath.Join(home, "tree")); blocked != "" {
 			report.addf("agent keys", StatusFailed, "%s cannot traverse %s: it cannot "+
 				"enter %s. No brokered command reaches an enrolled tree under it; "+
-				"`faramir init-project` grants the group execute this needs",
+				"`faramir enrol` grants the group execute this needs",
 				opts.ExecUser, home, blocked)
 			return
 		}
 		report.addf("agent keys", StatusFailed, "%s cannot traverse %s, so no brokered "+
-			"command reaches an enrolled tree under it. `faramir init-project` grants "+
+			"command reaches an enrolled tree under it. `faramir enrol` grants "+
 			"it back", opts.ExecUser, home)
 		return
 	}

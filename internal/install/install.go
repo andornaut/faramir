@@ -3,7 +3,7 @@
 // agents' account-wide configuration, and the linked and blocked paths an
 // operator declares afterwards.
 //
-// Enrolling one tree is internal/enroll's, that being once per tree where this
+// Enrolling one tree is internal/enrol's, that being once per tree where this
 // is once per machine. This depends on it: every run re-asserts the trees
 // already enrolled, and the refusals a tree is held to have to be the same ones
 // on both paths. The recording both keep is internal/steps.

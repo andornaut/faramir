@@ -1,4 +1,4 @@
-package enroll
+package enrol
 
 import (
 	"os"
@@ -12,7 +12,7 @@ import (
 
 // The same for an enrolment, whose section is the one that travels in the
 // project's own repository.
-func TestInitProjectFailsOnAnInstructionsFileItCannotBringUpToDate(t *testing.T) {
+func TestEnrolFailsOnAnInstructionsFileItCannotBringUpToDate(t *testing.T) {
 	tree := t.TempDir()
 	path := filepath.Join(tree, "AGENTS.md")
 	before := "# Project\n\n" + agentcfg.SectionEnd + "\n"
@@ -26,7 +26,7 @@ func TestInitProjectFailsOnAnInstructionsFileItCannotBringUpToDate(t *testing.T)
 	if err == nil {
 		t.Fatal("an enrolment that could not update the instructions reported success")
 	}
-	if !strings.Contains(err.Error(), "init-project") {
+	if !strings.Contains(err.Error(), "enrol") {
 		t.Errorf("the error does not name the command to run again: %v", err)
 	}
 	if body, readErr := os.ReadFile(path); readErr != nil {

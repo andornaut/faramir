@@ -324,7 +324,7 @@ func TestARequestOfAnotherReleaseIsRefused(t *testing.T) {
 // exec needs: entering a directory takes x, opening it takes r, and a 0710
 // home -- which is what sharing a tree leaves behind -- has x for the group and
 // not r. Asked as a read, every unrunnable program in such a tree was blamed on
-// the tree, and the operator was sent to run `init-project` on one that was
+// the tree, and the operator was sent to run `enrol` on one that was
 // already right.
 func TestStartFailureBlamesTheProgramWhenTheDirectoryIsOnlyTraversable(t *testing.T) {
 	if os.Geteuid() == 0 {

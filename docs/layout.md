@@ -1,6 +1,6 @@
 # Layout
 
-Every path the install creates, what owns it, and what each account can reach through it. `faramir init` writes all of it except the last two rows, which are `faramir init-project`'s.
+Every path the install creates, what owns it, and what each account can reach through it. `faramir init` writes all of it except the last two rows, which are `faramir enrol`'s.
 
 ```text
 /usr/local/bin/faramir          0755 root:root, the only binary; every role is a subcommand
@@ -95,9 +95,9 @@ The section says what the deny rules cannot: why they refuse, and what to do ins
 
 **The enrolled tree is the one place faramir changes ownership and modes.** Everywhere else it checks and reports. The directories above the tree are not part of it, so the traversal `faramir-exec` needs through a 0700 home is the operator's to grant:
 
-- Every directory from the home down has to be enterable by the client group, execute only, so those uids pass through without listing what they pass. `init-project` refuses to share a tree it cannot reach, naming each directory and the `chgrp` and `chmod` that open it.
+- Every directory from the home down has to be enterable by the client group, execute only, so those uids pass through without listing what they pass. `enrol` refuses to share a tree it cannot reach, naming each directory and the `chgrp` and `chmod` that open it.
 - Never `chmod o+x`, which grants the same to every account on the machine.
 - Everyone in the group gets that traversal, so keep membership to the accounts that need it.
 - A directory already traversable by `other` is accepted as it is: tightening one the operator left open is not this command's business.
 - Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
-- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. That is the whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings faramir manages are regrouped but deliberately left not group-writable. `init-project` reports how many paths it altered, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.
+- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. That is the whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings faramir manages are regrouped but deliberately left not group-writable. `enrol` reports how many paths it altered, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.

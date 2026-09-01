@@ -141,8 +141,8 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newBlockCmd(),
 		newDoctorCmd(),
+		newEnrolCmd(),
 		newInitCmd(),
-		newInitProjectCmd(),
 		newLinkCmd(),
 		newLogsCmd(),
 		newReaderCmd(),

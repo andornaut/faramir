@@ -20,9 +20,9 @@ var Operator = []string{
 	// completion, help and version answer without reaching the broker.
 	"completion",
 	"doctor",
+	"enrol",
 	"help",
 	"init",
-	"init-project",
 	"link add",
 	"link ls",
 	"link rm",

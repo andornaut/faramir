@@ -59,7 +59,7 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 - A pipeline is requested explicitly as `["bash", "-lc", "…"]`; the broker never hands a string to a shell.
 - A bare command name is looked up on `[command.env] PATH`. Venv, pipx and shim directories belong there.
 - A tool that decrypts sops itself does not onboard. It gets named values instead.
-- `cd <project> && sudo faramir init-project` last, which shares the tree so a brokered command can run in it and configures whichever agents it already carries.
+- `cd <project> && sudo faramir enrol` last, which shares the tree so a brokered command can run in it and configures whichever agents it already carries.
 
 ## Linking a credential another tool owns
 

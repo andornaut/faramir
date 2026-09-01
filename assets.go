@@ -6,7 +6,7 @@ package faramir
 import "embed"
 
 // Assets is every file faramir writes to a host, by `init` or by
-// `init-project`. The units and the base config are
+// `enrol`. The units and the base config are
 // text/templates: the shared group and the service uids are named in both, and
 // rendering them from one set of values is what keeps them from disagreeing.
 //

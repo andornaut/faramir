@@ -149,7 +149,7 @@ func refuseEnrolledTrees(configDir string, paths []string) error {
 				return fmt.Errorf("path %s is an enrolled tree, and the rules hold "+
 					"wherever the agent works: it would be refused every file in the "+
 					"directory it works in. Name the file inside it, or "+
-					"`sudo faramir init-project` elsewhere first", path)
+					"`sudo faramir enrol` elsewhere first", path)
 			}
 			return fmt.Errorf("path %s holds the enrolled tree %s, so the rule would "+
 				"refuse the agent every file in the directory it works in. Name the "+

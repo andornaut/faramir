@@ -1,4 +1,4 @@
-package enroll
+package enrol
 
 import (
 	"encoding/json"

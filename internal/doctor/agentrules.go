@@ -40,7 +40,7 @@ func diagnoseAgentRules(report *Report, opts Options) {
 	for _, tree := range stale {
 		report.addf("agent rules", StatusWarn, "%s was enrolled for %s and is no "+
 			"longer there, so that entry says nothing about this host. Re-run "+
-			"`faramir init-project` where the tree is now, or ignore it",
+			"`faramir enrol` where the tree is now, or ignore it",
 			tree.Dir, strings.Join(tree.Agents, ", "))
 	}
 }
@@ -198,7 +198,7 @@ func diagnoseHookReach(report *Report, opts Options) {
 		"and not others in %s, so its file tools reach the guard only through the "+
 		"deny rules beside it, and a session in a permission mode that ignores those "+
 		"is refused nothing. Re-run `sudo faramir init` for the account-wide one and "+
-		"`faramir init-project` in the tree for the rest",
+		"`faramir enrol` in the tree for the rest",
 		strings.Join(narrow, ", "))
 }
 

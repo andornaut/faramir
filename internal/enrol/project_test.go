@@ -1,4 +1,4 @@
-package enroll
+package enrol
 
 import (
 	"os"
@@ -132,6 +132,6 @@ func TestOversharingIsRefusedThroughASymlink(t *testing.T) {
 	// And the whole command, where the resolution has to happen.
 	_, err = Tree(Options{Dir: link, AgentUser: me.Username, DryRun: true})
 	if err == nil {
-		t.Error("init-project enrolled a symlink pointing at a home")
+		t.Error("enrol enrolled a symlink pointing at a home")
 	}
 }

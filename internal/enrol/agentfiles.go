@@ -1,4 +1,4 @@
-package enroll
+package enrol
 
 // What an enrolment writes into the tree: each agent's own configuration, and
 // the credentials section in the file it reads for every project.
@@ -57,7 +57,7 @@ func (p *project) agentConfig() error {
 		// nothing. `faramir doctor` reports the same tree for as long as it stays
 		// that way.
 		p.warnf("no coding agent is configured in %s, so nothing this tree runs is "+
-			"redacted. `sudo faramir init-project --agent NAME` enrols one anyway (%s)",
+			"redacted. `sudo faramir enrol --agent NAME` enrols one anyway (%s)",
 			p.opts.Dir, strings.Join(agentcfg.Known(), ", "))
 		p.step(steps.LabelAgentConfig, false, "no coding agent is configured in "+p.opts.Dir)
 		return nil
@@ -218,7 +218,7 @@ func (p *project) writeSections(section string) (bool, []string, []string, error
 			// Collected rather than returned: an operator fixing these wants every
 			// file named, and one agent's rules file cannot cost the tree its own
 			// instructions.
-			stale = append(stale, agentcfg.SectionProblem(err, file.Path, "`sudo faramir init-project`"))
+			stale = append(stale, agentcfg.SectionProblem(err, file.Path, "`sudo faramir enrol`"))
 			written = append(written, file.Path+" (not written; see the error)")
 			continue
 		case err != nil:

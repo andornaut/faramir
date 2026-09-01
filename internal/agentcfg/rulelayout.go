@@ -19,7 +19,7 @@ import (
 
 // RuleLayout is what an agent's rule file is rendered against: this install's
 // own directories, and the paths its config names as linked or refused. One
-// function for both sides, so what `init-project` writes into a tree is what
+// function for both sides, so what `enrol` writes into a tree is what
 // `doctor` re-renders to compare it with, and a re-render is not read as drift.
 func RuleLayout(configDir string) hostlayout.Layout {
 	if configDir == "" {
@@ -397,7 +397,7 @@ type SectionTarget struct {
 	Head string
 }
 
-// CredentialsSection is the section `init-project` writes into a tree.
+// CredentialsSection is the section `enrol` writes into a tree.
 // Rendered rather than shipped as it is, for one paragraph: what an agent is
 // told about waiting for an escalation only holds on a host installed with
 // --allow-sudo, and on any other host it describes a refusal that never

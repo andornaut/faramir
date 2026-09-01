@@ -9,28 +9,28 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
-	"github.com/andornaut/faramir/internal/enroll"
+	"github.com/andornaut/faramir/internal/enrol"
 	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
-// initProjectFlags is one `init-project` run. The tree defaults to the working
+// enrolFlags is one `enrol` run. The tree defaults to the working
 // directory, which is safe here and not on init: that one means "provision this
 // host" and would otherwise enrol wherever it was run from.
-type initProjectFlags struct {
+type enrolFlags struct {
 	clientGroup string
 	agents      []string
 	dryRun      bool
 	asJSON      bool
 }
 
-func newInitProjectCmd() *cobra.Command {
-	var f initProjectFlags
+func newEnrolCmd() *cobra.Command {
+	var f enrolFlags
 	c := &cobra.Command{
-		Use:     "init-project [options] [DIR]",
+		Use:     "enrol [options] [DIR]",
 		Short:   "Set up one working tree and configure its agents",
 		GroupID: groupProvisioning,
 		Args:    atMostOneArg("directory"),
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runInitProject(f, args)) },
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runEnrol(f, args)) },
 	}
 	fl := c.Flags()
 	// No --agent-user. The tree belongs to the account this host belongs to, which
@@ -48,20 +48,20 @@ func newInitProjectCmd() *cobra.Command {
 	return c
 }
 
-func runInitProject(f initProjectFlags, args []string) int {
+func runEnrol(f enrolFlags, args []string) int {
 	// A dry run writes nothing, so it has no wrong install to act on: asking
 	// about a tree from a host that has not been provisioned yet is what it is
 	// for, and Project takes the same latitude with a config it cannot read.
 	dir, err := resolveConfigDir(socketDefault())
 	if err != nil {
 		if !f.dryRun {
-			fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir enrol: %v\n", err)
 			return 1
 		}
 		dir = hostlayout.DefaultConfigDir
 	}
 
-	opts := enroll.Options{
+	opts := enrol.Options{
 		Dir:         firstArg(args),
 		AgentUser:   operatorFromConfig(filepath.Join(dir, "config.toml")),
 		ConfigDir:   dir,
@@ -73,13 +73,13 @@ func runInitProject(f initProjectFlags, args []string) int {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
 	}
 
-	report, projectErr := enroll.Tree(opts)
+	report, projectErr := enrol.Tree(opts)
 	// The failure before the document; see runInit.
 	if projectErr != nil {
-		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", projectErr)
+		fmt.Fprintf(os.Stderr, "faramir enrol: %v\n", projectErr)
 	}
 	if f.asJSON {
-		if code := printJSON("init-project", report); code != 0 {
+		if code := printJSON("enrol", report); code != 0 {
 			return code
 		}
 	}

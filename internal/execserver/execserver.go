@@ -713,7 +713,7 @@ func startFailure(program, cwd string, err error) (code, detail string) {
 	// entering a directory needs x and opening it needs r, so a 0710 home --
 	// which is what sharing a tree leaves behind -- reads as one this account
 	// cannot enter while it walks through it all day. That sent an operator to
-	// run `init-project` on a tree that was already right, for a program that
+	// run `enrol` on a tree that was already right, for a program that
 	// was simply not executable.
 	switch err := unix.Access(cwd, unix.X_OK); {
 	case err == nil:
@@ -729,7 +729,7 @@ func startFailure(program, cwd string, err error) (code, detail string) {
 	// The program may be perfectly runnable; what failed is getting to where it
 	// was to run. Not the shell's 126, which is about the program.
 	return codeExecFailed, fmt.Sprintf("%s cannot enter %s, so %s was never "+
-		"reached. Share the tree with `sudo faramir init-project` in it",
+		"reached. Share the tree with `sudo faramir enrol` in it",
 		whoRuns(), cwd, program)
 }
 

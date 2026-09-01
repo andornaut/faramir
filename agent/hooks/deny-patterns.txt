@@ -52,7 +52,7 @@
 {{marked "ownaction" (printf `>\s*\S*%s/faramir\b` (regexQuote .BinDir))}}
 
 # The plugin and extension an enrolment installs, which are faramir's own files
-# rather than shared ones: init-project overwrites each in full on every run, so
+# rather than shared ones: enrol overwrites each in full on every run, so
 # an edit here is discarded rather than kept, and what a removal buys in the
 # meantime is an agent whose commands stop being routed through the guard.
 #
@@ -92,7 +92,7 @@
 # it, so they are the operator's whether or not sudo is in front: refused here so
 # the agent is told that, rather than meeting a permission error it will try to
 # work around.
-{{marked "operator" `\bfaramir[-\s]+(block[ \t]+add|block[ \t]+rm|init|init-project|link[ \t]+add|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b`}}
+{{marked "operator" `\bfaramir[-\s]+(block[ \t]+add|block[ \t]+rm|enrol|init|link[ \t]+add|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b`}}
 {{marked "operator" `\bsudo\b.*-u\s+faramir`}}
 
 # The broker's own key is not written here. `--ssh-key` may put it outside the

@@ -12,7 +12,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostfs"
 )
 
-// enrolTree writes what `init-project` writes for these agents into a tree, and
+// enrolTree writes what `enrol` writes for these agents into a tree, and
 // records the enrolment, so the check below is comparing against a tree an
 // enrolment actually produced rather than one a test hand-built.
 func enrolTree(t *testing.T, configDir string, names ...string) string {
@@ -205,7 +205,7 @@ func TestEditableFilesReportsWhatAnInstallWouldRefuse(t *testing.T) {
 // The tree's own instructions file is asked about too. Every enrolment writes
 // it whatever the tree was enrolled for, and no target names it, so a tree
 // whose AGENTS.md is a link out of it would pass this check clean and then stop
-// the next `init-project`.
+// the next `enrol`.
 func TestEditableFilesReportsATreesOwnInstructionsFile(t *testing.T) {
 	configDir := t.TempDir()
 	tree := enrolTree(t, configDir, "claude")
@@ -270,7 +270,7 @@ func TestEditableFilesIsOKWhereThereIsNothingToRefuse(t *testing.T) {
 // A tree whose CLAUDE.md is a link to its AGENTS.md is what an operator keeping
 // one file for every agent has, and the enrolment writes it once. Reported as a
 // pair of writes with one survivor, doctor would name a file the next
-// `init-project` writes without complaint.
+// `enrol` writes without complaint.
 func TestEditableFilesAcceptsATreesLinkedClaudeFile(t *testing.T) {
 	configDir := t.TempDir()
 	tree := enrolTree(t, configDir, "claude")
@@ -318,7 +318,7 @@ func TestTreeConfigFailsOnARecordItCannotRead(t *testing.T) {
 // The instruction files are part of what an enrolment writes: for the
 // Antigravity family the rules file plus the account hook is the whole tree
 // enrolment, so a tree whose section or frontmatter is gone must not report as
-// carrying what init-project wrote.
+// carrying what enrol wrote.
 func TestTreeConfigReportsAStrippedInstructionsFile(t *testing.T) {
 	configDir := t.TempDir()
 	tree := enrolTree(t, configDir, "antigravity")

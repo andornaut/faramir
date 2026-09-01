@@ -178,9 +178,9 @@ func TestInitWritesTheDenyRulesIntoTheHome(t *testing.T) {
 }
 
 // A caller that knows where the config is and not what the accounts are called
-// still has to be told the daemons' own homes are faramir's. init-project and
+// still has to be told the daemons' own homes are faramir's. enrol and
 // doctor both build a Layout out of the config directory alone, and with these
-// dropped `init-project /var/lib/faramir-keeper` was an ordinary enrolment: the
+// dropped `enrol /var/lib/faramir-keeper` was an ordinary enrolment: the
 // home goes to the operator at 2770, and the walk regroups the .ssh inside it
 // from 0700 to the client group.
 func TestInstallDirsNamesTheDaemonHomesWithoutBeingToldTheAccounts(t *testing.T) {

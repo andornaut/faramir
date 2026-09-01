@@ -107,7 +107,7 @@ func RefuseUncreatableDirs(root string, mode os.FileMode, uid, gid int, paths []
 // own refusal cannot answer for while the parent does not exist.
 //
 // Asked through a dry run, which answers and writes nothing, so both callers
-// get it before what they do next cannot be undone: init-project before the
+// get it before what they do next cannot be undone: enrol before the
 // share that walks the tree, and init before it hands files to the accounts.
 // paths are relative to root, as the writers take them.
 func RefuseUnenterableDirs(root string, mode os.FileMode, uid, gid int, paths []string) []string {
