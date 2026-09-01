@@ -353,8 +353,7 @@ func (r *runner) stepLogrotate() error {
 	// no ceiling on the log. `faramir doctor` checks it again.
 	if _, err := exec.LookPath("logrotate"); err != nil {
 		r.warnf("logrotate is not installed, so %s is inert and %s grows without a "+
-			"ceiling: the record cap bounds one record, not the file. "+
-			"Install logrotate, or manage that file some other way",
+			"ceiling. Install logrotate, or manage that file some other way",
 			hostlayout.LogrotateConfig, r.layout.AuditLogPath())
 	}
 	r.step("logrotate", made, hostlayout.LogrotateConfig)

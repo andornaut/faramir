@@ -42,10 +42,10 @@ func requireRootToAnswer(command string) bool {
 	// Not "try sudo": reaching root that way from the account the agent runs as
 	// leaves a warm sudo timestamp in a shell the agent can use. The three places
 	// named here are the ones warnIfTypeable does not warn about.
-	fmt.Fprintf(os.Stderr, "faramir %s must run as root: an escalation has to be answered by an account the "+
-		"coding agent cannot become, and it runs as you. Answer from a console, an ssh "+
-		"session on another machine, or a login as another account. `sudo` from this shell "+
-		"warms a timestamp the agent can spend.\n", command)
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root, but not by `sudo` from this "+
+		"shell: that warms a timestamp the coding agent can spend. Answer from a "+
+		"console, an ssh session on another machine, or a login as another account.\n",
+		command)
 	return false
 }
 
@@ -220,8 +220,8 @@ func waiting(socketPath, verb string) ([]escalation.Question, int) {
 		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
 	}
 	if len(questions) == 0 {
-		fmt.Fprintf(os.Stderr, "Nothing is waiting to be %s. "+
-			"`faramir sudo watch` waits for the next one\n", verb)
+		fmt.Fprintf(os.Stderr, "nothing is waiting to be %s; `faramir sudo watch` "+
+			"waits for the next one\n", verb)
 		return nil, 1
 	}
 	return questions, 0
@@ -295,8 +295,7 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			// a watcher and it has to be started again.
 			fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
 			fmt.Fprintln(os.Stderr, "faramir sudo approve: stopping rather than "+
-				"reconnecting: questions raised while nothing was watching would "+
-				"expire unanswered. Start it again once the broker is back.")
+				"reconnecting; start it again once the broker is back")
 			return 69 // EX_UNAVAILABLE, as every other broker-facing command
 		}
 		if finished != nil {
@@ -350,12 +349,12 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 				fmt.Printf("  %s %s %s\n", paint.Dim(question.LogID), paint.Bad("rejected:"),
 					strconv.Quote(strings.Trim(line, "\r\n")))
 			case 69:
-				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s could not be answered and is still open with nobody "+
-					"watching it. Start this again once the broker is back.\n", question.ID)
+				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s is still open and "+
+					"unwatched; start this again once the broker is back\n", question.ID)
 				return 69
 			default:
-				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s was not approved and is now "+
-					"closed; run the command again if it still needs to\n", question.ID)
+				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s was not approved "+
+					"and is closed; run the command again if it still needs to\n", question.ID)
 			}
 		}
 	}

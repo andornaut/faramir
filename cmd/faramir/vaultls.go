@@ -59,7 +59,7 @@ func runVaultList(f vaultListFlags) int {
 	// The secrets directory is 2750 and the group is the keeper's, so the operator
 	// cannot list it. Blocked with the reason rather than reported as an empty
 	// store.
-	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
+	if !requireRoot(label) {
 		return 1
 	}
 	cfg, err := loadResolved(socketDefault())
@@ -148,7 +148,7 @@ func newVaultRemoveCmd() *cobra.Command {
 
 func runVaultRemove(f vaultRemoveFlags, name string) int {
 	const label = "vault rm"
-	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
+	if !requireRoot(label) {
 		return 1
 	}
 	cfg, err := loadResolved(socketDefault())
@@ -210,8 +210,7 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	fmt.Fprintf(os.Stderr, "%s\n", termui.Safe(target))
 	switch {
 	case refsErr != nil:
-		fmt.Fprintf(os.Stderr, "  its refs could not be read (%v), so what goes with "+
-			"it is not known here\n", refsErr)
+		fmt.Fprintf(os.Stderr, "  its refs could not be read: %v\n", refsErr)
 	case len(refs) == 0:
 		fmt.Fprintf(os.Stderr, "  it names no ref\n")
 	default:

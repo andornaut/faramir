@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 
 	"github.com/spf13/cobra"
@@ -43,8 +42,6 @@ type blockFlags struct {
 	// strict tightens every path this invocation names. On add alone: rm takes
 	// the entry out whichever strictness it carried.
 	strict bool
-	// verbose prints the file-by-file account of what was written. See stepLog.
-	verbose bool
 }
 
 // entries is the refusals a command was asked for: every --path and --command
@@ -111,8 +108,7 @@ func newBlockAddCmd() *cobra.Command {
 			"all.\n\n" +
 			"A bare argument is refused; a missing path is recorded and reported; an\n" +
 			"entry already there re-renders the rules and reports changed=false.\n\n" +
-			"Prints the path it blocked and nothing else. --verbose adds the\n" +
-			"file-by-file account of what was written.",
+			"Prints the path it blocked. --json prints the file-by-file report.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runBlockAdd(f, args))
@@ -126,12 +122,11 @@ func newBlockAddCmd() *cobra.Command {
 			"file nothing may touch is a file nothing may rotate; not for --command, "+
 			"which already matches wherever a command starts")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
-	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file this changed")
 	return c
 }
 
 func runBlockAdd(f blockFlags, args []string) int {
-	if !requireRoot("block add", "it writes the config and your agent's rule files") {
+	if !requireRoot("block add") {
 		return 1
 	}
 	blocked, err := f.entries("add", args)
@@ -144,7 +139,7 @@ func runBlockAdd(f blockFlags, args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 		return 1
 	}
-	report, added, err := install.AddBlockedPaths(blockOptions(f, dir), blocked)
+	report, added, err := install.AddBlockedPaths(installOptions(dir), blocked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 	}
@@ -161,8 +156,8 @@ func runBlockAdd(f blockFlags, args []string) int {
 	// under whatever brokered command is running.
 	if report.Changed {
 		if err := install.Reload(); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir block add: wrote the entry, but the daemons "+
-				"did not reload, so a brokered command can still reach it: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir block add: entry written, daemons not "+
+				"reloaded, so it is not enforced yet: %v\n", err)
 			return 1
 		}
 	}
@@ -177,8 +172,7 @@ func runBlockAdd(f blockFlags, args []string) int {
 			fmt.Fprintf(os.Stderr, "blocked %s\n", config.Shown(entry.Blocks()))
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "%s was already blocked, so nothing was added; the "+
-			"rules naming it were rendered again\n", config.Shown(entry.Blocks()))
+		fmt.Fprintf(os.Stderr, "already blocked: %s\n", config.Shown(entry.Blocks()))
 	}
 	printWarnings(report)
 	return 0
@@ -194,8 +188,8 @@ func newBlockRemoveCmd() *cobra.Command {
 			"agent's settings go with it, against the record of what it last wrote\n" +
 			"there; a rule you added yourself naming the same path is not in that\n" +
 			"record and stays.\n\n" +
-			"Prints the path it stopped blocking and nothing else. --verbose adds the\n" +
-			"file-by-file account of what was written.\n\n" +
+			"Prints the path it stopped blocking. --json prints the file-by-file\n" +
+			"report.\n\n" +
 			"The form identifies the entry, so --command does not remove a path of the\n" +
 			"same string. An entry that is not there reports changed=false; a rule\n" +
 			"compiled into faramir is refused, `faramir block ls` showing which is\n" +
@@ -205,7 +199,6 @@ func newBlockRemoveCmd() *cobra.Command {
 	}
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
-	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file this changed")
 	return c
 }
 
@@ -231,10 +224,10 @@ func runBlockRemove(f blockFlags, args []string) int {
 			return 1
 		}
 	}
-	if !requireRoot("block rm", "it writes the config") {
+	if !requireRoot("block rm") {
 		return 1
 	}
-	report, removed, err := install.RemoveBlockedPaths(blockOptions(f, dir), asked)
+	report, removed, err := install.RemoveBlockedPaths(installOptions(dir), asked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 	}
@@ -248,8 +241,8 @@ func runBlockRemove(f blockFlags, args []string) int {
 	// on refusing a path the operator has just undeclared.
 	if report.Changed {
 		if err := install.Reload(); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir block rm: removed the entry, but the daemons "+
-				"did not reload, so a brokered command is still refused it: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir block rm: entry removed, daemons not "+
+				"reloaded, so it is still refused: %v\n", err)
 			return 1
 		}
 	}
@@ -261,8 +254,8 @@ func runBlockRemove(f blockFlags, args []string) int {
 	// Everything below it is about how, and only where it applies.
 	for i, entry := range removed {
 		if entry.Blocks() == "" {
-			fmt.Fprintf(os.Stderr, "%s was not blocked, so nothing was removed; "+
-				"`faramir block ls` lists what is\n", config.Shown(asked[i].Blocks()))
+			fmt.Fprintf(os.Stderr, "not blocked: %s; `faramir block ls` lists what is\n",
+				config.Shown(asked[i].Blocks()))
 			continue
 		}
 		fmt.Fprintf(os.Stderr, "stopped blocking %s\n", config.Shown(entry.Blocks()))
@@ -277,9 +270,7 @@ func runBlockRemove(f blockFlags, args []string) int {
 	// enrolled tree. A host with no agent in the home still has trees, and
 	// asking only the first said nothing on the run that had just rewritten one.
 	if changedAny(report, "agent config", "enrolled trees") {
-		fmt.Fprintln(os.Stderr, "a rule you added to your agent's settings yourself, "+
-			"naming the same path, is not in faramir's record of what it wrote there "+
-			"and stays; take that line out yourself")
+		fmt.Fprintln(os.Stderr, noteHandWrittenRule)
 	}
 	return 0
 }
@@ -329,9 +320,8 @@ func runBlockList(f blockFlags) int {
 	// nothing. Refused rather than answered, a caller that wrote both having
 	// meant one of them.
 	if f.declared && f.builtIn {
-		fmt.Fprintln(os.Stderr, "faramir block ls: --declared and --built-in are the "+
-			"two halves of the listing, so naming both is the default. Pass one, or "+
-			"neither")
+		fmt.Fprintln(os.Stderr, "faramir block ls: pass --declared or --built-in, "+
+			"not both; neither lists both halves")
 		return 2
 	}
 	dir, err := installedConfigDir(socketDefault())
@@ -408,15 +398,4 @@ func errReason(err error) string {
 		return "no permission to look"
 	}
 	return "stat failed"
-}
-
-func blockOptions(f blockFlags, dir string) install.Options {
-	return install.Options{
-		ConfigDir: dir,
-		// What [server] agent_user records, and nothing else: this rewrites the
-		// config and does not decide who owns the host. `faramir init` is the one
-		// command that names the operator.
-		AgentUser: recordedOperator(filepath.Join(dir, "config.toml")),
-		Log:       stepLog(f.json, f.verbose),
-	}
 }

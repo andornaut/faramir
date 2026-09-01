@@ -111,11 +111,8 @@ func (r *runner) stepAccounts() error {
 	if gid, err := hostfs.LookupGroup(r.layout.SecretsGroup); err == nil {
 		if first := firstLoginGID(); gid >= first {
 			r.warnf("group %s has gid %d, in the range login.defs reserves for "+
-				"login accounts; it holds only service accounts and belongs "+
-				"below %d, where a host's own numbering will not reach it. "+
-				"Move it with `groupdel %s && groupadd -r %s`, then re-run this "+
-				"install: it re-owns the secrets directory to the new gid and restarts the "+
-				"daemons onto it",
+				"login accounts; it belongs below %d. Move it with "+
+				"`groupdel %s && groupadd -r %s`, then re-run this install",
 				r.layout.SecretsGroup, gid, first, r.layout.SecretsGroup, r.layout.SecretsGroup)
 		}
 	}

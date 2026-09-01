@@ -27,7 +27,7 @@ func newUninstallCmd() *cobra.Command {
 
 func runUninstall(f uninstallFlags) int {
 
-	if !requireRoot("uninstall", "it removes the units and the installed files") {
+	if !requireRoot("uninstall") {
 		return 1
 	}
 	// Nothing answering is not a reason to stop here, unlike every other command.
@@ -39,9 +39,8 @@ func runUninstall(f uninstallFlags) int {
 	// what gets deleted.
 	dir, err := resolveConfigDir(socketDefault())
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "faramir uninstall: no install answers, so this "+
-			"removes what is at the usual paths and names what it leaves against "+
-			hostlayout.DefaultConfigDir)
+		fmt.Fprintln(os.Stderr, "faramir uninstall: no install answers; removing "+
+			"from the usual paths, against "+hostlayout.DefaultConfigDir)
 		dir = ""
 	}
 	left, err := install.Uninstall(dir)
@@ -53,8 +52,8 @@ func runUninstall(f uninstallFlags) int {
 	for _, item := range left {
 		fmt.Fprintf(os.Stderr, "  %s\n", item)
 	}
-	fmt.Fprintln(os.Stderr, "\nRemove those by hand if you really mean to. Deleting the age "+
-		"key makes every managed sops file unreadable, retroactively.")
+	fmt.Fprintln(os.Stderr, "\nRemove them by hand if you mean to. Deleting the age key "+
+		"makes every managed sops file unreadable, retroactively.")
 	return 0
 }
 
@@ -70,7 +69,7 @@ func newReloadCmd() *cobra.Command {
 
 func runReload() int {
 
-	if !requireRoot("reload", "it restarts the daemons") {
+	if !requireRoot("reload") {
 		return 1
 	}
 	if err := install.Reload(); err != nil {

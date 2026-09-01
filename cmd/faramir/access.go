@@ -71,8 +71,7 @@ func runAccess(path string, read, write, execute bool) int {
 		mode |= unix.X_OK
 	}
 	if mode == 0 {
-		fmt.Fprintln(os.Stderr, "faramir access: name --read, --write or --execute; "+
-			"with none of them there is no question to answer")
+		fmt.Fprintln(os.Stderr, "faramir access: name --read, --write or --execute")
 		return 2
 	}
 	// Faccessat with a zero flags argument asks about the real uid and gid and

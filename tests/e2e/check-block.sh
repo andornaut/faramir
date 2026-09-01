@@ -476,8 +476,14 @@ grep -q "$ABSENT" $CFG \
 # holds on a host with an agent in the home and on one without.
 NOTED=/srv/e2e-own-rule
 block add --path "$NOTED" >/dev/null 2>&1
-out=$(block rm --path "$NOTED" --verbose)
-if grep -qE '^changed +(agent config|enrolled trees)' <<<"$out"; then
+out=$(block rm --path "$NOTED")
+# Whether that removal rewrote an agent's settings, asked by repeating it under
+# --json: the human output carries the outcome and not the steps.
+block add --path "$NOTED" >/dev/null 2>&1
+rewrote=$(block rm --path "$NOTED" --json 2>/dev/null \
+  | jq -r '[.steps[] | select(.step == "agent config" or .step == "enrolled trees")
+           | .changed] | any')
+if [ "$rewrote" = true ]; then
   grep -q 'added to your agent.s settings yourself' <<<"$out" \
     && ok "the removal says your own rules stay, an agent's settings having been rewritten" \
     || bad "an agent's settings were rewritten and the note was not said: ${out:0:300}"
@@ -725,9 +731,9 @@ grep -qF "path = \"$NAME\"" $CFG \
   && bad "the path entry is still in config.toml" \
   || ok "and the entry is gone from config.toml"
 
-# The outcome is the answer to what was asked, and it was being printed under a
-# dozen lines naming every file the removal touched. Those lines say how rather
-# than whether, so they are behind a flag and the first line is the answer.
+# The outcome is the answer to what was asked. The file-by-file account says how
+# rather than whether, so no invocation prints it: it is in the --json report,
+# which is where a caller that wants the steps reads them.
 QUIET=/srv/e2e-quiet-rm
 block add --path "$QUIET" >/dev/null 2>&1
 out=$(block rm --path "$QUIET")
@@ -736,16 +742,12 @@ out=$(block rm --path "$QUIET")
   || bad "the first line is not the outcome: ${out:0:200}"
 grep -qE '^(changed|ok) ' <<<"$out" \
   && bad "block rm still prints the file-by-file account: ${out:0:300}" \
-  || ok "and keeps the file-by-file account back"
+  || ok "and prints no file-by-file account"
 
 block add --path "$QUIET" >/dev/null 2>&1
-out=$(block rm --path "$QUIET" --verbose)
-grep -qE '^(changed|ok) ' <<<"$out" \
-  && ok "--verbose brings the account back" \
-  || bad "--verbose printed no steps: ${out:0:300}"
-grep -qF "stopped blocking $QUIET" <<<"$out" \
-  && ok "and still says what it did" \
-  || bad "--verbose lost the outcome: ${out:0:300}"
+block rm --path "$QUIET" --json 2>/dev/null | jq -e '.steps | length > 0' >/dev/null \
+  && ok "and --json still carries the steps" \
+  || bad "block rm --json has no steps"
 
 head_ "12. an entry a rule cannot carry"
 

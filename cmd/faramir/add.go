@@ -60,7 +60,7 @@ func newAddCmd() *cobra.Command {
 
 func runAdd(f addFlags, name string) int {
 	const label = "vault add"
-	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
+	if !requireRoot(label) {
 		return 1
 	}
 	cfg, err := loadResolved(socketDefault())

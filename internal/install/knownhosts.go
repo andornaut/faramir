@@ -29,9 +29,9 @@ func (r *runner) stepKnownHosts() error {
 	// The file is replaced whole, so pinning an empty one removes what is
 	// there.
 	if entries == 0 {
-		r.warnf("%s holds no host keys, so this removes whatever %s had pinned and "+
-			"leaves a brokered ssh verifying against %s alone. Re-run with a file that "+
-			"holds the fleet's host keys, or leave --known-hosts out to keep what is pinned",
+		r.warnf("%s holds no host keys; this unpins %s and leaves a brokered ssh "+
+			"verifying against %s alone. Re-run with a file that holds the fleet's "+
+			"host keys, or leave --known-hosts out",
 			r.opts.KnownHosts, path, knownhosts.GlobalFile)
 	}
 	// A dry run runs unprivileged and cannot look inside the executor's 0700

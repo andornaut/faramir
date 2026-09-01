@@ -460,7 +460,7 @@ jq -e '.secrets.degraded_links["npm/token"]' <<<"$(asop status 2>/dev/null)" >/d
 
 # --------------------------------------------------------------------------
 head_ "9. removing one"
-out=$("$faramir" link rm gh/token --verbose 2>&1)
+out=$("$faramir" link rm gh/token 2>&1)
 grep -q 'gh/token' $CFG \
   && bad "the entry is still in $CFG" \
   || ok "the entry is gone from $CFG"
@@ -471,8 +471,14 @@ grep -q 'chmod g-r' <<<"$out" \
   || bad "removal does not say what access it left behind: $out"
 # The note about the operator's own rules is said only where an agent's settings
 # were rewritten: faramir takes out what it wrote, and has no record of a rule
-# added by hand. Asserted as the pairing, as in check-block.sh.
-if grep -qE '^changed +(agent config|enrolled trees)' <<<"$out"; then
+# added by hand. Asserted as the pairing, as in check-block.sh: whether the
+# removal rewrote an agent's settings is asked by repeating it under --json,
+# the human output carrying the outcome and not the steps.
+addlink gh/token $GH --type yaml --key github.com/oauth_token >/dev/null 2>&1
+rewrote=$("$faramir" link rm gh/token --json 2>/dev/null \
+  | jq -r '[.steps[] | select(.step == "agent config" or .step == "enrolled trees")
+           | .changed] | any')
+if [ "$rewrote" = true ]; then
   grep -q 'added to your agent.s settings yourself' <<<"$out" \
     && ok "and that a rule you added yourself stays" \
     || bad "an agent's settings were rewritten and the note was not said: $out"

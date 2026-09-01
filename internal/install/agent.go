@@ -299,17 +299,16 @@ func (r *runner) stepEnrolledTrees() error {
 		// A different remedy from the one below: this tree is not one an
 		// enrolment would make now, so re-running init-project in it would be
 		// refused too. The entry is what has to go.
-		r.warnf("%d recorded tree(s) are directories `faramir init-project` would "+
-			"refuse to enrol, so nothing was written into them: %s. Remove their "+
-			"entries from %s, and anything an earlier enrolment left in them",
+		r.warnf("%d recorded tree(s) `faramir init-project` would refuse to enrol, "+
+			"so they were left alone: %s. Remove their entries from %s, and anything "+
+			"an earlier enrolment left in them",
 			len(refused), strings.Join(refused, ", "),
 			agentcfg.EnrolledPath(r.layout.ConfigDir))
 	}
 	if len(skipped) > 0 {
-		r.warnf("%d enrolled tree(s) were not rewritten, so what an enrolment "+
-			"writes there is now one entry short and `faramir doctor` reports "+
-			"them: %s. Re-run `sudo faramir init-project` in each once it is "+
-			"reachable", len(skipped), strings.Join(skipped, ", "))
+		r.warnf("%d enrolled tree(s) were not rewritten and are now stale: %s. "+
+			"Re-run `sudo faramir init-project` in each once it is reachable",
+			len(skipped), strings.Join(skipped, ", "))
 	}
 	return nil
 }

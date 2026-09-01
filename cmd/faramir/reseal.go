@@ -51,7 +51,7 @@ func loadStore(label, socket string, named []string,
 	emptyStoreOK bool) (*storeContext, int) {
 	// Blocked rather than attempted, like edit: as the operator this fails on the
 	// age key with a bare permission error.
-	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
+	if !requireRoot(label) {
 		return nil, 1
 	}
 	cfg, err := loadResolved(socket)
@@ -76,8 +76,7 @@ func loadStore(label, socket string, named []string,
 		// matched nothing", which reads as three problems on a host whose first
 		// secret has not been written.
 		fmt.Fprintf(os.Stderr, "faramir %s: the managed store names no file yet, so "+
-			"there is nothing to re-encrypt; the rule governs what sops writes from "+
-			"now on\n", label)
+			"there is nothing to re-encrypt\n", label)
 		return &storeContext{
 			cfg:      cfg,
 			keyPath:  keyPath,

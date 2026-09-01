@@ -34,16 +34,16 @@ func run(args []string) int {
 	return exitCode(root.Execute())
 }
 
-// requireRoot refuses a command that must run as root, naming why and how. The
-// escalation commands use requireRootToAnswer instead: they must not suggest
-// sudo, a warm sudo timestamp being what their check exists to keep out of the
-// agent's reach.
-func requireRoot(command, reason string) bool {
+// requireRoot refuses a command that must run as root, naming how to re-run it.
+// The escalation commands use requireRootToAnswer instead: they must not
+// suggest sudo, a warm sudo timestamp being what their check exists to keep out
+// of the agent's reach.
+func requireRoot(command string) bool {
 	if os.Geteuid() == 0 {
 		return true
 	}
-	fmt.Fprintf(os.Stderr, "faramir %s must run as root, because %s: try 'sudo faramir %s'\n",
-		command, reason, command)
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root: try 'sudo faramir %s'\n",
+		command, command)
 	return false
 }
 

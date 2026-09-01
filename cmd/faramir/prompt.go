@@ -90,12 +90,12 @@ func printOutcome(outcome escalation.Outcome, paint termui.Palette) {
 func warnIfTypeable() {
 	var reasons []string
 	if os.Getenv("TMUX") != "" {
-		reasons = append(reasons, "this is a tmux pane, and tmux takes `send-keys` "+
-			"from any process running as the account that started it")
+		reasons = append(reasons, "a tmux pane takes `send-keys` from any process "+
+			"running as the account that started tmux")
 	}
 	if os.Getenv("STY") != "" {
-		reasons = append(reasons, "this is a screen window, and screen takes `stuff` "+
-			"from any process running as the account that started it")
+		reasons = append(reasons, "a screen window takes `stuff` from any process "+
+			"running as the account that started screen")
 	}
 	if info, err := os.Stdin.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
 		if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != 0 {
@@ -103,8 +103,7 @@ func warnIfTypeable() {
 			if entry, err := user.LookupId(owner); err == nil {
 				owner = entry.Username
 			}
-			reasons = append(reasons, "this terminal belongs to "+owner+" rather than "+
-				"to root, so the answer is typed on a device that account owns")
+			reasons = append(reasons, "this terminal is owned by "+owner+", not root")
 		}
 	}
 	if len(reasons) == 0 {
@@ -114,8 +113,9 @@ func warnIfTypeable() {
 	for _, reason := range reasons {
 		fmt.Fprintln(os.Stderr, "  - "+reason)
 	}
-	fmt.Fprint(os.Stderr, "The coding agent runs as that account. Watch from a console, an ssh session on "+
-		"another machine, or another login: somewhere it cannot reach the keyboard.\n\n")
+	fmt.Fprint(os.Stderr, "The coding agent runs as that account. Watch from somewhere "+
+		"it cannot reach the keyboard: a console, an ssh session on another machine, "+
+		"or another login.\n\n")
 }
 
 // answers reads the operator's terminal a line at a time. One reader for the

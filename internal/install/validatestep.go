@@ -50,9 +50,9 @@ func (r *runner) stepValidate() error {
 			// What it does is refuse, not run bare. Said that way round: a warning
 			// that reads as an exposure teaches the wrong reflex for the day a value
 			// set really does fail to load.
-			r.warnf("the broker is configured for %s, which %s named no file yet, so it is serving "+
-				"nothing and refuses every brokered command. Write the secrets directory with "+
-				"sops and re-run",
+			r.warnf("the broker is configured for %s, which %s named no file yet, so "+
+				"it serves nothing and refuses every brokered command. Write the "+
+				"secrets directory with sops and re-run",
 				strings.Join(absent, ", "),
 				map[bool]string{true: "has", false: "have"}[len(absent) == 1])
 			r.step("validate", false, "no secrets yet")
@@ -72,11 +72,11 @@ func (r *runner) stepValidate() error {
 		// anything calls healthy, and the remedies are named here rather than
 		// attempted.
 		if report.OnlyDegradedLinks() {
-			r.warnf("%s did not load, so those refs answer nothing while every other ref is "+
-				"served: %s. Restore what each names, fix its selector, or take the entry out "+
-				"with `sudo faramir link rm REF`, then `sudo systemctl restart faramir-broker`: "+
-				"the broker fingerprints a linked file by mtime and size, so a repair that "+
-				"changes neither leaves its view as it was",
+			r.warnf("%s did not load, so those refs answer nothing: %s. Restore what "+
+				"each names, fix its selector, or take the entry out with "+
+				"`sudo faramir link rm REF`, then `sudo systemctl restart "+
+				"faramir-broker`: a repair that leaves mtime and size alone does not "+
+				"change the broker's view on its own",
 				brokercheck.LinkEntries(len(report.Secrets.DegradedLinks)), report.DegradedRefs())
 			r.step("validate", false, "installed; linked refs to fix")
 			return nil
@@ -94,8 +94,8 @@ func (r *runner) stepValidate() error {
 		// this and `faramir status` exits non-zero over it, so a host in this state
 		// is not one anything calls healthy.
 		if report.OnlyNotRedactable() {
-			r.warnf("%d ref(s) cannot be redacted, so they are never injected: %s. Fix each with "+
-				"`sudo faramir vault edit`; the reason beside it says how",
+			r.warnf("%d ref(s) cannot be redacted, so they are never injected: %s. "+
+				"Fix each with `sudo faramir vault edit`",
 				len(report.Secrets.NotRedactable), report.RefusedRefs())
 			r.step("validate", false, "installed; refs to fix")
 			return nil
@@ -113,8 +113,7 @@ func (r *runner) stepValidate() error {
 	// files at all being what a first install looks like.
 	if len(report.Secrets.Files) > 0 && report.Secrets.Count == 0 {
 		r.warnf("the broker read %s and loaded no refs, so nothing is injectable "+
-			"and nothing is redacted: a command that prints a credential prints it "+
-			"in plaintext. %s",
+			"and nothing is redacted. %s",
 			strings.Join(report.Secrets.Files, ", "), brokercheck.LoadErrorDetail(report.Secrets.Errors))
 	}
 
@@ -146,8 +145,7 @@ func (r *runner) stepValidate() error {
 	// load is: this probe would report that refusal as an SSH fault.
 	if r.sshKey != "" && !report.Serves() {
 		r.warnf("a managed file did not load, so the broker refuses brokered " +
-			"commands and what its ssh-agent holds could not be asked. Fix what the " +
-			"store reported, then: faramir doctor")
+			"commands. Fix what the store reported, then: faramir doctor")
 		r.step("broker ssh agent", false, "not asked")
 	}
 	if r.sshKey != "" && report.Serves() {

@@ -329,9 +329,9 @@ func (p *project) warnMissingBinary(binary string) {
 	if hostfs.Exists(binary) {
 		return
 	}
-	p.warnf("%s is not installed, and it is what every hook and plugin written here execs. They "+
-		"fail closed, so the agents would refuse every command in %s rather than run one "+
-		"unredacted. Run `sudo faramir init` on the host that runs this tree", binary, p.opts.Dir)
+	p.warnf("%s is not installed, and every hook and plugin written here execs it. "+
+		"They fail closed, so the agents would refuse every command in %s. Run "+
+		"`sudo faramir init` on the host that runs this tree", binary, p.opts.Dir)
 }
 
 // refuseOversharing stops an enrolment that would share far more than a
@@ -486,9 +486,8 @@ func (p *project) resolveGroup() error {
 		// asking about a tree from a host that has not been provisioned yet is what
 		// it is for. The same latitude resolveIDs takes.
 		if p.opts.DryRun {
-			p.warnf("cannot read %s (%v), so this reports on the tree alone: the "+
-				"group it would be shared with and the deny rules an enrolment would "+
-				"write are both in that file", configFile, err)
+			p.warnf("cannot read %s (%v), so this reports on the tree alone",
+				configFile, err)
 			p.report.ClientGroup = p.opts.ClientGroup
 			return nil
 		}
@@ -537,9 +536,9 @@ func warnMissingAccountRules(p *project, target *agentcfg.Target) {
 	// which renders the same set into the bash deny list. Named that way rather
 	// than by example, a rule for a path faramir did not choose being the thing
 	// that design refuses to compile in.
-	p.warnf("%s's deny rules are not in the agent account's home (%s), so its file tools are "+
-		"refused nothing this install protects, and no uid boundary refuses them either. "+
-		"Run `sudo faramir init --agent %s`",
+	p.warnf("%s's deny rules are not in the agent account's home (%s), so its file "+
+		"tools are refused nothing this install protects. Run "+
+		"`sudo faramir init --agent %s`",
 		target.Name, strings.Join(missing, ", "), target.Name)
 }
 
@@ -578,9 +577,9 @@ func (p *project) shareTree() error {
 	// writable tree, so a tree outside it takes the group and then refuses every
 	// write with EROFS.
 	if hostlayout.HomeOf(p.opts.Dir) == "" {
-		p.warnf("%s is outside /home, which is the only tree faramir-exec may write: a brokered "+
-			"command enters it and gets EROFS on every write. Add a drop-in extending "+
-			"ReadWritePaths= on faramir-exec.service",
+		p.warnf("%s is outside /home, the only tree faramir-exec may write, so a "+
+			"brokered command gets EROFS on every write there. Add a drop-in "+
+			"extending ReadWritePaths= on faramir-exec.service",
 			p.opts.Dir)
 	}
 	// What it altered, not whether it ran: the first run rewrites the ownership
@@ -612,9 +611,8 @@ func (p *project) agentConfig() error {
 		// enrolment leaves the tree shared with the client group and guarded by
 		// nothing. `faramir doctor` reports the same tree for as long as it stays
 		// that way.
-		p.warnf("no coding agent is configured in %s, so nothing was registered and nothing this "+
-			"tree runs is redacted. The tree is shared either way. `sudo faramir init-project "+
-			"--agent NAME` enrols one anyway (%s)",
+		p.warnf("no coding agent is configured in %s, so nothing this tree runs is "+
+			"redacted. `sudo faramir init-project --agent NAME` enrols one anyway (%s)",
 			p.opts.Dir, strings.Join(agentcfg.Known(), ", "))
 		p.step(labelAgentConfig, false, "no coding agent is configured in "+p.opts.Dir)
 		return nil
@@ -641,9 +639,9 @@ func (p *project) agentConfig() error {
 		// Each warning is about this agent, so each asks whether this agent's files
 		// changed rather than whether any have.
 		if target.AutoApprovesBash && made {
-			p.warnf("Bash is now auto-approved in %s for %s: the hook rewrites every command, and a "+
-				"rewritten command matches no permission rule. Its deny list is what refuses one "+
-				"instead",
+			p.warnf("Bash is now auto-approved in %s for %s: a command the hook has "+
+				"rewritten matches no permission rule, so its deny list is what "+
+				"refuses one",
 				p.opts.Dir, target.Name)
 		}
 		// The account-wide half is `faramir init --agent`'s, and without it the
@@ -699,9 +697,9 @@ func (p *project) warnUncommittableFiles(target *agentcfg.Target) {
 		if !file.Local || p.isIgnored(file.Path) {
 			continue
 		}
-		p.warnf("%s is not ignored by git, and %s reads it as yours rather than the repository's. "+
-			"It names this machine's layout. Add it to .gitignore, or to .git/info/exclude to "+
-			"keep that local",
+		p.warnf("%s names this machine's layout, %s reads it as yours rather than "+
+			"the repository's, and git is not ignoring it. Add it to .gitignore, or "+
+			"to .git/info/exclude to keep that local",
 			file.Path, target.Name)
 	}
 }

@@ -180,10 +180,9 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	// remove it, that reads as an instruction to undo what they typed.
 	if !adding {
 		if keeper, err := agekey.Recipient(store.keyPath); err == nil && keeper == recipient {
-			fmt.Fprintf(os.Stderr, "faramir %s: %s is the key %s decrypts with, so removing "+
-				"it would leave a store nothing on this host can open and a broker serving "+
-				"nothing. It is the one recipient this command will not take away\n",
-				label, recipient, store.keyPath)
+			fmt.Fprintf(os.Stderr, "faramir %s: %s is the key %s decrypts with, and is "+
+				"the one recipient this will not remove: without it nothing on this host "+
+				"can open the store\n", label, recipient, store.keyPath)
 			return 1
 		}
 	}

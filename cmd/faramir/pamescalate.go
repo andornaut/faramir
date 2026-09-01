@@ -104,8 +104,8 @@ func runPamEscalate(f pamEscalateFlags, granted *bool) int {
 	if len(ancestors) == 0 {
 		// Nothing above this call, which is what a `sudo` typed by hand as the
 		// executor's account looks like once its shell is gone.
-		fmt.Fprintln(os.Stderr, "faramir pam-escalate: nothing above this sudo could "+
-			"be read, so there is nothing to attribute it to")
+		fmt.Fprintln(os.Stderr, "faramir pam-escalate: nothing above this sudo "+
+			"could be read, so it cannot be attributed")
 		return 1
 	}
 	approved, reason, err := askBrokerToApprove(pamSocket(), ancestors)

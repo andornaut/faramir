@@ -66,14 +66,13 @@ func runLogs(f logsFlags, args []string) int {
 	// A log-id names a command already recorded, so there is nothing to watch for.
 	// Blocked before the root check, so the answer is the same whoever typed it.
 	if f.watch && firstArg(args) != "" {
-		fmt.Fprintln(os.Stderr, "faramir logs: --watch prints records as they arrive, "+
-			"so it takes no log-id. Drop one or the other")
+		fmt.Fprintln(os.Stderr, "faramir logs: --watch takes no log-id")
 		return 2
 	}
 
 	// Blocked rather than attempted: otherwise a bare permission error on a path
 	// the caller did not name.
-	if !requireRoot("logs", "the audit log is readable only by the broker and by root") {
+	if !requireRoot("logs") {
 		return 1
 	}
 
@@ -92,8 +91,8 @@ func runLogs(f logsFlags, args []string) int {
 		}
 		auditview.ReportSkipped(path, skipped)
 		if record == nil {
-			fmt.Fprintf(os.Stderr, "faramir logs: no record %s in %s. Rotated files are not "+
-				"searched; a record older than the live log is in %s.1.gz and its siblings\n",
+			fmt.Fprintf(os.Stderr, "faramir logs: no record %s in %s; rotated files "+
+				"(%s.1.gz and its siblings) are not searched\n",
 				id, path, filepath.Base(path))
 			return 1
 		}
@@ -178,8 +177,8 @@ func runWatch(path string, f logsFlags, paint termui.Palette) int {
 	// waiting for it rather than reporting it as empty.
 	switch {
 	case !follow.Following():
-		fmt.Fprintf(os.Stderr, "no audit log at %s yet: nothing has been brokered "+
-			"on this host, and the first record creates it\n", path)
+		fmt.Fprintf(os.Stderr, "no audit log at %s yet; the first brokered "+
+			"command creates it\n", path)
 	case len(records) == 0 && f.count > 0:
 		fmt.Fprintln(os.Stderr, auditview.EmptyReason(path, f.count))
 	}
@@ -190,7 +189,7 @@ func runWatch(path string, f logsFlags, paint termui.Palette) int {
 		}
 		printer.Row(record)
 	}
-	fmt.Fprintf(os.Stderr, "watching %s for new records. Ctrl-c to stop.\n", path)
+	fmt.Fprintf(os.Stderr, "watching %s. Ctrl-c to stop.\n", path)
 
 	for {
 		if err := follow.Drain(emit); err != nil {

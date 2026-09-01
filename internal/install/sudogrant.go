@@ -124,8 +124,8 @@ func (r *runner) stepSudoGrant() error {
 	// a usable hash would be a second way in that the broker is not asked about.
 	// Re-asserted every run.
 	if _, err := runcmd.Output("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warnf("could not lock %s's password (%v); it authenticates through the "+
-			"broker and should hold no password of its own: usermod -L %s",
+		r.warnf("could not lock %s's password (%v); it should hold none of its own: "+
+			"usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
 	if granted || authChanged || envChanged || branchChanged {
@@ -215,8 +215,8 @@ func (r *runner) revokeSudoGrant() error {
 		// now, so nothing can sudo either way, but a branch left in a shared stack
 		// is a line pointing at a helper this run deleted.
 		r.warnf("the faramir block could not be taken out of a shared PAM stack "+
-			"(%v). The grant is gone, so nothing can escalate, but remove the lines "+
-			"between %q and %q by hand", err, hostsudo.PamBlockBegin, hostsudo.PamBlockEnd)
+			"(%v). The grant is gone, but remove the lines between %q and %q by hand",
+			err, hostsudo.PamBlockBegin, hostsudo.PamBlockEnd)
 	}
 	// Locking rather than clearing: an account with an empty password field is one
 	// some PAM stacks let in without asking.
@@ -292,9 +292,8 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 		// name, and a newline there renders a second line this file never named.
 		// sudo skips the line without an '=' and applies the one after it.
 		if !protocol.ValidEnvName(name) {
-			r.warnf("[command] env %q is not a variable name, so it is left out of %s: "+
-				"what follows the first '=' is the value, and anything else in the name "+
-				"would be read as another variable", name, r.layout.SudoEnvFile())
+			r.warnf("[command] env %q is not a variable name, so it is left out of %s",
+				name, r.layout.SudoEnvFile())
 			continue
 		}
 		// The same for the value, which ends its own line. '#' with it: sudo reads
@@ -305,9 +304,8 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 		// does not help: the value still truncates, and the opening quote survives
 		// into it (measured on sudo 1.9.15p5).
 		if strings.ContainsAny(value, "\n\r#") {
-			r.warnf("[command] env %s is left out of %s: a value carrying a newline or "+
-				"a '#' does not survive it whole, and a value that differs between a "+
-				"command and its sudo is worse than one that is absent", name,
+			r.warnf("[command] env %s is left out of %s: a value carrying a newline "+
+				"or a '#' does not survive that file whole", name,
 				r.layout.SudoEnvFile())
 			continue
 		}
@@ -324,8 +322,7 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 			// changes nothing either way.
 			if !sudoSetsItself[name] {
 				r.warnf("[command] env %s is left out of %s: it is one of the names an "+
-					"injected value may not carry either, and this file is read without "+
-					"sudo's own environment checks", name, r.layout.SudoEnvFile())
+					"injected value may not carry either", name, r.layout.SudoEnvFile())
 			}
 			continue
 		}

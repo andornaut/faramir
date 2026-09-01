@@ -203,8 +203,8 @@ func runInit(f initFlags) int {
 	// verification: a converge that changed nothing and reports failure, with
 	// nothing in the ending to point at the cause.
 	if why := protocol.NestedRun(); why != "" {
-		fmt.Fprintf(os.Stderr, "faramir init: %s, so init cannot finish: it asks the broker what the agent holds "+
-			"and that question would be refused. Run it from a shell of your own\n", why)
+		fmt.Fprintf(os.Stderr, "faramir init: %s, and its last step would be refused. "+
+			"Run it from a shell of your own\n", why)
 		return 1
 	}
 
@@ -306,8 +306,8 @@ func reportToOperator(report install.Report) {
 	}
 	if report.BrokerPublicKey != "" {
 		fmt.Fprintf(os.Stderr, "\nThe broker's public key:\n  %s\n", report.BrokerPublicKey)
-		fmt.Fprintln(os.Stderr, "It must be in ~/.ssh/authorized_keys for the account you "+
-			"connect as on every managed host, or brokered commands authenticate as nobody.")
+		fmt.Fprintln(os.Stderr, "Put it in ~/.ssh/authorized_keys on every managed host, "+
+			"for the account you connect as.")
 	}
 	if report.DryRun {
 		fmt.Fprintln(os.Stderr, "\nDry run: nothing was written.")

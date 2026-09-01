@@ -678,13 +678,12 @@ func (r *runner) refuseRepoint() error {
 	key := filepath.Join(installed, "age.key")
 	store := filepath.Join(installed, "secrets")
 	width := max(len(key), len(store))
-	r.warnf("the daemons now load %s, and %s is no longer part of this install: "+
-		"nothing there is managed, nothing in it is redacted, and no later "+
-		"`faramir doctor` will mention it again.\n"+
+	r.warnf("the daemons now load %s; %s is no longer part of this install and "+
+		"nothing left in it is redacted:\n"+
 		"  %-*s  the key that opens what is beside it\n"+
-		"  %-*s  %d managed file(s), every value in them covered by nothing now\n"+
-		"Re-encrypt what you still need where the daemons now look, check it is "+
-		"served with `faramir refs`, and then remove the old directory:\n"+
+		"  %-*s  %d managed file(s)\n"+
+		"Re-encrypt what you still need where the daemons now look, check it with "+
+		"`faramir refs`, then remove the old directory:\n"+
 		"  sudo rm -rf %s",
 		r.layout.ConfigDir, installed,
 		width, key, width, store, len(managed), installed)
@@ -867,8 +866,7 @@ func (r *runner) warnLongSudoTimeout() {
 		return
 	}
 	r.warnf("--sudo-timeout %ds is longer than the %ds a brokered command may run, "+
-		"and the command waits inside sudo for the whole question, so a question is "+
-		"held to %ds. Raise --command-max-timeout to give an answer longer to arrive",
+		"so a question is held to %ds. Raise --command-max-timeout to allow longer",
 		r.opts.SudoTimeoutSec, r.opts.CommandMaxTimeoutSec, r.opts.CommandMaxTimeoutSec)
 }
 

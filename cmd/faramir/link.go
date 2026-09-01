@@ -41,8 +41,6 @@ type linkFlags struct {
 	// strict refuses every command naming the file, not only the ones that
 	// would read it. On add alone: rm takes the entry out either way.
 	strict bool
-	// verbose prints the file-by-file account of what was written. See stepLog.
-	verbose bool
 }
 
 func newLinkAddCmd() *cobra.Command {
@@ -62,8 +60,7 @@ func newLinkAddCmd() *cobra.Command {
 			"against a different file, type or key is an error; against a different\n" +
 			"--strict it changes the entry, that being how strictly one rule is\n" +
 			"matched rather than a second rule.\n\n" +
-			"Prints the ref it added and nothing else. --verbose adds the file-by-file\n" +
-			"account of what was written.",
+			"Prints the ref it added. --json prints the file-by-file report.",
 		Args: exactlyArgs(2, "a ref and a file"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runLinkAdd(f, secretref.Bare(args[0]), args[1]))
@@ -79,12 +76,11 @@ func newLinkAddCmd() *cobra.Command {
 			"instead. Off by default, since a file nothing may touch is a file its own "+
 			"tool cannot be told to rewrite either")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
-	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file this changed")
 	return c
 }
 
 func runLinkAdd(f linkFlags, ref, path string) int {
-	if !requireRoot("link add", "it writes the config and regroups a file") {
+	if !requireRoot("link add") {
 		return 1
 	}
 	dir, err := resolveConfigDir(socketDefault())
@@ -94,7 +90,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 	}
 	link := config.Link{Ref: ref, Path: path, Type: f.kind, Key: f.key,
 		Strict: f.strict}
-	report, added, err := install.AddLink(installOptions(f, dir), link)
+	report, added, err := install.AddLink(installOptions(dir), link)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
 	}
@@ -119,8 +115,8 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 	// doctor` says so where it reports one.
 	if report.Changed {
 		if err := install.Reload(); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir link add: applied %s, but the daemons did not "+
-				"reload, so it is not being served yet: %v\n", ref, err)
+			fmt.Fprintf(os.Stderr, "faramir link add: %s written, daemons not "+
+				"reloaded, so it is not served yet: %v\n", ref, err)
 			return 1
 		}
 	}
@@ -132,8 +128,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 		printWarnings(report)
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "%s already reads %s, so nothing was added; its grant and "+
-		"the rules naming it were applied again\n", ref, path)
+	fmt.Fprintf(os.Stderr, "%s already reads %s\n", ref, path)
 	printWarnings(report)
 	return 0
 }
@@ -150,8 +145,7 @@ func newLinkRemoveCmd() *cobra.Command {
 			"the same path is not in that record and stays.\n\n" +
 			"One thing it does not undo: the read granted to the broker, whose previous\n" +
 			"mode this does not know. It is printed with what undoes it.\n\n" +
-			"Prints the ref it removed and nothing else. --verbose adds the\n" +
-			"file-by-file account of what was written.\n\n" +
+			"Prints the ref it removed. --json prints the file-by-file report.\n\n" +
 			"A ref this install does not carry reports changed=false.",
 		Args: exactlyOneArg("ref"),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -159,12 +153,11 @@ func newLinkRemoveCmd() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
-	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file this changed")
 	return c
 }
 
 func runLinkRemove(f linkFlags, ref string) int {
-	if !requireRoot("link rm", "it writes the config") {
+	if !requireRoot("link rm") {
 		return 1
 	}
 	dir, err := resolveConfigDir(socketDefault())
@@ -172,7 +165,7 @@ func runLinkRemove(f linkFlags, ref string) int {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 		return 1
 	}
-	report, removed, err := install.RemoveLink(installOptions(f, dir), ref)
+	report, removed, err := install.RemoveLink(installOptions(dir), ref)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 	}
@@ -185,8 +178,8 @@ func runLinkRemove(f linkFlags, ref string) int {
 	// Only what changed reaches a daemon, as in link add.
 	if report.Changed {
 		if err := install.Reload(); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir link rm: removed %s, but the daemons did not "+
-				"reload, so it is still being served: %v\n", ref, err)
+			fmt.Fprintf(os.Stderr, "faramir link rm: %s removed, daemons not "+
+				"reloaded, so it is still served: %v\n", ref, err)
 			return 1
 		}
 	}
@@ -194,8 +187,7 @@ func runLinkRemove(f linkFlags, ref string) int {
 		return 0
 	}
 	if removed.Ref == "" {
-		fmt.Fprintf(os.Stderr, "no link named %s, so nothing was removed; "+
-			"`faramir link ls` lists the ones there are\n", ref)
+		fmt.Fprintf(os.Stderr, "no link named %s; `faramir link ls` lists them\n", ref)
 		printWarnings(report)
 		return 0
 	}
@@ -207,12 +199,15 @@ func runLinkRemove(f linkFlags, ref string) int {
 		"with: chmod g-r %s\n", removed.Path, removed.Path)
 	// Only where an agent's settings were actually rewritten; see runBlockRemove.
 	if changedAny(report, "agent config", "enrolled trees") {
-		fmt.Fprintln(os.Stderr, "a rule you added to your agent's settings yourself, "+
-			"naming the same path, is not in faramir's record of what it wrote there "+
-			"and stays; take that line out yourself")
+		fmt.Fprintln(os.Stderr, noteHandWrittenRule)
 	}
 	return 0
 }
+
+// noteHandWrittenRule is said after a removal that rewrote an agent's settings.
+// faramir takes out what it wrote, against its own record, and a rule the
+// operator added by hand is not in that record.
+const noteHandWrittenRule = "a rule you added to your agent's settings yourself is left in place"
 
 func newLinkListCmd() *cobra.Command {
 	var f linkFlags
@@ -292,31 +287,20 @@ func runLinkList(f linkFlags) int {
 }
 
 // installOptions is the install this command acts on, at the directory the
-// caller has already resolved.
-func installOptions(f linkFlags, dir string) install.Options {
+// caller has already resolved. Shared by `link` and `block`, which act on the
+// same install in the same way.
+func installOptions(dir string) install.Options {
 	return install.Options{
 		ConfigDir: dir,
 		// What [server] agent_user records, for the reason recordedOperator gives:
 		// these re-render the agent's rule files, and the account those are
 		// rendered against is not theirs to choose.
 		AgentUser: recordedOperator(filepath.Join(dir, "config.toml")),
-		// Progress goes to stderr so --json owns stdout. See stepLog for when.
-		Log: stepLog(f.json, f.verbose),
+		// No per-step log: these commands are asked one question -- did the thing
+		// I named happen -- and the answer is the line they print. The steps are in
+		// the --json document for a caller that wants them.
+		Log: nil,
 	}
-}
-
-// stepLog is where a run's per-step lines go: stderr under --verbose, and
-// nowhere otherwise.
-//
-// Off by default because these commands are asked one question -- did the thing
-// I named happen -- and a dozen lines naming every file written are a dozen
-// lines to read before the answer. Nowhere under --json either, as `init`
-// suppresses them: the steps are in the document.
-func stepLog(asJSON, verbose bool) func(string) {
-	if asJSON || !verbose {
-		return nil
-	}
-	return func(line string) { fmt.Fprintln(os.Stderr, line) }
 }
 
 // reportDocument prints the whole report under --json and nothing otherwise. A

@@ -96,9 +96,7 @@ func runInitProject(f initProjectFlags, args []string) int {
 		} else {
 			fmt.Fprintf(os.Stderr, "\nEnrolled %s with group %s.\n",
 				report.Dir, report.ClientGroup)
-			fmt.Fprintln(os.Stderr, "Check it from the tree: cd there and run "+
-				"`faramir run -- pwd`. A brokered command runs where its caller was, "+
-				"so that is the whole test.")
+			fmt.Fprintln(os.Stderr, "Check it: cd there and run `faramir run -- pwd`.")
 		}
 	}
 	return 0
