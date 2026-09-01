@@ -111,7 +111,7 @@ func RecordEnrolment(configDir string, tree EnrolledTree) error {
 	// from the home is a `doctor` failure: a name that could never leave would
 	// fail the command for ever on an agent the operator had removed. Every
 	// agent this enrols leaves something detect names.
-	present := Detect(ScopeTree, tree.Dir)
+	present := detect(ScopeTree, tree.Dir)
 	for _, existing := range trees {
 		if existing.Dir != tree.Dir {
 			continue

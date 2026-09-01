@@ -50,7 +50,7 @@ func ResolveEditor(requested string) (string, error) {
 		// Refused rather than passed over: a named editor that cannot be run is
 		// the operator's own setting, and falling through to the list would open
 		// the store in an editor they did not ask for and say nothing about it.
-		path, err := CheckedEditor(source.value)
+		path, err := checkedEditor(source.value)
 		if err != nil {
 			return "", fmt.Errorf("%s %w", source.named, err)
 		}
@@ -61,7 +61,7 @@ func ResolveEditor(requested string) (string, error) {
 	// answer to "no editor found".
 	var refused []string
 	for _, candidate := range Editors {
-		path, err := CheckedEditor(candidate)
+		path, err := checkedEditor(candidate)
 		if err == nil {
 			return path, nil
 		}
@@ -77,14 +77,14 @@ func ResolveEditor(requested string) (string, error) {
 		"--editor, $VISUAL or $EDITOR", strings.Join(Editors, ", "))
 }
 
-// CheckedEditor resolves one candidate to the absolute path that will be
+// checkedEditor resolves one candidate to the absolute path that will be
 // exec'd, or says why it cannot be.
 //
 // Symlinks are resolved first and the resolved path is what runs. Checking one
 // path and exec'ing another would leave the links in between deciding it:
 // /usr/bin/vi is an alternatives symlink on a Debian host, and the file it
 // names is not the one an ownership check of /usr/bin/vi reads.
-func CheckedEditor(named string) (string, error) {
+func checkedEditor(named string) (string, error) {
 	// A bare path, never a command line. "vim -u /somewhere/vimrc" is an ordinary
 	// thing to have in $EDITOR, and -u names a file of commands vim runs on
 	// startup: passing arguments through would let an account that owns that file
@@ -106,13 +106,13 @@ func CheckedEditor(named string) (string, error) {
 	if err != nil {
 		return "", fserr.At(resolved, err)
 	}
-	if reason := UnsafeToRunAsRoot(resolved, info); reason != "" {
+	if reason := unsafeToRunAsRoot(resolved, info); reason != "" {
 		return "", fmt.Errorf("%s: %s", resolved, reason)
 	}
 	return resolved, nil
 }
 
-// UnsafeToRunAsRoot names why this file must not be the editor, or "" if it may
+// unsafeToRunAsRoot names why this file must not be the editor, or "" if it may
 // be. The editor runs as root with the decrypted store open, so a file an
 // account other than root can write is that account choosing what runs as root.
 //
@@ -121,7 +121,7 @@ func CheckedEditor(named string) (string, error) {
 // permission to replace the directory. So the walk runs to /. The path is
 // expected to be resolved already, which is what makes stat'ing each ancestor
 // the same question the kernel will answer at exec.
-func UnsafeToRunAsRoot(path string, info os.FileInfo) string {
+func unsafeToRunAsRoot(path string, info os.FileInfo) string {
 	if !info.Mode().IsRegular() {
 		return "not a regular file"
 	}

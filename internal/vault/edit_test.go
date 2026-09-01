@@ -75,7 +75,7 @@ func TestARequestedEditorMustExist(t *testing.T) {
 	installed := ""
 	for _, candidate := range append([]string{"/bin/cat", "/usr/bin/cat"}, Editors...) {
 		if info, err := os.Stat(candidate); err == nil &&
-			UnsafeToRunAsRoot(candidate, info) == "" {
+			unsafeToRunAsRoot(candidate, info) == "" {
 			installed = candidate
 			break
 		}
@@ -101,7 +101,7 @@ func TestARequestedEditorMustExist(t *testing.T) {
 func goodEditor(t *testing.T) string {
 	t.Helper()
 	for _, candidate := range append([]string{"/bin/cat", "/usr/bin/cat"}, Editors...) {
-		if path, err := CheckedEditor(candidate); err == nil {
+		if path, err := checkedEditor(candidate); err == nil {
 			return path
 		}
 	}
@@ -202,18 +202,18 @@ func TestAnEditIsRefusedWhenTheFileMovedUnderIt(t *testing.T) {
 	if err := os.WriteFile(path, []byte("first\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	before, err := DigestOf(path)
+	before, err := digestOf(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := UnchangedSince(path, before); err != nil {
+	if err := unchangedSince(path, before); err != nil {
 		t.Errorf("a file nothing touched was refused: %v", err)
 	}
 
 	if err := os.WriteFile(path, []byte("second\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err = UnchangedSince(path, before)
+	err = unchangedSince(path, before)
 	if err == nil {
 		t.Fatal("a file something else wrote was accepted")
 	}
@@ -228,7 +228,7 @@ func TestAnEditIsRefusedWhenTheFileMovedUnderIt(t *testing.T) {
 	if err := os.WriteFile(path, []byte("first\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := UnchangedSince(path, before); err != nil {
+	if err := unchangedSince(path, before); err != nil {
 		t.Errorf("identical contents were refused: %v", err)
 	}
 }

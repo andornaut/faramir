@@ -98,10 +98,10 @@ func TestTheWrittenRecordRoundTripsPerFile(t *testing.T) {
 	dir := t.TempDir()
 	const claude, opencode = "/home/op/.claude/settings.json", "/home/op/.config/opencode/opencode.json"
 
-	if err := RecordWrittenRules(dir, claude, []string{"b", "a", "a"}); err != nil {
+	if err := recordWrittenRules(dir, claude, []string{"b", "a", "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordWrittenRules(dir, opencode, []string{"x"}); err != nil {
+	if err := recordWrittenRules(dir, opencode, []string{"x"}); err != nil {
 		t.Fatal(err)
 	}
 	got := ReadWrittenRules(dir)
@@ -112,7 +112,7 @@ func TestTheWrittenRecordRoundTripsPerFile(t *testing.T) {
 		t.Errorf("opencode = %v", got[opencode])
 	}
 	// A file that renders nothing keeps no entry.
-	if err := RecordWrittenRules(dir, claude, nil); err != nil {
+	if err := recordWrittenRules(dir, claude, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, still := ReadWrittenRules(dir)[claude]; still {
@@ -141,7 +141,7 @@ func TestAnUnreadableRecordReadsAsNothingWritten(t *testing.T) {
 // them nests them two deep, so a record keyed on a particular key would miss
 // whichever agent moved next.
 func TestTheRecordedRulesAreEveryStringInAList(t *testing.T) {
-	got := JSONStrings([]byte(`{
+	got := jsonStrings([]byte(`{
 	  "permissions": {"deny": ["b", "a"], "allow": ["c"]},
 	  "nested": {"deeper": {"list": ["d"]}},
 	  "objects": [{"command": "not-a-rule"}],
@@ -215,7 +215,7 @@ func TestRecordingRulesRefusesToClobberAnotherRun(t *testing.T) {
 	dir := t.TempDir()
 	const mine, theirs = "/home/op/.claude/settings.json", "/home/op/.config/opencode/opencode.json"
 
-	if err := RecordWrittenRules(dir, mine, []string{"a"}); err != nil {
+	if err := recordWrittenRules(dir, mine, []string{"a"}); err != nil {
 		t.Fatal(err)
 	}
 	// What a second run holds: the record as it was before the first wrote.
@@ -223,7 +223,7 @@ func TestRecordingRulesRefusesToClobberAnotherRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordWrittenRules(dir, theirs, []string{"b"}); err != nil {
+	if err := recordWrittenRules(dir, theirs, []string{"b"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -253,7 +253,7 @@ func TestRecordingRulesRefusesToClobberAnotherRun(t *testing.T) {
 // expect and nothing to refuse.
 func TestRecordingRulesWritesAFirstRecord(t *testing.T) {
 	dir := t.TempDir()
-	if err := RecordWrittenRules(dir, "/home/op/.claude/settings.json", []string{"a"}); err != nil {
+	if err := recordWrittenRules(dir, "/home/op/.claude/settings.json", []string{"a"}); err != nil {
 		t.Fatalf("a first record was refused: %v", err)
 	}
 	if got := ReadWrittenRules(dir); len(got) != 1 {
@@ -269,7 +269,7 @@ func TestRemovingTheLastEntryRefusesToClobberAnotherRun(t *testing.T) {
 	dir := t.TempDir()
 	const mine, theirs = "/home/op/.claude/settings.json", "/home/op/.config/opencode/opencode.json"
 
-	if err := RecordWrittenRules(dir, mine, []string{"a"}); err != nil {
+	if err := recordWrittenRules(dir, mine, []string{"a"}); err != nil {
 		t.Fatal(err)
 	}
 	before, err := writtenRulesDigest(dir)
@@ -277,7 +277,7 @@ func TestRemovingTheLastEntryRefusesToClobberAnotherRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Another run adds its own entry.
-	if err := RecordWrittenRules(dir, theirs, []string{"b"}); err != nil {
+	if err := recordWrittenRules(dir, theirs, []string{"b"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -297,10 +297,10 @@ func TestRemovingTheLastEntryRefusesToClobberAnotherRun(t *testing.T) {
 func TestRemovingTheLastEntryTakesTheRecordWithIt(t *testing.T) {
 	dir := t.TempDir()
 	const only = "/home/op/.claude/settings.json"
-	if err := RecordWrittenRules(dir, only, []string{"a"}); err != nil {
+	if err := recordWrittenRules(dir, only, []string{"a"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RecordWrittenRules(dir, only, nil); err != nil {
+	if err := recordWrittenRules(dir, only, nil); err != nil {
 		t.Fatalf("dropping the last entry was refused: %v", err)
 	}
 	if _, err := os.Stat(writtenRulesPath(dir)); !os.IsNotExist(err) {

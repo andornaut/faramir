@@ -34,7 +34,7 @@ func Add(keyPath, rulePath, editorPath, from, target string) error {
 	}
 	// Asked before the editor opens, as an edit asks it: sops refuses a file no
 	// creation rule covers at the encrypt, after everything has been typed.
-	if err := RuleMustCover(rulePath, target, recipients); err != nil {
+	if err := ruleMustCover(rulePath, target, recipients); err != nil {
 		return err
 	}
 

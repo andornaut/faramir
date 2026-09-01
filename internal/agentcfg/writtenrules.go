@@ -58,10 +58,10 @@ func ReadWrittenRules(configDir string) map[string][]string {
 	return written
 }
 
-// RecordWrittenRules replaces this file's entry with what was just rendered
+// recordWrittenRules replaces this file's entry with what was just rendered
 // into it. Sorted so the record does not churn between runs, and an entry that
 // renders nothing is dropped rather than kept empty.
-func RecordWrittenRules(configDir, path string, rules []string) error {
+func recordWrittenRules(configDir, path string, rules []string) error {
 	// What is on disk now, so the write below refuses a record another run
 	// replaced in between. This is a read-modify-write like the config and the
 	// enrolment record, and it loses the same way: two runs each read the file,
@@ -147,14 +147,14 @@ func writtenRulesDigest(configDir string) ([]byte, error) {
 	return sum[:], nil
 }
 
-// JSONStrings is every string in a list anywhere in a JSON document, which is
+// jsonStrings is every string in a list anywhere in a JSON document, which is
 // the shape every rule faramir renders takes: a deny list, a permission list,
 // a pattern list. Sorted and deduplicated.
 //
 // The values rather than where they sit: a rule moved from one list to another
 // between releases is the same rule, and a record keyed on position would leave
 // the old one behind on the run that moved it.
-func JSONStrings(document []byte) []string {
+func jsonStrings(document []byte) []string {
 	var parsed any
 	if err := json.Unmarshal(document, &parsed); err != nil {
 		return nil

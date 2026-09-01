@@ -183,7 +183,7 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 	if !sopsrule.Same(got, []string{keeper, extra}) {
 		t.Errorf("recipients after the reseal = %v, want both %s and %s", got, keeper, extra)
 	}
-	plain, err := RunSops(keyPath, "", "--decrypt", store)
+	plain, err := runSops(keyPath, "", "--decrypt", store)
 	if err != nil {
 		t.Fatalf("decrypting the result: %v", err)
 	}

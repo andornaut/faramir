@@ -14,16 +14,10 @@
 // first about where the block starts.
 package hostsudo
 
-// The block faramir writes into the PAM stacks every account's sudo reads, and
-// the only thing this install puts in a file it does not own.
-//
-// It exists because sudo-rs has no pam_service: the service name is `sudo` for a
-// command and `sudo-i` for a login shell, both compiled in, so a host running it
-// has no stack of faramir's own for sudo to be pointed at. The block is a branch
-// rather than a policy -- it tests the account and sends the executor alone to
-// faramir's service, leaving what the file already said to answer for everybody
-// else. A host whose sudo is the original gets none of this: pam_service
-// selects the service there and nothing shared is touched.
+// The block is a branch rather than a policy: it tests the account and sends the
+// executor alone to faramir's service, leaving what the file already said to
+// answer for everybody else. A host whose sudo is the original gets none of it,
+// pam_service selecting the service there and nothing shared being touched.
 //
 // Delimited by markers so a later run can replace exactly what an earlier one
 // wrote, and a revoke can take it out again. The rest of the file is the
@@ -63,14 +57,14 @@ const (
 // and a wrong guess rewrites the stack that decides every account's sudo.
 var errHalfMarkedPam = errors.New("the faramir block's markers are incomplete")
 
-// PlaceBlock finds the span an existing block occupies, including both
+// placeBlock finds the span an existing block occupies, including both
 // marker lines and the newline after the end. found=false means there is none
 // and a block would go at the top.
 //
 // The top, not the bottom: the branch has to be reached before anything that
 // could authenticate, and a stack whose first module is a password check has
 // already refused the executor by the time a block below it runs.
-func PlaceBlock(current []byte) (start, end int, found bool, err error) {
+func placeBlock(current []byte) (start, end int, found bool, err error) {
 	begin := lineIndex(current, PamBlockBegin)
 	stop := lineIndex(current, PamBlockEnd)
 	switch {
@@ -146,7 +140,7 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 	// The span is not needed: the write below is built from the stack with every
 	// block cut out. What this asks is whether there was one, and whether the
 	// markers can be read at all.
-	_, _, found, err := PlaceBlock(current)
+	_, _, found, err := placeBlock(current)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w: nothing was written. Delete the stray marker and re-run, or edit by hand: "+
 			"the lines between %q and %q are faramir's", path, err, PamBlockBegin, PamBlockEnd)
@@ -173,7 +167,7 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 	// and every account's sudo reads, so the window between writing it and finding
 	// out it is wrong is a window in which nobody on the host can sudo. Closed by
 	// looking, and by putting the file back when the answer is no.
-	if problem := SpliceProblem(path, current, block); problem != "" {
+	if problem := spliceProblem(path, current, block); problem != "" {
 		if _, undo := fs.WriteFile(path, current, info.Mode().Perm(), hostfs.Keep, hostfs.Keep); undo != nil {
 			return false, fmt.Errorf("%s: %s, and putting the file back failed too "+
 				"(%w). Restore it by hand before anything else: until it says what it "+
@@ -185,19 +179,19 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 	return changed, nil
 }
 
-// SpliceProblem says what is wrong with what landed, or "".
+// spliceProblem says what is wrong with what landed, or "".
 //
 // Two claims, both read off the file rather than off what was meant to be
 // written: the block is byte for byte what this run rendered, and everything
 // outside it is byte for byte what was there before. The second is the one worth
 // the read -- a splice that ate a line of the distribution's stack is a host
 // that authenticates differently now, and nothing else here would notice.
-func SpliceProblem(path string, before, block []byte) string {
+func spliceProblem(path string, before, block []byte) string {
 	landed, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Sprintf("it cannot be read back (%v), so what landed is unknown", err)
 	}
-	start, end, found, err := PlaceBlock(landed)
+	start, end, found, err := placeBlock(landed)
 	switch {
 	case err != nil:
 		return "the block that landed carries one marker without the other"
@@ -224,7 +218,7 @@ func SpliceProblem(path string, before, block []byte) string {
 // there through every re-run and every revoke, with nothing able to remove it.
 func WithoutBlock(body []byte) []byte {
 	for {
-		start, end, found, err := PlaceBlock(body)
+		start, end, found, err := placeBlock(body)
 		if err != nil || !found {
 			return body
 		}
@@ -302,7 +296,7 @@ func BranchProblem(execUser, helper string) string {
 			return fmt.Sprintf("%s cannot be read (%v), so what decides an escalation "+
 				"there went unchecked. The operator can re-run this as root", path, err)
 		}
-		start, _, found, err := PlaceBlock(current)
+		start, _, found, err := placeBlock(current)
 		switch {
 		case err != nil:
 			return fmt.Sprintf("%s carries one faramir marker without the other, so "+
@@ -433,7 +427,7 @@ func Block(path string) ([]byte, error) {
 		return nil, fmt.Errorf("it cannot be read (%w), so what decides an "+
 			"escalation here went unchecked", err)
 	}
-	start, end, found, err := PlaceBlock(current)
+	start, end, found, err := placeBlock(current)
 	switch {
 	case err != nil:
 		return nil, errHalfMarkedPam
@@ -512,7 +506,7 @@ func VersionNote(visudo string) string {
 	// bannerIsSudoRs, not a substring: sudo-rs 0.2.2 answers visudo -V with
 	// "visudo version 0.2.2" and names no implementation, and that is exactly the
 	// release this note is most likely to be printed for.
-	if BannerIsRs(banner) {
+	if bannerIsRs(banner) {
 		floor = "sudo-rs 0.2.9"
 	}
 	// Only where the version is a cause this rejection could have. Every other
@@ -559,7 +553,7 @@ func olderThanFloor(banner string) bool {
 		return false
 	}
 	floor := []int{1, 9, 11}
-	if BannerIsRs(banner) {
+	if bannerIsRs(banner) {
 		floor = []int{0, 2, 9}
 	}
 	for i := range floor {
@@ -580,9 +574,9 @@ func firstLine(text string) string {
 // RsProbe answers the question, a variable so a test can answer for a host
 // whose sudo is the other one. Nothing else here is stubbed: what it returns is
 // the only thing the rest of the package reads.
-var RsProbe = ProbeRs
+var RsProbe = probeRs
 
-// ProbeRs reports whether this host's sudo is sudo-rs.
+// probeRs reports whether this host's sudo is sudo-rs.
 //
 // It asks the binaries rather than the distribution. Both are packaged behind
 // one `sudo` alternatives group whose members an operator switches between, so
@@ -598,7 +592,7 @@ var RsProbe = ProbeRs
 // A host with neither on PATH is treated as classic, which is the arrangement
 // that has to be wrong out loud: visudo is what refuses a grant the host's sudo
 // cannot read, and refuseInvalidSudoers runs before anything is written.
-func ProbeRs() bool {
+func probeRs() bool {
 	for _, program := range []string{"sudo", "visudo"} {
 		path, err := exec.LookPath(program)
 		if err != nil {
@@ -608,12 +602,12 @@ func ProbeRs() bool {
 		if err != nil {
 			continue
 		}
-		return BannerIsRs(firstLine(string(out)))
+		return bannerIsRs(firstLine(string(out)))
 	}
 	return false
 }
 
-// BannerIsRs reads an implementation off a version banner.
+// bannerIsRs reads an implementation off a version banner.
 //
 // "sudo-rs 0.2.13-0ubuntu1" and "visudo-rs 0.2.14" name themselves. "visudo
 // version 0.2.2" does not, and is sudo-rs all the same: the version is the only
@@ -625,7 +619,7 @@ func ProbeRs() bool {
 // is a fallback rather than the answer: probeSudoRs asks `sudo` first, whose
 // banner has named itself on every release seen, 0.2.2 included. What this
 // covers is the host where only visudo could be reached.
-func BannerIsRs(banner string) bool {
+func bannerIsRs(banner string) bool {
 	if strings.Contains(strings.ToLower(banner), "sudo-rs") {
 		return true
 	}

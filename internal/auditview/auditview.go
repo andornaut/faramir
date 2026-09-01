@@ -43,8 +43,8 @@ type Printer struct {
 }
 
 func (p *Printer) Row(record map[string]any) {
-	if at := StartedAt(record); !at.IsZero() && at.Format(DateLayout) != p.day {
-		p.day = at.Format(DateLayout)
+	if at := StartedAt(record); !at.IsZero() && at.Format(dateLayout) != p.day {
+		p.day = at.Format(dateLayout)
 		fmt.Println(p.Paint.Dim(p.day))
 	}
 	fmt.Println(Summarise(record, p.Paint))
@@ -394,7 +394,7 @@ func Summarise(record map[string]any, paint termui.Palette) string {
 	b.WriteString(" " + clockTime(record) + "  ")
 	b.WriteString(paint.Bold(Pad(Str(record, "op"), OpWidth)))
 	b.WriteString(PaintOutcome(record, paint))
-	b.WriteString(paint.Ref(Pad(OutputNotes(record), 12)))
+	b.WriteString(paint.Ref(Pad(outputNotes(record), 12)))
 	b.WriteString(detail(record))
 	return strings.TrimRight(b.String(), " ")
 }
@@ -543,14 +543,14 @@ func redactions(record map[string]any) []redaction {
 	return out
 }
 
-// OutputNotes is what happened to the output, in the column between the outcome
+// outputNotes is what happened to the output, in the column between the outcome
 // and the command: how much was replaced by a token, and whether what is
 // recorded is the whole of what the command wrote. `run` tells the caller both
 // of the last two on stderr, so the log says them too, or an operator reading a
 // record back is shown an excerpt of a lossy rendering as though it were the
 // output. Longer than the column on the rare record carrying all three, which
 // shifts that row rather than hiding what it says.
-func OutputNotes(record map[string]any) string {
+func outputNotes(record map[string]any) string {
 	var notes []string
 	if total := redactionTotal(record); total != "" {
 		notes = append(notes, total)
@@ -702,10 +702,10 @@ func joinCmd(record map[string]any) string {
 	return strings.Join(args, " ")
 }
 
-// DateLayout is the day heading a run of records sits under. The zone is in
+// dateLayout is the day heading a run of records sits under. The zone is in
 // the header because the times below are local and the log_id beside them is
 // UTC.
-const DateLayout = "2006-01-02 MST"
+const dateLayout = "2006-01-02 MST"
 
 // StampLayout is one moment in full, for a line that stands on its own rather
 // than under a day heading: DateLayout's day and zone with the time the log

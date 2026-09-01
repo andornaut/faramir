@@ -17,7 +17,7 @@ import (
 // where the block ends.
 func TestAQuotedMarkerIsNotABoundary(t *testing.T) {
 	body := []byte("# see '" + PamBlockBegin + "' below\n" + layouttest.StockSudoStack)
-	if _, _, found, err := PlaceBlock(body); found || err != nil {
+	if _, _, found, err := placeBlock(body); found || err != nil {
 		t.Errorf("a quoted marker was read as a block: found=%v err=%v", found, err)
 	}
 }
@@ -31,7 +31,7 @@ func TestASpliceThatDamagesTheStackIsPutBack(t *testing.T) {
 	path := filepath.Join(dir, "sudo")
 	// A block whose end marker is missing: what lands parses as half-marked, which
 	// is the shape spliceProblem refuses.
-	if problem := SpliceProblem(path, []byte(layouttest.StockSudoStack), []byte(PamBlockBegin+"\n")); problem == "" {
+	if problem := spliceProblem(path, []byte(layouttest.StockSudoStack), []byte(PamBlockBegin+"\n")); problem == "" {
 		t.Error("a block with no end marker was accepted")
 	}
 	// And the claim itself, against what is actually on disk: everything outside
@@ -40,7 +40,7 @@ func TestASpliceThatDamagesTheStackIsPutBack(t *testing.T) {
 	if err := os.WriteFile(path, []byte("something else entirely\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if problem := SpliceProblem(path, before, nil); problem == "" {
+	if problem := spliceProblem(path, before, nil); problem == "" {
 		t.Error("a stack rewritten out from under the splice was accepted")
 	}
 }

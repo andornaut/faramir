@@ -92,7 +92,7 @@ func Owns(path string) string {
 	if err != nil {
 		return Missing
 	}
-	return fmt.Sprintf("%04o %s", info.Mode().Perm(), OwnerName(info))
+	return fmt.Sprintf("%04o %s", info.Mode().Perm(), ownerName(info))
 }
 
 // OwnsWithGroup is Owns plus the group, for the callers that compare both:
@@ -103,7 +103,7 @@ func OwnsWithGroup(path string) string {
 	if err != nil {
 		return Missing
 	}
-	return fmt.Sprintf("%04o %s:%s", info.Mode().Perm(), OwnerName(info), GroupName(info))
+	return fmt.Sprintf("%04o %s:%s", info.Mode().Perm(), ownerName(info), GroupName(info))
 }
 
 // BlockingDir returns the first directory on the way to path that account
@@ -178,8 +178,8 @@ func Holds(account, group string) bool {
 	return err == nil && member
 }
 
-// OwnerName is the account a file belongs to, or the numeric uid.
-func OwnerName(info os.FileInfo) string {
+// ownerName is the account a file belongs to, or the numeric uid.
+func ownerName(info os.FileInfo) string {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return "unknown"

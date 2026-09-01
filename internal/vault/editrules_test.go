@@ -25,9 +25,9 @@ func requireRealSops(t *testing.T) {
 	if err != nil {
 		t.Skip("this asserts how sops reads creation rules; the stand-in has none")
 	}
-	previous := SopsBinary
-	SopsBinary = installed
-	t.Cleanup(func() { SopsBinary = previous })
+	previous := sopsBinary
+	sopsBinary = installed
+	t.Cleanup(func() { sopsBinary = previous })
 }
 
 // managedFixture is an install's shape: a rule file with the secrets in a
@@ -167,7 +167,7 @@ func TestAnEditUnderASplitKeyIsRefused(t *testing.T) {
 	if err := os.WriteFile(f.rulePath, []byte(rule), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := RuleMustCover(f.rulePath, f.store, []string{f.recipient})
+	err := ruleMustCover(f.rulePath, f.store, []string{f.recipient})
 	if err == nil {
 		t.Fatal("an edit under a split data key was accepted")
 	}
@@ -181,11 +181,11 @@ func TestAnEditUnderASplitKeyIsRefused(t *testing.T) {
 // nobody could answer would be worse than the failure it avoids.
 func TestAnUnaskableRuleCheckDoesNotRefuseTheEdit(t *testing.T) {
 	f := newManagedFixture(t)
-	previous := SopsBinary
-	SopsBinary = filepath.Join(t.TempDir(), "no-sops-here")
-	t.Cleanup(func() { SopsBinary = previous })
+	previous := sopsBinary
+	sopsBinary = filepath.Join(t.TempDir(), "no-sops-here")
+	t.Cleanup(func() { sopsBinary = previous })
 
-	if err := RuleMustCover(f.rulePath, f.store, []string{f.recipient}); err != nil {
+	if err := ruleMustCover(f.rulePath, f.store, []string{f.recipient}); err != nil {
 		t.Errorf("an edit was refused because the probe could not be run: %v", err)
 	}
 }
@@ -197,7 +197,7 @@ func TestNoRuleFileMeansNothingToCover(t *testing.T) {
 	if err := os.Remove(f.rulePath); err != nil {
 		t.Fatal(err)
 	}
-	if err := RuleMustCover(f.rulePath, f.store, []string{f.recipient}); err != nil {
+	if err := ruleMustCover(f.rulePath, f.store, []string{f.recipient}); err != nil {
 		t.Errorf("an edit was refused on a host that has no creation rules: %v", err)
 	}
 }
@@ -223,10 +223,10 @@ func TestTheInstallsOwnRuleDecidesWhatIsEncrypted(t *testing.T) {
 // refuses to start on a config path it cannot read, decrypt included, so an
 // absent rule has to become no rule rather than a path.
 func TestAnAbsentRuleFileIsNoRuleRatherThanAMissingOne(t *testing.T) {
-	if got := SopsConfigPath(filepath.Join(t.TempDir(), "gone.yaml")); got != os.DevNull {
+	if got := sopsConfigPath(filepath.Join(t.TempDir(), "gone.yaml")); got != os.DevNull {
 		t.Errorf("sopsConfigPath for an absent rule = %q, want %q", got, os.DevNull)
 	}
-	if got := SopsConfigPath(""); got != os.DevNull {
+	if got := sopsConfigPath(""); got != os.DevNull {
 		t.Errorf("sopsConfigPath for no rule = %q, want %q", got, os.DevNull)
 	}
 	dir := t.TempDir()
@@ -234,7 +234,7 @@ func TestAnAbsentRuleFileIsNoRuleRatherThanAMissingOne(t *testing.T) {
 	if err := os.WriteFile(rule, []byte("creation_rules: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := SopsConfigPath(rule); got != rule {
+	if got := sopsConfigPath(rule); got != rule {
 		t.Errorf("sopsConfigPath for a rule that is there = %q, want %q", got, rule)
 	}
 }

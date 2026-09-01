@@ -37,9 +37,9 @@ import (
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
-// SopsBinary is resolved through PATH. A variable so a test can point it
+// sopsBinary is resolved through PATH. A variable so a test can point it
 // elsewhere.
-var SopsBinary = "sops"
+var sopsBinary = "sops"
 
 func exists(path string) bool {
 	_, err := os.Stat(path)
@@ -79,7 +79,7 @@ func Edit(keyPath, rulePath, editorPath, target string) (bool, error) {
 	// Asked here for the same reason: sops refuses a file no creation rule covers
 	// at the encrypt, which is after the editor has run and would cost the
 	// operator everything they typed.
-	if err := RuleMustCover(rulePath, target, recipients); err != nil {
+	if err := ruleMustCover(rulePath, target, recipients); err != nil {
 		return false, err
 	}
 
@@ -87,12 +87,12 @@ func Edit(keyPath, rulePath, editorPath, target string) (bool, error) {
 	// of one file each decrypt their own copy, and whichever encrypts last would
 	// otherwise replace the other's work with a copy that never had it, both
 	// having reported the file written.
-	before, err := DigestOf(target)
+	before, err := digestOf(target)
 	if err != nil {
 		return false, err
 	}
 
-	decrypted, err := RunSops(keyPath, rulePath, "--decrypt", target)
+	decrypted, err := runSops(keyPath, rulePath, "--decrypt", target)
 	if err != nil {
 		return false, fmt.Errorf("decrypt %s: %w", target, err)
 	}
@@ -125,15 +125,15 @@ func Edit(keyPath, rulePath, editorPath, target string) (bool, error) {
 		return false, fmt.Errorf("encrypt: %w. The edit was not saved and the "+
 			"decrypted copy has been removed, so make it again once this is fixed", err)
 	}
-	if err := UnchangedSince(target, before); err != nil {
+	if err := unchangedSince(target, before); err != nil {
 		return false, err
 	}
 	return true, WriteBack(target, reencrypted)
 }
 
-// DigestOf is the file's contents hashed, which is what says whether it is the
+// digestOf is the file's contents hashed, which is what says whether it is the
 // one this started from.
-func DigestOf(path string) ([]byte, error) {
+func digestOf(path string) ([]byte, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -142,10 +142,10 @@ func DigestOf(path string) ([]byte, error) {
 	return sum[:], nil
 }
 
-// UnchangedSince refuses a write onto a file something else has written since
+// unchangedSince refuses a write onto a file something else has written since
 // this read it. The edit is lost either way; what this decides is whose.
-func UnchangedSince(path string, before []byte) error {
-	now, err := DigestOf(path)
+func unchangedSince(path string, before []byte) error {
+	now, err := digestOf(path)
 	if err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func syncDir(path string) error {
 	return dir.Close()
 }
 
-// RunSops execs sops with the key as a path (SOPS_AGE_KEY_FILE), as the keeper
+// runSops execs sops with the key as a path (SOPS_AGE_KEY_FILE), as the keeper
 // supplies it, so it is absent from any environment block in /proc. A fixed
 // environment, sops reading several variables that name a key or key source.
 //
@@ -239,9 +239,9 @@ func syncDir(path string) error {
 // The flag rather than the SOPS_CONFIG variable: a sops old enough not to know
 // the variable ignores it and searches anyway, where an argument it does not
 // understand is an error.
-func RunSops(keyPath, rulePath string, args ...string) ([]byte, error) {
-	argv := append([]string{"--config", SopsConfigPath(rulePath)}, args...)
-	cmd := exec.CommandContext(context.Background(), SopsBinary, argv...)
+func runSops(keyPath, rulePath string, args ...string) ([]byte, error) {
+	argv := append([]string{"--config", sopsConfigPath(rulePath)}, args...)
+	cmd := exec.CommandContext(context.Background(), sopsBinary, argv...)
 	cmd.Env = []string{
 		envPATH,
 		"HOME=" + envOr("HOME", "/tmp"),
@@ -263,7 +263,7 @@ func RunSops(keyPath, rulePath string, args ...string) ([]byte, error) {
 // The recipients are named here rather than taken from the rule, which is what
 // makes an edit preserve who could already read the file.
 func sealTo(keyPath, rulePath, target string, recipients []string, plain string) ([]byte, error) {
-	return RunSops(keyPath, rulePath, "--encrypt",
+	return runSops(keyPath, rulePath, "--encrypt",
 		"--age", strings.Join(recipients, ","),
 		"--filename-override", target, plain)
 }

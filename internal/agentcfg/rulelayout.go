@@ -27,7 +27,7 @@ func RuleLayout(configDir string) hostlayout.Layout {
 	}
 	layout := hostlayout.Layout{
 		ConfigDir: configDir,
-		Links:     ConfiguredLinks(configDir),
+		Links:     configuredLinks(configDir),
 		Blocked:   ConfiguredBlocked(configDir),
 	}
 	// The service accounts, read off the installed units the way `doctor` reads
@@ -62,10 +62,10 @@ func RuleLayout(configDir string) hostlayout.Layout {
 	return layout
 }
 
-// ConfiguredLinks is every link the install names, or nothing when the config
+// configuredLinks is every link the install names, or nothing when the config
 // cannot be read: a config that does not load is reported by the check that
 // loads it.
-func ConfiguredLinks(configDir string) []config.Link {
+func configuredLinks(configDir string) []config.Link {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {
 		return nil

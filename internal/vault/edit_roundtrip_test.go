@@ -15,9 +15,9 @@ import (
 // decrypt, edit and re-encrypt either way.
 func useSops(t *testing.T) {
 	t.Helper()
-	previous := SopsBinary
-	SopsBinary = sopstest.SopsBinary(t)
-	t.Cleanup(func() { SopsBinary = previous })
+	previous := sopsBinary
+	sopsBinary = sopstest.SopsBinary(t)
+	t.Cleanup(func() { sopsBinary = previous })
 }
 
 // editorScript writes a shell script standing in for the editor.
@@ -75,7 +75,7 @@ func TestAnEditIsDecryptedEditedAndReEncrypted(t *testing.T) {
 	}
 
 	// And it decrypts to what the editor wrote.
-	plain, err := RunSops(keyPath, "", "--decrypt", store)
+	plain, err := runSops(keyPath, "", "--decrypt", store)
 	if err != nil {
 		t.Fatalf("decrypting the result: %v", err)
 	}

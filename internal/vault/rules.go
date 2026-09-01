@@ -10,25 +10,25 @@ import (
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
-// SopsConfigPath is the creation rules to hand sops, and /dev/null where there
+// sopsConfigPath is the creation rules to hand sops, and /dev/null where there
 // are none. A rule file that is not there is not the same as none: sops
 // refuses to start on a --config it cannot read, decrypt included, where
 // /dev/null parses as a document with no creation rules.
-func SopsConfigPath(rulePath string) string {
+func sopsConfigPath(rulePath string) string {
 	if rulePath != "" && exists(rulePath) {
 		return rulePath
 	}
 	return os.DevNull
 }
 
-// RuleMustCover refuses an edit the creation rules cannot write back, or nil.
+// ruleMustCover refuses an edit the creation rules cannot write back, or nil.
 // A host with no rule encrypts with sops' defaults, which cover every file, and
 // sopsConfigPath has already turned that into /dev/null.
 //
 // A probe that cannot be put is not a refusal: what is ruled out is the case
 // certain to fail later.
-func RuleMustCover(rulePath, target string, recipients []string) error {
-	configPath := SopsConfigPath(rulePath)
+func ruleMustCover(rulePath, target string, recipients []string) error {
+	configPath := sopsConfigPath(rulePath)
 	if configPath == os.DevNull {
 		return nil
 	}
@@ -38,7 +38,7 @@ func RuleMustCover(rulePath, target string, recipients []string) error {
 	// Covered unless the probe says otherwise, which is what makes a probe that
 	// cannot be put leave the edit alone.
 	covered := true
-	if sops, err := exec.LookPath(SopsBinary); err == nil {
+	if sops, err := exec.LookPath(sopsBinary); err == nil {
 		if answer, err := sopsrule.Covers(sops, configPath, recipients, target); err == nil {
 			covered = answer
 		}

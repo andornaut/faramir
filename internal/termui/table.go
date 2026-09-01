@@ -54,11 +54,11 @@ func Safe(text string) string {
 	return strings.ReplaceAll(termsafe.Line(text), "\t", `\t`)
 }
 
-// Width is how many columns a terminal spends drawing this text. Not the rune
+// width is how many columns a terminal spends drawing this text. Not the rune
 // count: a CJK ideograph and most emoji are drawn two columns wide, and a
 // combining mark is drawn over the rune before it and takes none. Counting
 // runes leaves every column after the widest of those out by the difference.
-func Width(text string) int {
+func width(text string) int {
 	n := 0
 	for _, r := range text {
 		switch {
@@ -109,7 +109,7 @@ func PrintTable(w io.Writer, rows [][]Cell) {
 			for len(widths) <= i {
 				widths = append(widths, 0)
 			}
-			if n := Width(texts[r][i]); n > widths[i] {
+			if n := width(texts[r][i]); n > widths[i] {
 				widths[i] = n
 			}
 		}
@@ -118,7 +118,7 @@ func PrintTable(w io.Writer, rows [][]Cell) {
 		var b strings.Builder
 		for i, c := range row {
 			text := texts[r][i]
-			pad := widths[i] - Width(text) + 2
+			pad := widths[i] - width(text) + 2
 			if c.paint != nil {
 				text = c.paint(text)
 			}

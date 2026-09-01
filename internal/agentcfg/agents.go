@@ -551,7 +551,7 @@ func WriteFiles(fs hostfs.FS, warn func(string, ...any), root, configDir string,
 				spot.Close()
 				return changed, written, fmt.Errorf("%s: %w", path, err)
 			}
-			rendered = JSONStrings(data)
+			rendered = jsonStrings(data)
 			data = merged
 		}
 		// Ownership is set on a file this creates and left alone on one already
@@ -580,7 +580,7 @@ func WriteFiles(fs hostfs.FS, warn func(string, ...any), root, configDir string,
 		// lost is the note saying faramir wrote them; said, because the run that
 		// meets it next removes nothing and nothing else would explain why.
 		if rendered != nil {
-			if err := RecordWrittenRules(configDir, path, rendered); err != nil && warn != nil {
+			if err := recordWrittenRules(configDir, path, rendered); err != nil && warn != nil {
 				warn("what faramir wrote into %s was not recorded (%v), so a later "+
 					"run will not offer to take those rules out again. Re-run this "+
 					"command once nothing else is writing the install", path, err)
@@ -761,11 +761,11 @@ func Resolve(names []string, scope Scope, dir, home string) ([]*Target, error) {
 	return out, nil
 }
 
-// Detect reports which known agents dir carries evidence of: an agent's
+// detect reports which known agents dir carries evidence of: an agent's
 // own configuration in a home, or its per-project configuration in a tree.
 // Evidence, not proof -- a directory left behind by trying an agent once reads
 // the same as one in daily use -- which is why this only ever adds.
-func Detect(scope Scope, dir string) []string {
+func detect(scope Scope, dir string) []string {
 	if dir == "" {
 		return nil
 	}
@@ -787,7 +787,7 @@ func Detect(scope Scope, dir string) []string {
 // and keeps Detect, an agent's enrolment record being what a tree still
 // shows rather than what the host has installed.
 func detectForEnrolment(scope Scope, dir, home string) []string {
-	out := Detect(scope, dir)
+	out := detect(scope, dir)
 	if scope != ScopeTree || home == "" {
 		return out
 	}

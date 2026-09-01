@@ -394,7 +394,7 @@ func TestAutoFindsATreelessAgentFromTheHome(t *testing.T) {
 	}
 	// The enrolment record asks a different question: what this tree carries.
 	// The home must not answer it, or a tree would keep an agent it never had.
-	if got := Detect(ScopeTree, tree); slices.Contains(got, "codex") {
+	if got := detect(ScopeTree, tree); slices.Contains(got, "codex") {
 		t.Errorf("the tree reports codex it does not carry: %v", got)
 	}
 }

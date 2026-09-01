@@ -40,7 +40,7 @@ func headersPrinted(t *testing.T, records []map[string]any) (int, string) {
 	n := 0
 	for line := range strings.SplitSeq(out, "\n") {
 		// A header is the bare day; a row carries a time and the command as well.
-		if _, err := time.Parse(DateLayout, strings.TrimSpace(line)); err == nil {
+		if _, err := time.Parse(dateLayout, strings.TrimSpace(line)); err == nil {
 			n++
 		}
 	}
@@ -132,7 +132,7 @@ func TestTheListingMarksOutputThatIsNotWhatWasWritten(t *testing.T) {
 		}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := OutputNotes(tc.record); got != tc.want {
+			if got := outputNotes(tc.record); got != tc.want {
 				t.Errorf("notes = %q, want %q", got, tc.want)
 			}
 		})

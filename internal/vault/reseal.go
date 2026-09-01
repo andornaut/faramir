@@ -52,11 +52,11 @@ func Reencrypt(keyPath, rulePath string, recipients []string, target string) err
 	// The ciphertext as it stands now, compared again before the write: this
 	// decrypts a copy of its own, and an edit that lands in between would be
 	// replaced by one that never had it. See editManaged.
-	before, err := DigestOf(target)
+	before, err := digestOf(target)
 	if err != nil {
 		return err
 	}
-	decrypted, err := RunSops(keyPath, rulePath, "--decrypt", target)
+	decrypted, err := runSops(keyPath, rulePath, "--decrypt", target)
 	if err != nil {
 		return fmt.Errorf("decrypt: %w", err)
 	}
@@ -76,7 +76,7 @@ func Reencrypt(keyPath, rulePath string, recipients []string, target string) err
 	if err != nil {
 		return fmt.Errorf("encrypt: %w", err)
 	}
-	if err := UnchangedSince(target, before); err != nil {
+	if err := unchangedSince(target, before); err != nil {
 		return err
 	}
 	return WriteBack(target, sealed)

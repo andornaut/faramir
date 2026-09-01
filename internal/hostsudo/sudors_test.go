@@ -90,7 +90,7 @@ func TestTheProbeReadsTheVersionBanner(t *testing.T) {
 	} {
 		dir := filepath.Dir(fakeVisudo(t, version))
 		t.Setenv("PATH", dir)
-		if got := ProbeRs(); got != want {
+		if got := probeRs(); got != want {
 			t.Errorf("%q probed as sudo-rs=%v, want %v", version, got, want)
 		}
 	}
@@ -219,7 +219,7 @@ func TestTheProbeAgainstEveryRealBanner(t *testing.T) {
 		"Sudo version 1.9.17p2":   false,
 		"visudo version 1.9.17p2": false,
 	} {
-		if got := BannerIsRs(banner); got != want {
+		if got := bannerIsRs(banner); got != want {
 			t.Errorf("bannerIsSudoRs(%q) = %v, want %v", banner, got, want)
 		}
 	}
