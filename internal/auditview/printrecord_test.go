@@ -1,4 +1,4 @@
-package main
+package auditview
 
 import (
 	"encoding/json"
@@ -6,11 +6,13 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/termui"
 )
 
 // renderRecord is printRecord's output, captured. The command writes to stdout
 // directly, this being what an operator reads.
-func renderRecord(t *testing.T, line string, paint palette) string {
+func renderRecord(t *testing.T, line string, paint termui.Palette) string {
 	t.Helper()
 	var record map[string]any
 	if err := json.Unmarshal([]byte(line), &record); err != nil {
@@ -27,7 +29,7 @@ func renderRecord(t *testing.T, line string, paint palette) string {
 		body, _ := io.ReadAll(read)
 		done <- string(body)
 	}()
-	printRecord(record, paint)
+	PrintRecord(record, paint)
 	os.Stdout = original
 	_ = write.Close()
 	return <-done

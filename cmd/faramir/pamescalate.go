@@ -24,6 +24,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/brokerclient"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/escalation"
 )
@@ -124,7 +125,7 @@ func runPamEscalate(f pamEscalateFlags, granted *bool) int {
 // deadline of its own: the broker holds the question for [sudo]
 // timeout_sec and refuses it after that.
 func askBrokerToApprove(socketPath string, ancestors []int) (bool, string, error) {
-	line, err := roundTrip(socketPath, map[string]any{"op": "escalate", "procs": ancestors}, escalationWait)
+	line, err := brokerclient.RoundTrip(socketPath, map[string]any{"op": "escalate", "procs": ancestors}, escalationWait)
 	if err != nil {
 		return false, "", err
 	}

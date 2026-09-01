@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/escalation"
+	"github.com/andornaut/faramir/internal/termui"
 )
 
 func TestPrintOutcomeSaysHowTheRunEnded(t *testing.T) {
@@ -75,7 +76,7 @@ func TestPrintOutcomeSaysHowTheRunEnded(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, _ := captureStdout(t, func() int { printOutcome(tc.outcome, palette{}); return 0 })
+			out, _ := captureStdout(t, func() int { printOutcome(tc.outcome, termui.Palette{}); return 0 })
 			for _, want := range tc.want {
 				if !strings.Contains(out, want) {
 					t.Errorf("the ending does not say %q: %q", want, out)
@@ -100,7 +101,7 @@ func TestTheOutcomeLeadsWithTheRunTimeRatherThanTheWallClock(t *testing.T) {
 	out, _ := captureStdout(t, func() int {
 		printOutcome(escalation.Outcome{
 			LogID: "log-8", ExitCode: new(1), DurationSec: 50.52, WaitedSec: 50.51,
-		}, palette{})
+		}, termui.Palette{})
 		return 0
 	})
 	if !strings.Contains(out, "exited 1 in 0.0s") {

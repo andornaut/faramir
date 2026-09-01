@@ -1,4 +1,4 @@
-package main
+package vault
 
 import (
 	"os"
@@ -37,7 +37,7 @@ func writeRule(t *testing.T, dir string, recipients ...string) string {
 
 func TestTheRuleRecipientsAreReadInOrder(t *testing.T) {
 	dir := t.TempDir()
-	got, err := ruleRecipients(writeRule(t, dir, recipientA, recipientB, recipientA))
+	got, err := RuleRecipients(writeRule(t, dir, recipientA, recipientB, recipientA))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestASecondCreationRuleIsRefused(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ruleRecipients(path)
+	got, err := RuleRecipients(path)
 	if err == nil {
 		t.Fatalf("a file with two creation rules was accepted, merging %v", got)
 	}
@@ -85,7 +85,7 @@ func TestAShamirSplitIsRefused(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ruleRecipients(path)
+	got, err := RuleRecipients(path)
 	if err == nil {
 		t.Fatalf("a split data key was flattened into %v", got)
 	}
@@ -108,7 +108,7 @@ func TestKeyGroupsWinOverTheAgeShorthand(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ruleRecipients(path)
+	got, err := RuleRecipients(path)
 	if err != nil {
 		t.Fatalf("ruleRecipients: %v", err)
 	}
@@ -130,14 +130,14 @@ func TestARuleWithoutTheKeepersKeyIsRefusedBeforeAnythingIsWritten(t *testing.T)
 	}
 	rulePath := writeRule(t, dir, stranger)
 
-	err := keeperStaysAReader(keyPath, []string{stranger}, rulePath)
+	err := KeeperStaysAReader(keyPath, []string{stranger}, rulePath)
 	if err == nil {
 		t.Fatal("a rule leaving out the host's own key was accepted")
 	}
 	if !strings.Contains(err.Error(), recipient) {
 		t.Errorf("the error does not name the key that would be locked out: %v", err)
 	}
-	if err := keeperStaysAReader(keyPath, []string{stranger, recipient}, rulePath); err != nil {
+	if err := KeeperStaysAReader(keyPath, []string{stranger, recipient}, rulePath); err != nil {
 		t.Errorf("a rule that does list the host's key was refused: %v", err)
 	}
 }
@@ -172,7 +172,7 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := reencrypt(keyPath, "", []string{keeper, extra}, store); err != nil {
+	if err := Reencrypt(keyPath, "", []string{keeper, extra}, store); err != nil {
 		t.Fatalf("reencrypt: %v", err)
 	}
 
@@ -183,7 +183,7 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 	if !sopsrule.Same(got, []string{keeper, extra}) {
 		t.Errorf("recipients after the reseal = %v, want both %s and %s", got, keeper, extra)
 	}
-	plain, err := runSops(keyPath, "", "--decrypt", store)
+	plain, err := RunSops(keyPath, "", "--decrypt", store)
 	if err != nil {
 		t.Fatalf("decrypting the result: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 	}
 
 	// And what the skip avoids: the same recipients still produce different bytes.
-	if err := reencrypt(keyPath, "", []string{keeper}, store); err != nil {
+	if err := Reencrypt(keyPath, "", []string{keeper}, store); err != nil {
 		t.Fatalf("reencrypt: %v", err)
 	}
 	after, err := os.ReadFile(store)
@@ -252,7 +252,7 @@ func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 func TestResealTargetsCoverEveryManagedFile(t *testing.T) {
 	managed := []string{"/etc/faramir/secrets/a.sops.yml", "/etc/faramir/secrets/b.sops.yml"}
 
-	all, err := resealTargets(managed, nil)
+	all, err := ResealTargets(managed, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestResealTargetsCoverEveryManagedFile(t *testing.T) {
 		t.Errorf("naming nothing selected %v, want every managed file", all)
 	}
 
-	one, err := resealTargets(managed, []string{"a.sops.yml", "a.sops.yml"})
+	one, err := ResealTargets(managed, []string{"a.sops.yml", "a.sops.yml"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,10 +268,10 @@ func TestResealTargetsCoverEveryManagedFile(t *testing.T) {
 		t.Errorf("naming one twice selected %v, want it once", one)
 	}
 
-	if _, err := resealTargets(managed, []string{"/tmp/elsewhere.sops.yml"}); err == nil {
+	if _, err := ResealTargets(managed, []string{"/tmp/elsewhere.sops.yml"}); err == nil {
 		t.Error("a path outside the secrets directory was accepted")
 	}
-	if _, err := resealTargets(nil, nil); err == nil {
+	if _, err := ResealTargets(nil, nil); err == nil {
 		t.Error("an empty store was accepted as something to re-key")
 	}
 }

@@ -16,34 +16,17 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	yaml "go.yaml.in/yaml/v3"
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/keeper"
-	"github.com/andornaut/faramir/internal/sopsrule"
+	"github.com/andornaut/faramir/internal/termui"
+	"github.com/andornaut/faramir/internal/vault"
 )
 
 // opRemove is the audit record taking a file out of the store writes. It names
 // the refs that went with it: the file is gone and the log is what is left of
 // it.
 const opRemove = "remove"
-
-// managedFile is one file as `ls` reports it.
-type managedFile struct {
-	// Name is what an operator types, and Path is what is on disk. Both, so the
-	// listing can be pasted into another command and read as a path.
-	Name       string   `json:"name"`
-	Path       string   `json:"path"`
-	Refs       []string `json:"refs"`
-	Recipients []string `json:"recipients"`
-	// Drifted is true where the file is sealed to a set the rule no longer names,
-	// which is what `faramir reader reseal` is for.
-	Drifted bool `json:"drifted"`
-	// Problem is why this file could not be read or parsed, and "" otherwise. A
-	// file the broker would refuse is what an operator comes here to find, so it
-	// is a row rather than a reason to stop.
-	Problem string `json:"problem,omitempty"`
-}
 
 type vaultListFlags struct {
 	json bool
@@ -69,7 +52,7 @@ func newVaultListCmd() *cobra.Command {
 
 func runVaultList(f vaultListFlags) int {
 	const label = "vault ls"
-	paint, bad := paletteFor(label, f.when)
+	paint, bad := termui.PaletteFor(label, f.when)
 	if bad != 0 {
 		return bad
 	}
@@ -85,16 +68,16 @@ func runVaultList(f vaultListFlags) int {
 		return 1
 	}
 	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
-	wanted, ruleErr := ruleRecipients(rulePath)
+	wanted, ruleErr := vault.RuleRecipients(rulePath)
 
 	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
-	files := make([]managedFile, 0, len(managed))
+	files := make([]vault.ManagedFile, 0, len(managed))
 	for _, path := range managed {
-		files = append(files, describeManaged(path, wanted, ruleErr == nil))
+		files = append(files, vault.DescribeManaged(path, wanted, ruleErr == nil))
 	}
 	// By the name an operator types, which is not the order a glob returns once
 	// the directory holds a name that sorts differently from its path.
-	slices.SortFunc(files, func(a, b managedFile) int {
+	slices.SortFunc(files, func(a, b vault.ManagedFile) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 
@@ -107,89 +90,36 @@ func runVaultList(f vaultListFlags) int {
 	} else {
 		// The directory once, above the rows, so the names are the ones the other
 		// commands take and a full path is still readable.
-		fmt.Println(paint.dim(filepath.Dir(cfg.Secret.Patterns[0])))
-		table := [][]cell{{
-			painted("NAME", paint.key), painted("REFS", paint.key),
-			painted("READERS", paint.key), painted("STATE", paint.key),
+		fmt.Println(paint.Dim(filepath.Dir(cfg.Secret.Patterns[0])))
+		table := [][]termui.Cell{{
+			termui.Painted("NAME", paint.Key), termui.Painted("REFS", paint.Key),
+			termui.Painted("READERS", paint.Key), termui.Painted("STATE", paint.Key),
 		}}
 		for _, file := range files {
-			state, colour := stateOf(file), paint.ok
+			state, colour := vault.StateOf(file), paint.OK
 			switch {
 			case file.Problem != "":
-				colour = paint.bad
+				colour = paint.Bad
 			case file.Drifted:
-				colour = paint.warn
+				colour = paint.Warn
 			}
-			table = append(table, []cell{
-				value(file.Name), painted(strconv.Itoa(len(file.Refs)), paint.ref),
-				painted(strconv.Itoa(len(file.Recipients)), paint.dim),
-				painted(state, colour),
+			table = append(table, []termui.Cell{
+				termui.Value(file.Name), termui.Painted(strconv.Itoa(len(file.Refs)), paint.Ref),
+				termui.Painted(strconv.Itoa(len(file.Recipients)), paint.Dim),
+				termui.Painted(state, colour),
 			})
 		}
-		printTable(os.Stdout, table)
+		termui.PrintTable(os.Stdout, table)
 	}
 	// Named after the listing rather than mixed into it: a pattern that matched
 	// nothing is not a file.
 	for _, reason := range slices.Concat(failures, absent) {
-		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, safe(reason))
+		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, termui.Safe(reason))
 	}
 	if ruleErr != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, ruleErr)
 	}
 	return 0
-}
-
-// stateOf is the one word a listing has room for.
-func stateOf(file managedFile) string {
-	switch {
-	case file.Problem != "":
-		return file.Problem
-	case file.Drifted:
-		return "drifted"
-	}
-	return "ok"
-}
-
-// describeManaged reads one file without decrypting it: both the ref names and
-// the recipients are cleartext in a sops file.
-func describeManaged(path string, wanted []string, haveRule bool) managedFile {
-	file := managedFile{Name: managedStem(path), Path: path}
-	recipients, err := sopsrule.SealedTo(path)
-	if err != nil {
-		file.Problem = "not sealed to any age recipient"
-		return file
-	}
-	file.Recipients = recipients
-	file.Drifted = haveRule && !sopsrule.Same(recipients, wanted)
-
-	refs, err := refsIn(path)
-	if err != nil {
-		file.Problem = err.Error()
-		return file
-	}
-	file.Refs = refs
-	return file
-}
-
-// refsIn is the refs a managed file names, taken from its structure rather than
-// its values. sops encrypts values and leaves keys readable, so this answers
-// without the age key: [keeper.Flatten] is given the file as it sits on disk,
-// so each ref maps onto ciphertext and only the names are kept.
-func refsIn(path string) ([]string, error) {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var doc map[string]any
-	if err := yaml.Unmarshal(body, &doc); err != nil {
-		return nil, fmt.Errorf("does not parse: %w", err)
-	}
-	refs := make([]string, 0, len(doc))
-	for ref := range keeper.Flatten(doc) {
-		refs = append(refs, ref)
-	}
-	slices.Sort(refs)
-	return refs, nil
 }
 
 type vaultRemoveFlags struct {
@@ -229,20 +159,20 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	// Resolved against the managed list, so this cannot delete a file the broker
 	// never read.
 	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
-	target, err := resolveManaged(managed, name)
+	target, err := vault.Resolve(managed, name)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		for _, reason := range slices.Concat(failures, absent) {
-			fmt.Fprintf(os.Stderr, "  %s\n", safe(reason))
+			fmt.Fprintf(os.Stderr, "  %s\n", termui.Safe(reason))
 		}
 		return 1
 	}
 
 	// Read before anything is asked, so the question names what is at stake
 	// rather than a path.
-	refs, refsErr := refsIn(target)
+	refs, refsErr := vault.RefsIn(target)
 	if !f.force && !confirmRemoval(target, refs, refsErr) {
-		fmt.Fprintf(os.Stderr, "faramir %s: left %s alone\n", label, safe(target))
+		fmt.Fprintf(os.Stderr, "faramir %s: left %s alone\n", label, termui.Safe(target))
 		return 1
 	}
 
@@ -267,7 +197,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 		stopped = "the broker has stopped serving them"
 	}
 	fmt.Fprintf(os.Stderr, "faramir %s: removed %s and the %d ref(s) it held; %s\n",
-		label, safe(target), len(refs), stopped)
+		label, termui.Safe(target), len(refs), stopped)
 	return 0
 }
 
@@ -277,7 +207,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 // empty line or a typo is a no. What the question is worth comes from the lines
 // above it, which name the file and every ref that goes with it.
 func confirmRemoval(target string, refs []string, refsErr error) bool {
-	fmt.Fprintf(os.Stderr, "%s\n", safe(target))
+	fmt.Fprintf(os.Stderr, "%s\n", termui.Safe(target))
 	switch {
 	case refsErr != nil:
 		fmt.Fprintf(os.Stderr, "  its refs could not be read (%v), so what goes with "+
@@ -285,7 +215,7 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	case len(refs) == 0:
 		fmt.Fprintf(os.Stderr, "  it names no ref\n")
 	default:
-		fmt.Fprintf(os.Stderr, "  %d ref(s) go with it: %s\n", len(refs), safe(strings.Join(refs, ", ")))
+		fmt.Fprintf(os.Stderr, "  %d ref(s) go with it: %s\n", len(refs), termui.Safe(strings.Join(refs, ", ")))
 	}
 	// One keystroke answers this, so what was typed before the question was put
 	// must not be able to spell the answer to it. The same flush an escalation

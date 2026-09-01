@@ -13,6 +13,7 @@ import (
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/secretlink"
 	"github.com/andornaut/faramir/internal/secretref"
+	"github.com/andornaut/faramir/internal/termui"
 )
 
 // newLinkCmd groups what is done to a linked secret: one a tool of yours owns,
@@ -210,7 +211,7 @@ func newLinkListCmd() *cobra.Command {
 }
 
 func runLinkList(f linkFlags) int {
-	paint, bad := paletteFor("link ls", f.when)
+	paint, bad := termui.PaletteFor("link ls", f.when)
 	if bad != 0 {
 		return bad
 	}
@@ -247,15 +248,15 @@ func runLinkList(f linkFlags) int {
 	// touching the config: a credential removed, or a home not mounted. Whether
 	// the broker can read it is doctor's question, that one needing to be asked as
 	// the broker.
-	table := [][]cell{{
-		painted("REF", paint.key), painted("TYPE", paint.key),
-		painted("KEY", paint.key), painted("FILE", paint.key),
-		painted("STATE", paint.key),
+	table := [][]termui.Cell{{
+		termui.Painted("REF", paint.Key), termui.Painted("TYPE", paint.Key),
+		termui.Painted("KEY", paint.Key), termui.Painted("FILE", paint.Key),
+		termui.Painted("STATE", paint.Key),
 	}}
 	for _, link := range links {
-		state, colour := "present", paint.ok
+		state, colour := "present", paint.OK
 		if _, err := os.Stat(link.Path); err != nil {
-			state, colour = "not there", paint.bad
+			state, colour = "not there", paint.Bad
 		}
 		key := link.Key
 		if key == "" {
@@ -264,12 +265,12 @@ func runLinkList(f linkFlags) int {
 		// The ref takes the colour `faramir logs` gives one, the two listings
 		// being read by the same operator. The path and the key are the
 		// operator's own and stay unpainted.
-		table = append(table, []cell{
-			painted(link.Ref, paint.ref), painted(link.Type, paint.dim),
-			value(key), value(link.Path), painted(state, colour),
+		table = append(table, []termui.Cell{
+			termui.Painted(link.Ref, paint.Ref), termui.Painted(link.Type, paint.Dim),
+			termui.Value(key), termui.Value(link.Path), termui.Painted(state, colour),
 		})
 	}
-	printTable(os.Stdout, table)
+	termui.PrintTable(os.Stdout, table)
 	return 0
 }
 

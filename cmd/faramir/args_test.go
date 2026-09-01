@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/andornaut/faramir/internal/brokerclient"
 )
 
 // optionalOperand matches the trailing "[NAME]" of a Use line, which is how a
@@ -97,20 +99,20 @@ func TestACommandTakingOneOperandStillTakesOne(t *testing.T) {
 // reads as a broker that is not there.
 func TestTheResponseWaitDoesNotWrapOnAHugeTimeout(t *testing.T) {
 	for _, seconds := range []int{
-		1, 600, 3600, 1 << 30, maxWaitSeconds, maxWaitSeconds + 1,
+		1, 600, 3600, 1 << 30, brokerclient.MaxWaitSeconds, brokerclient.MaxWaitSeconds + 1,
 		1 << 62, math.MaxInt64,
 	} {
-		got := responseWait(map[string]any{"op": opRun, "timeout_sec": seconds})
+		got := brokerclient.ResponseWait(map[string]any{"op": brokerclient.OpRun, "timeout_sec": seconds})
 		if got <= 0 {
 			t.Errorf("responseWait(%d) = %v, which is a deadline already past", seconds, got)
 		}
-		if got < execGrace {
+		if got < brokerclient.ExecGrace {
 			t.Errorf("responseWait(%d) = %v, shorter than the grace alone", seconds, got)
 		}
 	}
 	// And the ordinary values still get what they asked for plus the grace.
-	if got, want := responseWait(map[string]any{"op": opRun, "timeout_sec": 600}),
-		600*time.Second+execGrace; got != want {
+	if got, want := brokerclient.ResponseWait(map[string]any{"op": brokerclient.OpRun, "timeout_sec": 600}),
+		600*time.Second+brokerclient.ExecGrace; got != want {
 		t.Errorf("responseWait(600) = %v, want %v", got, want)
 	}
 }
@@ -184,7 +186,7 @@ func TestTheShellsTwoExitCodesAreGivenForTheirOwnConditions(t *testing.T) {
 		{"", 1},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
-			if got := errorExit(tc.code); got != tc.want {
+			if got := brokerclient.ExitFor(tc.code); got != tc.want {
 				t.Errorf("errorExit(%q) = %d, want %d", tc.code, got, tc.want)
 			}
 		})

@@ -1,4 +1,4 @@
-package main
+package vault
 
 import (
 	"path/filepath"
@@ -24,7 +24,7 @@ func store(t *testing.T, glob string) (*config.Config, string) {
 // The stem is what an operator types, so the suffix is added for them.
 func TestABareNameIsGivenTheManagedSuffix(t *testing.T) {
 	cfg, dir := store(t, "*.sops.yml")
-	got, err := newManagedPath(cfg, "prod")
+	got, err := NewManagedPath(cfg, "prod")
 	if err != nil {
 		t.Fatalf("newManagedPath: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestANameSpelledInFullIsNotDoubled(t *testing.T) {
 	for _, name := range []string{"prod.sops.yml", "prod.sops.yaml"} {
 		t.Run(name, func(t *testing.T) {
 			cfg, dir := store(t, "*"+strings.TrimPrefix(name, "prod"))
-			got, err := newManagedPath(cfg, name)
+			got, err := NewManagedPath(cfg, name)
 			if err != nil {
 				t.Fatalf("newManagedPath: %v", err)
 			}
@@ -57,7 +57,7 @@ func TestANameSpelledInFullIsNotDoubled(t *testing.T) {
 // either the name or the pattern.
 func TestARefusalNamesWhatWasTyped(t *testing.T) {
 	cfg, _ := store(t, "*.prod.sops.yml")
-	_, err := newManagedPath(cfg, "staging.sops.yml")
+	_, err := NewManagedPath(cfg, "staging.sops.yml")
 	if err == nil {
 		t.Fatal("a name matching no pattern was accepted")
 	}
@@ -71,7 +71,7 @@ func TestARefusalNamesWhatWasTyped(t *testing.T) {
 
 // The store has to be named before anything can be put in it.
 func TestNoPatternsIsRefused(t *testing.T) {
-	if _, err := newManagedPath(&config.Config{}, "prod"); err == nil {
+	if _, err := NewManagedPath(&config.Config{}, "prod"); err == nil {
 		t.Fatal("a config naming no store accepted a new file")
 	}
 }
@@ -84,7 +84,7 @@ func TestANameThatNamesNothingIsRefusedAsThat(t *testing.T) {
 	cfg, dir := store(t, "*.sops.yml")
 	for _, name := range []string{"", " ", "\t", "."} {
 		t.Run(strconv.Quote(name), func(t *testing.T) {
-			_, err := newManagedPath(cfg, name)
+			_, err := NewManagedPath(cfg, name)
 			if err == nil {
 				t.Fatal("accepted")
 			}
@@ -109,7 +109,7 @@ func TestANameThatNamesNothingIsRefusedAsThat(t *testing.T) {
 // directory.
 func TestARefusalQuotesThePatternsInFull(t *testing.T) {
 	cfg, dir := store(t, "*.sops.yml")
-	_, err := newManagedPath(cfg, "/tmp/outside")
+	_, err := NewManagedPath(cfg, "/tmp/outside")
 	if err == nil {
 		t.Fatal("a path outside the store was accepted")
 	}
@@ -135,7 +135,7 @@ func TestAManagedNameCarriesNoByteATerminalActsOn(t *testing.T) {
 		{"bad\xffbyte", "not valid UTF-8"},
 	} {
 		t.Run(strconv.Quote(tc.name), func(t *testing.T) {
-			_, err := newManagedPath(cfg, tc.name)
+			_, err := NewManagedPath(cfg, tc.name)
 			if err == nil {
 				t.Fatal("accepted")
 			}
@@ -146,7 +146,7 @@ func TestAManagedNameCarriesNoByteATerminalActsOn(t *testing.T) {
 	}
 	// And an ordinary name, in any script, is still a name.
 	for _, name := range []string{"prod", "prod-eu", "prod_1", "\u65e5\u672c\u8a9e", "na\u00efve"} {
-		if _, err := newManagedPath(cfg, name); err != nil {
+		if _, err := NewManagedPath(cfg, name); err != nil {
 			t.Errorf("newManagedPath(%q) = %v, want it accepted", name, err)
 		}
 	}

@@ -1,4 +1,4 @@
-package main
+package vault
 
 import (
 	"os"
@@ -15,9 +15,9 @@ import (
 // decrypt, edit and re-encrypt either way.
 func useSops(t *testing.T) {
 	t.Helper()
-	previous := sopsBinary
-	sopsBinary = sopstest.SopsBinary(t)
-	t.Cleanup(func() { sopsBinary = previous })
+	previous := SopsBinary
+	SopsBinary = sopstest.SopsBinary(t)
+	t.Cleanup(func() { SopsBinary = previous })
 }
 
 // editorScript writes a shell script standing in for the editor.
@@ -51,7 +51,7 @@ func TestAnEditIsDecryptedEditedAndReEncrypted(t *testing.T) {
 	}
 
 	editor := editorScript(t, `sed -i 's/the-original-value-long-enough/a-replacement-value-long-enough/' "$1"`)
-	changed, err := editManaged(keyPath, "", editor, store)
+	changed, err := Edit(keyPath, "", editor, store)
 	if err != nil {
 		t.Fatalf("editManaged: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestAnEditIsDecryptedEditedAndReEncrypted(t *testing.T) {
 	}
 
 	// And it decrypts to what the editor wrote.
-	plain, err := runSops(keyPath, "", "--decrypt", store)
+	plain, err := RunSops(keyPath, "", "--decrypt", store)
 	if err != nil {
 		t.Fatalf("decrypting the result: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestAnUnchangedEditRewritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed, err := editManaged(keyPath, "", editorScript(t, "true"), store)
+	changed, err := Edit(keyPath, "", editorScript(t, "true"), store)
 	if err != nil {
 		t.Fatalf("editManaged: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestAFailedEditorLeavesTheStoreAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := editManaged(keyPath, "", editorScript(t, "exit 1"), store); err == nil {
+	if _, err := Edit(keyPath, "", editorScript(t, "exit 1"), store); err == nil {
 		t.Error("an editor that failed was reported as a successful edit")
 	}
 	after, err := os.ReadFile(store)
@@ -142,7 +142,7 @@ func TestTheReplacementKeepsTheOriginalMode(t *testing.T) {
 	}
 
 	editor := editorScript(t, `sed -i 's/the-original-value-long-enough/another-value-long-enough-here/' "$1"`)
-	if _, err := editManaged(keyPath, "", editor, store); err != nil {
+	if _, err := Edit(keyPath, "", editor, store); err != nil {
 		t.Fatalf("editManaged: %v", err)
 	}
 	info, err := os.Stat(store)
@@ -163,7 +163,7 @@ func TestThePlaintextIsRemovedAndWasNotOnDisk(t *testing.T) {
 	recorded := filepath.Join(t.TempDir(), "where")
 	editor := editorScript(t, `printf '%s' "$1" > `+recorded+`
 sed -i 's/the-original-value-long-enough/yet-another-value-long-enough/' "$1"`)
-	if _, err := editManaged(keyPath, "", editor, store); err != nil {
+	if _, err := Edit(keyPath, "", editor, store); err != nil {
 		t.Fatalf("editManaged: %v", err)
 	}
 	where, err := os.ReadFile(recorded)

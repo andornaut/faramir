@@ -1,12 +1,10 @@
-package main
+package termui
 
 import (
 	"bytes"
 	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/andornaut/faramir/internal/doctor"
 )
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -16,17 +14,17 @@ var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 // every column after it slides; this is what printTable exists to avoid, and
 // the failure is invisible until somebody looks at a terminal.
 func TestPaintDoesNotMoveAColumn(t *testing.T) {
-	on := palette{on: true}
-	rows := func(p palette) [][]cell {
-		return [][]cell{
-			{painted("KIND", p.key), painted("ENTRY", p.key), painted("COVERS", p.key)},
-			{painted("path", p.bold), value("/a"), painted("file tools", p.dim)},
-			{painted("command", p.bold), value("/much/longer/entry"), painted("commands", p.dim)},
+	on := Palette{on: true}
+	rows := func(p Palette) [][]Cell {
+		return [][]Cell{
+			{Painted("KIND", p.Key), Painted("ENTRY", p.Key), Painted("COVERS", p.Key)},
+			{Painted("path", p.Bold), Value("/a"), Painted("file tools", p.Dim)},
+			{Painted("command", p.Bold), Value("/much/longer/entry"), Painted("commands", p.Dim)},
 		}
 	}
 	var painted, plainOut bytes.Buffer
-	printTable(&painted, rows(on))
-	printTable(&plainOut, rows(palette{}))
+	PrintTable(&painted, rows(on))
+	PrintTable(&plainOut, rows(Palette{}))
 
 	stripped := ansi.ReplaceAllString(painted.String(), "")
 	if stripped != plainOut.String() {
@@ -50,9 +48,9 @@ func TestPaintDoesNotMoveAColumn(t *testing.T) {
 // A cell the operator wrote is never painted: the colour stops where faramir's
 // own words stop, so a value cannot dress itself as one of them.
 func TestAValueIsNeverPainted(t *testing.T) {
-	on := palette{on: true}
+	on := Palette{on: true}
 	var out bytes.Buffer
-	printTable(&out, [][]cell{{painted("KIND", on.key), value("not faramir's")}})
+	PrintTable(&out, [][]Cell{{Painted("KIND", on.Key), Value("not faramir's")}})
 	line := out.String()
 	if strings.Count(line, "\x1b[") != 2 {
 		t.Errorf("want the header's two escapes and no others, got %q", line)
@@ -73,7 +71,7 @@ func TestAValueCannotReachTheTerminal(t *testing.T) {
 		"two\nlines", "a\tb", "c1\u009b2J",
 	} {
 		var out bytes.Buffer
-		printTable(&out, [][]cell{{value(text)}})
+		PrintTable(&out, [][]Cell{{Value(text)}})
 		line := out.String()
 		if body, _ := strings.CutSuffix(line, "\n"); strings.IndexFunc(body, func(r rune) bool {
 			return r < 0x20 || (r >= 0x7f && r <= 0x9f)
@@ -99,7 +97,7 @@ func TestColumnsAlignAtTheWidthATerminalDraws(t *testing.T) {
 		"e\u0301abcde",       // seven runes, six columns
 	} {
 		var out bytes.Buffer
-		printTable(&out, [][]cell{{value(first), value("x")}})
+		PrintTable(&out, [][]Cell{{Value(first), Value("x")}})
 		if got, want := out.String(), first+"  x\n"; got != want {
 			t.Errorf("printTable(%q) = %q, want %q", first, got, want)
 		}
@@ -107,9 +105,9 @@ func TestColumnsAlignAtTheWidthATerminalDraws(t *testing.T) {
 	// And together, where the widest decides: every second column starts in the
 	// same place, so every line is the same length.
 	var out bytes.Buffer
-	printTable(&out, [][]cell{
-		{value("\u65e5\u672c\u8a9e"), value("a")},
-		{value("ab"), value("b")},
+	PrintTable(&out, [][]Cell{
+		{Value("\u65e5\u672c\u8a9e"), Value("a")},
+		{Value("ab"), Value("b")},
 	})
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	if len(lines) != 2 {
@@ -124,41 +122,6 @@ func TestColumnsAlignAtTheWidthATerminalDraws(t *testing.T) {
 	}
 }
 
-// doctor's detail carries a path from the config and an error string from the
-// host, and a filename may hold anything the filesystem accepts. A terminal
-// obeys what it is sent, so a carriage return in a detail would overwrite the
-// status beside it, on the one command an operator runs to find out whether the
-// install is sound.
-func TestADoctorDetailCannotReachTheTerminal(t *testing.T) {
-	report := doctor.Report{Findings: []doctor.Finding{
-		{Name: "config", Status: doctor.StatusFailed, Detail: "cannot read /etc/f\rSAFE/x"},
-		{Name: "secrets", Status: doctor.StatusWarn, Detail: "a file named boom\x1bc will not load"},
-		{Name: "store", Status: doctor.StatusWarn, Detail: "a title\x1b]0;pwned\a here"},
-	}}
-	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, report)
-	if i := strings.IndexFunc(out.String(), func(r rune) bool {
-		return (r < 0x20 && r != '\n' && r != '\t') || (r >= 0x7f && r <= 0x9f)
-	}); i >= 0 {
-		t.Errorf("a control character reached the terminal at %d: %q", i, out.String())
-	}
-}
-
-// And an ordinary detail keeps its words. Compared with the wrapping taken back
-// out: a detail longer than the terminal is laid out across lines, which is the
-// layout doing its job rather than the escaping changing the text.
-func TestAnOrdinaryDoctorDetailKeepsItsWords(t *testing.T) {
-	const detail = "/etc/faramir/config.toml is what this install renders: 12 rule(s)"
-	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
-		{Name: "deny patterns", Status: doctor.StatusOK, Detail: detail},
-	}})
-	got := strings.Join(strings.Fields(out.String()), " ")
-	if !strings.Contains(got, strings.Join(strings.Fields(detail), " ")) {
-		t.Errorf("an ordinary detail was changed: %q", out.String())
-	}
-}
-
 // The removal prompt shows the file an operator is about to destroy, and the
 // answer is a bare y, so that path is the whole of what identifies it. A
 // filename may hold anything the filesystem accepts, so a carriage return in one
@@ -168,7 +131,7 @@ func TestTheRemovalPromptCannotBeDressedUp(t *testing.T) {
 	for _, name := range []string{
 		"ev\ril-SAFE-LOOKING.sops.yml", "boom\x1bc.sops.yml", "t\x1b]0;x\a.sops.yml",
 	} {
-		if got := safe("/etc/faramir/secrets/" + name); strings.IndexFunc(got, func(r rune) bool {
+		if got := Safe("/etc/faramir/secrets/" + name); strings.IndexFunc(got, func(r rune) bool {
 			return (r < 0x20 && r != '\n') || (r >= 0x7f && r <= 0x9f)
 		}) >= 0 {
 			t.Errorf("%q still reaches the terminal as %q", name, got)

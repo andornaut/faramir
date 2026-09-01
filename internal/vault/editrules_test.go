@@ -1,4 +1,4 @@
-package main
+package vault
 
 // Which creation rules `faramir vault edit` and `faramir reader reseal` encrypt under.
 //
@@ -25,9 +25,9 @@ func requireRealSops(t *testing.T) {
 	if err != nil {
 		t.Skip("this asserts how sops reads creation rules; the stand-in has none")
 	}
-	previous := sopsBinary
-	sopsBinary = installed
-	t.Cleanup(func() { sopsBinary = previous })
+	previous := SopsBinary
+	SopsBinary = installed
+	t.Cleanup(func() { SopsBinary = previous })
 }
 
 // managedFixture is an install's shape: a rule file with the secrets in a
@@ -73,7 +73,7 @@ func (f managedFixture) writeRule(t *testing.T, pathRegex, extra string) {
 func (f managedFixture) edit(t *testing.T, to string) ([]byte, error) {
 	t.Helper()
 	editor := editorScript(t, `sed -i 's/the-original-value-long-enough/`+to+`/' "$1"`)
-	if _, err := editManaged(f.keyPath, f.rulePath, editor, f.store); err != nil {
+	if _, err := Edit(f.keyPath, f.rulePath, editor, f.store); err != nil {
 		return nil, err
 	}
 	after, err := os.ReadFile(f.store)
@@ -144,7 +144,7 @@ func TestAnEditNoRuleCoversIsRefusedBeforeTheEditor(t *testing.T) {
 
 	ran := filepath.Join(t.TempDir(), "ran")
 	editor := editorScript(t, `touch `+ran)
-	if _, err := editManaged(f.keyPath, f.rulePath, editor, f.store); err == nil {
+	if _, err := Edit(f.keyPath, f.rulePath, editor, f.store); err == nil {
 		t.Fatal("an edit no rule covers was accepted")
 	} else if !strings.Contains(err.Error(), "no creation rule matching") {
 		t.Errorf("the error does not name the cause: %v", err)
@@ -167,7 +167,7 @@ func TestAnEditUnderASplitKeyIsRefused(t *testing.T) {
 	if err := os.WriteFile(f.rulePath, []byte(rule), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := ruleMustCover(f.rulePath, f.store, []string{f.recipient})
+	err := RuleMustCover(f.rulePath, f.store, []string{f.recipient})
 	if err == nil {
 		t.Fatal("an edit under a split data key was accepted")
 	}
@@ -181,11 +181,11 @@ func TestAnEditUnderASplitKeyIsRefused(t *testing.T) {
 // nobody could answer would be worse than the failure it avoids.
 func TestAnUnaskableRuleCheckDoesNotRefuseTheEdit(t *testing.T) {
 	f := newManagedFixture(t)
-	previous := sopsBinary
-	sopsBinary = filepath.Join(t.TempDir(), "no-sops-here")
-	t.Cleanup(func() { sopsBinary = previous })
+	previous := SopsBinary
+	SopsBinary = filepath.Join(t.TempDir(), "no-sops-here")
+	t.Cleanup(func() { SopsBinary = previous })
 
-	if err := ruleMustCover(f.rulePath, f.store, []string{f.recipient}); err != nil {
+	if err := RuleMustCover(f.rulePath, f.store, []string{f.recipient}); err != nil {
 		t.Errorf("an edit was refused because the probe could not be run: %v", err)
 	}
 }
@@ -197,7 +197,7 @@ func TestNoRuleFileMeansNothingToCover(t *testing.T) {
 	if err := os.Remove(f.rulePath); err != nil {
 		t.Fatal(err)
 	}
-	if err := ruleMustCover(f.rulePath, f.store, []string{f.recipient}); err != nil {
+	if err := RuleMustCover(f.rulePath, f.store, []string{f.recipient}); err != nil {
 		t.Errorf("an edit was refused on a host that has no creation rules: %v", err)
 	}
 }
@@ -223,10 +223,10 @@ func TestTheInstallsOwnRuleDecidesWhatIsEncrypted(t *testing.T) {
 // refuses to start on a config path it cannot read, decrypt included, so an
 // absent rule has to become no rule rather than a path.
 func TestAnAbsentRuleFileIsNoRuleRatherThanAMissingOne(t *testing.T) {
-	if got := sopsConfigPath(filepath.Join(t.TempDir(), "gone.yaml")); got != os.DevNull {
+	if got := SopsConfigPath(filepath.Join(t.TempDir(), "gone.yaml")); got != os.DevNull {
 		t.Errorf("sopsConfigPath for an absent rule = %q, want %q", got, os.DevNull)
 	}
-	if got := sopsConfigPath(""); got != os.DevNull {
+	if got := SopsConfigPath(""); got != os.DevNull {
 		t.Errorf("sopsConfigPath for no rule = %q, want %q", got, os.DevNull)
 	}
 	dir := t.TempDir()
@@ -234,7 +234,7 @@ func TestAnAbsentRuleFileIsNoRuleRatherThanAMissingOne(t *testing.T) {
 	if err := os.WriteFile(rule, []byte("creation_rules: []\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := sopsConfigPath(rule); got != rule {
+	if got := SopsConfigPath(rule); got != rule {
 		t.Errorf("sopsConfigPath for a rule that is there = %q, want %q", got, rule)
 	}
 }

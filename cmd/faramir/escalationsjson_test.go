@@ -15,6 +15,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/termui"
 )
 
 // escalationsSocket answers one escalations op with the questions given and closes.
@@ -51,7 +52,7 @@ func escalationsSocket(t *testing.T, questions []escalation.Question) string {
 func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	t.Run("nothing waiting", func(t *testing.T) {
 		out, code := captureStdout(t, func() int {
-			return listEscalations(escalationsSocket(t, nil), true, palette{})
+			return listEscalations(escalationsSocket(t, nil), true, termui.Palette{})
 		})
 		if code != 1 {
 			t.Errorf("code = %d, want 1 with nothing waiting", code)
@@ -69,7 +70,7 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 		socket := escalationsSocket(t, []escalation.Question{{
 			ID: "9f2a1c", Cmd: "ansible-playbook site.yml", ExpiresInSec: 118,
 		}})
-		out, code := captureStdout(t, func() int { return listEscalations(socket, true, palette{}) })
+		out, code := captureStdout(t, func() int { return listEscalations(socket, true, termui.Palette{}) })
 		if code != 0 {
 			t.Errorf("code = %d, want 0 with one waiting", code)
 		}
@@ -86,7 +87,7 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	// there would report a host as quiet when nothing was asked.
 	t.Run("no broker", func(t *testing.T) {
 		out, code := captureStdout(t, func() int {
-			return listEscalations(filepath.Join(t.TempDir(), "absent.sock"), true, palette{})
+			return listEscalations(filepath.Join(t.TempDir(), "absent.sock"), true, termui.Palette{})
 		})
 		if code != 69 {
 			t.Errorf("code = %d, want 69 with no broker", code)
@@ -97,46 +98,8 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	})
 }
 
-// captureStdout runs fn with stdout on a pipe and returns what it wrote.
-func captureStdout(t *testing.T, fn func() int) (string, int) {
-	t.Helper()
-	return captureFile(t, &os.Stdout, fn)
-}
-
 // captureStderr is the same for the stream a refusal is written to.
 func captureStderr(t *testing.T, fn func() int) (string, int) {
 	t.Helper()
 	return captureFile(t, &os.Stderr, fn)
-}
-
-// captureFile points one of the process's own streams at a pipe for the length
-// of the call. Both are package variables, so the stream is named by pointer
-// rather than by a flag saying which of the two was meant.
-func captureFile(t *testing.T, stream **os.File, fn func() int) (string, int) {
-	t.Helper()
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	saved := *stream
-	*stream = writer
-	done := make(chan []byte, 1)
-	go func() {
-		var buf []byte
-		chunk := make([]byte, 4096)
-		for {
-			n, err := reader.Read(chunk)
-			buf = append(buf, chunk[:n]...)
-			if err != nil {
-				break
-			}
-		}
-		done <- buf
-	}()
-	code := fn()
-	*stream = saved
-	_ = writer.Close()
-	out := <-done
-	_ = reader.Close()
-	return string(out), code
 }

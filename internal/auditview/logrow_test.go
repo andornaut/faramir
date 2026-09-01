@@ -1,9 +1,11 @@
-package main
+package auditview
 
 import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/andornaut/faramir/internal/termui"
 )
 
 // The date header above each day's first row. The printer carries the last day
@@ -29,16 +31,16 @@ func recordAt(offset time.Duration) map[string]any {
 func headersPrinted(t *testing.T, records []map[string]any) (int, string) {
 	t.Helper()
 	out, _ := captureStdout(t, func() int {
-		p := &logPrinter{paint: palette{}}
+		p := &Printer{Paint: termui.Palette{}}
 		for _, r := range records {
-			p.row(r)
+			p.Row(r)
 		}
 		return 0
 	})
 	n := 0
 	for line := range strings.SplitSeq(out, "\n") {
 		// A header is the bare day; a row carries a time and the command as well.
-		if _, err := time.Parse(dateLayout, strings.TrimSpace(line)); err == nil {
+		if _, err := time.Parse(DateLayout, strings.TrimSpace(line)); err == nil {
 			n++
 		}
 	}
@@ -89,7 +91,7 @@ func TestTheListingShowsTheRunTimeNotTheWallClock(t *testing.T) {
 	record := map[string]any{
 		"op": "run", "exit_code": 1.0, "duration_sec": 50.52, "waited_sec": 50.51,
 	}
-	label, bad := outcome(record)
+	label, bad := Outcome(record)
 	if !strings.Contains(label, "0.01s") {
 		t.Errorf("label = %q, want the run time rather than 50.52s", label)
 	}
@@ -97,7 +99,7 @@ func TestTheListingShowsTheRunTimeNotTheWallClock(t *testing.T) {
 		t.Error("a non-zero exit is still the row that asked to be read")
 	}
 	// And a record with no wait is unchanged: the two numbers are the same one.
-	plain, _ := outcome(map[string]any{
+	plain, _ := Outcome(map[string]any{
 		"op": "run", "exit_code": 0.0, "duration_sec": 12.44,
 	})
 	if !strings.Contains(plain, "12.44s") {
@@ -130,7 +132,7 @@ func TestTheListingMarksOutputThatIsNotWhatWasWritten(t *testing.T) {
 		}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := outputNotes(tc.record); got != tc.want {
+			if got := OutputNotes(tc.record); got != tc.want {
 				t.Errorf("notes = %q, want %q", got, tc.want)
 			}
 		})

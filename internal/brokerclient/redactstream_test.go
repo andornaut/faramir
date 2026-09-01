@@ -1,4 +1,4 @@
-package main
+package brokerclient
 
 import (
 	"bytes"
@@ -134,7 +134,7 @@ func TestNoChunkExceedsTheChunkSize(t *testing.T) {
 	input := strings.Repeat(strings.Repeat("x", 60)+"\n", 4000)
 
 	var out bytes.Buffer
-	if err := redactStream(broker.path, strings.NewReader(input), &out); err != nil {
+	if err := RedactStream(broker.path, strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != input {
@@ -158,7 +158,7 @@ func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 
 	input := strings.Repeat("y", 5*chunkBytes) + "\n"
 	var out bytes.Buffer
-	if err := redactStream(broker.path, strings.NewReader(input), &out); err != nil {
+	if err := RedactStream(broker.path, strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != input {
@@ -184,7 +184,7 @@ func TestAStreamIsOneConnectionAndSaysWhereItEnds(t *testing.T) {
 
 	input := strings.Repeat("z", 5*chunkBytes) + "\n"
 	var out bytes.Buffer
-	if err := redactStream(broker.path, strings.NewReader(input), &out); err != nil {
+	if err := RedactStream(broker.path, strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	if got := broker.Conns(); got != 1 {
@@ -213,7 +213,7 @@ func TestTextShorterThanAChunkIsASingleRequest(t *testing.T) {
 	broker := newStubBroker(t)
 
 	var out bytes.Buffer
-	if err := redactStream(broker.path, strings.NewReader("one line\n"), &out); err != nil {
+	if err := RedactStream(broker.path, strings.NewReader("one line\n"), &out); err != nil {
 		t.Fatal(err)
 	}
 	if got := broker.Sizes(); len(got) != 1 {
@@ -233,7 +233,7 @@ func TestEmptyInputSendsNothing(t *testing.T) {
 	broker := newStubBroker(t)
 
 	var out bytes.Buffer
-	if err := redactStream(broker.path, strings.NewReader(""), &out); err != nil {
+	if err := RedactStream(broker.path, strings.NewReader(""), &out); err != nil {
 		t.Fatal(err)
 	}
 	if got := broker.Conns(); got != 0 {
@@ -248,7 +248,7 @@ func TestEmptyInputSendsNothing(t *testing.T) {
 // redactor is text nobody checked.
 func TestABrokerThatIsNotThereWithholdsTheText(t *testing.T) {
 	var out bytes.Buffer
-	err := redactStream(filepath.Join(t.TempDir(), "absent.sock"),
+	err := RedactStream(filepath.Join(t.TempDir(), "absent.sock"),
 		strings.NewReader("keep me\n"), &out)
 	if err == nil {
 		t.Fatal("an unreachable broker was reported as a successful redaction")
@@ -276,7 +276,7 @@ func TestAFailurePartWayThroughKeepsWhatWasRedactedAndStops(t *testing.T) {
 	rest := strings.Repeat("SENSITIVE\n", 100)
 
 	var out bytes.Buffer
-	err := redactStream(broker.path, strings.NewReader(first+rest), &out)
+	err := RedactStream(broker.path, strings.NewReader(first+rest), &out)
 	if err == nil {
 		t.Fatal("a broker that went away mid-stream was reported as a success")
 	}
@@ -297,7 +297,7 @@ func TestALiveStreamShowsAQuietLineBeforeEOF(t *testing.T) {
 	pr, pw := io.Pipe()
 	out := &syncBuf{}
 	done := make(chan error, 1)
-	go func() { done <- redactStreamLive(broker.path, pr, out) }()
+	go func() { done <- RedactStreamLive(broker.path, pr, out) }()
 
 	if _, err := io.WriteString(pw, "listening on :3000\n"); err != nil {
 		t.Fatal(err)
@@ -325,7 +325,7 @@ func TestAnIdleFlushDoesNotEndTheStream(t *testing.T) {
 	pr, pw := io.Pipe()
 	out := &syncBuf{}
 	done := make(chan error, 1)
-	go func() { done <- redactStreamLive(broker.path, pr, out) }()
+	go func() { done <- RedactStreamLive(broker.path, pr, out) }()
 
 	if _, err := io.WriteString(pw, "first\n"); err != nil {
 		t.Fatal(err)
@@ -366,7 +366,7 @@ func TestALiveStreamCarriesALineLongerThanAChunk(t *testing.T) {
 
 	out := &syncBuf{}
 	done := make(chan error, 1)
-	go func() { done <- redactStreamLive(broker.path, strings.NewReader(input), out) }()
+	go func() { done <- RedactStreamLive(broker.path, strings.NewReader(input), out) }()
 
 	select {
 	case err := <-done:

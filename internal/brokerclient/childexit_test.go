@@ -1,4 +1,4 @@
-package main
+package brokerclient
 
 import (
 	"errors"
@@ -10,7 +10,7 @@ import (
 // The signal case is the one that regressed: `faramir redact -- CMD` returned
 // 255 for a killed child where `faramir run` and every shell return 128+signal.
 func TestChildExitCode(t *testing.T) {
-	if got := childExitCode(nil); got != 0 {
+	if got := ChildExitCode(nil); got != 0 {
 		t.Errorf("a clean exit = %d, want 0", got)
 	}
 
@@ -25,20 +25,20 @@ func TestChildExitCode(t *testing.T) {
 		return err
 	}
 
-	if got := childExitCode(exit(t, "sh", "-c", "exit 9")); got != 9 {
+	if got := ChildExitCode(exit(t, "sh", "-c", "exit 9")); got != 9 {
 		t.Errorf("an exit status = %d, want 9", got)
 	}
 	// 128 + SIGKILL(9) and 128 + SIGTERM(15).
-	if got := childExitCode(exit(t, "sh", "-c", "kill -KILL $$")); got != 137 {
+	if got := ChildExitCode(exit(t, "sh", "-c", "kill -KILL $$")); got != 137 {
 		t.Errorf("a SIGKILL death = %d, want 137 (128+9), not the -1 that renders as 255", got)
 	}
-	if got := childExitCode(exit(t, "sh", "-c", "kill -TERM $$")); got != 143 {
+	if got := ChildExitCode(exit(t, "sh", "-c", "kill -TERM $$")); got != 143 {
 		t.Errorf("a SIGTERM death = %d, want 143 (128+15)", got)
 	}
 
 	// An error that is not a child exit at all: the caller reports it and treats
 	// it as its own failure, which -1 signals.
-	if got := childExitCode(errors.New("dial failed")); got != -1 {
+	if got := ChildExitCode(errors.New("dial failed")); got != -1 {
 		t.Errorf("a non-exit error = %d, want -1", got)
 	}
 }

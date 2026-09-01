@@ -1,4 +1,4 @@
-package main
+package termui
 
 // Column-aligned output that survives colour.
 //
@@ -19,23 +19,23 @@ import (
 	"github.com/andornaut/faramir/internal/termsafe"
 )
 
-// cell is one column of one row: the text a reader sees, and how to paint it.
+// Cell is one column of one row: the text a reader sees, and how to paint it.
 // A nil paint leaves it alone, which is what a value the operator wrote gets.
-type cell struct {
+type Cell struct {
 	text  string
 	paint func(string) string
 }
 
-// value is a cell nothing paints: a path, a ref, a filename. Values keep their
+// Value is a cell nothing paints: a path, a ref, a filename. Values keep their
 // own colour so that faramir's words and the operator's stay told apart.
-func value(text string) cell { return cell{text: text} }
+func Value(text string) Cell { return Cell{text: text} }
 
-// painted is a cell in faramir's own vocabulary: a header, a kind, a state.
-func painted(text string, paint func(string) string) cell {
-	return cell{text: text, paint: paint}
+// Painted is a cell in faramir's own vocabulary: a header, a kind, a state.
+func Painted(text string, paint func(string) string) Cell {
+	return Cell{text: text, paint: paint}
 }
 
-// safe is one cell's text as it may be printed: escaped so a terminal draws it
+// Safe is one cell's text as it may be printed: escaped so a terminal draws it
 // rather than acting on it, tabs included.
 //
 // The values in these tables are not faramir's own words. A path, a ref, a
@@ -49,15 +49,15 @@ func painted(text string, paint func(string) string) cell {
 //
 // Tab on top of what termsafe escapes: it is layout an operator wants in
 // recorded output and is a column that moves in a table.
-func safe(text string) string {
+func Safe(text string) string {
 	return strings.ReplaceAll(termsafe.Line(text), "\t", `\t`)
 }
 
-// width is how many columns a terminal spends drawing this text. Not the rune
+// Width is how many columns a terminal spends drawing this text. Not the rune
 // count: a CJK ideograph and most emoji are drawn two columns wide, and a
 // combining mark is drawn over the rune before it and takes none. Counting
 // runes leaves every column after the widest of those out by the difference.
-func width(text string) int {
+func Width(text string) int {
 	n := 0
 	for _, r := range text {
 		switch {
@@ -96,19 +96,19 @@ func wide(r rune) bool {
 	return false
 }
 
-// printTable writes rows in aligned columns, two spaces between them, with no
+// PrintTable writes rows in aligned columns, two spaces between them, with no
 // trailing space on the last column of a line.
-func printTable(w io.Writer, rows [][]cell) {
+func PrintTable(w io.Writer, rows [][]Cell) {
 	texts := make([][]string, len(rows))
 	widths := make([]int, 0, 8)
 	for r, row := range rows {
 		texts[r] = make([]string, len(row))
 		for i, c := range row {
-			texts[r][i] = safe(c.text)
+			texts[r][i] = Safe(c.text)
 			for len(widths) <= i {
 				widths = append(widths, 0)
 			}
-			if n := width(texts[r][i]); n > widths[i] {
+			if n := Width(texts[r][i]); n > widths[i] {
 				widths[i] = n
 			}
 		}
@@ -117,7 +117,7 @@ func printTable(w io.Writer, rows [][]cell) {
 		var b strings.Builder
 		for i, c := range row {
 			text := texts[r][i]
-			pad := widths[i] - width(text) + 2
+			pad := widths[i] - Width(text) + 2
 			if c.paint != nil {
 				text = c.paint(text)
 			}

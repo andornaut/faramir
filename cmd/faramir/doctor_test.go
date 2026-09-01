@@ -7,13 +7,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/andornaut/faramir/internal/doctor"
+	"github.com/andornaut/faramir/internal/termui"
 )
 
 // The report is read by someone looking for the one line that is not "ok".
 
 func TestARepeatedCheckIsNamedOnce(t *testing.T) {
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+	printDiagnosis(&out, termui.Palette{}, doctor.Report{Findings: []doctor.Finding{
 		{Name: "sockets", Status: doctor.StatusOK, Detail: "keeper is listening"},
 		{Name: "sockets", Status: doctor.StatusOK, Detail: "broker is listening"},
 	}})
@@ -28,7 +29,7 @@ func TestARepeatedCheckIsNamedOnce(t *testing.T) {
 
 func TestTheCountsAreReported(t *testing.T) {
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+	printDiagnosis(&out, termui.Palette{}, doctor.Report{Findings: []doctor.Finding{
 		{Name: "a", Status: doctor.StatusOK},
 		{Name: "b", Status: doctor.StatusOK},
 		{Name: "c", Status: doctor.StatusWarn},
@@ -43,7 +44,7 @@ func TestTheCountsAreReported(t *testing.T) {
 // passed a check it never had, which is the reason the status exists.
 func TestNotApplicableIsCountedApartFromAPass(t *testing.T) {
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+	printDiagnosis(&out, termui.Palette{}, doctor.Report{Findings: []doctor.Finding{
 		{Name: "sudo credential", Status: doctor.StatusOK},
 		{Name: "sudo grant", Status: doctor.StatusNA},
 		{Name: "ptrace scope", Status: doctor.StatusNA},
@@ -61,7 +62,7 @@ func TestNotApplicableAlignsWithEveryOtherStatus(t *testing.T) {
 		t.Setenv("LC_CTYPE", "")
 		t.Setenv("LANG", "")
 		var out bytes.Buffer
-		printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+		printDiagnosis(&out, termui.Palette{}, doctor.Report{Findings: []doctor.Finding{
 			{Name: "x", Status: doctor.StatusOK, Detail: "detail"},
 			{Name: "x", Status: doctor.StatusNA, Detail: "detail"},
 			{Name: "x", Status: doctor.StatusWarn, Detail: "detail"},
@@ -89,7 +90,7 @@ func TestALongDetailWrapsUnderItself(t *testing.T) {
 	t.Setenv("COLUMNS", "60")
 	t.Setenv("LC_ALL", "C.UTF-8")
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+	printDiagnosis(&out, termui.Palette{}, doctor.Report{Findings: []doctor.Finding{
 		{Name: "broker", Status: doctor.StatusWarn, Detail: strings.Repeat("word ", 40)},
 	}})
 	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
@@ -119,7 +120,7 @@ func TestAnOverlongWordIsNotSplit(t *testing.T) {
 func TestTheStatusCarriesAGlyphAndTheWord(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+	printDiagnosis(&out, termui.Palette{}, doctor.Report{Findings: []doctor.Finding{
 		{Name: "config", Status: doctor.StatusOK},
 		{Name: "age key", Status: doctor.StatusFailed},
 	}})
@@ -136,7 +137,7 @@ func TestWithoutAUnicodeLocaleTheWordStandsAlone(t *testing.T) {
 	t.Setenv("LC_CTYPE", "")
 	t.Setenv("LANG", "")
 	var out bytes.Buffer
-	printDiagnosis(&out, palette{}, doctor.Report{Findings: []doctor.Finding{
+	printDiagnosis(&out, termui.Palette{}, doctor.Report{Findings: []doctor.Finding{
 		{Name: "config", Status: doctor.StatusOK, Detail: "/etc/faramir/config.toml"},
 		{Name: "age key", Status: doctor.StatusFailed, Detail: "readable by operator"},
 	}})

@@ -23,7 +23,8 @@ import (
 
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/audit"
-	"github.com/andornaut/faramir/internal/sopsrule"
+	"github.com/andornaut/faramir/internal/termui"
+	"github.com/andornaut/faramir/internal/vault"
 )
 
 // opReader is the audit record a rule change writes, one per command: the
@@ -139,7 +140,7 @@ func runReseal(f readerFlags, args []string) int {
 	if store == nil {
 		return code
 	}
-	wanted, err := ruleRecipients(store.rulePath)
+	wanted, err := vault.RuleRecipients(store.rulePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
@@ -147,7 +148,7 @@ func runReseal(f readerFlags, args []string) int {
 	// Checked before anything is decrypted: re-encrypting to a rule the keeper is
 	// not named in produces a secrets directory that opens for nobody the broker
 	// can ask, one file at a time.
-	if err := keeperStaysAReader(store.keyPath, wanted, store.rulePath); err != nil {
+	if err := vault.KeeperStaysAReader(store.keyPath, wanted, store.rulePath); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
@@ -200,7 +201,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 		return 1
 	}
 
-	edited, changed, err := editRule(body, store.rulePath, recipient, adding)
+	edited, changed, err := vault.EditRule(body, store.rulePath, recipient, adding)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
@@ -213,7 +214,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 			label, store.rulePath, listedOrNot(adding), recipient)
 	}
 
-	wanted, err := ruleRecipientsFrom(edited, store.rulePath)
+	wanted, err := vault.RuleRecipientsFrom(edited, store.rulePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
@@ -221,7 +222,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	// Judged against the edit rather than the file on disk, and before the write:
 	// a store sealed to a rule the keeper is not named in opens for nobody the
 	// broker can ask, and re-running does not undo it.
-	if err := keeperStaysAReader(store.keyPath, wanted, store.rulePath); err != nil {
+	if err := vault.KeeperStaysAReader(store.keyPath, wanted, store.rulePath); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
@@ -237,7 +238,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	if !changed {
 		return resealStore(label, store, wanted, false)
 	}
-	if err := writeBack(store.rulePath, edited); err != nil {
+	if err := vault.WriteBack(store.rulePath, edited); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", label, store.rulePath, err)
 		return 1
 	}
@@ -254,14 +255,6 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	// A rule the files are not yet sealed to is the state this command exists to
 	// avoid, so its exit status is the reseal's.
 	return resealStore(label, store, wanted, false)
-}
-
-// editRule is the one call that differs between add and rm.
-func editRule(body []byte, path, recipient string, adding bool) ([]byte, bool, error) {
-	if adding {
-		return sopsrule.Add(body, path, recipient)
-	}
-	return sopsrule.Remove(body, path, recipient)
 }
 
 // addOrRemove is the bare verb, for a sentence that already carries a "would".
@@ -290,7 +283,7 @@ func listedOrNot(adding bool) string {
 // keys and a rule and no value. It reads that file rather than asking the
 // broker.
 func runReaderList(f readerFlags) int {
-	paint, bad := paletteFor("reader ls", f.when)
+	paint, bad := termui.PaletteFor("reader ls", f.when)
 	if bad != 0 {
 		return bad
 	}
@@ -300,7 +293,7 @@ func runReaderList(f readerFlags) int {
 		return 1
 	}
 	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
-	recipients, err := ruleRecipients(rulePath)
+	recipients, err := vault.RuleRecipients(rulePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir reader ls: %v\n", err)
 		return 1
@@ -321,17 +314,17 @@ func runReaderList(f readerFlags) int {
 	// keeper's and root's. So the note appears where it can be known and the
 	// listing is plain where it cannot, rather than a column that says "no" and
 	// means "could not tell".
-	keeper, err := agekey.Recipient(ageKeyPath(cfg))
+	keeper, err := agekey.Recipient(vault.AgeKeyPath(cfg))
 	if err != nil {
 		keeper = ""
 	}
 	for _, recipient := range recipients {
 		if recipient != "" && recipient == keeper {
 			// The note is faramir's word about the key, not part of it.
-			fmt.Printf("%s  %s\n", safe(recipient), paint.dim("(this host's keeper)"))
+			fmt.Printf("%s  %s\n", termui.Safe(recipient), paint.Dim("(this host's keeper)"))
 			continue
 		}
-		fmt.Println(safe(recipient))
+		fmt.Println(termui.Safe(recipient))
 	}
 	return 0
 }
