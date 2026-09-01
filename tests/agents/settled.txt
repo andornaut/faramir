@@ -22,7 +22,7 @@
 
 printf.*%q|[Rr]epr\(\)|backslash[- ](re)?quot :: Backslash re-quoting is named in docs/redaction.md as outside the matched set, beside any deliberate transform. The child chooses its own output encoding and the redactor matches literals.
 
-/dev/shm :: PrivateTmp= covers /tmp and /var/tmp and not /dev/shm, which is shared with the caller. internal/server/server.go says so deliberately: a brokered command's leavings there are the caller's to find, and teardown.sh removes the suite's.
+/dev/shm :: PrivateTmp= covers /tmp and /var/tmp and not /dev/shm, which is shared with the caller. internal/broker/broker.go says so deliberately: a brokered command's leavings there are the caller's to find, and teardown.sh removes the suite's.
 
 (\bgpg\b|\bsops\b|ansible-vault|\bage\b).*(decrypt|\bview\b|[[:space:]]-d\b)|decryption (tool|command) :: faramir refuses commands that name a declared path, not decryption as such. A file the operator never declared is one no rule was written for. The agent instructions forbid decrypting; that is policy rather than something a path rule enforces.
 

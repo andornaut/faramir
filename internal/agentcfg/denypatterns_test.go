@@ -206,7 +206,7 @@ func TestACommandRuleDoesNotReachASiblingPath(t *testing.T) {
 // Every entry renders a rule with no verb in it, strict or not: the guard
 // refuses a declared path named at all. So an entry carrying --strict renders
 // what every other entry does, and the flag's difference is on the brokered
-// route, which internal/server holds it to.
+// route, which internal/broker holds it to.
 //
 // Asserted by what the rendered file decides rather than by the shape of a
 // pattern: what the operator asked for is that `ls` be refused.
@@ -226,7 +226,7 @@ func TestAnStrictEntryRefusesACommandWithNoVerbInIt(t *testing.T) {
 		// longer a difference here: the guard refuses a declared path named at
 		// all, whatever flag the entry carries, so there is no looser reading
 		// left for the flag to tighten. What it still separates is the brokered
-		// route, which internal/server holds it to.
+		// route, which internal/broker holds it to.
 		"ls -l /srv/keys/luks.key",
 		"cat /srv/keys/luks.key",
 	} {

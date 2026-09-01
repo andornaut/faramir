@@ -1,4 +1,4 @@
-package server
+package broker
 
 import (
 	"encoding/json"
@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andornaut/faramir/internal/executor"
+	"github.com/andornaut/faramir/internal/execclient"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -38,15 +38,15 @@ func errorMessage(t *testing.T, r map[string]any) string {
 // asserted on.
 type recorder struct {
 	mu       sync.Mutex
-	requests []executor.Request
+	requests []execclient.Request
 	liveEnv  []map[string]string
 	output   string
-	result   *executor.Result
+	result   *execclient.Result
 	err      error
 }
 
 func (rec *recorder) install(s *Server) *recorder {
-	s.exec = func(r *redact.Redactor, sink func(string), req executor.Request) (*executor.Result, error) {
+	s.exec = func(r *redact.Redactor, sink func(string), req execclient.Request) (*execclient.Result, error) {
 		rec.mu.Lock()
 		recorded := req
 		recorded.Env = maps.Clone(req.Env)
@@ -72,7 +72,7 @@ func (rec *recorder) install(s *Server) *recorder {
 		if rec.result != nil {
 			return rec.result, nil
 		}
-		return &executor.Result{
+		return &execclient.Result{
 			ExitCode: 0, Output: emitted.String(), Redactions: r.Summary(),
 		}, nil
 	}
@@ -89,7 +89,7 @@ func (rec *recorder) none(t *testing.T) {
 	}
 }
 
-func (rec *recorder) only(t *testing.T) executor.Request {
+func (rec *recorder) only(t *testing.T) execclient.Request {
 	t.Helper()
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
@@ -320,10 +320,10 @@ func TestOverTheConcurrencyLimitIsRefusedAsBusy(t *testing.T) {
 
 	release := make(chan struct{})
 	entered := make(chan struct{}, 8)
-	s.exec = func(r *redact.Redactor, sink func(string), req executor.Request) (*executor.Result, error) {
+	s.exec = func(r *redact.Redactor, sink func(string), req execclient.Request) (*execclient.Result, error) {
 		entered <- struct{}{}
 		<-release
-		return &executor.Result{ExitCode: 0}, nil
+		return &execclient.Result{ExitCode: 0}, nil
 	}
 
 	var wg sync.WaitGroup

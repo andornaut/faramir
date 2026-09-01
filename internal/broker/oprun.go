@@ -1,4 +1,4 @@
-package server
+package broker
 
 import (
 	"errors"
@@ -14,7 +14,7 @@ import (
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/escalation"
-	"github.com/andornaut/faramir/internal/executor"
+	"github.com/andornaut/faramir/internal/execclient"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/resolve"
 	"github.com/andornaut/faramir/internal/secretref"
@@ -111,7 +111,7 @@ func (a execEscalation) fields() map[string]any {
 // something.
 // addRunConditions sets the audit-record fields that a run carries only when
 // they say something, keeping a zero off every record.
-func addRunConditions(record map[string]any, result *executor.Result) {
+func addRunConditions(record map[string]any, result *execclient.Result) {
 	// Both mean the recorded output is not what the command wrote.
 	if result.InvalidBytes > 0 {
 		record["invalid_bytes"] = result.InvalidBytes
@@ -140,7 +140,7 @@ func okResponse(exitCode int, output string) protocol.Response {
 }
 
 func execResponse(logID string, judged execEscalation,
-	result *executor.Result) protocol.Response {
+	result *execclient.Result) protocol.Response {
 	response := protocol.Response{
 		"exit_code": result.ExitCode, "output": result.Output,
 		"truncated": result.Truncated, "redactions": result.Redactions,
@@ -340,7 +340,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	starting["op"] = recordRunStarted
 	s.Audit.Write(starting, audit.Output{})
 
-	result, err := s.exec(redactor, collector.Add, executor.Request{
+	result, err := s.exec(redactor, collector.Add, execclient.Request{
 		Argv:       append([]string{argv0Path}, cmd[1:]...),
 		Cwd:        cwd,
 		Env:        env,

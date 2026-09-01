@@ -1,13 +1,15 @@
-// Package executor owns the PTY and streams the child's output through the
-// redactor. A PTY rather than a pipe: programs format differently when stdout
-// is a terminal, and a process can write straight to /dev/tty, which ssh and
-// sudo do for password prompts. The cost is that stdout and stderr arrive
-// merged.
+// Package execclient is the broker's side of a brokered command: it owns the
+// PTY and streams the child's output through the redactor. The fork is
+// internal/execserver's, on the uid that holds nothing.
+//
+// A PTY rather than a pipe: programs format differently when stdout is a
+// terminal, and a process can write straight to /dev/tty, which ssh and sudo do
+// for password prompts. The cost is that stdout and stderr arrive merged.
 //
 // The fork happens in faramir-exec, but the PTY does not move with it: the
 // broker creates the pair, hands the slave over SCM_RIGHTS and keeps the
 // master, so redaction, truncation and the audit log stay on this side.
-package executor
+package execclient
 
 import (
 	"errors"

@@ -141,7 +141,7 @@ func cutRunes(text string, limit int) (string, int) {
 	if len(text) <= limit {
 		return text, 0
 	}
-	// Backing off at most one rune, as internal/audit and internal/executor do:
+	// Backing off at most one rune, as internal/audit and internal/execclient do:
 	// scanning back for the first valid prefix would drop everything after any
 	// invalid byte rather than the partial rune at the end.
 	cut := text[:limit]

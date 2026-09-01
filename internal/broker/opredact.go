@@ -1,4 +1,4 @@
-package server
+package broker
 
 import (
 	"github.com/andornaut/faramir/internal/audit"

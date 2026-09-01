@@ -1,11 +1,11 @@
-package server
+package broker
 
 import (
 	"net"
 	"testing"
 	"time"
 
-	"github.com/andornaut/faramir/internal/executor"
+	"github.com/andornaut/faramir/internal/execclient"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -25,7 +25,7 @@ func TestARunLosesItsChildWhenTheCallerGoes(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": goodValue})
 	started, ended := make(chan struct{}), make(chan struct{})
 	var sawAbandon bool
-	s.exec = func(_ *redact.Redactor, _ func(string), req executor.Request) (*executor.Result, error) {
+	s.exec = func(_ *redact.Redactor, _ func(string), req execclient.Request) (*execclient.Result, error) {
 		close(started)
 		// What the read loop does, at the speed a test can wait: ask until the
 		// caller is gone or the deadline says it never will be.
@@ -35,10 +35,10 @@ func TestARunLosesItsChildWhenTheCallerGoes(t *testing.T) {
 			case <-req.Abandoned:
 				sawAbandon = true
 				close(ended)
-				return &executor.Result{ExitCode: 128 + 9, Abandoned: true}, nil
+				return &execclient.Result{ExitCode: 128 + 9, Abandoned: true}, nil
 			case <-deadline:
 				close(ended)
-				return &executor.Result{ExitCode: 0}, nil
+				return &execclient.Result{ExitCode: 0}, nil
 			case <-time.After(10 * time.Millisecond):
 			}
 		}
@@ -79,13 +79,13 @@ func TestARunLosesItsChildWhenTheCallerGoes(t *testing.T) {
 func TestARunWithACallerStillThereIsNotAbandoned(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": goodValue})
 	var abandonedEarly bool
-	s.exec = func(_ *redact.Redactor, _ func(string), req executor.Request) (*executor.Result, error) {
+	s.exec = func(_ *redact.Redactor, _ func(string), req execclient.Request) (*execclient.Result, error) {
 		select {
 		case <-req.Abandoned:
 			abandonedEarly = true
 		case <-time.After(300 * time.Millisecond):
 		}
-		return &executor.Result{ExitCode: 0, Output: "done\n"}, nil
+		return &execclient.Result{ExitCode: 0, Output: "done\n"}, nil
 	}
 
 	dial := serving(t, s)
@@ -133,14 +133,14 @@ func TestABusyCallerIsNotMistakenForOneThatHasGone(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": goodValue})
 	var abandonedEarly bool
 	running := make(chan struct{})
-	s.exec = func(_ *redact.Redactor, _ func(string), req executor.Request) (*executor.Result, error) {
+	s.exec = func(_ *redact.Redactor, _ func(string), req execclient.Request) (*execclient.Result, error) {
 		close(running)
 		select {
 		case <-req.Abandoned:
 			abandonedEarly = true
 		case <-time.After(500 * time.Millisecond):
 		}
-		return &executor.Result{ExitCode: 0, Output: "done\n"}, nil
+		return &execclient.Result{ExitCode: 0, Output: "done\n"}, nil
 	}
 
 	dial := serving(t, s)

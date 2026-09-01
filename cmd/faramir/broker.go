@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
-	"github.com/andornaut/faramir/internal/server"
+	"github.com/andornaut/faramir/internal/broker"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -81,7 +81,7 @@ func runBroker(f brokerFlags) int {
 	if configDir := filepath.Dir(cfg.Path); filepath.IsAbs(configDir) {
 		ownDirs = agentcfg.InstalledDirs(configDir)
 	}
-	s := server.New(ownDirs, cfg)
+	s := broker.New(ownDirs, cfg)
 	s.Store.Reload()
 
 	// Before starting the agent: --check runs against a live broker, and a second

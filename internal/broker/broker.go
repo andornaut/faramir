@@ -1,7 +1,7 @@
-// Package server is the broker daemon. Socket-activated by systemd
+// Package broker is the broker daemon. Socket-activated by systemd
 // (LISTEN_FDS), falling back to binding the socket itself when run standalone.
 // Requests over [command] concurrency are refused rather than queued.
-package server
+package broker
 
 import (
 	"encoding/json"
@@ -17,8 +17,8 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/escalation"
+	"github.com/andornaut/faramir/internal/execclient"
 	"github.com/andornaut/faramir/internal/execserver"
-	"github.com/andornaut/faramir/internal/executor"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/secretstore"
@@ -41,7 +41,7 @@ type Server struct {
 	// exec runs one command. A field so a test can substitute one that records
 	// what it was handed, rather than reaching broker policy through a socket, a
 	// PTY and a forked process.
-	exec func(*redact.Redactor, func(string), executor.Request) (*executor.Result, error)
+	exec func(*redact.Redactor, func(string), execclient.Request) (*execclient.Result, error)
 
 	slots chan struct{}
 	ln    net.Listener
@@ -82,8 +82,8 @@ func New(ownDirs []string, cfg *config.Config) *Server {
 		Ssh:        sshagent.New(cfg.Ssh),
 		Escalation: escalation.New(cfg.Sudo),
 		slots:      make(chan struct{}, cfg.Command.Concurrency),
-		exec: func(r *redact.Redactor, sink func(string), req executor.Request) (*executor.Result, error) {
-			return executor.Run(cfg.Command, cfg.Executor, r, sink, req)
+		exec: func(r *redact.Redactor, sink func(string), req execclient.Request) (*execclient.Result, error) {
+			return execclient.Run(cfg.Command, cfg.Executor, r, sink, req)
 		},
 	}
 	// An escalation is recorded where every other op is. The record holds the

@@ -1,4 +1,4 @@
-package server
+package broker
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andornaut/faramir/internal/executor"
+	"github.com/andornaut/faramir/internal/execclient"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -29,9 +29,9 @@ func TestAPeerThatNeverReadsDoesNotHoldTheBroker(t *testing.T) {
 	// Larger than any socket buffer, so the reply cannot be handed to the kernel
 	// and forgotten: the write is still in progress when the peer walks away.
 	huge := strings.Repeat("x", 8<<20)
-	s.exec = func(_ *redact.Redactor, sink func(string), _ executor.Request) (*executor.Result, error) {
+	s.exec = func(_ *redact.Redactor, sink func(string), _ execclient.Request) (*execclient.Result, error) {
 		sink(huge)
-		return &executor.Result{Output: huge}, nil
+		return &execclient.Result{Output: huge}, nil
 	}
 	if _, err := s.Listen(); err != nil {
 		t.Fatal(err)
@@ -95,10 +95,10 @@ func TestALongOpDoesNotRunOutTheRequestDeadline(t *testing.T) {
 	t.Cleanup(func() { peerWait = original })
 
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	s.exec = func(_ *redact.Redactor, _ func(string), _ executor.Request) (*executor.Result, error) {
+	s.exec = func(_ *redact.Redactor, _ func(string), _ execclient.Request) (*execclient.Result, error) {
 		// Longer than peerWait, which is what a real command routinely is.
 		time.Sleep(600 * time.Millisecond)
-		return &executor.Result{Output: "done", ExitCode: 0}, nil
+		return &execclient.Result{Output: "done", ExitCode: 0}, nil
 	}
 	if _, err := s.Listen(); err != nil {
 		t.Fatal(err)

@@ -7,7 +7,7 @@ package escalation
 // what it cost, is with the mechanism in docs/design.md.
 //
 // The answer channel itself is not probed here: SO_PEERCRED, `requisite` and
-// `seteuid` are covered by internal/server and internal/install. This is the
+// `seteuid` are covered by internal/broker and internal/install. This is the
 // other half, the prompt being the whole security argument and the command it
 // names being chosen by the caller.
 
