@@ -52,10 +52,23 @@ const adviceRoute = "\n\nA brokered command is answered differently: `faramir ru
 	"would read the file and allows the rest, so a command that only uses the credential may go " +
 	"through there. " + adviceRefs
 
+// adviceUnblockPath is the removal spelled as the operator has to type it.
+// Both halves matter and neither is guessable from the other: the command
+// writes the config, so it needs root, and it takes the path as a flag rather
+// than as an operand, so the bare command name is an invocation that fails.
+// Naming it short taught the operator a command they then had to work out.
+const adviceUnblockPath = "`sudo faramir block rm --path <path>`, which needs " +
+	"root because it writes the config."
+
+// adviceUnblockCommand is the same removal for an entry naming a command.
+const adviceUnblockCommand = "`sudo faramir block rm --command <command>`, which " +
+	"needs root because it writes the config."
+
 // adviceBlockedPath is for a path a [[secret.block]] entry names. The entry
 // exists to refuse and nothing else, so removing it is the whole remedy.
-const adviceBlockedPath = "Blocked: the operator blocked this path on this host" + adviceNamed + adviceRoute + "\n\nOtherwise this is the operator's to do, or to unblock with `faramir block rm`. " +
-	"`faramir block ls` lists what they blocked."
+const adviceBlockedPath = "Blocked: the operator blocked this path on this host" + adviceNamed + adviceRoute +
+	"\n\nOtherwise this is the operator's to do, or to unblock with " + adviceUnblockPath +
+	" `faramir block ls` lists what they blocked."
 
 // adviceLinkedPath is for the file a [[secret.link]] entry reads. Removing the
 // entry takes the refusal back and the ref with it, so the ref is the thing to
@@ -80,8 +93,8 @@ const adviceNoRoute = "\n\nThe broker holds the same entry, and the operator wro
 // agent that reads "may go through there" spends the turn finding out it may
 // not.
 const adviceBlockedStrictPath = "Blocked: the operator blocked this path on this host" + adviceNamed +
-	adviceNoRoute + "\n\nOtherwise this is the operator's to do, or to unblock with `faramir block rm`. " +
-	"`faramir block ls` lists what they blocked, and marks the strict entries."
+	adviceNoRoute + "\n\nOtherwise this is the operator's to do, or to unblock with " + adviceUnblockPath +
+	" `faramir block ls` lists what they blocked, and marks the strict entries."
 
 const adviceLinkedStrictPath = "Blocked: a link reads this file on this host" + adviceNamed + adviceNoRoute +
 	"\n\nThat ref is the point of the link, so prefer it to the file. `faramir link ls` lists the links " +
@@ -106,8 +119,9 @@ const adviceOwnPath = "Blocked: this is one of faramir's own directories" + advi
 // way costs a detour and being wrong the other way tells an agent that the
 // operator's own secret is faramir's file.
 const adviceDeclared = "Blocked: this path is in the blocks or the links on this host" + adviceNamed + adviceRoute +
-	"\n\nOtherwise this is the operator's to do, or to unblock: `faramir block rm` for a path they " +
-	"blocked, `faramir link rm` for one a link reads. `faramir block ls` and `faramir link ls` say which it is, and " +
+	"\n\nOtherwise this is the operator's to do, or to unblock: `sudo faramir block rm --path <path>` " +
+	"for a path they blocked, `faramir link rm` for one a link reads. Both write the config and so " +
+	"need root. `faramir block ls` and `faramir link ls` say which it is, and " +
 	"you may run both. The directories the install occupies are on neither list and are not " +
 	"removable at all, being rendered from the layout on every run."
 
@@ -118,7 +132,7 @@ const adviceCommand = "Blocked: this command is in the blocks on this host, so n
 	"brokered command may run it.\n\nThe words are matched where a command starts, so the same " +
 	"words inside an argument or a path are left alone; a line of a heredoc is read as a command " +
 	"and is not, so write a document with your editing tool rather than a shell heredoc. If the " +
-	"work needs it, it is the operator's to do, or to unblock with `faramir block rm --command`."
+	"work needs it, it is the operator's to do, or to unblock with " + adviceUnblockCommand
 
 // adviceOwn is for the rules that are not about disclosure. Acting on
 // faramir's own files, accounts or units discloses nothing, and the disclosure

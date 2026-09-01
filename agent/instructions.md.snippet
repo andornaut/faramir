@@ -12,6 +12,11 @@ You may also run `faramir status`, `faramir redact`, `version`, `help` and
 `faramir block ls`, `faramir link ls` and `faramir reader ls`. Every other
 faramir subcommand changes the install or needs root, and is refused.
 
+Where a blocked path is genuinely needed, that is the operator's to undo, with
+`sudo faramir block rm --path <path>` (or `--command <command>` for a blocked
+command). Give them that line in full: it needs root, and it takes the subject
+as a flag rather than as an operand, so the bare command name fails.
+
 ## Rules
 
 - **Never write a value down**: not in code, config, a test fixture, a `.env`,

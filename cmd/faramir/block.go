@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -42,6 +43,11 @@ type blockFlags struct {
 	// strict tightens every path this invocation names. On add alone: rm takes
 	// the entry out whichever strictness it carried.
 	strict bool
+	// verbose prints the file-by-file account of what the removal wrote. On rm
+	// alone. Off by default because the answer to "did that do what I asked" is
+	// one line, and a dozen paths above it are a dozen lines to read before
+	// finding out.
+	verbose bool
 }
 
 // entries is the refusals a command was asked for: every --path and --command
@@ -183,8 +189,12 @@ func newBlockRemoveCmd() *cobra.Command {
 		Use:   "rm [options] (--path PATH | --command COMMAND)...",
 		Short: "Unblock one path or command",
 		Long: "Removes the entry, so `faramir init` stops rendering the rule.\n\n" +
-			"The rule stays in the agent's settings, which are merged rather than\n" +
-			"replaced: remove that line yourself. This names it on the way out.\n\n" +
+			"Needs root: it writes the config. The rules faramir wrote into your\n" +
+			"agent's settings go with it, against the record of what it last wrote\n" +
+			"there; a rule you added yourself naming the same path is not in that\n" +
+			"record and stays.\n\n" +
+			"Prints the path it stopped blocking and nothing else. --verbose adds the\n" +
+			"file-by-file account of what was written.\n\n" +
 			"The form identifies the entry, so --command does not remove a path of the\n" +
 			"same string. An entry that is not there reports changed=false; a rule\n" +
 			"compiled into faramir is refused, `faramir block ls` showing which is\n" +
@@ -194,6 +204,7 @@ func newBlockRemoveCmd() *cobra.Command {
 	}
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
+	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file the removal changed")
 	return c
 }
 
@@ -222,12 +233,14 @@ func runBlockRemove(f blockFlags, args []string) int {
 	if !requireRoot("block rm", "it writes the config") {
 		return 1
 	}
-	report, removed, err := install.RemoveBlockedPaths(blockOptions(f, dir), asked)
+	report, removed, err := install.RemoveBlockedPaths(removeOptions(f, dir), asked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 	}
-	if code := reportEntry(f.json, "block rm", report); code != 0 {
-		return code
+	if f.json {
+		if code := reportEntry(f.json, "block rm", report); code != 0 {
+			return code
+		}
 	}
 	if err != nil {
 		return 1
@@ -244,23 +257,47 @@ func runBlockRemove(f blockFlags, args []string) int {
 	if f.json {
 		return 0
 	}
-	var gone bool
+	// The outcome first and on its own: it is the answer to what was asked, and
+	// an operator who has to find it under a dozen paths has been told nothing.
+	// Everything below it is about how, and only where it applies.
 	for i, entry := range removed {
 		if entry.Blocks() == "" {
 			fmt.Fprintf(os.Stderr, "%s was not blocked, so nothing was removed; "+
 				"`faramir block ls` lists what is\n", config.Shown(asked[i].Blocks()))
 			continue
 		}
-		gone = true
 		fmt.Fprintf(os.Stderr, "stopped blocking %s\n", config.Shown(entry.Blocks()))
 	}
-	if gone {
-		fmt.Fprintf(os.Stderr, "the deny rules naming them were taken out of your "+
-			"agent's settings, against the record of what faramir last wrote there. "+
-			"A rule you added yourself naming the same path is not in that record "+
-			"and stays\n")
+	// Warnings after it rather than before: each one is about a file, and a
+	// warning read ahead of the outcome is read as the outcome.
+	for _, warning := range report.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+	}
+	// Said only where an agent's settings were actually rewritten. Where nothing
+	// there changed there is no merge to explain, and the paragraph described a
+	// mechanism that had not run.
+	//
+	// Both steps, because either writes an agent's settings: the account-wide
+	// files on a home that has an agent in it, and the per-tree files on every
+	// enrolled tree. A host with no agent in the home still has trees, and
+	// asking only the first said nothing on the run that had just rewritten one.
+	if changedAny(report, "agent config", "enrolled trees") {
+		fmt.Fprintln(os.Stderr, "a rule you added to your agent's settings yourself, "+
+			"naming the same path, is not in faramir's record of what it wrote there "+
+			"and stays; take that line out yourself")
 	}
 	return 0
+}
+
+// changedAny reports whether any of the named steps changed anything, so a note
+// about what a step did is printed only on a run where it did it.
+func changedAny(report install.Report, names ...string) bool {
+	for _, step := range report.Steps {
+		if slices.Contains(names, step.Name) && step.Changed {
+			return true
+		}
+	}
+	return false
 }
 
 func newBlockListCmd() *cobra.Command {
@@ -376,6 +413,18 @@ func errReason(err error) string {
 		return "no permission to look"
 	}
 	return "stat failed"
+}
+
+// removeOptions is blockOptions with the step log off unless --verbose asked
+// for it. Its own builder rather than a condition inside blockOptions: `add`
+// reports what it wrote as it writes it, and nobody has asked for that to go
+// quiet.
+func removeOptions(f blockFlags, dir string) install.Options {
+	opts := blockOptions(f, dir)
+	if !f.verbose {
+		opts.Log = nil
+	}
+	return opts
 }
 
 func blockOptions(f blockFlags, dir string) install.Options {

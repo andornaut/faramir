@@ -12,6 +12,11 @@ the ones that run injected:
 `faramir refs` names what exists, values never. Neither needs a project to be
 enrolled: the binary reaches the broker from anywhere on this host.
 
+Where a blocked path is genuinely needed, that is the operator's to undo, with
+`sudo faramir block rm --path <path>` (or `--command <command>` for a blocked
+command). Give them that line in full: it needs root, and it takes the subject
+as a flag rather than as an operand, so the bare command name fails.
+
 {{ credentialRules }}
 {{- if .AllowSudo}}
 
