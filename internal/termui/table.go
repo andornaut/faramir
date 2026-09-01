@@ -7,8 +7,9 @@ package termui
 // tabwriter.StripEscape removes the markers from the output but still measures
 // what they bracket, so it does not help. These widths come from how many
 // columns a terminal spends on the text, counted after the text is escaped and
-// before any paint is applied, which is what logs.go does with its fixed
-// widths; this is the same thing for widths that come from the data.
+// before any paint is applied, which is what the audit log's record view does
+// with its fixed widths; this is the same thing for widths that come from the
+// data.
 
 import (
 	"fmt"

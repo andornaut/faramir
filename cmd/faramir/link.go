@@ -41,6 +41,8 @@ type linkFlags struct {
 	// strict refuses every command naming the file, not only the ones that
 	// would read it. On add alone: rm takes the entry out either way.
 	strict bool
+	// verbose prints the file-by-file account of what was written. See stepLog.
+	verbose bool
 }
 
 func newLinkAddCmd() *cobra.Command {
@@ -59,7 +61,9 @@ func newLinkAddCmd() *cobra.Command {
 			"a rule something took away, and reports changed=false. The same ref\n" +
 			"against a different file, type or key is an error; against a different\n" +
 			"--strict it changes the entry, that being how strictly one rule is\n" +
-			"matched rather than a second rule.",
+			"matched rather than a second rule.\n\n" +
+			"Prints the ref it added and nothing else. --verbose adds the file-by-file\n" +
+			"account of what was written.",
 		Args: exactlyArgs(2, "a ref and a file"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runLinkAdd(f, secretref.Bare(args[0]), args[1]))
@@ -75,6 +79,7 @@ func newLinkAddCmd() *cobra.Command {
 			"instead. Off by default, since a file nothing may touch is a file its own "+
 			"tool cannot be told to rewrite either")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
+	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file this changed")
 	return c
 }
 
@@ -93,7 +98,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
 	}
-	if code := reportEntry(f.json, "link add", report); code != 0 {
+	if code := reportDocument(f.json, "link add", report); code != 0 {
 		return code
 	}
 	if err != nil {
@@ -124,10 +129,12 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 	}
 	if added {
 		fmt.Fprintf(os.Stderr, "added %s\n", ref)
+		printWarnings(report)
 		return 0
 	}
 	fmt.Fprintf(os.Stderr, "%s already reads %s, so nothing was added; its grant and "+
 		"the rules naming it were applied again\n", ref, path)
+	printWarnings(report)
 	return 0
 }
 
@@ -138,9 +145,13 @@ func newLinkRemoveCmd() *cobra.Command {
 		Short: "Remove a linked secret",
 		Long: "Removes the entry, so the value leaves the redactor and stops being\n" +
 			"injectable.\n\n" +
-			"Two things it does not undo: the deny rule in the agent's settings, which\n" +
-			"are merged rather than replaced, and the read granted to the broker, whose\n" +
-			"previous mode this does not know. Both are printed with what undoes them.\n\n" +
+			"The rules faramir wrote into your agent's settings go with it, against\n" +
+			"the record of what it last wrote there; a rule you added yourself naming\n" +
+			"the same path is not in that record and stays.\n\n" +
+			"One thing it does not undo: the read granted to the broker, whose previous\n" +
+			"mode this does not know. It is printed with what undoes it.\n\n" +
+			"Prints the ref it removed and nothing else. --verbose adds the\n" +
+			"file-by-file account of what was written.\n\n" +
 			"A ref this install does not carry reports changed=false.",
 		Args: exactlyOneArg("ref"),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -148,6 +159,7 @@ func newLinkRemoveCmd() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
+	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file this changed")
 	return c
 }
 
@@ -164,7 +176,7 @@ func runLinkRemove(f linkFlags, ref string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 	}
-	if code := reportEntry(f.json, "link rm", report); code != 0 {
+	if code := reportDocument(f.json, "link rm", report); code != 0 {
 		return code
 	}
 	if err != nil {
@@ -184,16 +196,21 @@ func runLinkRemove(f linkFlags, ref string) int {
 	if removed.Ref == "" {
 		fmt.Fprintf(os.Stderr, "no link named %s, so nothing was removed; "+
 			"`faramir link ls` lists the ones there are\n", ref)
+		printWarnings(report)
 		return 0
 	}
+	fmt.Fprintf(os.Stderr, "removed %s\n", removed.Ref)
+	printWarnings(report)
 	// What was granted and is still granted, so the operator decides rather than
 	// discovering it later.
-	fmt.Fprintf(os.Stderr, "removed %s\n", removed.Ref)
 	fmt.Fprintf(os.Stderr, "%s is still readable by the broker's group; narrow it "+
 		"with: chmod g-r %s\n", removed.Path, removed.Path)
-	fmt.Fprintf(os.Stderr, "the deny rule naming it was taken out of your agent's "+
-		"settings, against the record of what faramir last wrote there. A rule you "+
-		"added yourself naming the same path is not in that record and stays\n")
+	// Only where an agent's settings were actually rewritten; see runBlockRemove.
+	if changedAny(report, "agent config", "enrolled trees") {
+		fmt.Fprintln(os.Stderr, "a rule you added to your agent's settings yourself, "+
+			"naming the same path, is not in faramir's record of what it wrote there "+
+			"and stays; take that line out yourself")
+	}
 	return 0
 }
 
@@ -283,33 +300,43 @@ func installOptions(f linkFlags, dir string) install.Options {
 		// these re-render the agent's rule files, and the account those are
 		// rendered against is not theirs to choose.
 		AgentUser: recordedOperator(filepath.Join(dir, "config.toml")),
-		// Progress goes to stderr so --json owns stdout, and is suppressed under
-		// --json entirely, as `init` suppresses it: the steps are in the document.
-		Log: stepLog(f.json),
+		// Progress goes to stderr so --json owns stdout. See stepLog for when.
+		Log: stepLog(f.json, f.verbose),
 	}
 }
 
-// stepLog is where a run's per-step lines go: stderr, or nowhere under --json.
-func stepLog(asJSON bool) func(string) {
-	if asJSON {
+// stepLog is where a run's per-step lines go: stderr under --verbose, and
+// nowhere otherwise.
+//
+// Off by default because these commands are asked one question -- did the thing
+// I named happen -- and a dozen lines naming every file written are a dozen
+// lines to read before the answer. Nowhere under --json either, as `init`
+// suppresses them: the steps are in the document.
+func stepLog(asJSON, verbose bool) func(string) {
+	if asJSON || !verbose {
 		return nil
 	}
 	return func(line string) { fmt.Fprintln(os.Stderr, line) }
 }
 
-// reportEntry is how `link` and `refuse` report an add or a remove: the whole
-// document under --json, and otherwise the warnings alone, the steps having
-// already been logged as they ran. A non-zero return is a document that would
-// not marshal, which is fatal on its own.
+// reportDocument prints the whole report under --json and nothing otherwise. A
+// non-zero return is a document that would not marshal, which is fatal on its
+// own.
 //
-// Shared by the two commands, their reports being the same document and their
+// Shared by `link` and `block`, their reports being the same document and their
 // callers the same shape.
-func reportEntry(asJSON bool, label string, report install.Report) int {
-	if asJSON {
-		return printJSON(label, report)
+func reportDocument(asJSON bool, label string, report install.Report) int {
+	if !asJSON {
+		return 0
 	}
+	return printJSON(label, report)
+}
+
+// printWarnings puts a run's warnings out, and is called after the outcome
+// rather than before it: each one is about a file, and a warning read ahead of
+// the outcome is read as the outcome.
+func printWarnings(report install.Report) {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 	}
-	return 0
 }

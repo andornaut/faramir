@@ -43,10 +43,7 @@ type blockFlags struct {
 	// strict tightens every path this invocation names. On add alone: rm takes
 	// the entry out whichever strictness it carried.
 	strict bool
-	// verbose prints the file-by-file account of what the removal wrote. On rm
-	// alone. Off by default because the answer to "did that do what I asked" is
-	// one line, and a dozen paths above it are a dozen lines to read before
-	// finding out.
+	// verbose prints the file-by-file account of what was written. See stepLog.
 	verbose bool
 }
 
@@ -113,7 +110,9 @@ func newBlockAddCmd() *cobra.Command {
 			"the file and writing over it included. --strict refuses naming it at\n" +
 			"all.\n\n" +
 			"A bare argument is refused; a missing path is recorded and reported; an\n" +
-			"entry already there re-renders the rules and reports changed=false.",
+			"entry already there re-renders the rules and reports changed=false.\n\n" +
+			"Prints the path it blocked and nothing else. --verbose adds the\n" +
+			"file-by-file account of what was written.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runBlockAdd(f, args))
@@ -127,6 +126,7 @@ func newBlockAddCmd() *cobra.Command {
 			"file nothing may touch is a file nothing may rotate; not for --command, "+
 			"which already matches wherever a command starts")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
+	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file this changed")
 	return c
 }
 
@@ -148,7 +148,7 @@ func runBlockAdd(f blockFlags, args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 	}
-	if code := reportEntry(f.json, "block add", report); code != 0 {
+	if code := reportDocument(f.json, "block add", report); code != 0 {
 		return code
 	}
 	if err != nil {
@@ -180,6 +180,7 @@ func runBlockAdd(f blockFlags, args []string) int {
 		fmt.Fprintf(os.Stderr, "%s was already blocked, so nothing was added; the "+
 			"rules naming it were rendered again\n", config.Shown(entry.Blocks()))
 	}
+	printWarnings(report)
 	return 0
 }
 
@@ -204,7 +205,7 @@ func newBlockRemoveCmd() *cobra.Command {
 	}
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
-	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file the removal changed")
+	c.Flags().BoolVar(&f.verbose, "verbose", false, "also print every file this changed")
 	return c
 }
 
@@ -233,14 +234,12 @@ func runBlockRemove(f blockFlags, args []string) int {
 	if !requireRoot("block rm", "it writes the config") {
 		return 1
 	}
-	report, removed, err := install.RemoveBlockedPaths(removeOptions(f, dir), asked)
+	report, removed, err := install.RemoveBlockedPaths(blockOptions(f, dir), asked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 	}
-	if f.json {
-		if code := reportEntry(f.json, "block rm", report); code != 0 {
-			return code
-		}
+	if code := reportDocument(f.json, "block rm", report); code != 0 {
+		return code
 	}
 	if err != nil {
 		return 1
@@ -268,11 +267,7 @@ func runBlockRemove(f blockFlags, args []string) int {
 		}
 		fmt.Fprintf(os.Stderr, "stopped blocking %s\n", config.Shown(entry.Blocks()))
 	}
-	// Warnings after it rather than before: each one is about a file, and a
-	// warning read ahead of the outcome is read as the outcome.
-	for _, warning := range report.Warnings {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
-	}
+	printWarnings(report)
 	// Said only where an agent's settings were actually rewritten. Where nothing
 	// there changed there is no merge to explain, and the paragraph described a
 	// mechanism that had not run.
@@ -415,18 +410,6 @@ func errReason(err error) string {
 	return "stat failed"
 }
 
-// removeOptions is blockOptions with the step log off unless --verbose asked
-// for it. Its own builder rather than a condition inside blockOptions: `add`
-// reports what it wrote as it writes it, and nobody has asked for that to go
-// quiet.
-func removeOptions(f blockFlags, dir string) install.Options {
-	opts := blockOptions(f, dir)
-	if !f.verbose {
-		opts.Log = nil
-	}
-	return opts
-}
-
 func blockOptions(f blockFlags, dir string) install.Options {
 	return install.Options{
 		ConfigDir: dir,
@@ -434,6 +417,6 @@ func blockOptions(f blockFlags, dir string) install.Options {
 		// config and does not decide who owns the host. `faramir init` is the one
 		// command that names the operator.
 		AgentUser: recordedOperator(filepath.Join(dir, "config.toml")),
-		Log:       stepLog(f.json),
+		Log:       stepLog(f.json, f.verbose),
 	}
 }

@@ -1,8 +1,8 @@
 package main
 
-// The subcommands that provision and inspect a host. They act on files rather
-// than through the broker, but they ask a running one where the install is; see
-// askBroker.
+// `faramir doctor`: what it asks of a host, and how the answers are laid out
+// for a reader. It acts on files rather than through the broker, but it asks a
+// running one where the install is; see askBroker.
 
 import (
 	"fmt"

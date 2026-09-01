@@ -460,18 +460,27 @@ jq -e '.secrets.degraded_links["npm/token"]' <<<"$(asop status 2>/dev/null)" >/d
 
 # --------------------------------------------------------------------------
 head_ "9. removing one"
-out=$("$faramir" link rm gh/token 2>&1)
+out=$("$faramir" link rm gh/token --verbose 2>&1)
 grep -q 'gh/token' $CFG \
   && bad "the entry is still in $CFG" \
   || ok "the entry is gone from $CFG"
-# Both are printed, with what would undo them, so the operator decides rather
-# than discovering it later.
+# The access it left behind is printed with what would undo it, so the operator
+# decides rather than discovering it later.
 grep -q 'chmod g-r' <<<"$out" \
   && ok "and it says the file is still readable by the broker's group" \
   || bad "removal does not say what access it left behind: $out"
-grep -q 'deny rule' <<<"$out" \
-  && ok "and that the deny rule naming it stays" \
-  || bad "removal does not say the deny rule stays: $out"
+# The note about the operator's own rules is said only where an agent's settings
+# were rewritten: faramir takes out what it wrote, and has no record of a rule
+# added by hand. Asserted as the pairing, as in check-block.sh.
+if grep -qE '^changed +(agent config|enrolled trees)' <<<"$out"; then
+  grep -q 'added to your agent.s settings yourself' <<<"$out" \
+    && ok "and that a rule you added yourself stays" \
+    || bad "an agent's settings were rewritten and the note was not said: $out"
+else
+  grep -q 'added to your agent.s settings yourself' <<<"$out" \
+    && bad "the note was said on a run that rewrote no agent settings: $out" \
+    || ok "and says nothing about them on a run that rewrote none"
+fi
 
 waitfor 25 asop refs >/dev/null 2>&1
 asop refs 2>/dev/null | grep -q 'faramir://gh/token' \

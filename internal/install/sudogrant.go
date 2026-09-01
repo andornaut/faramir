@@ -12,7 +12,8 @@ package install
 // share. The original takes `pam_service` and `pam_login_service` in the entry
 // below, and faramir touches nothing else. sudo-rs has neither and compiles in
 // the service names `sudo` and `sudo-i`, so there the selection is a delimited
-// branch in those two stacks: see pamsudo.go. Which arrangement a host gets is
+// branch in those two stacks: see internal/hostsudo. Which arrangement a host
+// gets is
 // probed rather than configured, and doctor re-asks on every run.
 //
 // Re-running init without --allow-sudo takes the grant away: the files go, the
