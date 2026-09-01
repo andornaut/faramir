@@ -65,13 +65,14 @@ func (d *Report) merge(other Report) {
 	d.NotAsked += other.NotAsked
 }
 
-// abandoned marks the rest of an examination that stopped before it began:
-// one line under the totals, so a report holding a single failure cannot read
-// as a host where everything else passed. The count is the checks the full
-// examination reports, held to reality by a test rather than recounted here.
-const remainingChecks = 41
-
+// abandoned marks the rest of an examination that stopped before it began: one
+// line under the totals, so a report holding a single failure cannot read as a
+// host where everything else passed.
+//
+// The count is len(checks), which is what an abandoned run did not get to. Read
+// off the list rather than kept as a constant beside it: a constant is a second
+// place to change when a check is added, and nothing fails when it is not.
 func abandoned(report *Report, why string) {
-	report.unaskedf("examination", remainingChecks, "every other check was not "+
+	report.unaskedf("examination", len(checks), "every other check was not "+
 		"run: %s", why)
 }

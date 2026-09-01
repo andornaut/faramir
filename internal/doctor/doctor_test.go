@@ -1215,12 +1215,45 @@ func TestAnUnboundedExecutorCgroupIsNotOK(t *testing.T) {
 	}
 }
 
-// remainingChecks feeds the abandoned-examination count; a rough figure is
-// fine, a zero or wildly stale one is not. Held loosely to the number of
-// distinct check names a full run can report, counted from this file's own
-// sources of truth: the labels are literals, so the bound is wide.
-func TestRemainingChecksIsRoughlyRight(t *testing.T) {
-	if remainingChecks < 30 || remainingChecks > 60 {
-		t.Errorf("remainingChecks = %d, which no longer resembles the examination", remainingChecks)
+// The list is the examination: every entry runs something, no two are called
+// the same, and the ones that need root come last. That last part is what makes
+// a run without root read as one block of warnings at the end rather than as
+// gaps between the answers above, and it was a comment before it was a field.
+func TestTheChecksAreOrderedWithTheRootOnesLast(t *testing.T) {
+	if len(checks) == 0 {
+		t.Fatal("the examination has no checks")
+	}
+	seen := map[string]bool{}
+	rooted := false
+	for i, c := range checks {
+		if c.name == "" {
+			t.Errorf("check %d has no name", i)
+		}
+		if c.run == nil {
+			t.Errorf("check %q runs nothing", c.name)
+		}
+		if seen[c.name] {
+			t.Errorf("two checks are called %q", c.name)
+		}
+		seen[c.name] = true
+		if c.needsRoot {
+			rooted = true
+			continue
+		}
+		if rooted {
+			t.Errorf("%q needs no root and comes after one that does, so a run "+
+				"without root reports it as a gap between warnings", c.name)
+		}
+	}
+}
+
+// An abandoned examination says how much of itself it did not run, and the
+// number is the list's own length. A count kept beside the list is a second
+// place to change, and nothing fails when it is not changed.
+func TestAnAbandonedExaminationCountsEveryCheck(t *testing.T) {
+	var report Report
+	abandoned(&report, "the test said so")
+	if report.NotAsked != len(checks) {
+		t.Errorf("NotAsked = %d, want %d, the number of checks", report.NotAsked, len(checks))
 	}
 }

@@ -138,37 +138,82 @@ func Diagnose(opts Options) Report {
 	var brokerReport Report
 	serves := diagnoseBroker(&brokerReport, configFile, opts.BrokerUser)
 
-	// What any account can answer, in name order. The ssh agent probe runs a
-	// brokered command as the caller's own account.
-	diagnoseGroup(&report, opts)
-	diagnoseLogRotation(&report, cfg)
-	diagnoseUnits(&report, opts)
-	diagnoseSocketEnablement(&report)
-	diagnoseDropIns(&report)
-	diagnoseMemoryBounds(&report)
-	diagnoseBrokerMemory(&report)
-	diagnoseSSHAgent(&report, opts, cfg, serves)
-	diagnoseVersion(&report, opts)
-
-	// Then the checks that need root, grouped so a run without it reads as one
-	// block of warnings at the end rather than as gaps between the answers above.
-	diagnoseBoundaries(&report, opts, cfg, serves)
-	diagnoseKnownHosts(&report, opts, cfg)
-	report.merge(brokerReport)
-	diagnoseSopsConfig(&report, opts)
-	diagnoseAgentRules(&report, opts)
-	diagnoseHookReach(&report, opts)
-	diagnoseCodexTrust(&report, opts)
-	diagnoseAgentCode(&report, opts)
-	diagnoseAgentRuleDrift(&report, opts)
-	diagnoseLinkedFiles(&report, opts, cfg)
-	diagnoseInstallRules(&report, opts)
-	diagnoseBlockedPaths(&report, opts, cfg)
-	diagnoseLinkedAccess(&report, opts, cfg)
-	diagnoseTreeConfig(&report, opts)
-	diagnoseTreeModes(&report, opts)
-	diagnoseEditableFiles(&report, opts)
+	ctx := checkCtx{opts: opts, cfg: cfg, serves: serves, broker: brokerReport}
+	for _, c := range checks {
+		c.run(&report, ctx)
+	}
 	return report
+}
+
+// checkCtx is what every check is handed. One argument rather than the four
+// shapes the checks between them want, so the list below reads as an order
+// rather than as a call signature per line.
+type checkCtx struct {
+	opts   Options
+	cfg    *config.Config
+	serves brokerServes
+	// broker is the probe's buffered findings, merged in by the entry that
+	// reports them: the probe has to run before the checks that read serves, and
+	// is reported in name order among the ones that need root.
+	broker Report
+}
+
+// check is one entry in the examination.
+type check struct {
+	// name is what this entry is called in this list, for the ordering test's
+	// messages. It is not the name a finding is filed under: several checks file
+	// under more than one, and diagnoseBoundaries under a dozen.
+	name string
+	// needsRoot says the question cannot be put without root, so the check warns
+	// rather than answering. The list is ordered on it, which is what makes a run
+	// without root read as one block of warnings at the end rather than as gaps
+	// between the answers above.
+	needsRoot bool
+	run       func(*Report, checkCtx)
+}
+
+// checks is the examination, in the order a report lists it. A list rather than
+// a run of calls so that the ordering, the root grouping and how many checks
+// there are altogether are all read off the same place: the count an abandoned
+// examination reports is len(checks), which cannot drift from what runs.
+//
+// What any account can answer comes first, in name order. The ssh agent probe
+// runs a brokered command as the caller's own account.
+var checks = []check{
+	{name: "group", run: func(r *Report, c checkCtx) { diagnoseGroup(r, c.opts) }},
+	{name: "log rotation", run: func(r *Report, c checkCtx) { diagnoseLogRotation(r, c.cfg) }},
+	{name: "units", run: func(r *Report, c checkCtx) { diagnoseUnits(r, c.opts) }},
+	{name: "socket enablement", run: func(r *Report, _ checkCtx) { diagnoseSocketEnablement(r) }},
+	{name: "drop-ins", run: func(r *Report, _ checkCtx) { diagnoseDropIns(r) }},
+	{name: "memory bounds", run: func(r *Report, _ checkCtx) { diagnoseMemoryBounds(r) }},
+	{name: "broker memory", run: func(r *Report, _ checkCtx) { diagnoseBrokerMemory(r) }},
+	{name: "ssh agent", run: func(r *Report, c checkCtx) { diagnoseSSHAgent(r, c.opts, c.cfg, c.serves) }},
+	{name: "version", run: func(r *Report, c checkCtx) { diagnoseVersion(r, c.opts) }},
+
+	{name: "boundaries", needsRoot: true,
+		run: func(r *Report, c checkCtx) { diagnoseBoundaries(r, c.opts, c.cfg, c.serves) }},
+	{name: "known hosts", needsRoot: true,
+		run: func(r *Report, c checkCtx) { diagnoseKnownHosts(r, c.opts, c.cfg) }},
+	{name: "broker probe", needsRoot: true, run: func(r *Report, c checkCtx) { r.merge(c.broker) }},
+	{name: "sops config", needsRoot: true, run: func(r *Report, c checkCtx) { diagnoseSopsConfig(r, c.opts) }},
+	{name: "agent rules", needsRoot: true, run: func(r *Report, c checkCtx) { diagnoseAgentRules(r, c.opts) }},
+	{name: "hook reach", needsRoot: true, run: func(r *Report, c checkCtx) { diagnoseHookReach(r, c.opts) }},
+	{name: "codex trust", needsRoot: true, run: func(r *Report, c checkCtx) { diagnoseCodexTrust(r, c.opts) }},
+	{name: "agent code", needsRoot: true, run: func(r *Report, c checkCtx) { diagnoseAgentCode(r, c.opts) }},
+	{name: "agent rule drift", needsRoot: true,
+		run: func(r *Report, c checkCtx) { diagnoseAgentRuleDrift(r, c.opts) }},
+	{name: "linked files", needsRoot: true,
+		run: func(r *Report, c checkCtx) { diagnoseLinkedFiles(r, c.opts, c.cfg) }},
+	{name: "install rules", needsRoot: true,
+		run: func(r *Report, c checkCtx) { diagnoseInstallRules(r, c.opts) }},
+	{name: "blocked paths", needsRoot: true,
+		run: func(r *Report, c checkCtx) { diagnoseBlockedPaths(r, c.opts, c.cfg) }},
+	{name: "linked access", needsRoot: true,
+		run: func(r *Report, c checkCtx) { diagnoseLinkedAccess(r, c.opts, c.cfg) }},
+	{name: "tree config", needsRoot: true, run: func(r *Report, c checkCtx) { diagnoseTreeConfig(r, c.opts) }},
+	{name: "tree modes", needsRoot: true, run: func(r *Report, c checkCtx) { diagnoseTreeModes(r, c.opts) }},
+	{name: "editable files", needsRoot: true,
+		run: func(r *Report, c checkCtx) { diagnoseEditableFiles(r, c.opts) }},
 }
 
 // diagnoseVersion compares the running broker against the binary asking. They
