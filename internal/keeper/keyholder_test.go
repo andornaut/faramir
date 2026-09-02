@@ -10,7 +10,7 @@ import (
 	"github.com/andornaut/faramir/internal/sopstest"
 )
 
-// Scrub works from the identity format, so it needs no copy of the key.
+// scrub works from the identity format, so it needs no copy of the key.
 func TestScrubRemovesKeyMaterial(t *testing.T) {
 	dir := t.TempDir()
 	keyPath, _ := sopstest.NewIdentity(t, dir)
@@ -29,9 +29,9 @@ func TestScrubRemovesKeyMaterial(t *testing.T) {
 	}
 
 	keys := newKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath})
-	scrubbed := keys.Scrub("sops said: " + identity + " <- oops")
+	scrubbed := keys.scrub("sops said: " + identity + " <- oops")
 	if strings.Contains(scrubbed, "AGE-SECRET-KEY") {
-		t.Errorf("key material survived Scrub: %q", scrubbed)
+		t.Errorf("key material survived scrub: %q", scrubbed)
 	}
 	if !strings.Contains(scrubbed, "«AGE-KEY»") {
 		t.Errorf("no replacement token: %q", scrubbed)

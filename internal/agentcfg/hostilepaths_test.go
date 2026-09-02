@@ -8,6 +8,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // hostilePaths are filenames an operator can really create and really link. None
@@ -34,7 +35,7 @@ var hostilePaths = map[string]string{
 // layoutWithPath is this install's layout carrying one linked and one refused
 // path, which is what every rule renderer reads.
 func layoutWithPath(path string) hostlayout.Layout {
-	l := testLayout()
+	l := layouttest.Layout()
 	l.Links = []config.Link{{Ref: "hostile", Path: path, Type: "text"}}
 	l.Blocked = []config.BlockedPath{{Path: path + ".refused"}}
 	return l

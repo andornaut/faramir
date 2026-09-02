@@ -526,10 +526,10 @@ func (s *Server) notify(pending *escalation) {
 	if len(s.config.NotifyCommand) == 0 {
 		return
 	}
-	prompt := Prompt(pending.run)
+	text := prompt(pending.run)
 	argv := make([]string, 0, len(s.config.NotifyCommand))
 	for _, arg := range s.config.NotifyCommand {
-		arg = strings.ReplaceAll(arg, "{prompt}", prompt)
+		arg = strings.ReplaceAll(arg, "{prompt}", text)
 		argv = append(argv, strings.ReplaceAll(arg, "{id}", pending.id))
 	}
 	// The kill runs from inside cmd.Wait: a goroutine signalling on its own could

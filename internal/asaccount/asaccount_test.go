@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -106,5 +107,43 @@ func TestEnterableJudgesOneClassTheWayTheKernelDoes(t *testing.T) {
 			t.Errorf("enterable(mode %04o, owner %d, group %d) = %v, want %v: %s",
 				tc.mode, tc.owner, tc.group, got, tc.want, tc.what)
 		}
+	}
+}
+
+// runuser reads an empty account name as the account, so Output refuses one
+// rather than reporting "runuser: user does not exist" as a boundary that does
+// not hold. Guarded at the source, so no caller has to remember it.
+func TestAsUserRefusesAnUnnamedAccount(t *testing.T) {
+	if _, err := Output("", "true"); err == nil {
+		t.Fatal("an empty account was passed to runuser, which reads it as the " +
+			"account name and fails with a message about the host")
+	}
+}
+
+// The refusal is printed beside that remedy, so it has to report the same two
+// fields the check compares. Owns itself stays owner-only: the checks that
+// compare it are about 0400 and 0600 files, where no group bit is set.
+func TestOwnsReportsOwnerAndGroup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(path, nil, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	got := OwnsWithGroup(path)
+	if !strings.HasPrefix(got, "0640 ") {
+		t.Errorf("OwnsWithGroup() lost the mode: %q", got)
+	}
+	if !strings.Contains(strings.TrimPrefix(got, "0640 "), ":") {
+		t.Errorf("OwnsWithGroup() names no group, so a remedy written from it will "+
+			"not satisfy a check that compares one: %q", got)
+	}
+	if OwnsWithGroup(filepath.Join(t.TempDir(), "absent")) != missing {
+		t.Error("an absent file should read as missing")
+	}
+	// Owns is compared against "%04o account" by the age key and audit log
+	// checks, which a group would break on any host whose service accounts do not
+	// have same-named primary groups.
+	if strings.Contains(strings.TrimPrefix(Owns(path), "0640 "), ":") {
+		t.Errorf("Owns grew a group, which the checks comparing it do not "+
+			"expect: %q", Owns(path))
 	}
 }

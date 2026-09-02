@@ -245,7 +245,7 @@ func (l *Log) Write(record map[string]any, output Output) {
 	// against the constant Collector had to guess with while the run was
 	// streaming: argv is the caller's and can be most of a record on its own.
 	// Collector has usually excerpted this already.
-	text, dropped := Excerpt(output.Text, l.roomForOutput(payload))
+	text, dropped := excerpt(output.Text, l.roomForOutput(payload))
 	payload["output"] = text
 	if total := output.Dropped + dropped; total > 0 {
 		payload["output_dropped"] = total

@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"sort"
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -33,7 +32,7 @@ const (
 	maxRequestBytes = 65536
 	decryptTimeout  = 60 * time.Second
 	// decryptBudget bounds one get_values across every managed file, so a reply
-	// arrives within a time the caller can bound too. keeperclient's own
+	// arrives within a time the caller can bound too. secretstore's own
 	// callTimeout is set above this; the two are separate constants because that
 	// package shares no code with the one holding the key.
 	decryptBudget = 5 * time.Minute
@@ -151,13 +150,4 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 			"unsupported op %q; the keeper serves 'get_values' and 'get_state' "+
 				"only and has no operation that returns key material", op))
 	}
-}
-
-func SortedRefs(values map[string]string) []string {
-	refs := make([]string, 0, len(values))
-	for ref := range values {
-		refs = append(refs, ref)
-	}
-	sort.Strings(refs)
-	return refs
 }

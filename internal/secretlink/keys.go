@@ -15,19 +15,19 @@ import (
 // long as it likes and the offers being a list rather than a value.
 const maxKeyChars = 120
 
-// keysIn is Keys against a file, read through the same bound Read uses.
+// keysIn is keys against a file, read through the same bound Read uses.
 func keysIn(path, kind string) ([]string, error) {
 	data, err := readBounded(path)
 	if err != nil {
 		return nil, err
 	}
-	return Keys(kind, data), nil
+	return keys(kind, data), nil
 }
 
-// Keys is every selector this file offers, for the message an operator gets
+// keys is every selector this file offers, for the message an operator gets
 // when theirs named nothing. Names only, never values. Sorted, and empty for
 // the whole-file kinds.
-func Keys(kind string, data []byte) []string {
+func keys(kind string, data []byte) []string {
 	var tree any
 	switch kind {
 	case kindJSON:

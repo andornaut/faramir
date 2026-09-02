@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -13,7 +12,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostunit"
 	"github.com/andornaut/faramir/internal/keygen"
-	"github.com/andornaut/faramir/internal/sopsrule"
+	"github.com/andornaut/faramir/internal/sopstest"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -44,7 +43,7 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 			// TestDiagnoseSopsRecipients covers the rest.
 			keeper := mintKey(t, dir)
 			if tc.current {
-				writeRule(t, layout.SopsConfigPath(), keeper)
+				sopstest.WriteRule(t, layout.SopsConfigPath(), keeper)
 			}
 
 			var report Report
@@ -64,24 +63,6 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 				t.Errorf("a sops rule finding failed the whole report: %s", finding.Detail)
 			}
 		})
-	}
-}
-
-// writeRule writes a creation rule listing the given recipients. A real one: a
-// rule listing none encrypts to nobody, and would test the empty case
-// everywhere it is used.
-func writeRule(t *testing.T, path string, recipients ...string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	var body strings.Builder
-	body.WriteString("creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n")
-	for _, recipient := range recipients {
-		body.WriteString("          - " + recipient + "\n")
-	}
-	if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -176,7 +157,7 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 				}
 				rule = append(rule, recipient)
 			}
-			writeRule(t, layout.SopsConfigPath(), rule...)
+			sopstest.WriteRule(t, layout.SopsConfigPath(), rule...)
 			if tc.noKey {
 				if err := os.Remove(filepath.Join(dir, "age.key")); err != nil {
 					t.Fatal(err)
@@ -212,42 +193,6 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 				t.Errorf("report.Failed = %v, want %v: %s", report.Failed, tc.wantFailed, finding.Detail)
 			}
 		})
-	}
-}
-
-// Both spellings sops accepts read back, the file being edited by hand: missing
-// one reports a present key as absent.
-func TestSopsRecipientsReadsWhatTheRuleLists(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".sops.yaml")
-	// The key_groups form this writes and the comma-separated shorthand.
-	body := `creation_rules:
-  - path_regex: \.sops\.ya?ml$
-    key_groups:
-      - age:
-          - age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
-  - path_regex: other\.yml$
-    age: age1lggyhqrw2nlhcxprm67z43rta597azn8gknawjehu9d9dl0jq3yqqvfafg, age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
-`
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := sopsrule.AllRecipients(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{
-		"age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
-		"age1lggyhqrw2nlhcxprm67z43rta597azn8gknawjehu9d9dl0jq3yqqvfafg",
-	}
-	if len(got) != len(want) {
-		t.Fatalf("recipients = %q, want %q: the shorthand splits on commas and a "+
-			"recipient listed twice is one recipient", got, want)
-	}
-	for _, recipient := range want {
-		if !slices.Contains(got, recipient) {
-			t.Errorf("recipients = %q, missing %q", got, recipient)
-		}
 	}
 }
 
@@ -428,27 +373,6 @@ func TestOnlyDegradedLinksSeparatesALinkFromAFault(t *testing.T) {
 				t.Errorf("onlyDegradedLinks() = %v, want %v", got, tc.want)
 			}
 		})
-	}
-}
-
-// The refs are named in both messages, so the operator is told which value to
-// lengthen rather than that something is wrong.
-func TestRefusedRefsNamesEveryRefAndItsReason(t *testing.T) {
-	var r brokercheck.CheckReport
-	r.Secrets.NotRedactable = map[string]string{
-		"short/pin": "shorter than 8 characters",
-		"api/kid":   "shorter than 8 characters",
-	}
-	got := r.RefusedRefs()
-	for _, want := range []string{"short/pin", "api/kid", "shorter than 8 characters"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("refusedRefs() = %q, missing %q", got, want)
-		}
-	}
-	// Sorted: a map's order would make the message differ between two runs on
-	// one unchanged host.
-	if !strings.HasPrefix(got, "api/kid") {
-		t.Errorf("refusedRefs() = %q, want the refs in a stable order", got)
 	}
 }
 

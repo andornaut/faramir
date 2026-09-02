@@ -8,6 +8,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // Claude Code's enrolment is split across two files: the account settings
@@ -18,7 +19,7 @@ import (
 // rules merge, so a rule written twice refuses the same thing once, and a rule
 // written differently refuses two different things with nothing reporting it.
 func TestTheAccountAndTreeSettingsCarryTheSameRules(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	layout.Blocked = []config.BlockedPath{{Path: "/srv/certs/server.pem"}, {Path: "/srv/luks.key"}}
 
 	type settings struct {

@@ -119,11 +119,11 @@ func newID() string {
 	return hex.EncodeToString(raw[:])
 }
 
-// Prompt is what the human is asked: one line and the command, so the answer
+// prompt is what the human is asked: one line and the command, so the answer
 // means something. The host, the cwd and the resolved program are fields of the
 // Question, printed under it. Exported so a test, the CLI and the notifier
 // agree on it.
-func Prompt(run Run) string {
+func prompt(run Run) string {
 	return fmt.Sprintf("%s `%s`", PromptPrefix, run.Command())
 }
 

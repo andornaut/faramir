@@ -42,7 +42,7 @@ func TestADeclaredCommandIsTheWords(t *testing.T) {
 func TestABlockRunRendersBothEntryPoints(t *testing.T) {
 	var run runner
 	var agents, patterns bool
-	for _, step := range run.BlockedSteps() {
+	for _, step := range run.blockedSteps() {
 		switch step.Name {
 		case steps.LabelAgentConfig:
 			agents = true
@@ -58,7 +58,7 @@ func TestABlockRunRendersBothEntryPoints(t *testing.T) {
 	}
 	// A link is a subject in both too.
 	patterns = false
-	for _, step := range run.LinkSteps() {
+	for _, step := range run.linkSteps() {
 		if step.Name == "deny patterns" {
 			patterns = true
 		}

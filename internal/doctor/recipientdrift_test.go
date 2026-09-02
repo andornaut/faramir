@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/sopstest"
 )
 
 // sealed writes a file shaped like one sops encrypted: the recipient field is
@@ -39,7 +40,7 @@ func driftReport(t *testing.T, dir string, patterns ...string) Report {
 func TestRecipientDriftPassesWhenTheStoreAgrees(t *testing.T) {
 	dir := t.TempDir()
 	keeper := mintKey(t, dir)
-	writeRule(t, hostlayout.Layout{ConfigDir: dir}.SopsConfigPath(), keeper)
+	sopstest.WriteRule(t, hostlayout.Layout{ConfigDir: dir}.SopsConfigPath(), keeper)
 	store := filepath.Join(dir, "secrets")
 	if err := os.MkdirAll(store, 0o700); err != nil {
 		t.Fatal(err)
@@ -61,7 +62,7 @@ func TestRecipientDriftFailsWhenTheCiphertextLagsTheRule(t *testing.T) {
 	dir := t.TempDir()
 	keeper := mintKey(t, dir)
 	const backup = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsjqsjqs"
-	writeRule(t, hostlayout.Layout{ConfigDir: dir}.SopsConfigPath(), keeper, backup)
+	sopstest.WriteRule(t, hostlayout.Layout{ConfigDir: dir}.SopsConfigPath(), keeper, backup)
 	store := filepath.Join(dir, "secrets")
 	if err := os.MkdirAll(store, 0o700); err != nil {
 		t.Fatal(err)
@@ -87,7 +88,7 @@ func TestRecipientDriftFailsWhenTheCiphertextLagsTheRule(t *testing.T) {
 // here would be two checks failing for one cause.
 func TestRecipientDriftIgnoresAFileSealedToNothing(t *testing.T) {
 	dir := t.TempDir()
-	writeRule(t, hostlayout.Layout{ConfigDir: dir}.SopsConfigPath(), mintKey(t, dir))
+	sopstest.WriteRule(t, hostlayout.Layout{ConfigDir: dir}.SopsConfigPath(), mintKey(t, dir))
 	store := filepath.Join(dir, "secrets")
 	if err := os.MkdirAll(store, 0o700); err != nil {
 		t.Fatal(err)
@@ -110,7 +111,7 @@ func TestRecipientDriftIgnoresAFileSealedToNothing(t *testing.T) {
 // silence here would read as a store confirmed rather than one not examined.
 func TestRecipientDriftWithoutThePatternsIsUnasked(t *testing.T) {
 	dir := t.TempDir()
-	writeRule(t, hostlayout.Layout{ConfigDir: dir}.SopsConfigPath(), mintKey(t, dir))
+	sopstest.WriteRule(t, hostlayout.Layout{ConfigDir: dir}.SopsConfigPath(), mintKey(t, dir))
 
 	report := driftReport(t, dir)
 	finding := onlyFinding(t, report, "recipient drift")

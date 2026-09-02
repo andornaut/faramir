@@ -9,6 +9,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/configtest"
 	"github.com/andornaut/faramir/internal/layouttest"
 )
 
@@ -180,7 +181,7 @@ func TestChangingOneKindOfEntryKeepsTheOther(t *testing.T) {
 		dir := layouttest.BlockConfigDir(t, both)
 		opts := Options{
 			ConfigDir: dir,
-			blocked: append(refusedAt("/etc/luks/volume.key"),
+			blocked: append(configtest.RefusedAt("/etc/luks/volume.key"),
 				config.BlockedPath{Path: "/etc/other.key"}),
 			blockedSet: true,
 		}

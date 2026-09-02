@@ -168,3 +168,39 @@ func TestTheProbeBodyMatchesTheTargetsStore(t *testing.T) {
 		}
 	}
 }
+
+// Both spellings sops accepts read back, the file being edited by hand: missing
+// one reports a present key as absent.
+func TestSopsRecipientsReadsWhatTheRuleLists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".sops.yaml")
+	// The key_groups form this writes and the comma-separated shorthand.
+	body := `creation_rules:
+  - path_regex: \.sops\.ya?ml$
+    key_groups:
+      - age:
+          - age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+  - path_regex: other\.yml$
+    age: age1lggyhqrw2nlhcxprm67z43rta597azn8gknawjehu9d9dl0jq3yqqvfafg, age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := AllRecipients(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
+		"age1lggyhqrw2nlhcxprm67z43rta597azn8gknawjehu9d9dl0jq3yqqvfafg",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("recipients = %q, want %q: the shorthand splits on commas and a "+
+			"recipient listed twice is one recipient", got, want)
+	}
+	for _, recipient := range want {
+		if !slices.Contains(got, recipient) {
+			t.Errorf("recipients = %q, missing %q", got, recipient)
+		}
+	}
+}

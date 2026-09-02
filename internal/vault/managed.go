@@ -12,6 +12,7 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/sopsrule"
 	"github.com/andornaut/faramir/internal/termsafe"
@@ -122,13 +123,13 @@ func NewManagedPath(cfg *config.Config, name string) (string, error) {
 			"broker would never read it and nothing in it could be named as a ref",
 			target, joinPatterns(cfg.Secret.Patterns))
 	}
-	if exists(target) {
+	if hostfs.Exists(target) {
 		return "", fmt.Errorf("%s is already there; `faramir vault edit %s` opens it",
 			target, filepath.Base(target))
 	}
 	// Named rather than left to the write to fail on: a missing directory here
 	// means an install that has not been run.
-	if !exists(dir) {
+	if !hostfs.Exists(dir) {
 		return "", fmt.Errorf("%s is not there, so there is nowhere to put a managed "+
 			"file: `sudo faramir init` creates it", dir)
 	}

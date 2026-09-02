@@ -354,15 +354,10 @@ func ExitFor(code string) int {
 	return 1
 }
 
-// RoundTrip is send() for a caller that reads the body itself, and with a
-// deadline of its own: the escalations op holds the connection open on
-// purpose.
-func RoundTrip(socketPath string, request map[string]any, timeout time.Duration) ([]byte, error) {
-	return roundTrip(socketPath, request, 5*time.Second, timeout)
-}
-
-// roundTrip is RoundTrip with the dial bounded separately from the read: a
-// caller that can proceed without the broker gives up on the dial sooner.
+// roundTrip is send() for a caller that reads the body itself, with the dial
+// bounded separately from the read: the escalations op holds the connection
+// open on purpose, and a caller that can proceed without the broker gives up
+// on the dial sooner.
 func roundTrip(socketPath string, request map[string]any, dialWait, timeout time.Duration) ([]byte, error) {
 	request["version"] = version.Version
 	conn, err := (&net.Dialer{Timeout: dialWait}).DialContext(

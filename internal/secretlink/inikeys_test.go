@@ -19,11 +19,11 @@ func TestTheKeysAnINIFileOffersAreNamedTheWayASelectorIs(t *testing.T) {
 		"password = deployer\n" +
 		"not an entry\n")
 
-	got := Keys(kindINI, data)
+	got := keys(kindINI, data)
 
 	want := []string{"//registry.npmjs.org/:_authToken", "distributionManagement/password"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("Keys = %v, want %v", got, want)
+		t.Errorf("keys = %v, want %v", got, want)
 	}
 }
 
@@ -40,7 +40,7 @@ func TestAListingOffersNamesAndNeverValues(t *testing.T) {
 		{kindINI, "[github.com]\noauth_token = " + value + "\n"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
-			keys := Keys(tc.kind, []byte(tc.body))
+			keys := keys(tc.kind, []byte(tc.body))
 			if len(keys) == 0 {
 				t.Fatal("no keys offered, so this asserts nothing")
 			}
@@ -57,7 +57,7 @@ func TestAListingOffersNamesAndNeverValues(t *testing.T) {
 // of keys against a file read whole would name selectors that do not apply.
 func TestTheWholeFileKindsOfferNoKeys(t *testing.T) {
 	for _, kind := range []string{KindText, kindBase64, "not-a-kind"} {
-		if keys := Keys(kind, []byte("a-secret-value\n")); len(keys) != 0 {
+		if keys := keys(kind, []byte("a-secret-value\n")); len(keys) != 0 {
 			t.Errorf("%s offers %v, want nothing", kind, keys)
 		}
 	}
@@ -68,7 +68,7 @@ func TestTheWholeFileKindsOfferNoKeys(t *testing.T) {
 // is not among them would be looking for a typo they did not make.
 func TestAFileThatDoesNotParseOffersNothing(t *testing.T) {
 	for _, kind := range []string{kindJSON, KindYAML, kindTOML} {
-		if keys := Keys(kind, []byte("{{{ not this kind at all")); len(keys) != 0 {
+		if keys := keys(kind, []byte("{{{ not this kind at all")); len(keys) != 0 {
 			t.Errorf("%s offers %v for a file it cannot read, want nothing", kind, keys)
 		}
 	}

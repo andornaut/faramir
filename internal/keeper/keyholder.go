@@ -59,10 +59,10 @@ func (k *KeyHolder) Path() string {
 	return ""
 }
 
-// Scrub removes key material from text, an error string being the one thing
+// scrub removes key material from text, an error string being the one thing
 // that crosses from this process to the broker. Matching the age identity
 // format rather than a copy of the key is what lets it scrub without holding
 // the material.
-func (k *KeyHolder) Scrub(text string) string {
+func (k *KeyHolder) scrub(text string) string {
 	return ageSecretKeyRe.ReplaceAllString(text, "«AGE-KEY»")
 }

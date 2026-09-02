@@ -43,11 +43,6 @@ import (
 // elsewhere.
 var sopsBinary = "sops"
 
-func exists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
 // Edit decrypts, edits and re-encrypts one file in place, and reports
 // whether the plaintext changed. Two sops runs rather than its own `sops FILE`
 // mode, which picks the editor out of the environment.

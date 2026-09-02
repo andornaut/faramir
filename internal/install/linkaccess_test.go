@@ -241,7 +241,7 @@ func TestLinkAccessIsSkippedWithNoLinks(t *testing.T) {
 // stepAgentConfig reads what stepPreconditions puts in r.agentTargets, and a
 // list without it writes no deny rule while reporting that it found no agent.
 func TestLinkStepsResolveTheAgentsBeforeWritingThem(t *testing.T) {
-	steps := (&runner{}).LinkSteps()
+	steps := (&runner{}).linkSteps()
 	names := make([]string, 0, len(steps))
 	for _, step := range steps {
 		names = append(names, step.Name)

@@ -1,7 +1,7 @@
-// Package keeperclient talks to the keeper socket. Separate from the keeper
-// itself so the broker reaches values only by asking, in code with no access to
-// the key, the sops invocation, or the decrypted set.
-package keeperclient
+package secretstore
+
+// The keeper socket's client. The store reaches values only by asking: nothing
+// here has access to the key, the sops invocation, or the decrypted set.
 
 import (
 	"context"
@@ -22,11 +22,11 @@ import (
 // constant because this package shares no code with the one holding the key.
 const callTimeout = 10 * time.Minute
 
-// ErrReplyTooLarge is a value set larger than one reply may carry. Its own
+// errReplyTooLarge is a value set larger than one reply may carry. Its own
 // sentinel because it is permanent where every other failure to reach the
 // keeper is transient: retrying re-decrypts the whole store and cannot
 // succeed, so the store treats it as a load failure rather than an outage.
-var ErrReplyTooLarge = errors.New("the keeper's reply is too large")
+var errReplyTooLarge = errors.New("the keeper's reply is too large")
 
 // maxReplyBytes bounds one keeper reply, which for get_values is every managed
 // value plus the fingerprints, JSON-encoded. Generous rather than tuned: it is
@@ -34,9 +34,9 @@ var ErrReplyTooLarge = errors.New("the keeper's reply is too large")
 // store to split.
 const maxReplyBytes = 1 << 24
 
-// FileState is one managed file's fingerprint. Comparable, since the staleness
+// fileState is one managed file's fingerprint. Comparable, since the staleness
 // check is set equality over these, and it carries no contents.
-type FileState struct {
+type fileState struct {
 	Path  string `json:"path"`
 	MTime int64  `json:"mtime_unix_nano"`
 	Size  int64  `json:"size"`
@@ -46,7 +46,7 @@ type FileState struct {
 // they fill, not in the envelope.
 type response struct {
 	Values map[string]string `json:"values"`
-	State  []FileState       `json:"state"`
+	State  []fileState       `json:"state"`
 	Errors []string          `json:"errors"`
 	// UnresolvedPatterns is the entries that named nothing, kept apart from
 	// Errors: a secrets directory not written yet is what a first install looks
@@ -92,7 +92,7 @@ func call(socketPath, op string) (*response, error) {
 			// operator looking at a daemon that answered perfectly well.
 			return nil, fmt.Errorf("%w: the reply is every managed value at once and "+
 				"is larger than %d bytes, so this store is too big to serve. Split it, "+
-				"or shorten what it holds", ErrReplyTooLarge, maxReplyBytes)
+				"or shorten what it holds", errReplyTooLarge, maxReplyBytes)
 		}
 		return nil, fmt.Errorf("keeper: %w", err)
 	}
@@ -110,12 +110,12 @@ func call(socketPath, op string) (*response, error) {
 	return &out, nil
 }
 
-// Loaded is one answer to get_values: what the keeper served, and what it could
+// valueSet is one answer to get_values: what the keeper served, and what it could
 // not. A struct rather than a row of returns, several of which are "what went
 // wrong" in different shapes and were told apart only by position.
-type Loaded struct {
+type valueSet struct {
 	Values             map[string]string
-	State              []FileState
+	State              []fileState
 	Errors             []string
 	UnresolvedPatterns []string
 	// ShadowedRefs is the refs more than one managed file defines with different
@@ -126,19 +126,19 @@ type Loaded struct {
 	ShadowedRefs map[string]string
 }
 
-// FetchValues asks the keeper for the decrypted value set and the fingerprints
+// fetchValues asks the keeper for the decrypted value set and the fingerprints
 // of the files it decrypted. Every value, not a subset, and the state comes
 // back with them so the two describe the same moment. A per-file failure is in
 // Errors rather than an error, so one broken file does not blank the set.
-func FetchValues(socketPath string) (Loaded, error) {
+func fetchValues(socketPath string) (valueSet, error) {
 	out, err := call(socketPath, "get_values")
 	if err != nil {
-		return Loaded{}, err
+		return valueSet{}, err
 	}
 	if out.Values == nil {
-		return Loaded{}, errors.New("keeper response has no 'values' object")
+		return valueSet{}, errors.New("keeper response has no 'values' object")
 	}
-	return Loaded{
+	return valueSet{
 		Values:             out.Values,
 		State:              out.State,
 		Errors:             out.Errors,
@@ -147,11 +147,11 @@ func FetchValues(socketPath string) (Loaded, error) {
 	}, nil
 }
 
-// FetchState asks the keeper which managed files exist and when they changed:
+// fetchState asks the keeper which managed files exist and when they changed:
 // no key, no sops, no contents, so it is what the broker polls with. A file
 // the keeper could not stat is in the errors slice and absent from the state,
 // which reads as a change and reloads.
-func FetchState(socketPath string) ([]FileState, []string, error) {
+func fetchState(socketPath string) ([]fileState, []string, error) {
 	out, err := call(socketPath, "get_state")
 	if err != nil {
 		return nil, nil, err

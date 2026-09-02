@@ -26,7 +26,7 @@ import (
 // asserts the prompt does not depend on that having happened. Quoted rather
 // than stripped, so an argument that held one is one the operator sees held it.
 func TestThePromptDoesNotObeyTheArgv(t *testing.T) {
-	prompt := Prompt(Run{
+	prompt := prompt(Run{
 		Argv: []string{"ansible-playbook", "site.yml\x1b[2K\rls -la"},
 		Cwd:  "/srv/ctrl",
 	})
@@ -46,7 +46,7 @@ func TestThePromptDoesNotObeyTheArgv(t *testing.T) {
 // Argv is unbounded, and a question whose real content has scrolled off the top
 // of a terminal is one nobody read.
 func TestThePromptIsBounded(t *testing.T) {
-	prompt := Prompt(Run{Argv: []string{"playbook", strings.Repeat("a", 10_000)}})
+	prompt := prompt(Run{Argv: []string{"playbook", strings.Repeat("a", 10_000)}})
 	if len(prompt) > maxCommandChars+400 {
 		t.Errorf("prompt is %d bytes, want it bounded near %d", len(prompt), maxCommandChars)
 	}

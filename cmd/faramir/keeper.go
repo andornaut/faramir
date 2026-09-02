@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -64,7 +66,7 @@ func runKeeper(f keeperFlags) int {
 		}
 		// Names only, even for the operator.
 		if rc := printJSON("keeper", map[string]any{
-			"refs": keeper.SortedRefs(values), "errors": errs,
+			"refs": slices.Sorted(maps.Keys(values)), "errors": errs,
 			"shadowed_refs": shadowed,
 		}); rc != 0 {
 			return rc

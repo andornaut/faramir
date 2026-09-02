@@ -20,7 +20,7 @@ func paletteOf(t *testing.T, when string) Palette {
 // https://no-color.org: honoured whatever its value, empty included.
 func TestNoColorDisablesColourWhateverItsValue(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
-	if paletteOf(t, "auto").On() {
+	if paletteOf(t, "auto").on {
 		t.Error("NO_COLOR set to empty did not disable colour")
 	}
 }
@@ -29,7 +29,7 @@ func TestNoColorDisablesColourWhateverItsValue(t *testing.T) {
 func TestColorAlwaysBeatsTheTerminalCheck(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	paint := paletteOf(t, "always")
-	if !paint.On() {
+	if !paint.on {
 		t.Error("--color=always did not force colour on")
 	}
 	if !strings.Contains(paint.OK("x"), "\x1b[") {

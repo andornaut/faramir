@@ -31,7 +31,7 @@ func (f FS) EnsureDir(path string, mode os.FileMode, uid, gid int, own bool) (bo
 		// the ownership but not the mode: the secrets directory's 2770 applied to
 		// its parent would hand write and rename on it to every brokered
 		// command.
-		created := MissingAncestors(path)
+		created := missingAncestors(path)
 		if err := os.MkdirAll(path, mode); err != nil {
 			return false, err
 		}

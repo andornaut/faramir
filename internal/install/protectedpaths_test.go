@@ -89,26 +89,6 @@ func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 	}
 }
 
-// The two plugin hosts install the same rules, and what makes that true is that
-// they name one asset rather than two files kept in step by hand. Asserted
-// against the targets: rendering both and comparing would compare one file with
-// itself and pass however the targets were wired.
-func TestBothPluginHostsGetTheSameRules(t *testing.T) {
-	assets := map[string][]string{}
-	for _, name := range []string{"opencode", "kilocode"} {
-		for _, file := range agentcfg.Targets[name].AccountFiles {
-			assets[name] = append(assets[name], file.Asset)
-		}
-	}
-	if len(assets["opencode"]) == 0 {
-		t.Fatal("opencode writes no account-wide rules")
-	}
-	if !slices.Equal(assets["opencode"], assets["kilocode"]) {
-		t.Errorf("opencode writes %v and Kilo Code writes %v, so the two lists can "+
-			"drift", assets["opencode"], assets["kilocode"])
-	}
-}
-
 // An empty directory in the list is a rule that refuses every absolute path.
 // Layout is built field by field and a caller filling only what it needs is the
 // ordinary way to reach one, so the partial layouts below are the cases.

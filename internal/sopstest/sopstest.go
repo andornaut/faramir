@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"filippo.io/age"
@@ -132,4 +133,21 @@ func stderrOf(err error) string {
 		return ""
 	}
 	return ": " + string(exit.Stderr)
+}
+
+// WriteRule writes a .sops.yaml at path sealing to these recipients, in the
+// key_groups form.
+func WriteRule(t *testing.T, path string, recipients ...string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var body strings.Builder
+	body.WriteString("creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n")
+	for _, recipient := range recipients {
+		body.WriteString("          - " + recipient + "\n")
+	}
+	if err := os.WriteFile(path, []byte(body.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }

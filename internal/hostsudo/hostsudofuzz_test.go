@@ -20,7 +20,7 @@ func spliceRoundTrip(t *testing.T, original string) (after, withBlock string, wr
 	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	block, err := agentcfg.Render("etc/pam.d-sudo.tmpl", testLayout())
+	block, err := agentcfg.Render("etc/pam.d-sudo.tmpl", layouttest.Layout())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostsudo"
+	"github.com/andornaut/faramir/internal/hostsudotest"
 	"github.com/andornaut/faramir/internal/layouttest"
 )
 
@@ -20,12 +21,12 @@ import (
 func sudoRsArrangement(t *testing.T) (*config.Config, string) {
 	t.Helper()
 	dir := layouttest.SudoStacks(t)
-	pinSudo(t, true)
+	hostsudotest.PinSudo(t, true)
 
 	// The block is the stack on a sudo-rs host, so the layout it renders from and
 	// the config doctor reads have to name the same helper and the same
 	// environment file. Both follow LibexecDir, which points at this directory.
-	layout := testLayout()
+	layout := layouttest.Layout()
 	layout.LibexecDir = dir
 	layout.SudoRs = true
 	cfg := &config.Config{}
@@ -100,7 +101,7 @@ func TestTheSudoRsArrangementFailsWhenTheBranchIsGone(t *testing.T) {
 func TestSwitchingTheSudoAlternativeIsReported(t *testing.T) {
 	t.Run("rendered for the original, host now sudo-rs", func(t *testing.T) {
 		cfg, _ := sudoArrangement(t)
-		pinSudo(t, true)
+		hostsudotest.PinSudo(t, true)
 		var report Report
 		diagnoseSudoArrangement(&report, Options{ExecUser: "ex", AgentUser: "op"}, cfg)
 		finding := only(t, report)
@@ -113,7 +114,7 @@ func TestSwitchingTheSudoAlternativeIsReported(t *testing.T) {
 	})
 	t.Run("rendered for sudo-rs, host now the original", func(t *testing.T) {
 		cfg, _ := sudoRsArrangement(t)
-		pinSudo(t, false)
+		hostsudotest.PinSudo(t, false)
 		var report Report
 		diagnoseSudoArrangement(&report, Options{ExecUser: "ex", AgentUser: "op"}, cfg)
 		finding := only(t, report)

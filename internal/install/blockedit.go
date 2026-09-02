@@ -27,13 +27,13 @@ import (
 // trade: reading the value to redact it would mean holding it, and these are
 // the files whose value faramir should not hold.
 
-// BlockedSteps is what an entry changes: the config it is written into,
+// blockedSteps is what an entry changes: the config it is written into,
 // and the agent rule files rendered from it. No grant, so no step for one.
 //
 // Named for the entry rather than for the verb. In this package refuseX aborts
 // a run because of X (refuseSymlinks, agentcfg.RefuseUnwritable), so a name built the
 // same way would read as the opposite of what this is.
-func (r *runner) BlockedSteps() []steps.Named {
+func (r *runner) blockedSteps() []steps.Named {
 	return []steps.Named{
 		{Name: steps.LabelResolveIDs, Run: r.resolveIDs},
 		{Name: steps.LabelPreconditions, Run: r.stepPreconditions},
@@ -113,7 +113,7 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 	if err != nil {
 		return Report{}, nil, err
 	}
-	report, err := run.apply(run.BlockedSteps())
+	report, err := run.apply(run.blockedSteps())
 	if err != nil {
 		return report, nil, err
 	}
@@ -329,7 +329,7 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 	if err != nil {
 		return Report{}, nil, err
 	}
-	report, err := run.apply(run.BlockedSteps())
+	report, err := run.apply(run.blockedSteps())
 	// An install that declared what faramir already refuses has one rule left
 	// after taking its entry back. Said here rather than left to be inferred from
 	// the entry going away, which reads as the file becoming readable.

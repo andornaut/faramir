@@ -179,7 +179,7 @@ func TestAnEnormousArgvStillFitsTheCap(t *testing.T) {
 // answer.
 func TestAnExcerptKeepsBothEnds(t *testing.T) {
 	output := "FIRST-LINE\n" + strings.Repeat("filler\n", 200_000) + "LAST-LINE\n"
-	text, dropped := Excerpt(output, 8*1024)
+	text, dropped := excerpt(output, 8*1024)
 	if dropped == 0 {
 		t.Fatal("nothing was dropped from a 1.4MB output")
 	}
@@ -198,9 +198,9 @@ func TestAnExcerptKeepsBothEnds(t *testing.T) {
 // is the thing itself.
 func TestOutputThatFitsIsUntouched(t *testing.T) {
 	output := "ok: [host.example.com]\nchanged=0\n"
-	text, dropped := Excerpt(output, 8*1024)
+	text, dropped := excerpt(output, 8*1024)
 	if text != output || dropped != 0 {
-		t.Errorf("Excerpt altered output that fits: %q, dropped %d", text, dropped)
+		t.Errorf("excerpt altered output that fits: %q, dropped %d", text, dropped)
 	}
 }
 
@@ -835,7 +835,7 @@ func TestALogIDIsShortAndCarriesNoTimestamp(t *testing.T) {
 	}
 }
 
-// encodedLen sizes what Excerpt keeps, so being wrong about a byte does not
+// encodedLen sizes what excerpt keeps, so being wrong about a byte does not
 // overrun the cap (encode marshals and reduces) but does spend the budget
 // wrongly: guess high and output that would have fitted is dropped, guess low
 // and the record is reduced instead of excerpted, which costs the other fields.
@@ -852,7 +852,7 @@ func TestAnExcerptSpendsTheBudgetItWasGiven(t *testing.T) {
 		{"multi-byte runes", strings.Repeat("é", 200_000)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			text, dropped := Excerpt(tc.output, budget)
+			text, dropped := excerpt(tc.output, budget)
 			if dropped == 0 {
 				t.Fatalf("nothing was dropped from %d bytes, so this asserts nothing",
 					len(tc.output))

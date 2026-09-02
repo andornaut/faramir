@@ -16,6 +16,7 @@ import (
 	"io"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/andornaut/faramir/internal/termsafe"
 )
@@ -130,4 +131,16 @@ func PrintTable(w io.Writer, rows [][]Cell) {
 		}
 		_, _ = fmt.Fprintln(w, b.String())
 	}
+}
+
+// Pad is one column of a listing, widened to width. A value already that
+// wide still gets a space, or it runs into the column after it. Counted in
+// runes, not bytes: the ellipsis a cut record's fields end with is three bytes
+// and one column.
+func Pad(text string, width int) string {
+	spent := utf8.RuneCountInString(text)
+	if spent >= width {
+		return text + " "
+	}
+	return text + strings.Repeat(" ", width-spent)
 }

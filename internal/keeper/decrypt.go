@@ -67,11 +67,11 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 
 		if err != nil {
 			if exitErr, ok := goerrors.AsType[*exec.ExitError](err); ok {
-				errors = append(errors, keys.Scrub(fmt.Sprintf(
+				errors = append(errors, keys.scrub(fmt.Sprintf(
 					"%s: decrypt failed (%d): %s", path, exitErr.ExitCode(),
 					firstLine(string(exitErr.Stderr)))))
 			} else {
-				errors = append(errors, keys.Scrub(fmt.Sprintf(
+				errors = append(errors, keys.scrub(fmt.Sprintf(
 					"%s: running %s failed: %v", path, argv[0], err)))
 			}
 			continue

@@ -38,11 +38,11 @@ const (
 // which is what a lookup takes.
 func summarise(record map[string]any, paint termui.Palette) string {
 	var b strings.Builder
-	b.WriteString(paint.Dim(Pad(str(record, "log_id"), logIDWidth)))
+	b.WriteString(paint.Dim(termui.Pad(str(record, "log_id"), logIDWidth)))
 	b.WriteString(" " + clockTime(record) + "  ")
-	b.WriteString(paint.Bold(Pad(str(record, "op"), OpWidth)))
+	b.WriteString(paint.Bold(termui.Pad(str(record, "op"), OpWidth)))
 	b.WriteString(paintOutcome(record, paint))
-	b.WriteString(paint.Ref(Pad(outputNotes(record), 12)))
+	b.WriteString(paint.Ref(termui.Pad(outputNotes(record), 12)))
 	b.WriteString(detail(record))
 	return strings.TrimRight(b.String(), " ")
 }
@@ -70,7 +70,7 @@ func detail(record map[string]any) string {
 func paintOutcome(record map[string]any, paint termui.Palette) string {
 	const width = 16
 	label, failed := outcome(record)
-	padded := Pad(label, width)
+	padded := termui.Pad(label, width)
 	switch {
 	case label == "":
 		return padded

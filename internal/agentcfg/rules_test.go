@@ -11,14 +11,16 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/configtest"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // The rule is the entire content of a [[secret.block]] entry, so an entry that
 // does not reach the rules does nothing whatsoever.
 func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
-	layout := testLayout()
-	layout.Blocked = refusedAt("/etc/luks/volume.key")
+	layout := layouttest.Layout()
+	layout.Blocked = configtest.RefusedAt("/etc/luks/volume.key")
 
 	rules := claudeRules(layout)
 	for _, want := range []string{
@@ -38,8 +40,8 @@ func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 // would refuse the directory entry and leave every key in it readable.
 func TestARefusedDirectoryCarriesWhatIsUnderIt(t *testing.T) {
 	dir := t.TempDir()
-	layout := testLayout()
-	layout.Blocked = refusedAt(dir)
+	layout := layouttest.Layout()
+	layout.Blocked = configtest.RefusedAt(dir)
 
 	rules := claudeRules(layout)
 	for _, want := range []string{"Read(" + dir + ")", "Read(" + dir + "/**)"} {
@@ -58,8 +60,8 @@ func TestARefusedDirectoryCarriesWhatIsUnderIt(t *testing.T) {
 // has to already cover what turns up inside it.
 func TestAnAbsentRefusedPathStillCoversWhatAppearsUnderIt(t *testing.T) {
 	absent := "/mnt/nothing-is-mounted-here/keys"
-	layout := testLayout()
-	layout.Blocked = refusedAt(absent)
+	layout := layouttest.Layout()
+	layout.Blocked = configtest.RefusedAt(absent)
 
 	rules := claudeRules(layout)
 	for _, want := range []string{
@@ -82,8 +84,8 @@ func TestAnAbsentRefusedPathStillCoversWhatAppearsUnderIt(t *testing.T) {
 // the difference as rules to delete.
 func TestRefusedRulesDoNotDependOnWhatIsOnDisk(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "keys")
-	layout := testLayout()
-	layout.Blocked = refusedAt(dir)
+	layout := layouttest.Layout()
+	layout.Blocked = configtest.RefusedAt(dir)
 
 	away := claudeRules(layout)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -101,9 +103,9 @@ func TestRefusedRulesDoNotDependOnWhatIsOnDisk(t *testing.T) {
 // rule files are merged rather than replaced, so a duplicate written once is a
 // duplicate nothing removes.
 func TestAPathBothLinkedAndRefusedRendersOneRule(t *testing.T) {
-	layout := testLayout()
-	layout.Links = linksAt("/etc/luks/volume.key")
-	layout.Blocked = refusedAt("/etc/luks/volume.key")
+	layout := layouttest.Layout()
+	layout.Links = configtest.LinksAt("/etc/luks/volume.key")
+	layout.Blocked = configtest.RefusedAt("/etc/luks/volume.key")
 
 	n := 0
 	for _, rule := range claudeRules(layout) {
@@ -119,7 +121,7 @@ func TestAPathBothLinkedAndRefusedRendersOneRule(t *testing.T) {
 // Duplicates and order are settled so the rule files do not churn, and an empty
 // entry is dropped: in the plugin hosts' spelling it is a prefix of every path.
 func TestRefusedPathsAreCleanedAndOrdered(t *testing.T) {
-	got := blockedRulePaths(hostlayout.Layout{Blocked: refusedAt("/b", "", "/a", "/b")})
+	got := blockedRulePaths(hostlayout.Layout{Blocked: configtest.RefusedAt("/b", "", "/a", "/b")})
 	if !slices.Equal(got, []string{"/a", "/b"}) {
 		t.Errorf("blockedRulePaths = %v, want the two paths sorted and deduplicated", got)
 	}
@@ -127,7 +129,7 @@ func TestRefusedPathsAreCleanedAndOrdered(t *testing.T) {
 
 // An install with no blocked paths renders what it always did.
 func TestNoRefusedPathsChangeNothing(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	if !slices.Equal(claudeRules(layout), claudeRules(hostlayout.Layout{
 		ConfigDir: layout.ConfigDir, LogDir: layout.LogDir, LibexecDir: layout.LibexecDir,
 		BrokerUser: layout.BrokerUser, KeeperUser: layout.KeeperUser,
@@ -140,8 +142,8 @@ func TestNoRefusedPathsChangeNothing(t *testing.T) {
 // A linked value joins the redactor, so the file it comes out of has to stop
 // being one the agent can simply read.
 func TestALinkedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
-	layout := testLayout()
-	layout.Links = linksAt("/home/operator/.config/gh/hosts.yml")
+	layout := layouttest.Layout()
+	layout.Links = configtest.LinksAt("/home/operator/.config/gh/hosts.yml")
 
 	rules := claudeRules(layout)
 	for _, want := range []string{
@@ -161,7 +163,7 @@ func TestALinkedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 // so it is dropped rather than rendered: that fails closed and still breaks the
 // agent. Duplicates and order are settled so the file does not churn.
 func TestLinkedPathsAreCleanedAndOrdered(t *testing.T) {
-	got := linkedPaths(hostlayout.Layout{Links: linksAt("/b", "", "/a", "/b")})
+	got := linkedPaths(hostlayout.Layout{Links: configtest.LinksAt("/b", "", "/a", "/b")})
 	if !slices.Equal(got, []string{"/a", "/b"}) {
 		t.Errorf("linkedPaths = %v, want the two paths sorted and deduplicated", got)
 	}
@@ -169,7 +171,7 @@ func TestLinkedPathsAreCleanedAndOrdered(t *testing.T) {
 
 // An install with no links renders what it always did.
 func TestNoLinksChangesNothing(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	if !slices.Equal(claudeRules(layout), claudeRules(hostlayout.Layout{
 		ConfigDir: layout.ConfigDir, LogDir: layout.LogDir, LibexecDir: layout.LibexecDir,
 		BrokerUser: layout.BrokerUser, KeeperUser: layout.KeeperUser,
@@ -361,7 +363,7 @@ func TestADeclaredCommandReachesTheGuardAlone(t *testing.T) {
 // failure this package is built to avoid: a rule that covers nothing reads
 // exactly like one that covers everything.
 func TestNoRuleIsWrittenInAShapeTheAgentMatchesNothingWith(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	layout.Blocked = []config.BlockedPath{
 		{Path: "/home/op/.ssh"},
 		{Path: "/mnt/vol/luks.key"},
@@ -431,24 +433,6 @@ func TestTheRenderedAgentFilesAreParseableJSON(t *testing.T) {
 			}
 		})
 	}
-}
-
-func refusedAt(paths ...string) []config.BlockedPath {
-	out := make([]config.BlockedPath, 0, len(paths))
-	for _, path := range paths {
-		out = append(out, config.BlockedPath{Path: path})
-	}
-	return out
-}
-
-// linksAt is one link per path, for the tests that care only about which paths
-// the rules refuse.
-func linksAt(paths ...string) []config.Link {
-	out := make([]config.Link, 0, len(paths))
-	for _, path := range paths {
-		out = append(out, config.Link{Ref: "test", Path: path, Type: "text"})
-	}
-	return out
 }
 
 // What the list no longer carries, and so what a host nobody declares anything

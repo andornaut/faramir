@@ -157,11 +157,11 @@ type File struct {
 	Local bool
 }
 
-// AntigravityFamily is the CLI and the IDE, which ship one hook contract and
+// antigravityFamily is the CLI and the IDE, which ship one hook contract and
 // one rule syntax between them. It is the dialect name the guard is registered
 // under in a tree, so the registration does not change with which half of the
 // family the enrolment named.
-const AntigravityFamily = "antigravity"
+const antigravityFamily = "antigravity"
 
 // agySettingsFile is the CLI's own deny-rules file, named here as well as in
 // its target because the coverage check has to know which file cannot express
@@ -426,7 +426,7 @@ func antigravityMember(name string, detectHome []string, ownRules []File) *Targe
 		Mode: 0o640, Merge: true, NoRules: true}
 	return &Target{
 		Name:         name,
-		Family:       AntigravityFamily,
+		Family:       antigravityFamily,
 		AccountFiles: append(append([]File{}, ownRules...), sharedHook),
 		Detect:       []string{".agents/rules", antigravityHooks, antigravityMCP, ".agent/rules"},
 		DetectHome:   detectHome,

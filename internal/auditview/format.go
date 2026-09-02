@@ -7,21 +7,13 @@ import (
 	"fmt"
 	"os/user"
 	"strconv"
-	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 // dateLayout is the day heading a run of records sits under. The zone is in
 // the header because the times below are local and the log_id beside them is
 // UTC.
 const dateLayout = "2006-01-02 MST"
-
-// StampLayout is one moment in full, for a line that stands on its own rather
-// than under a day heading: DateLayout's day and zone with the time the log
-// prints against it. The approval prompt is the one place that needs it, a
-// question being read without the surrounding day the log has.
-const StampLayout = "2006-01-02 15:04:05 MST"
 
 // startedAt is when the record's subject happened: started_at where the record
 // has one, which is the child's fork rather than the moment the line was
@@ -113,16 +105,4 @@ func list(record map[string]any, key string) []string {
 		}
 	}
 	return out
-}
-
-// Pad is one column of the listing, widened to width. A value already that
-// wide still gets a space, or it runs into the column after it. Counted in
-// runes, not bytes: the ellipsis a cut record's fields end with is three bytes
-// and one column.
-func Pad(text string, width int) string {
-	spent := utf8.RuneCountInString(text)
-	if spent >= width {
-		return text + " "
-	}
-	return text + strings.Repeat(" ", width-spent)
 }

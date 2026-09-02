@@ -80,9 +80,9 @@ func SelfPath() string {
 	return exe
 }
 
-// Missing is what Owns and OwnsWithGroup report for a path that is not there,
+// missing is what Owns and OwnsWithGroup report for a path that is not there,
 // and what a test compares against.
-const Missing = "missing"
+const missing = "missing"
 
 // Owns reports a file's mode and owner as "%04o account", or "missing". The
 // owner alone: the age key is 0400 and the audit log 0600, so no group bit is
@@ -90,7 +90,7 @@ const Missing = "missing"
 func Owns(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
-		return Missing
+		return missing
 	}
 	return fmt.Sprintf("%04o %s", info.Mode().Perm(), ownerName(info))
 }
@@ -101,7 +101,7 @@ func Owns(path string) string {
 func OwnsWithGroup(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
-		return Missing
+		return missing
 	}
 	return fmt.Sprintf("%04o %s:%s", info.Mode().Perm(), ownerName(info), GroupName(info))
 }

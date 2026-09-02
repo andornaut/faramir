@@ -71,7 +71,7 @@ func StackFile(pamDir, pamService string) (string, error) {
 		if err != nil {
 			continue
 		}
-		if HasBlock(string(body)) {
+		if hasBlock(string(body)) {
 			return path, nil
 		}
 	}
@@ -79,10 +79,10 @@ func StackFile(pamDir, pamService string) (string, error) {
 		strings.Join(sharedStacks(pamDir), " or "))
 }
 
-// HasBlock reports whether a stack carries a whole faramir block. Both markers,
+// hasBlock reports whether a stack carries a whole faramir block. Both markers,
 // each a line of its own: one without the other is a file something edited, and
 // not a stack this can answer for.
-func HasBlock(body string) bool {
+func hasBlock(body string) bool {
 	var begin, end bool
 	for line := range strings.Lines(body) {
 		switch strings.TrimSpace(line) {

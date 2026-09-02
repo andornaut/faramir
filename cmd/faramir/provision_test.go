@@ -2,48 +2,14 @@ package main
 
 import (
 	"encoding/json"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/hostlayout"
-	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/socktest"
 )
-
-// answeringBroker answers every request with reply on a socket of its own and
-// hands back the path. A nil reply closes the connection without answering,
-// which is the broker restarting under the request rather than refusing it.
-func answeringBroker(t *testing.T, reply any) string {
-	t.Helper()
-	socketPath := filepath.Join(t.TempDir(), "b.sock")
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socketPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = listener.Close(); _ = os.Remove(socketPath) })
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer func() { _ = conn.Close() }()
-				if _, err := sockutil.ReadLine(conn, 1<<20); err != nil {
-					return
-				}
-				if reply == nil {
-					return
-				}
-				_ = sockutil.Send(conn, reply)
-			}()
-		}
-	}()
-	return socketPath
-}
 
 // statusBroker answers the status op naming the given config file, the body
 // being JSON carried as a string in output.
@@ -53,7 +19,7 @@ func statusBroker(t *testing.T, configFile string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return answeringBroker(t, map[string]any{"exit_code": 0, "output": string(body)})
+	return socktest.AnsweringBroker(t, map[string]any{"exit_code": 0, "output": string(body)})
 }
 
 // The compiled-in default is only right for a host that took it, so the broker

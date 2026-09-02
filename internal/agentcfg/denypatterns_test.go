@@ -8,6 +8,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // renderDenyPatterns is the file as an install would write it.
@@ -38,7 +39,7 @@ func denyRules(text string) []string {
 // that is left, and a key named for the host it opens matches none of it. The
 // key's own path is named, so where it is put makes no difference.
 func TestTheDenyRulesNameTheConfiguredSSHKey(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	layout.ConfigDir = hostlayout.DefaultConfigDir
 	layout.SSHKey = "/srv/keys/broker_ed25519"
 	rules := denyRules(renderDenyPatterns(t, layout))
@@ -93,7 +94,7 @@ func TestAnUnsetSSHKeyDoesNotEmptyAnAlternation(t *testing.T) {
 // field rather than from the catalogue: with none set the line is absent, and
 // the ordering it can break goes untested.
 func TestTheRenderedRulesAreInKindOrder(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	layout.ConfigDir = hostlayout.DefaultConfigDir
 	layout.SSHKey = "/srv/keys/broker_ed25519"
 	rules := denyRules(renderDenyPatterns(t, layout))
@@ -211,7 +212,7 @@ func TestACommandRuleDoesNotReachASiblingPath(t *testing.T) {
 // Asserted by what the rendered file decides rather than by the shape of a
 // pattern: what the operator asked for is that `ls` be refused.
 func TestAnStrictEntryRefusesACommandWithNoVerbInIt(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	layout.Blocked = []config.BlockedPath{
 		{Path: "/home/operator/.private", Strict: true},
 		{Path: "/srv/keys/luks.key"},
@@ -249,7 +250,7 @@ func TestAnStrictEntryRefusesACommandWithNoVerbInIt(t *testing.T) {
 // matches the empty string, which with no verb in front of it would refuse every
 // command an agent ran, so the empty case is the one that must not be written.
 func TestAHostThatDeclaresNothingLeavesOrdinaryCommandsAlone(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	layout.Blocked = nil
 	layout.Links = nil
 

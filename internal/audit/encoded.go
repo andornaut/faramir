@@ -11,14 +11,14 @@ import (
 	"unicode/utf8"
 )
 
-// Excerpt keeps the head and the tail of a command's output and says what it
+// excerpt keeps the head and the tail of a command's output and says what it
 // left out, measured in the bytes the record will spend rather than the bytes
 // the command wrote.
 //
 // Head and tail rather than a prefix: what an operator wants from a long run is
 // how it started and how it ended, and a prefix is the half that is never the
 // answer.
-func Excerpt(output string, budget int) (text string, dropped int) {
+func excerpt(output string, budget int) (text string, dropped int) {
 	if encodedLen(output) <= budget {
 		return output, 0
 	}
@@ -33,7 +33,7 @@ func Excerpt(output string, budget int) (text string, dropped int) {
 
 // halfBudget is what each end of an excerpt may spend: the budget less room for
 // the marker between them, split two ways. Stated once because [Collector]
-// fills the same two ends as a run streams and [Excerpt] fills them in one go,
+// fills the same two ends as a run streams and [excerpt] fills them in one go,
 // and two ends sized by different arithmetic would overrun the budget between
 // them.
 func halfBudget(budget int) int { return max((budget-markerReserve)/2, 1) }
@@ -90,7 +90,7 @@ func encodedRuneLen(r rune, size int) int {
 		return 6
 	// An invalid byte is replaced by U+FFFD, which the encoder either escapes as
 	// \ufffd or writes as the rune itself. Which one is asked of the encoder
-	// rather than assumed: guess high and Excerpt drops output that would have
+	// rather than assumed: guess high and excerpt drops output that would have
 	// fitted, guess low and the record overshoots the cap on the first marshal
 	// and is reduced, which cuts every other field to save the one that was
 	// mismeasured.

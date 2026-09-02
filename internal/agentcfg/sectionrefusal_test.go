@@ -119,3 +119,78 @@ func TestWhatCountsAsAnUndelimitedSection(t *testing.T) {
 		})
 	}
 }
+
+// A link is followed only to a regular file the operator owns. `init` runs as
+// root on a path inside a directory the account the agent runs as can write, so
+// a link re-pointed at a file root can write would otherwise turn this into an
+// append as root.
+func TestALinkToAFileTheOperatorDoesNotOwnIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "AGENTS.md")
+	target := filepath.Join(dir, "somebody-elses.md")
+	const before = "# Not yours\n"
+	if err := os.WriteFile(target, []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+
+	// An operator that is not this file's owner, which is what the check asks.
+	_, err := SectionFile(hostfs.FS{}, path, section(t), "", os.Getuid()+1, hostfs.Keep, "")
+
+	if !errors.Is(err, hostfs.ErrNotOperators) {
+		t.Fatalf("err = %v, want the link refused", err)
+	}
+	if !OutOfDate(err) {
+		t.Error("a link this will not follow does not fail the run")
+	}
+	if body, readErr := os.ReadFile(target); readErr != nil {
+		t.Fatal(readErr)
+	} else if string(body) != before {
+		t.Errorf("the file was written anyway:\n%s", body)
+	}
+}
+
+// A link naming a path that is not there is refused rather than created
+// through: this runs as root, so creating it would put a root-made file
+// wherever the link happens to aim.
+func TestADanglingLinkIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "AGENTS.md")
+	target := filepath.Join(dir, "nothing-here.md")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := SectionFile(hostfs.FS{}, path, section(t), "", hostfs.Keep, hostfs.Keep, "")
+
+	if !errors.Is(err, hostfs.ErrNotOperators) {
+		t.Fatalf("err = %v, want the link refused", err)
+	}
+	if hostfs.Exists(target) {
+		t.Error("the dangling link was created through")
+	}
+}
+
+// A dry run is the one form that does not need root, so a file it cannot read
+// is reported as no change rather than stopping the run, as EnsureDir does for
+// a directory it cannot look inside.
+func TestADryRunSurvivesAnUnreadableInstructionsFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, which can read the file this makes unreadable")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(path, []byte("# Project\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := SectionFile(hostfs.FS{DryRun: true}, path, section(t), "", hostfs.Keep, hostfs.Keep, "")
+	if err != nil {
+		t.Fatalf("a dry run stopped on a file it cannot read: %v", err)
+	}
+	if changed {
+		t.Error("a file that could not be read was reported as changed")
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/sopstest"
 )
 
 // An existing .sops.yaml is kept, applying a changed rule meaning every managed
@@ -55,7 +56,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 					AgeKeyPath: filepath.Join(dir, "age.key")},
 				keeperRecipient: tc.keeper,
 			}
-			writeRule(t, run.layout.SopsConfigPath(), tc.listed...)
+			sopstest.WriteRule(t, run.layout.SopsConfigPath(), tc.listed...)
 
 			run.keepSopsConfig(run.layout.SopsConfigPath())
 
@@ -199,7 +200,7 @@ func TestStepSopsConfigRefusesASymlinkedRule(t *testing.T) {
 			AgeKeyPath: filepath.Join(dir, "age.key")},
 	}
 	target := filepath.Join(dir, "elsewhere.yaml")
-	writeRule(t, target, "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p")
+	sopstest.WriteRule(t, target, "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p")
 	if err := os.Chmod(target, 0o600); err != nil {
 		t.Fatal(err)
 	}

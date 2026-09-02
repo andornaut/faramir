@@ -8,7 +8,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
-	"github.com/andornaut/faramir/internal/hostsudo"
+	"github.com/andornaut/faramir/internal/hostsudotest"
 )
 
 // answerSudo points the credential check at answers a test wrote, rather than
@@ -168,7 +168,7 @@ func sudoArrangement(t *testing.T) (*config.Config, string) {
 	// Which sudo this host has decides which arrangement is diagnosed, and the
 	// fixture below is the classic one. Pinned rather than probed, or the suite
 	// would pass or fail on what the machine running it happens to have installed.
-	pinSudo(t, false)
+	hostsudotest.PinSudo(t, false)
 
 	helper := filepath.Join(dir, "faramir-approve")
 	cfg := &config.Config{}
@@ -328,41 +328,6 @@ func TestAskableDropsAnAccountNothingCanAskAs(t *testing.T) {
 	}
 	if len(named) != 1 || named[0] != "op" {
 		t.Errorf("named = %v, want just the askable account", named)
-	}
-}
-
-// The stack check reads position as well as the helper line: an auth entry
-// ahead of it answers before the broker is asked, and requisite below gates
-// nothing. Only the sudo-rs branch shape may stand ahead.
-func TestPamStackProblemReadsWhatStandsAheadOfTheHelper(t *testing.T) {
-	const helperLine = "auth requisite pam_exec.so quiet seteuid /usr/local/libexec/faramir/pam-escalate\n"
-	for _, tc := range []struct {
-		name string
-		body string
-		want string
-	}{
-		{"the rendered service", helperLine +
-			"auth optional pam_env.so envfile=/x readenv=1\nauth sufficient pam_permit.so\n", ""},
-		{"the sudo-rs block's branch stands ahead",
-			"auth [success=ok default=3] pam_succeed_if.so quiet user = faramir-exec\n" + helperLine, ""},
-		{"a permit ahead of the helper",
-			"auth sufficient pam_permit.so\n" + helperLine, "ahead of the helper"},
-		{"an include ahead of the helper",
-			"@include common-auth\n" + helperLine, "@include ahead of the helper"},
-		{"a sufficient succeed_if ahead is not the branch",
-			"auth sufficient pam_succeed_if.so uid >= 0\n" + helperLine, "ahead of the helper"},
-		{"requisite matched as a field, not a substring",
-			"auth sufficient pam_exec.so quiet seteuid /opt/requisite-tool\n", "not `requisite`"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := hostsudo.StackProblem(tc.body, "/usr/local/libexec/faramir/pam-escalate")
-			if tc.want == "" && got != "" {
-				t.Errorf("refused a sound stack: %s", got)
-			}
-			if tc.want != "" && !strings.Contains(got, tc.want) {
-				t.Errorf("problem = %q, want it to say %q", got, tc.want)
-			}
-		})
 	}
 }
 

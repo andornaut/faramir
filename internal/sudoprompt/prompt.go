@@ -17,7 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/andornaut/faramir/internal/auditview"
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/termui"
 )
@@ -269,8 +268,13 @@ func receivedAt(stamp string) string {
 	if err != nil {
 		return stamp
 	}
-	return at.Format(auditview.StampLayout)
+	return at.Format(stampLayout)
 }
+
+// stampLayout is one moment in full: the day, the time and the zone, a
+// question being read without the day heading the audit log prints its times
+// under.
+const stampLayout = "2006-01-02 15:04:05 MST"
 
 // promptLabelWidth is the widest label below, `received` at eight, plus the
 // separating space: every value on the question starts in the same column, and
@@ -287,7 +291,7 @@ const promptLabelWidth = 9
 func promptField(paint termui.Palette, label, value string) {
 	// Padded before it is painted, as the log's outcome column is: pad() counts
 	// escape bytes as width.
-	fmt.Printf("  %s%s\n", paint.Key(auditview.Pad(label, promptLabelWidth)), value)
+	fmt.Printf("  %s%s\n", paint.Key(termui.Pad(label, promptLabelWidth)), value)
 }
 
 // PrintQuestion shows one question. Every caller-chosen string in it was

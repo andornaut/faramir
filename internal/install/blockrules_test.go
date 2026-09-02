@@ -9,13 +9,14 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/configtest"
 )
 
 // Rendering is what actually refuses the read, so being in the returned list is
 // not enough.
 func TestARefusedPathReachesTheRenderedAccountFiles(t *testing.T) {
 	layout := testLayout()
-	layout.Blocked = refusedAt("/etc/luks/volume.key")
+	layout.Blocked = configtest.RefusedAt("/etc/luks/volume.key")
 
 	for _, asset := range []string{"agent/claude/settings.json", "agent/permissions.json.tmpl"} {
 		body, err := agentcfg.RenderAccount(asset, layout)
@@ -81,8 +82,8 @@ func TestEveryBlockedFormRoundTripsThroughTheRenderedConfig(t *testing.T) {
 // file, and nothing downstream compares the set it was given.
 func TestPerInstallPathsIsTheEntriesAlone(t *testing.T) {
 	layout := testLayout()
-	layout.Links = linksAt("/etc/luks/volume.key")
-	layout.Blocked = refusedAt("/srv/keys/api.pem", "/etc/luks/volume.key")
+	layout.Links = configtest.LinksAt("/etc/luks/volume.key")
+	layout.Blocked = configtest.RefusedAt("/srv/keys/api.pem", "/etc/luks/volume.key")
 
 	want := []string{"/etc/luks/volume.key", "/srv/keys/api.pem"}
 	if got := agentcfg.PerInstallPaths(layout); !slices.Equal(got, want) {

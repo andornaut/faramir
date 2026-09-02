@@ -68,7 +68,7 @@ func (s *Server) questionsLocked() []Question {
 	}
 	waited := int(time.Since(pending.asked).Seconds())
 	return []Question{{
-		ID: pending.id, Prompt: Prompt(pending.run),
+		ID: pending.id, Prompt: prompt(pending.run),
 		// Rendered like the command: these are the caller's strings and they are
 		// printed to a terminal. Absent stays absent, safeField rendering "" as a
 		// pair of quotation marks.

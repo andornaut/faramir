@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/asaccount"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostunit"
 )
@@ -51,34 +50,6 @@ func TestTheSSHKeyRefusalNamesBothHalvesAndTheGroup(t *testing.T) {
 	if strings.Contains(says, "chown faramir-broker2 ") {
 		t.Errorf("the remedy chowns the owner alone, which does not satisfy the "+
 			"check that printed it:\n%s", says)
-	}
-}
-
-// The refusal is printed beside that remedy, so it has to report the same two
-// fields the check compares. owns() itself stays owner-only: the checks that
-// compare it are about 0400 and 0600 files, where no group bit is set.
-func TestOwnsReportsOwnerAndGroup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "f")
-	if err := os.WriteFile(path, nil, 0o640); err != nil {
-		t.Fatal(err)
-	}
-	got := asaccount.OwnsWithGroup(path)
-	if !strings.HasPrefix(got, "0640 ") {
-		t.Errorf("ownsWithGroup() lost the mode: %q", got)
-	}
-	if !strings.Contains(strings.TrimPrefix(got, "0640 "), ":") {
-		t.Errorf("ownsWithGroup() names no group, so a remedy written from it will "+
-			"not satisfy a check that compares one: %q", got)
-	}
-	if asaccount.OwnsWithGroup(filepath.Join(t.TempDir(), "absent")) != asaccount.Missing {
-		t.Error("an absent file should read as missing")
-	}
-	// owns() is compared against "%04o account" by the age key and audit log
-	// checks, which a group would break on any host whose service accounts do not
-	// have same-named primary groups.
-	if strings.Contains(strings.TrimPrefix(asaccount.Owns(path), "0640 "), ":") {
-		t.Errorf("owns() grew a group, which the checks comparing it do not "+
-			"expect: %q", asaccount.Owns(path))
 	}
 }
 

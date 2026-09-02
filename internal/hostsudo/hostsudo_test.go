@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
-	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/layouttest"
 )
 
@@ -84,7 +83,7 @@ func TestAThirdPartyAuthModuleIsNamed(t *testing.T) {
 // Counted off the rendered block rather than asserted as a literal, so a line
 // added or removed below the branch fails here instead of on a host.
 func TestTheBranchSkipsEveryModuleItPutThere(t *testing.T) {
-	block, err := agentcfg.Render("etc/pam.d-sudo.tmpl", testLayout())
+	block, err := agentcfg.Render("etc/pam.d-sudo.tmpl", layouttest.Layout())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,28 +125,12 @@ func TestTheBranchSkipsEveryModuleItPutThere(t *testing.T) {
 // asserts about a service file has to hold of it too: the helper is requisite,
 // runs with seteuid, and is faramir's own.
 func TestTheBlockIsAStackPamStackProblemAccepts(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	block, err := agentcfg.Render("etc/pam.d-sudo.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if problem := StackProblem(string(block), layout.PamHelper()); problem != "" {
 		t.Errorf("the rendered block is not a stack that gates: %s", problem)
-	}
-}
-
-// A half-marked stack is not a stack the broker may answer for: it cannot tell
-// what the block is, and reporting a host as able to escalate on the strength of
-// a stray marker is worse than reporting it as broken.
-func TestAStrayMarkerIsNotAStack(t *testing.T) {
-	if escalation.HasBlock(escalation.BlockBegin + "\nauth required pam_permit.so\n") {
-		t.Error("a begin marker with no end was read as a block")
-	}
-	if escalation.HasBlock("# see '" + escalation.BlockBegin + "' in the docs\n") {
-		t.Error("a marker quoted in a comment was read as a block")
-	}
-	if !escalation.HasBlock(escalation.BlockBegin + "\nauth optional pam_permit.so\n" +
-		escalation.BlockEnd + "\n") {
-		t.Error("a whole block was not recognised")
 	}
 }

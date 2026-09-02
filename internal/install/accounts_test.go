@@ -2,12 +2,8 @@ package install
 
 import (
 	"os"
-	"os/user"
 	"path/filepath"
-	"strconv"
 	"testing"
-
-	"github.com/andornaut/faramir/internal/hostfs"
 )
 
 // The secrets group holds nologin service accounts and belongs below GID_MIN.
@@ -74,36 +70,6 @@ func TestFirstLoginGIDWithoutLoginDefs(t *testing.T) {
 
 	if got := firstLoginGID(); got != 1000 {
 		t.Errorf("firstLoginGID() = %d, want 1000", got)
-	}
-}
-
-// [ssh] exec_group is the group the agent relay admits, so it has to be the
-// exec account's real group rather than a group that merely shares its name.
-func TestPrimaryGroupResolvesTheAccountsOwnGroup(t *testing.T) {
-	self, err := user.Current()
-	if err != nil {
-		t.Skipf("no current user: %v", err)
-	}
-	gid, name, err := hostfs.PrimaryGroup(self.Username)
-	if err != nil {
-		t.Fatalf("primaryGroup(%s): %v", self.Username, err)
-	}
-	if strconv.Itoa(gid) != self.Gid {
-		t.Errorf("gid = %d, want %s", gid, self.Gid)
-	}
-	// The name is looked up from the gid, so it need not match the account.
-	group, err := user.LookupGroupId(self.Gid)
-	if err != nil {
-		t.Skipf("gid %s has no group entry: %v", self.Gid, err)
-	}
-	if name != group.Name {
-		t.Errorf("group = %q, want %q", name, group.Name)
-	}
-}
-
-func TestPrimaryGroupRefusesAnAccountThatIsNotThere(t *testing.T) {
-	if _, _, err := hostfs.PrimaryGroup("no-such-account-faramir-test"); err == nil {
-		t.Error("primaryGroup accepted an account that does not exist")
 	}
 }
 

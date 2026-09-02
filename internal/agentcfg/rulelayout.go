@@ -178,7 +178,7 @@ func StaleRules(path string, current []byte, configDir string) ([]string, error)
 	}
 	var out []string
 	for entry := range have {
-		if want[entry] || !LooksManaged(entry, configDir) {
+		if want[entry] || !looksManaged(entry, configDir) {
 			continue
 		}
 		out = append(out, entry)
@@ -278,7 +278,7 @@ func isDecision(value string) bool {
 	return slices.Contains(decisions, value)
 }
 
-// LooksManaged reports whether an entry names something on faramir's list.
+// looksManaged reports whether an entry names something on faramir's list.
 // Nothing here is a record of what earlier versions wrote, a stored list going
 // stale the first time somebody edits the file, so this infers from the name: a
 // rule naming a layout faramir has stopped using names it by that name.
@@ -290,7 +290,7 @@ func isDecision(value string) bool {
 //
 // configDir is the install being examined rather than the default, so a stale
 // rule naming a non-default directory still in use is found.
-func LooksManaged(entry, configDir string) bool {
+func looksManaged(entry, configDir string) bool {
 	// Its own name: anything under a path with "faramir" in it is faramir's to ask
 	// about, whatever layout put it there.
 	if strings.Contains(entry, "faramir") {

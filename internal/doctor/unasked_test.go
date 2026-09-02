@@ -122,7 +122,7 @@ func TestLogRotationIsReportedWithoutRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	found := findingsNamed(Diagnose(Options{ConfigDir: configDir}), "log rotation")
+	found := findings(Diagnose(Options{ConfigDir: configDir}), "log rotation")
 	if len(found) == 0 {
 		t.Fatal("no log rotation finding in a run without root")
 	}

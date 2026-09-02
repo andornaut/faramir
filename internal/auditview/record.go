@@ -78,7 +78,7 @@ func printField(paint termui.Palette, label, value string) {
 	if value == "" {
 		return
 	}
-	fmt.Printf("  %s %s\n", paint.Key(Pad(label, labelWidth)), value)
+	fmt.Printf("  %s %s\n", paint.Key(termui.Pad(label, labelWidth)), value)
 }
 
 // PrintRecord is the whole of one record, output included.

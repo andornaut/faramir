@@ -11,6 +11,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostsudo"
+	"github.com/andornaut/faramir/internal/hostsudotest"
 	"github.com/andornaut/faramir/internal/layouttest"
 )
 
@@ -152,7 +153,7 @@ func TestAHalfMarkedStackIsRefused(t *testing.T) {
 // /etc/pam.d/other.
 func TestRevokingTakesTheBranchOut(t *testing.T) {
 	dir := layouttest.SudoStacks(t)
-	pinSudo(t, false)
+	hostsudotest.PinSudo(t, false)
 	run := &runner{layout: testLayout()}
 	// The revoke removes the environment file with the rest of the grant, so the
 	// layout points at this test's directory rather than the install's.
@@ -178,7 +179,7 @@ func TestRevokingTakesTheBranchOut(t *testing.T) {
 // the block would be a stack nothing reads.
 func TestNoServiceFileIsWrittenUnderSudoRs(t *testing.T) {
 	dir := layouttest.SudoStacks(t)
-	pinSudo(t, true)
+	hostsudotest.PinSudo(t, true)
 	run := &runner{layout: testLayout()}
 	run.layout.SudoRs = true
 	run.layout.LibexecDir = dir
@@ -229,7 +230,7 @@ func TestABlockBelowTheAuthLineIsHoistedBack(t *testing.T) {
 	}
 	// And doctor agrees, which it did not before: the stock stack authenticates
 	// with `@include common-auth` and has no line beginning `auth` at all.
-	pinSudo(t, true)
+	hostsudotest.PinSudo(t, true)
 	if problem := hostsudo.BranchProblem(run.layout.ExecUser, run.layout.PamHelper()); problem != "" {
 		t.Errorf("the hoisted block still reads as misplaced: %s", problem)
 	}
@@ -248,7 +249,7 @@ func TestABlockBelowTheAuthLineIsHoistedBack(t *testing.T) {
 // inside it, and that authenticates every other account for free.
 func TestAJumpThatNoLongerClearsTheBlockIsReported(t *testing.T) {
 	dir := layouttest.SudoStacks(t)
-	pinSudo(t, true)
+	hostsudotest.PinSudo(t, true)
 	run := &runner{layout: testLayout()}
 	if _, err := run.writeSudoPamBlock(); err != nil {
 		t.Fatal(err)

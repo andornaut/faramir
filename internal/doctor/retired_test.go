@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/andornaut/faramir/internal/asaccount"
 )
 
 // A group's members are not only what /etc/group lists. An account whose
@@ -85,17 +83,6 @@ func TestDiagnoseGroupNamesAccountsTheInstallNoLongerUses(t *testing.T) {
 	}
 }
 
-// findingsNamed is the findings one check contributed.
-func findingsNamed(report Report, name string) []Finding {
-	var out []Finding
-	for _, finding := range report.Findings {
-		if finding.Name == name {
-			out = append(out, finding)
-		}
-	}
-	return out
-}
-
 // The client group check cannot tell a member from a leftover without the
 // operator's name, and the operator IS a member by construction. Reporting it
 // as a leftover prints `gpasswd -d <operator> <client group>` as the remedy,
@@ -120,15 +107,5 @@ func TestTheGroupAuditIsNotAskedWithoutAnOperator(t *testing.T) {
 	if strings.Contains(report.Findings[0].Detail, "gpasswd -d") {
 		t.Errorf("an unnamed operator was handed a remedy that would shut the agent "+
 			"out of the broker socket: %s", report.Findings[0].Detail)
-	}
-}
-
-// runuser reads an empty account name as the account, so asUser refuses one
-// rather than reporting "runuser: user does not exist" as a boundary that does
-// not hold. Guarded at the source, so no caller has to remember it.
-func TestAsUserRefusesAnUnnamedAccount(t *testing.T) {
-	if _, err := asaccount.Output("", "true"); err == nil {
-		t.Fatal("an empty account was passed to runuser, which reads it as the " +
-			"account name and fails with a message about the host")
 	}
 }

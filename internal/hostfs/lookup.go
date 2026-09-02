@@ -16,9 +16,9 @@ import (
 	"syscall"
 )
 
-// MissingAncestors lists every directory MkdirAll would have to create, from
+// missingAncestors lists every directory MkdirAll would have to create, from
 // the shallowest down to path itself.
-func MissingAncestors(path string) []string {
+func missingAncestors(path string) []string {
 	var missing []string
 	for at := path; ; at = filepath.Dir(at) {
 		if Exists(at) {

@@ -36,7 +36,7 @@ func TestARecipientSopsWillNotTakeIsReported(t *testing.T) {
 			dir := t.TempDir()
 			layout := hostlayout.Layout{ConfigDir: dir}
 			mintKey(t, dir)
-			writeRule(t, layout.SopsConfigPath(), tc.entry)
+			sopstest.WriteRule(t, layout.SopsConfigPath(), tc.entry)
 
 			var report Report
 			diagnoseSopsConfig(&report, Options{ConfigDir: dir, KeeperUser: "faramir-keeper"})
@@ -175,7 +175,7 @@ func TestRuleCoverageIsCheckedAgainstTheManagedFiles(t *testing.T) {
 func TestRuleCoverageWithoutThePatternsIsUnasked(t *testing.T) {
 	dir := t.TempDir()
 	layout := hostlayout.Layout{ConfigDir: dir}
-	writeRule(t, layout.SopsConfigPath(), mintKey(t, dir))
+	sopstest.WriteRule(t, layout.SopsConfigPath(), mintKey(t, dir))
 
 	var report Report
 	diagnoseSopsRuleCoverage(&report, Options{ConfigDir: dir,
@@ -203,7 +203,7 @@ func TestRuleCoverageCannotSeeIntoTheStoreIsUnasked(t *testing.T) {
 	}
 	dir := t.TempDir()
 	layout := hostlayout.Layout{ConfigDir: dir}
-	writeRule(t, layout.SopsConfigPath(), mintKey(t, dir))
+	sopstest.WriteRule(t, layout.SopsConfigPath(), mintKey(t, dir))
 	secrets := filepath.Join(dir, "secrets")
 	if err := os.MkdirAll(secrets, 0o700); err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestRuleCoverageNamesAClosedDoorEvenWhenSomethingResolved(t *testing.T) {
 	}
 	dir := t.TempDir()
 	layout := hostlayout.Layout{ConfigDir: dir}
-	writeRule(t, layout.SopsConfigPath(), mintKey(t, dir))
+	sopstest.WriteRule(t, layout.SopsConfigPath(), mintKey(t, dir))
 
 	open := filepath.Join(dir, "open")
 	shut := filepath.Join(dir, "shut")
@@ -290,7 +290,7 @@ func TestRuleCoverageNamesAClosedDoorEvenWhenSomethingResolved(t *testing.T) {
 func TestRuleCoverageWithNoManagedFileIsNotApplicable(t *testing.T) {
 	dir := t.TempDir()
 	layout := hostlayout.Layout{ConfigDir: dir}
-	writeRule(t, layout.SopsConfigPath(), mintKey(t, dir))
+	sopstest.WriteRule(t, layout.SopsConfigPath(), mintKey(t, dir))
 
 	var report Report
 	diagnoseSopsConfig(&report, Options{

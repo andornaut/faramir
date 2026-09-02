@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"slices"
 
+	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/keygen"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
@@ -15,7 +16,7 @@ import (
 // refuses to start on a --config it cannot read, decrypt included, where
 // /dev/null parses as a document with no creation rules.
 func sopsConfigPath(rulePath string) string {
-	if rulePath != "" && exists(rulePath) {
+	if rulePath != "" && hostfs.Exists(rulePath) {
 		return rulePath
 	}
 	return os.DevNull

@@ -100,7 +100,7 @@ func TestTheProbeReadsTheVersionBanner(t *testing.T) {
 // differs by are the two sudo-rs has no name for. Rendered both ways here, so a
 // directive added to the wrong branch is caught before a host refuses the file.
 func TestTheGrantCarriesOnlyWhatThisSudoParses(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	for _, rs := range []bool{false, true} {
 		layout.SudoRs = rs
 		body, err := agentcfg.Render("etc/sudoers.tmpl", layout)
@@ -143,7 +143,7 @@ func TestTheGrantCarriesOnlyWhatThisSudoParses(t *testing.T) {
 // must be `sufficient` or the executor carries on to the password check that
 // stack has for everybody else, which a locked account cannot pass.
 func TestThePermitEndsTheStackItIsIn(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	for asset, want := range map[string]string{
 		"etc/pam.d.tmpl":      "required",
 		"etc/pam.d-sudo.tmpl": "sufficient",
@@ -170,7 +170,7 @@ func TestThePermitEndsTheStackItIsIn(t *testing.T) {
 // in one place. Without it FARAMIR_OPERATOR and [command] env are dropped at the
 // sudo and nothing says so.
 func TestOneMechanismCarriesTheEnvironmentAcrossSudo(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	// Whichever file is the stack on that host reads it with pam_env, and the
 	// grant names it on neither: sudo-rs has no env_file.
 	for _, asset := range []string{"etc/pam.d.tmpl", "etc/pam.d-sudo.tmpl"} {

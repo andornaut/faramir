@@ -18,25 +18,9 @@ const (
 	recipientB = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
 )
 
-// writeRule writes a .sops.yaml naming these recipients, in the shape init
-// renders: one creation rule, keys under "- age:".
-func writeRule(t *testing.T, dir string, recipients ...string) string {
-	t.Helper()
-	var body strings.Builder
-	body.WriteString("creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n")
-	for _, recipient := range recipients {
-		body.WriteString("          - " + recipient + "\n")
-	}
-	path := filepath.Join(dir, ".sops.yaml")
-	if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
 func TestTheRuleRecipientsAreReadInOrder(t *testing.T) {
 	dir := t.TempDir()
-	got, err := RuleRecipients(writeRule(t, dir, recipientA, recipientB, recipientA))
+	got, err := RuleRecipients(sopsRule(t, dir, recipientA, recipientB, recipientA))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +111,7 @@ func TestARuleWithoutTheKeepersKeyIsRefusedBeforeAnythingIsWritten(t *testing.T)
 	if stranger == recipient {
 		t.Fatal("the fixture minted the hard-coded key")
 	}
-	rulePath := writeRule(t, dir, stranger)
+	rulePath := sopsRule(t, dir, stranger)
 
 	err := KeeperStaysAReader(keyPath, []string{stranger}, rulePath)
 	if err == nil {
@@ -138,15 +122,6 @@ func TestARuleWithoutTheKeepersKeyIsRefusedBeforeAnythingIsWritten(t *testing.T)
 	}
 	if err := KeeperStaysAReader(keyPath, []string{stranger, recipient}, rulePath); err != nil {
 		t.Errorf("a rule that does list the host's key was refused: %v", err)
-	}
-}
-
-func TestSameRecipientsIgnoresOrder(t *testing.T) {
-	if !sopsrule.Same([]string{"age1a", "age1b"}, []string{"age1b", "age1a"}) {
-		t.Error("the same two keys in a different order read as a change")
-	}
-	if sopsrule.Same([]string{"age1a"}, []string{"age1a", "age1b"}) {
-		t.Error("an added recipient read as no change")
 	}
 }
 
@@ -273,4 +248,13 @@ func TestResealTargetsCoverEveryManagedFile(t *testing.T) {
 	if _, err := ResealTargets(nil, nil); err == nil {
 		t.Error("an empty store was accepted as something to re-key")
 	}
+}
+
+// sopsRule writes a .sops.yaml in dir sealing to these recipients and returns
+// its path.
+func sopsRule(t *testing.T, dir string, recipients ...string) string {
+	t.Helper()
+	path := filepath.Join(dir, ".sops.yaml")
+	sopstest.WriteRule(t, path, recipients...)
+	return path
 }

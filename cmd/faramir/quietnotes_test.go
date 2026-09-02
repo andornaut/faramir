@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andornaut/faramir/internal/socktest"
 	"github.com/andornaut/faramir/internal/testio"
 )
 
@@ -44,7 +45,7 @@ func TestQuietSuppressesTheSummaryAndNothingThatChangesTheOutput(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socketPath := answeringBroker(t, response)
+			socketPath := socktest.AnsweringBroker(t, response)
 			said, _ := testio.CaptureStderr(t, func() int {
 				return send("run", socketPath, map[string]any{"op": "run"}, false, tc.quiet)
 			})

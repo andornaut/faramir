@@ -55,7 +55,7 @@ type CheckReport struct {
 	Policy []string `json:"policy"`
 }
 
-// RefStatesOtherThan reports whether any of the three ref-level states --check
+// refStatesOtherThan reports whether any of the three ref-level states --check
 // exits non-zero for is left unaccounted for, each of them being a value this
 // host manages that no redactor holds.
 //
@@ -67,7 +67,7 @@ type CheckReport struct {
 // An empty value set is deliberately not among them. It stopped being a
 // non-zero exit when the broker started serving one, so counting it here would
 // leave a real finding beside it looking unexplained.
-func (c CheckReport) RefStatesOtherThan(mine int) bool {
+func (c CheckReport) refStatesOtherThan(mine int) bool {
 	others := 0
 	for _, n := range []int{len(c.Secrets.NotRedactable), len(c.Secrets.DegradedLinks),
 		len(c.Secrets.ShadowedRefs)} {
@@ -84,7 +84,7 @@ func (c CheckReport) OnlyNotRedactable() bool {
 	return len(c.Secrets.NotRedactable) > 0 &&
 		len(c.Policy) == 0 &&
 		len(c.Secrets.Errors) == 0 &&
-		!c.RefStatesOtherThan(len(c.Secrets.NotRedactable))
+		!c.refStatesOtherThan(len(c.Secrets.NotRedactable))
 }
 
 // NoSecretsYet reports whether every configured pattern named no file, which
@@ -105,7 +105,7 @@ func (c CheckReport) OnlyDegradedLinks() bool {
 	return len(c.Secrets.DegradedLinks) > 0 &&
 		len(c.Policy) == 0 &&
 		len(c.Secrets.Errors) == 0 &&
-		!c.RefStatesOtherThan(len(c.Secrets.DegradedLinks))
+		!c.refStatesOtherThan(len(c.Secrets.DegradedLinks))
 }
 
 // RefusedRefs is the refused refs and their reasons, ordered, for a message.

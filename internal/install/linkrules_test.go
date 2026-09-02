@@ -9,6 +9,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/configtest"
 	"github.com/andornaut/faramir/internal/hostfs"
 )
 
@@ -16,7 +17,7 @@ import (
 // actually refuses the read.
 func TestALinkedPathReachesTheRenderedAccountFiles(t *testing.T) {
 	layout := testLayout()
-	layout.Links = linksAt("/home/operator/.config/gh/hosts.yml")
+	layout.Links = configtest.LinksAt("/home/operator/.config/gh/hosts.yml")
 
 	for _, asset := range []string{"agent/claude/settings.json", "agent/permissions.json.tmpl"} {
 		body, err := agentcfg.RenderAccount(asset, layout)
@@ -106,7 +107,7 @@ func TestNoLinksRendersNoSection(t *testing.T) {
 // to survive one that needs no escaping and one that does.
 func TestALinkedPathIsQuotedIntoJSON(t *testing.T) {
 	layout := testLayout()
-	layout.Links = linksAt(filepath.Join("/home/operator", `odd"name`, "token"))
+	layout.Links = configtest.LinksAt(filepath.Join("/home/operator", `odd"name`, "token"))
 
 	body, err := agentcfg.RenderAccount("agent/claude/settings.json", layout)
 	if err != nil {
@@ -114,28 +115,6 @@ func TestALinkedPathIsQuotedIntoJSON(t *testing.T) {
 	}
 	if _, err := agentcfg.RuleEntries(body); err != nil {
 		t.Errorf("a linked path broke the rendered JSON: %v", err)
-	}
-}
-
-// A rule naming a longer path must not vouch for a shorter one: with both
-// ~/.npmrc and ~/.npmrc-work linked, a rule covering only the second would
-// otherwise report the first as refused while the agent can still read it.
-func TestALongerPathDoesNotCoverAShorterOne(t *testing.T) {
-	entries := map[string]bool{"Read(/home/operator/.npmrc-work)": true}
-	if agentcfg.Named(entries, "/home/operator/.npmrc") {
-		t.Error("a longer sibling was accepted as covering the shorter path")
-	}
-	if !agentcfg.Named(entries, "/home/operator/.npmrc-work") {
-		t.Error("the path the rule actually names was not matched")
-	}
-	// Each agent wraps a path its own way, and all of those still match.
-	for _, entry := range []string{
-		"Read(/home/operator/.npmrc)", "Edit(/home/operator/.npmrc)",
-		"/home/operator/.npmrc",
-	} {
-		if !agentcfg.Named(map[string]bool{entry: true}, "/home/operator/.npmrc") {
-			t.Errorf("%q was not read as naming the path", entry)
-		}
 	}
 }
 

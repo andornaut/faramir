@@ -54,11 +54,6 @@ func IsTerminal(file *os.File) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-// On reports whether this palette paints. For a caller that has to know
-// whether colour was resolved on rather than what one word came out looking
-// like.
-func (p Palette) On() bool { return p.on }
-
 func (p Palette) wrap(code, text string) string {
 	if !p.on || text == "" {
 		return text

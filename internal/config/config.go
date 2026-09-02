@@ -122,15 +122,15 @@ func DefaultCommand() CommandConfig {
 
 // DefaultSecret is DefaultCommand for the store.
 func DefaultSecret() SecretConfig {
-	return SecretConfig{DecryptCommand: DecryptCommand(), MinLength: 8}
+	return SecretConfig{DecryptCommand: decryptCommand(), MinLength: 8}
 }
 
 // DefaultSudoTimeoutSec is how long a question waits for a human.
 const DefaultSudoTimeoutSec = 120
 
-// DecryptCommand is how the keeper invokes sops. Never a config key: the
+// decryptCommand is how the keeper invokes sops. Never a config key: the
 // account this runs as is the one holding the age key.
-func DecryptCommand() []string {
+func decryptCommand() []string {
 	return []string{"sops", "--output-type", "json", "--decrypt", "{file}"}
 }
 

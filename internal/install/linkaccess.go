@@ -140,20 +140,20 @@ func (r *runner) stepLinkAccess() error {
 	return nil
 }
 
-// LinkSteps is what an install run does about a link and nothing else: write
+// linkSteps is what an install run does about a link and nothing else: write
 // the config that names it, grant the access it needs, and re-render the deny
 // rules that refuse its file. `faramir link` applies these rather than a whole
 // install. stepPreconditions is not optional here: it resolves the agents
 // whose files stepAgentConfig writes, so a list without it writes no deny
 // rule.
-func (r *runner) LinkSteps() []steps.Named {
+func (r *runner) linkSteps() []steps.Named {
 	return []steps.Named{
 		{Name: steps.LabelResolveIDs, Run: r.resolveIDs},
 		{Name: steps.LabelPreconditions, Run: r.stepPreconditions},
 		{Name: steps.LabelConfig, Run: r.stepConfig},
 		{Name: "linked files", Run: r.stepLinkAccess},
 		{Name: steps.LabelAgentConfig, Run: r.stepAgentConfig},
-		// And into every tree already enrolled, for the reason BlockedSteps gives.
+		// And into every tree already enrolled, for the reason blockedSteps gives.
 		{Name: steps.LabelEnrolledTrees, Run: r.stepEnrolledTrees},
 		// A linked path is a subject in the command guard's rules as well as in
 		// the agents' own, so both are rendered here.
@@ -283,7 +283,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	if err := run.probeLink(link); err != nil {
 		return Report{}, false, err
 	}
-	report, err := run.apply(run.LinkSteps())
+	report, err := run.apply(run.linkSteps())
 	if err != nil {
 		return report, false, err
 	}
@@ -386,7 +386,7 @@ func reassertLink(opts Options, existing []config.Link, link config.Link) (Repor
 	if err != nil {
 		return Report{}, err
 	}
-	report, err := run.apply(run.LinkSteps())
+	report, err := run.apply(run.linkSteps())
 	if err != nil {
 		return report, err
 	}
@@ -440,7 +440,7 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	if err != nil {
 		return Report{}, config.Link{}, err
 	}
-	report, err := run.apply(run.LinkSteps())
+	report, err := run.apply(run.linkSteps())
 	return report, removed, err
 }
 

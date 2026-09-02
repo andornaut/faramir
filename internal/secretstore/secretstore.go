@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/keeperclient"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/secretref"
 )
@@ -36,11 +35,11 @@ type Store struct {
 	mu      sync.RWMutex
 	values  map[string]string
 	refused map[string]string
-	state   []keeperclient.FileState
+	state   []fileState
 	// linkState is the same fingerprint for the [[secret.link]] files. Kept
 	// apart from state because the broker stats these itself, they being the
 	// operator's own files and reachable from this uid.
-	linkState []keeperclient.FileState
+	linkState []fileState
 	// unconfirmed is set when the last load did not reach the keeper, so the
 	// value set held here was never checked against what is on disk. Two things
 	// read it. Unreadable tells an unconfirmed set apart from one that never
@@ -56,7 +55,7 @@ type Store struct {
 	// refs, so exec and redact refuse while this is set.
 	loadErrors []string
 
-	// Refs more than one managed file defined; see keeperclient.Loaded.
+	// Refs more than one managed file defined; see valueSet.
 	shadowedRefs map[string]string
 	// The value set compiled into a matcher, rebuilt when the values are. The
 	// broker takes several redactors for one request and the set changes only
@@ -105,10 +104,10 @@ func New(secrets config.SecretConfig, kc config.KeeperConfig) *Store {
 // values cannot describe different moments.
 func (s *Store) Reload() {
 	// Per-file, so one broken file does not blank the set.
-	loaded, err := keeperclient.FetchValues(s.keeper.SocketPath)
+	loaded, err := fetchValues(s.keeper.SocketPath)
 	values, state := loaded.Values, loaded.State
 	errors, unresolved := loaded.Errors, loaded.UnresolvedPatterns
-	if goerrors.Is(err, keeperclient.ErrReplyTooLarge) {
+	if goerrors.Is(err, errReplyTooLarge) {
 		// Not marked unconfirmed, which would re-load on the interval: this
 		// failure is permanent, so that would re-decrypt the whole store on every
 		// refresh and never succeed. Recorded as a load failure instead, which is
@@ -275,7 +274,7 @@ func (s *Store) RefreshIfStale() {
 	// redactor for up to the refresh interval.
 	s.mu.Lock()
 	unconfirmed := s.unconfirmed
-	previousLinks := make(map[keeperclient.FileState]bool, len(s.linkState))
+	previousLinks := make(map[fileState]bool, len(s.linkState))
 	for _, st := range s.linkState {
 		previousLinks[st] = true
 	}
@@ -289,7 +288,7 @@ func (s *Store) RefreshIfStale() {
 		return
 	}
 
-	currentLinks := make(map[keeperclient.FileState]bool, len(s.config.Links))
+	currentLinks := make(map[fileState]bool, len(s.config.Links))
 	for _, st := range statLinks(s.config.Links) {
 		currentLinks[st] = true
 	}
@@ -335,20 +334,20 @@ func (s *Store) keeperIfStale() {
 		return
 	}
 	s.mu.Lock()
-	previous := make(map[keeperclient.FileState]bool, len(s.state))
+	previous := make(map[fileState]bool, len(s.state))
 	for _, st := range s.state {
 		previous[st] = true
 	}
 	s.mu.Unlock()
 
-	state, _, err := keeperclient.FetchState(s.keeper.SocketPath)
+	state, _, err := fetchState(s.keeper.SocketPath)
 	if err != nil {
 		// A keeper that cannot describe the files cannot call them unchanged.
 		// Reload fails the same way, keeps the values, and marks them unconfirmed.
 		s.Reload()
 		return
 	}
-	current := make(map[keeperclient.FileState]bool, len(state))
+	current := make(map[fileState]bool, len(state))
 	for _, st := range state {
 		current[st] = true
 	}
@@ -358,7 +357,7 @@ func (s *Store) keeperIfStale() {
 	}
 }
 
-func sameSet(a, b map[keeperclient.FileState]bool) bool {
+func sameSet(a, b map[fileState]bool) bool {
 	if len(a) != len(b) {
 		return false
 	}

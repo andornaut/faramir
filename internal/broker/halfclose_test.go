@@ -19,7 +19,7 @@ import (
 // another was broken. The keeper's client is exempt and named: it speaks to a
 // different socket, which watches nothing.
 func TestNothingHalfClosesTheBrokerSocket(t *testing.T) {
-	const exempt = "internal/keeperclient/keeperclient.go"
+	const exempt = "internal/secretstore/keeperclient.go"
 	base := filepath.Join("..", "..")
 	// Every read goes through the root, so a symlink planted mid-walk cannot
 	// point this at a file outside the checkout.

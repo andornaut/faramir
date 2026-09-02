@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // names is what resolveAgents settled on, for a test that cares which agents
@@ -168,7 +170,7 @@ func TestAgentAssetsExist(t *testing.T) {
 // each half is in production: a tree's file against the target's own data, an
 // account file against the install layout.
 func TestMergedAgentAssetsAreJSON(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	check := func(t *testing.T, name string, file File, body []byte) {
 		t.Helper()
 		var into any
@@ -216,7 +218,7 @@ func TestPluginAssetsNameTheirOwnHost(t *testing.T) {
 				continue
 			}
 			hosts++
-			body, err := AssetFor(target, file, testLayout().ConfigDir)
+			body, err := AssetFor(target, file, layouttest.Layout().ConfigDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -236,7 +238,7 @@ func TestPluginAssetsNameTheirOwnHost(t *testing.T) {
 // This install's own directories, not the compiled defaults, which on a moved
 // config would protect a directory that does not exist.
 func TestAccountRulesNameTheInstalledDirectories(t *testing.T) {
-	layout := testLayout()
+	layout := layouttest.Layout()
 	// The two plugin hosts, which spell a directory the same way. Antigravity's
 	// spelling is its own and is asserted where its rules are.
 	for _, name := range []string{"opencode", "kilocode"} {
@@ -268,7 +270,7 @@ func TestAccountRulesNameTheInstalledDirectories(t *testing.T) {
 // Keys inside a config the operator owns, as an object of patterns: a merge
 // that dropped a sibling would take away a rule, a server or a model.
 func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
-	ours, err := RenderAccount("agent/permissions.json.tmpl", testLayout())
+	ours, err := RenderAccount("agent/permissions.json.tmpl", layouttest.Layout())
 	if err != nil {
 		t.Fatal(err)
 	}

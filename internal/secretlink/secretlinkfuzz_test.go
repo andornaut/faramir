@@ -39,7 +39,7 @@ func FuzzExtractAnswersWhateverTheFileHolds(f *testing.F) {
 	})
 }
 
-// Keys is what `faramir link add` lists to an operator choosing a selector, so
+// keys is what `faramir link add` lists to an operator choosing a selector, so
 // it is read off the same untrusted file. It names keys and never values.
 func FuzzKeysNamesKeysAndNeverPanics(f *testing.F) {
 	f.Add("ini", "[x]\na=b\n")
@@ -60,7 +60,7 @@ func FuzzKeysNamesKeysAndNeverPanics(f *testing.F) {
 		// so what it may not carry is a line break or anything a terminal acts
 		// on. That it can offer the same selector twice, or an empty one, is its
 		// own case and recorded.
-		for _, k := range Keys(kind, []byte(body)) {
+		for _, k := range keys(kind, []byte(body)) {
 			// That a selector can carry what a terminal acts on is its own case
 			// and recorded; what this asks is whether one can carry a byte that
 			// would end the line it is printed on.

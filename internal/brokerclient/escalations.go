@@ -23,7 +23,7 @@ func Escalations(socketPath string, waitSec int, awaitLogID string) ([]escalatio
 	}
 	// The read deadline has to outlast the broker's own wait, or every long poll
 	// looks like a broker that stopped answering.
-	line, err := RoundTrip(socketPath, request, time.Duration(waitSec+30)*time.Second)
+	line, err := roundTrip(socketPath, request, DialWait, time.Duration(waitSec+30)*time.Second)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -47,7 +47,7 @@ func Escalations(socketPath string, waitSec int, awaitLogID string) ([]escalatio
 // deadline of its own: the broker holds the question for [sudo]
 // timeout_sec and refuses it after that.
 func Escalate(socketPath string, ancestors []int) (bool, string, error) {
-	line, err := RoundTrip(socketPath, map[string]any{"op": "escalate", "procs": ancestors}, escalationWait)
+	line, err := roundTrip(socketPath, map[string]any{"op": "escalate", "procs": ancestors}, DialWait, escalationWait)
 	if err != nil {
 		return false, "", err
 	}

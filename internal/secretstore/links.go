@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/keeperclient"
 	"github.com/andornaut/faramir/internal/secretlink"
 )
 
@@ -26,9 +25,9 @@ import (
 // away the location of a credential. The long one carries the path and goes to
 // the daemon log and the operator's report.
 func loadLinks(links []config.Link) (values map[string]string,
-	state []keeperclient.FileState, degraded map[string]string, detail []string) {
+	state []fileState, degraded map[string]string, detail []string) {
 	values = map[string]string{}
-	state = []keeperclient.FileState{}
+	state = []fileState{}
 	degraded = map[string]string{}
 	detail = []string{}
 	for _, link := range links {
@@ -41,7 +40,7 @@ func loadLinks(links []config.Link) (values map[string]string,
 		// Fingerprinted whether or not it reads: statLinks records every file that
 		// is there, so one left out here would differ from the poll's view on every
 		// request and reload the whole set each time.
-		state = append(state, keeperclient.FileState{
+		state = append(state, fileState{
 			Path: link.Path, MTime: info.ModTime().UnixNano(), Size: info.Size()})
 
 		value, err := secretlink.Read(link.Path, link.Type, link.Key)
@@ -77,14 +76,14 @@ func reason(err error) string {
 // statLinks fingerprints the linked files without reading them, which is what
 // the refresh poll needs. A link whose file has gone contributes no entry, so
 // the set differs and a reload follows.
-func statLinks(links []config.Link) []keeperclient.FileState {
-	state := make([]keeperclient.FileState, 0, len(links))
+func statLinks(links []config.Link) []fileState {
+	state := make([]fileState, 0, len(links))
 	for _, link := range links {
 		info, err := os.Stat(link.Path)
 		if err != nil {
 			continue
 		}
-		state = append(state, keeperclient.FileState{
+		state = append(state, fileState{
 			Path: link.Path, MTime: info.ModTime().UnixNano(), Size: info.Size()})
 	}
 	return state
