@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/termui"
+	"github.com/andornaut/faramir/internal/testio"
 )
 
 // The date header above each day's first row. The printer carries the last day
@@ -30,7 +31,7 @@ func recordAt(offset time.Duration) map[string]any {
 
 func headersPrinted(t *testing.T, records []map[string]any) (int, string) {
 	t.Helper()
-	out, _ := captureStdout(t, func() int {
+	out, _ := testio.CaptureStdout(t, func() int {
 		p := &Printer{Paint: termui.Palette{}}
 		for _, r := range records {
 			p.Row(r)

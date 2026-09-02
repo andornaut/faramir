@@ -22,6 +22,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/auditview"
+	"github.com/andornaut/faramir/internal/brokerclient"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/vault"
@@ -119,7 +120,7 @@ func runEdit(f editFlags, args []string) int {
 		return 0
 	}
 	fmt.Fprintf(os.Stderr, "faramir vault edit: wrote %s; %s\n", target,
-		reReadNote(tellBrokerToReRead(), "it picks this up within one refresh interval"))
+		reReadNote(brokerclient.Refresh(socketDefault()), "it picks this up within one refresh interval"))
 	return 0
 }
 
@@ -131,7 +132,7 @@ func runEdit(f editFlags, args []string) int {
 // way, or a host whose config moved and whose unit is gone would have `faramir
 // logs` read one install while `faramir block ls` refused to guess at another.
 func loadResolved(socketPath string) (*config.Config, error) {
-	path, err := findConfigFile(askBroker(socketPath))
+	path, err := findConfigFile(brokerclient.AskStatus(socketPath))
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +149,7 @@ func loadResolved(socketPath string) (*config.Config, error) {
 func loadDaemonConfig() (*config.Config, error) {
 	// A zero status rather than one asked for, which is what skips the broker:
 	// there is no separate ladder here, only one with its first rung unclimbed.
-	path, err := findConfigFile(status{})
+	path, err := findConfigFile(brokerclient.Status{})
 	if err != nil {
 		return nil, err
 	}

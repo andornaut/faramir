@@ -1,4 +1,4 @@
-package main
+package sudoprompt
 
 // How a run's ending reaches the terminal that approved it. A yes is the last
 // decision the operator makes about that command, so this line is the only
@@ -11,6 +11,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/termui"
+	"github.com/andornaut/faramir/internal/testio"
 )
 
 func TestPrintOutcomeSaysHowTheRunEnded(t *testing.T) {
@@ -76,7 +77,7 @@ func TestPrintOutcomeSaysHowTheRunEnded(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			out, _ := captureStdout(t, func() int { printOutcome(tc.outcome, termui.Palette{}); return 0 })
+			out, _ := testio.CaptureStdout(t, func() int { PrintOutcome(tc.outcome, termui.Palette{}); return 0 })
 			for _, want := range tc.want {
 				if !strings.Contains(out, want) {
 					t.Errorf("the ending does not say %q: %q", want, out)
@@ -98,8 +99,8 @@ func TestTheOutcomeLeadsWithTheRunTimeRatherThanTheWallClock(t *testing.T) {
 	// A script that failed the instant it was approved, after fifty seconds
 	// waiting for a yes. It ran for no time at all, and "after 50.5s" said the
 	// opposite.
-	out, _ := captureStdout(t, func() int {
-		printOutcome(escalation.Outcome{
+	out, _ := testio.CaptureStdout(t, func() int {
+		PrintOutcome(escalation.Outcome{
 			LogID: "log-8", ExitCode: new(1), DurationSec: 50.52, WaitedSec: 50.51,
 		}, termui.Palette{})
 		return 0

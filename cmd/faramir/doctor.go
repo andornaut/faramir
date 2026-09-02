@@ -2,19 +2,19 @@ package main
 
 // `faramir doctor`: what it asks of a host, and how the answers are laid out
 // for a reader. It acts on files rather than through the broker, but it asks a
-// running one where the install is; see askBroker.
+// running one where the install is; see brokerclient.AskStatus.
 
 import (
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/brokerclient"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/doctor"
 	"github.com/andornaut/faramir/internal/termsafe"
@@ -157,7 +157,7 @@ func runDoctor(f doctorFlags) int {
 	// socket activates the service is a real cost -- a stopped daemon is started
 	// by the diagnosis -- but a report that is quietly wrong about what it asked
 	// is worse than one that names a broker the asking started.
-	broker := askBroker(socketDefault())
+	broker := brokerclient.AskStatus(socketDefault())
 	configFile, err := findConfigFile(broker)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir doctor: %v\n", err)
@@ -166,8 +166,8 @@ func runDoctor(f doctorFlags) int {
 	dir := filepath.Dir(configFile)
 	report := doctor.Diagnose(doctor.Options{
 		ConfigDir:     dir,
-		BrokerVersion: broker.version,
-		BrokerBuild:   broker.build,
+		BrokerVersion: broker.Version,
+		BrokerBuild:   broker.Build,
 		SocketStates:  sockets,
 		AgentUser:     operatorFromConfig(configFile),
 		ClientGroup:   f.clientGroup,
@@ -218,7 +218,7 @@ func printDiagnosis(w io.Writer, paint termui.Palette, report doctor.Report) {
 		// Escaping first also keeps the wrap honest, the escaped form being what
 		// takes up the width.
 		first, rest := "", []string(nil)
-		if lines := wrapText(termsafe.Line(finding.Detail), terminalWidth()-indent); len(lines) > 0 {
+		if lines := termui.Wrap(termsafe.Line(finding.Detail), termui.Width()-indent); len(lines) > 0 {
 			first, rest = lines[0], lines[1:]
 		}
 		_, _ = fmt.Fprintf(w, "%s  %-*s  %s\n", paintStatus(paint, finding.Status), name, label, first)
@@ -257,7 +257,7 @@ func printNotAsked(w io.Writer, paint termui.Palette, count int) {
 			"root does not answer stays listed with its own reason."
 	}
 	_, _ = fmt.Fprintln(w)
-	for _, line := range wrapText(note, terminalWidth()) {
+	for _, line := range termui.Wrap(note, termui.Width()) {
 		_, _ = fmt.Fprintf(w, "%s\n", paint.Warn(line))
 	}
 }
@@ -272,7 +272,7 @@ func statusColumn(status doctor.Status) string {
 		doctor.StatusWarn:   "!",
 		doctor.StatusFailed: "✗", // ballot X
 	}[status]
-	if mark == "" || !unicodeLocale() {
+	if mark == "" || !termui.UnicodeLocale() {
 		return fmt.Sprintf("%-6s", status)
 	}
 	return fmt.Sprintf("%s %-6s", mark, status)
@@ -281,18 +281,6 @@ func statusColumn(status doctor.Status) string {
 // columns is a string's width on screen. Every glyph above is one column wide,
 // so runes are the answer and len would count a check mark as three.
 func columns(text string) int { return utf8.RuneCountInString(text) }
-
-// unicodeLocale reports whether the terminal was told to expect UTF-8, in the
-// order the C library reads these.
-func unicodeLocale() bool {
-	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
-		if value := os.Getenv(name); value != "" {
-			return strings.Contains(strings.ToUpper(value), "UTF-8") ||
-				strings.Contains(strings.ToUpper(value), "UTF8")
-		}
-	}
-	return false
-}
 
 func paintStatus(paint termui.Palette, status doctor.Status) string {
 	text := statusColumn(status)
@@ -311,38 +299,4 @@ func paintStatus(paint termui.Palette, status doctor.Status) string {
 		// A status this build does not know is the one worth looking at.
 		return paint.Bad(text)
 	}
-}
-
-// wrapText breaks a detail into lines that fit. Words only, so a path stays
-// copyable: an over-long word overflows rather than being cut.
-func wrapText(text string, width int) []string {
-	if width < 20 {
-		width = 20
-	}
-	var lines []string
-	line := ""
-	for word := range strings.FieldsSeq(text) {
-		switch {
-		case line == "":
-			line = word
-		case len(line)+1+len(word) <= width:
-			line += " " + word
-		default:
-			lines = append(lines, line)
-			line = word
-		}
-	}
-	if line != "" {
-		lines = append(lines, line)
-	}
-	return lines
-}
-
-// terminalWidth is $COLUMNS, then 80. A wrong guess costs a wrapped line, so
-// this needs no dependency.
-func terminalWidth() int {
-	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 40 {
-		return columns
-	}
-	return 80
 }

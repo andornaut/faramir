@@ -8,6 +8,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/layouttest"
 	"github.com/andornaut/faramir/internal/steps"
 )
 
@@ -63,7 +64,7 @@ func TestInitWritesNoRulesForAHomeWithNoAgent(t *testing.T) {
 // The agents that are there get their rules, and the ones that are not do not.
 func TestInitWritesRulesForTheAgentsInTheHome(t *testing.T) {
 	home := t.TempDir()
-	touch(t, home, ".config/opencode/opencode.json")
+	layouttest.Touch(t, home, ".config/opencode/opencode.json")
 
 	got := agentStep(t, home)
 
@@ -89,7 +90,7 @@ func TestInitWritesRulesForANamedAgentThatIsAbsent(t *testing.T) {
 // the one asked for.
 func TestInitUnionsAutoWithANamedAgent(t *testing.T) {
 	home := t.TempDir()
-	touch(t, home, ".config/opencode/opencode.json")
+	layouttest.Touch(t, home, ".config/opencode/opencode.json")
 
 	got := agentStep(t, home, agentcfg.Auto, "claude")
 

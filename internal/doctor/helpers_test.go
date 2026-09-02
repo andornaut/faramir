@@ -1,8 +1,6 @@
 package doctor
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/hostlayout"
@@ -17,23 +15,6 @@ func pinSudo(t *testing.T, rs bool) {
 	original := hostsudo.RsProbe
 	hostsudo.RsProbe = func() bool { return rs }
 	t.Cleanup(func() { hostsudo.RsProbe = original })
-}
-
-// writeBlockConfig is an install whose config declares the entries given.
-func writeBlockConfig(t *testing.T, entries string) string {
-	t.Helper()
-	return configDirWith(t, "[command]\ntimeout_sec = 600\n"+entries)
-}
-
-// configDirWith is an install directory holding this config.toml, for the
-// commands that take a directory and join the file name onto it.
-func configDirWith(t *testing.T, body string) string {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return dir
 }
 
 // testLayout is the install a diagnosis re-renders against. The shared fixture

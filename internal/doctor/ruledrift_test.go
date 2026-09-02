@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // writeRules puts a settings file in a home and returns the home.
@@ -215,14 +216,14 @@ func TestLooksManagedMatchesOnlyTheInstallersOwnLine(t *testing.T) {
 // host where nothing is wrong.
 func TestTheReRenderKnowsTheAgentsAccount(t *testing.T) {
 	const agent = "someoperator"
-	dir := configDirWith(t, "[server]\nagent_user = \""+agent+"\"\n")
+	dir := layouttest.ConfigDir(t, "[server]\nagent_user = \""+agent+"\"\n")
 	if got := agentcfg.RuleLayout(dir).AgentUser; got != agent {
 		t.Errorf("ruleLayout carries AgentUser %q, want %q: doctor would re-render "+
 			"without the home spellings and call the installed file drifted", got, agent)
 	}
 	// And a config that names none leaves it empty rather than guessing, which
 	// is what installDirs and the rendering both skip.
-	bare := configDirWith(t, "[command]\ntimeout_sec = 600\n")
+	bare := layouttest.ConfigDir(t, "[command]\ntimeout_sec = 600\n")
 	if got := agentcfg.RuleLayout(bare).AgentUser; got != "" {
 		t.Errorf("ruleLayout invented an agent user %q from a config naming none", got)
 	}

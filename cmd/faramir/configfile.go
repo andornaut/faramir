@@ -1,90 +1,19 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
-	"time"
 
+	"github.com/andornaut/faramir/internal/brokerclient"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostunit"
-	"github.com/andornaut/faramir/internal/sockutil"
-	"github.com/andornaut/faramir/internal/version"
 )
 
 // brokerUnit records the config the daemons loaded. A variable so a test can
 // point it at a fixture, and taken from install rather than written out again:
 // init refuses a config move against the same file.
 var brokerUnit = hostunit.Path("faramir-broker.service")
-
-// status is what a running broker says about itself: where its config is, and
-// which build is answering.
-type status struct {
-	configDir string
-	version   string
-	// build is which build of that version, for the versions that do not name
-	// one. Empty from a release, and from a broker of a build that predates it.
-	build string
-}
-
-// askBroker asks a running broker about itself in one round trip, and returns a
-// zero status on any failure, every caller having something to fall back on.
-func askBroker(socketPath string) status {
-	conn, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(
-		context.Background(), "unix", socketPath)
-	if err != nil {
-		return status{}
-	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
-
-	if err := sockutil.Send(conn, map[string]any{
-		"op": opStatus, "version": version.Version}); err != nil {
-		return status{}
-	}
-	// The write half stays open. The broker reads this connection for the whole
-	// of a run and takes an EOF as the caller having gone, killing the command;
-	// nothing on this socket half-closes, so there is no per-op rule to get
-	// wrong when an op becomes a long one.
-	line, err := sockutil.ReadLine(conn, 1<<20)
-	if err != nil {
-		return status{}
-	}
-	// The status body is itself JSON, carried as the response's output string.
-	var response struct {
-		Output  string `json:"output"`
-		Version string `json:"version"`
-		Error   *struct {
-			Code string `json:"code"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(line, &response); err != nil {
-		return status{}
-	}
-	// A broker of another release refuses this before it reads the op, so the
-	// refusal is the answer: what refused names the build that is running, and
-	// there is no status body to read. Reported as skew rather than as a broker
-	// that said nothing.
-	if response.Error != nil {
-		return status{version: response.Version}
-	}
-	var body struct {
-		Config  string `json:"config"`
-		Version string `json:"version"`
-		Build   string `json:"build"`
-	}
-	if err := json.Unmarshal([]byte(response.Output), &body); err != nil {
-		return status{}
-	}
-	out := status{version: body.Version, build: body.Build}
-	if body.Config != "" {
-		out.configDir = filepath.Dir(body.Config)
-	}
-	return out
-}
 
 // unitConfigFile reads the config path out of the broker's unit and its
 // drop-ins, or "" when neither is readable or names one: what the broker was
@@ -103,9 +32,9 @@ func unitConfigFile() string {
 // cannot be expected to know where the config lives, and the default is a
 // guess: acting on the wrong install is worse than saying which install could
 // not be found.
-func configFileFrom(st status) (string, error) {
-	if st.configDir != "" {
-		return filepath.Join(st.configDir, "config.toml"), nil
+func configFileFrom(st brokerclient.Status) (string, error) {
+	if st.ConfigDir != "" {
+		return filepath.Join(st.ConfigDir, "config.toml"), nil
 	}
 	if path := unitConfigFile(); path != "" {
 		return path, nil
@@ -119,7 +48,7 @@ func configFileFrom(st status) (string, error) {
 // a caller to name an install it happens to know about, but the way out of the
 // case configFileFrom ends in, a host whose broker is down and whose unit is
 // gone still having an operator who can say where the config is.
-func findConfigFile(st status) (string, error) {
+func findConfigFile(st brokerclient.Status) (string, error) {
 	path := os.Getenv("FARAMIR_CONFIG")
 	if path == "" {
 		return configFileFrom(st)
@@ -144,7 +73,7 @@ var errNoInstall = fmt.Errorf("no install found: the broker did not answer and %
 // resolveConfigDir is the directory holding this host's config, for the
 // commands that act on the install rather than read it.
 func resolveConfigDir(socketPath string) (string, error) {
-	path, err := findConfigFile(askBroker(socketPath))
+	path, err := findConfigFile(brokerclient.AskStatus(socketPath))
 	if err != nil {
 		return "", err
 	}
@@ -160,7 +89,7 @@ func resolveConfigDir(socketPath string) (string, error) {
 // $FARAMIR_CONFIG then reads as a host that declares nothing rather than as the
 // wrong install: the one thing the ladder exists to refuse.
 func installedConfigDir(socketPath string) (string, error) {
-	path, err := findConfigFile(askBroker(socketPath))
+	path, err := findConfigFile(brokerclient.AskStatus(socketPath))
 	if err != nil {
 		return "", err
 	}
@@ -186,7 +115,7 @@ func initConfigDir(explicit, socketPath string) string {
 	if explicit != "" {
 		return explicit
 	}
-	if path, err := configFileFrom(askBroker(socketPath)); err == nil {
+	if path, err := configFileFrom(brokerclient.AskStatus(socketPath)); err == nil {
 		return filepath.Dir(path)
 	}
 	return hostlayout.DefaultConfigDir

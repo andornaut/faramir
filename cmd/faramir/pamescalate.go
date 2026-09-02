@@ -16,16 +16,12 @@ package main
 // took at the fork, so a pid the kernel has since handed on answers for nothing.
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/brokerclient"
-	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/escalation"
 )
 
@@ -108,7 +104,7 @@ func runPamEscalate(f pamEscalateFlags, granted *bool) int {
 			"could be read, so it cannot be attributed")
 		return 1
 	}
-	approved, reason, err := askBrokerToApprove(pamSocket(), ancestors)
+	approved, reason, err := brokerclient.Escalate(pamSocket(), ancestors)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir pam-escalate: %v\n", err)
 		return 1
@@ -120,41 +116,3 @@ func runPamEscalate(f pamEscalateFlags, granted *bool) int {
 	*granted = true
 	return 0
 }
-
-// askBrokerToApprove puts the question and waits for a human's answer. No
-// deadline of its own: the broker holds the question for [sudo]
-// timeout_sec and refuses it after that.
-func askBrokerToApprove(socketPath string, ancestors []int) (bool, string, error) {
-	line, err := brokerclient.RoundTrip(socketPath, map[string]any{"op": "escalate", "procs": ancestors}, escalationWait)
-	if err != nil {
-		return false, "", err
-	}
-	var response struct {
-		Approved bool   `json:"approved"`
-		Reason   string `json:"reason"`
-		Error    *struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(line, &response); err != nil {
-		return false, "", errors.New("malformed response")
-	}
-	if response.Error != nil {
-		return false, "", fmt.Errorf("%s", response.Error.Message)
-	}
-	return response.Approved, response.Reason, nil
-}
-
-// escalationWait is the ceiling on one question: the broker decides when to
-// give up, and this only stops a lost connection from holding sudo open for
-// ever.
-//
-// Derived rather than picked. It must outlast any question the broker will
-// hold, or the helper gives up on a question still open and the operator's yes
-// lands on a sudo that has gone. So it is [sudo] timeout_sec's own ceiling plus
-// a margin for the round trip: the helper cannot read the config, and the
-// broker refuses to load a longer timeout, so the broker always decides first
-// and this only ever fires on a broker that stopped answering.
-const escalationMarginSec = 30
-
-var escalationWait = time.Duration(config.MaxSudoTimeoutSec+escalationMarginSec) * time.Second

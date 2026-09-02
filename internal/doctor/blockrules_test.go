@@ -10,6 +10,7 @@ import (
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // The one check that can see a command entry. The blocked paths check compares
@@ -17,7 +18,7 @@ import (
 // this a declared command refused by nothing reads as a converged host: which
 // is what it did while `block add` was not rendering the guard's file.
 func TestDoctorSeesACommandMissingFromTheGuardsFile(t *testing.T) {
-	dir := writeBlockConfig(t, "[[secret.block]]\ncommand = \"op read\"\n")
+	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\ncommand = \"op read\"\n")
 	libexec := t.TempDir()
 	path := filepath.Join(libexec, "deny-patterns.txt")
 	opts := Options{ConfigDir: dir}
@@ -72,7 +73,7 @@ func TestDoctorSeesACommandMissingFromTheGuardsFile(t *testing.T) {
 // before it compares. Without this, an entry that split a rule across two lines
 // took every path protection with it and doctor reported ok.
 func TestDoctorFailsOnARenderedRuleThatWillNotCompile(t *testing.T) {
-	dir := writeBlockConfig(t, "[secret]\n")
+	dir := layouttest.BlockConfigDir(t, "[secret]\n")
 	path := filepath.Join(t.TempDir(), "deny-patterns.txt")
 	opts := Options{ConfigDir: dir}
 

@@ -1,4 +1,4 @@
-package agekey
+package keygen
 
 import (
 	"os"
@@ -16,10 +16,10 @@ import (
 // Overwriting revokes access to every value it was a recipient for,
 // retroactively and silently, so a second run reports what it found and writes
 // nothing.
-func TestGenerateNeverClobbersAnExistingIdentity(t *testing.T) {
+func TestAgeNeverClobbersAnExistingIdentity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "age.key")
 
-	first, created, err := Generate(path)
+	first, created, err := Age(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestGenerateNeverClobbersAnExistingIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, created, err := Generate(path)
+	second, created, err := Age(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,9 +52,9 @@ func TestGenerateNeverClobbersAnExistingIdentity(t *testing.T) {
 
 // 0400 from the open, not the umask, which would depend on the shell the
 // install was run from.
-func TestGenerateWritesTheKeyReadOnly(t *testing.T) {
+func TestAgeWritesTheKeyReadOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "age.key")
-	if _, _, err := Generate(path); err != nil {
+	if _, _, err := Age(path); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -68,9 +68,9 @@ func TestGenerateWritesTheKeyReadOnly(t *testing.T) {
 
 // An error rather than a key written nowhere, which would leave the keeper with
 // no key and the report saying one was made.
-func TestGenerateReportsAnUnwritablePath(t *testing.T) {
+func TestAgeReportsAnUnwritablePath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent", "age.key")
-	if _, created, err := Generate(path); err == nil {
+	if _, created, err := Age(path); err == nil {
 		t.Errorf("Generate reported created=%v and no error for %s", created, path)
 	}
 }
@@ -79,11 +79,11 @@ func TestGenerateReportsAnUnwritablePath(t *testing.T) {
 // rule.
 func TestTheRecipientReadsBackFromTheFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "age.key")
-	minted, _, err := Generate(path)
+	minted, _, err := Age(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := Recipient(path)
+	read, err := AgeRecipient(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,10 +99,10 @@ func TestTheRecipientReadsBackFromTheFile(t *testing.T) {
 // would put key material into the .sops.yaml install writes.
 func TestRecipientReturnsThePublicHalfOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "age.key")
-	if _, _, err := Generate(path); err != nil {
+	if _, _, err := Age(path); err != nil {
 		t.Fatal(err)
 	}
-	read, err := Recipient(path)
+	read, err := AgeRecipient(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,11 +123,11 @@ func TestRecipientTakesTheLast(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "keys.txt")
-	if err := os.WriteFile(path, []byte(Format(first)+Format(second)), 0o400); err != nil {
+	if err := os.WriteFile(path, []byte(formatAge(first)+formatAge(second)), 0o400); err != nil {
 		t.Fatal(err)
 	}
 
-	read, err := Recipient(path)
+	read, err := AgeRecipient(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func TestRecipientNamesAFileWithNoKeyInIt(t *testing.T) {
 	if err := os.WriteFile(path, []byte("# nothing here\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Recipient(path)
+	_, err := AgeRecipient(path)
 	if err == nil {
 		t.Fatal("a file holding no recipient was accepted")
 	}

@@ -1,7 +1,6 @@
-// Package sshkey mints the ed25519 identity the broker lends to brokered
-// commands. In process rather than through ssh-keygen, so the host needs no
-// tooling installed and no key appears on a command line.
-package sshkey
+package keygen
+
+// The ed25519 identity the broker lends to brokered commands.
 
 import (
 	"crypto/ed25519"
@@ -13,14 +12,14 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// Generate writes an ed25519 keypair at path and path+".pub", returning the
+// SSH writes an ed25519 keypair at path and path+".pub", returning the
 // public key in authorized_keys form. created is false when the private key was
 // already there and nothing is written: regenerating one would lock the broker
 // out of every host its public half is on, so the file is opened O_EXCL.
-func Generate(path, comment string) (public string, created bool, err error) {
+func SSH(path, comment string) (public string, created bool, err error) {
 	handle, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, os.ErrExist) {
-		public, err = Public(path + ".pub")
+		public, err = SSHPublic(path + ".pub")
 		return public, false, err
 	}
 	if err != nil {
@@ -60,8 +59,8 @@ func Generate(path, comment string) (public string, created bool, err error) {
 	return line[:len(line)-1], true, nil
 }
 
-// Public reads an authorized_keys line back from a .pub file.
-func Public(path string) (string, error) {
+// SSHPublic reads an authorized_keys line back from a .pub file.
+func SSHPublic(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err

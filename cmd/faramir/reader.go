@@ -21,8 +21,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/audit"
+	"github.com/andornaut/faramir/internal/keygen"
 	"github.com/andornaut/faramir/internal/termui"
 	"github.com/andornaut/faramir/internal/vault"
 )
@@ -165,7 +165,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 		label = "reader add"
 		// Before root and before the config: a typo in a public key should not need
 		// sudo to find out about.
-		if err := agekey.ValidateRecipient(recipient); err != nil {
+		if err := keygen.ValidateRecipient(recipient); err != nil {
 			fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 			return 1
 		}
@@ -179,7 +179,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	// put the key back under `- age:`: to an operator who has just asked to
 	// remove it, that reads as an instruction to undo what they typed.
 	if !adding {
-		if keeper, err := agekey.Recipient(store.keyPath); err == nil && keeper == recipient {
+		if keeper, err := keygen.AgeRecipient(store.keyPath); err == nil && keeper == recipient {
 			fmt.Fprintf(os.Stderr, "faramir %s: %s is the key %s decrypts with, and is "+
 				"the one recipient this will not remove: without it nothing on this host "+
 				"can open the store\n", label, recipient, store.keyPath)
@@ -313,7 +313,7 @@ func runReaderList(f readerFlags) int {
 	// keeper's and root's. So the note appears where it can be known and the
 	// listing is plain where it cannot, rather than a column that says "no" and
 	// means "could not tell".
-	keeper, err := agekey.Recipient(vault.AgeKeyPath(cfg))
+	keeper, err := keygen.AgeRecipient(vault.AgeKeyPath(cfg))
 	if err != nil {
 		keeper = ""
 	}

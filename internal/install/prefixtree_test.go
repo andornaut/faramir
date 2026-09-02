@@ -8,6 +8,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // A trailing-wildcard entry reaches an enrolled tree without ever spelling its
@@ -17,7 +18,7 @@ import (
 // subject matches every file in it: the entry was accepted and the agent was
 // refused its whole checkout after the reload.
 func TestAPrefixEntryReachingAnEnrolledTreeIsRefused(t *testing.T) {
-	dir := writeBlockConfig(t, "")
+	dir := layouttest.BlockConfigDir(t, "")
 	home := t.TempDir()
 	tree := filepath.Join(home, "proj")
 	if err := os.MkdirAll(filepath.Join(tree, "sub"), 0o755); err != nil {

@@ -1,21 +1,22 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
 
-// opStatus is the wire name and the command name both.
-const opStatus = "status"
+	"github.com/andornaut/faramir/internal/brokerclient"
+)
 
 // newStatusCmd asks the broker the one no-argument question it serves.
 func newStatusCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
-		Use:     opStatus,
+		Use:     brokerclient.OpStatus,
 		Short:   "Show what the broker loaded and what it can reach",
 		GroupID: groupOperator,
 		Args:    noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			// Only run has --quiet.
-			return codeErr(send(opStatus, socketDefault(), map[string]any{"op": opStatus}, o.json, true))
+			return codeErr(send(brokerclient.OpStatus, socketDefault(), map[string]any{"op": brokerclient.OpStatus}, o.json, true))
 		},
 	}
 	o.add(c)

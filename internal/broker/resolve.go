@@ -1,6 +1,8 @@
-// Package resolve turns the caller's cmd[0] into the absolute path the executor
-// will run. There is no allowlist: what keeps plaintext out of the agent's
-// context is the uid split and the redactor.
+package broker
+
+// Turning the caller's cmd[0] into the absolute path the executor will run.
+// There is no allowlist: what keeps plaintext out of the agent's context is the
+// uid split and the redactor.
 //
 // Two rules, both about agreeing with the child's view of the world:
 //
@@ -8,7 +10,6 @@
 //   - A relative path is resolved against the request's cwd, where the child
 //     runs; the broker's own directory could hold a different file of the same
 //     name.
-package resolve
 
 import (
 	"errors"
@@ -61,11 +62,11 @@ func executableByNobody(path string) bool {
 // numbers. Every other failure is the command not running for a reason the
 // caller has to read rather than test.
 var (
-	// ErrNotFound is nothing at the named path, or nothing on the PATH.
-	ErrNotFound = errors.New("no such program")
-	// ErrNotExecutable is a path that is there and is not something the kernel
+	// errNotFound is nothing at the named path, or nothing on the PATH.
+	errNotFound = errors.New("no such program")
+	// errNotExecutable is a path that is there and is not something the kernel
 	// can run: a directory, a device, a socket.
-	ErrNotExecutable = errors.New("not executable")
+	errNotExecutable = errors.New("not executable")
 )
 
 // kindError carries one of those alongside a message written for a reader. The
@@ -82,15 +83,15 @@ func (e kindError) Unwrap() error { return e.kind }
 
 // notFoundf and notExecutablef are fmt.Errorf for those two kinds.
 func notFoundf(format string, a ...any) error {
-	return kindError{kind: ErrNotFound, text: fmt.Sprintf(format, a...)}
+	return kindError{kind: errNotFound, text: fmt.Sprintf(format, a...)}
 }
 
 func notExecutablef(format string, a ...any) error {
-	return kindError{kind: ErrNotExecutable, text: fmt.Sprintf(format, a...)}
+	return kindError{kind: errNotExecutable, text: fmt.Sprintf(format, a...)}
 }
 
-// Program returns the absolute, symlink-resolved path for argv0.
-func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
+// resolveProgram returns the absolute, symlink-resolved path for argv0.
+func resolveProgram(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 	if argv0 == "" {
 		return "", errors.New("empty command")
 	}

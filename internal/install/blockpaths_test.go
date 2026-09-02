@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // Nothing is compiled in, so a path outside this install's own directories is
 // removable whatever it is: a check that refused one of these would be refusing
 // on grounds that no longer exist.
 func TestOnlyTheLayoutBlocksWithoutAnEntry(t *testing.T) {
-	dir := writeBlockConfig(t, "")
+	dir := layouttest.BlockConfigDir(t, "")
 	for _, asked := range []config.BlockedPath{
 		{Path: "/home/op/.config/sops/age/keys.txt"},
 		{Path: "/home/op/.ssh/id_rsa"},
@@ -31,7 +32,7 @@ func TestOnlyTheLayoutBlocksWithoutAnEntry(t *testing.T) {
 // come out of the layout on every render. Reporting "nothing removed" for one
 // would read as the file becoming readable.
 func TestRemovingAPathTheLayoutBlocksIsRefused(t *testing.T) {
-	dir := writeBlockConfig(t, "")
+	dir := layouttest.BlockConfigDir(t, "")
 	for _, asked := range []config.BlockedPath{
 		{Path: dir},
 		{Path: filepath.Join(dir, "age.key")},
@@ -52,7 +53,7 @@ func TestRemovingAPathTheLayoutBlocksIsRefused(t *testing.T) {
 
 // A neighbour whose name merely starts the same way is not under it.
 func TestASiblingOfAnInstalledDirectoryIsRemovable(t *testing.T) {
-	dir := writeBlockConfig(t, "")
+	dir := layouttest.BlockConfigDir(t, "")
 	if err := BuiltInRuleError(dir, config.BlockedPath{Path: dir + "-notes"}); err != nil {
 		t.Errorf("%s-notes was read as being under %s: %v", dir, dir, err)
 	}
@@ -61,7 +62,7 @@ func TestASiblingOfAnInstalledDirectoryIsRemovable(t *testing.T) {
 // A declared entry is removable, which is what the check above must not get in
 // the way of.
 func TestADeclaredEntryIsRemovable(t *testing.T) {
-	dir := writeBlockConfig(t, "[[secret.block]]\npath = \"/home/op/age.key\"\n")
+	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\npath = \"/home/op/age.key\"\n")
 	if err := BuiltInRuleError(dir, config.BlockedPath{Path: "/home/op/age.key"}); err != nil {
 		t.Errorf("a declared entry was refused: %v", err)
 	}
@@ -122,7 +123,7 @@ func TestSeveralEntriesFoldIntoOneSet(t *testing.T) {
 // One bad entry writes none of the list. A partial write would leave the
 // operator to work out which half of what they pasted took.
 func TestOneBadEntryWritesNoneOfTheList(t *testing.T) {
-	dir := writeBlockConfig(t, "")
+	dir := layouttest.BlockConfigDir(t, "")
 	before, err := os.ReadFile(filepath.Join(dir, "config.toml"))
 	if err != nil {
 		t.Fatal(err)

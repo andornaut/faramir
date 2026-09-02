@@ -16,7 +16,6 @@ import (
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/execclient"
 	"github.com/andornaut/faramir/internal/protocol"
-	"github.com/andornaut/faramir/internal/resolve"
 	"github.com/andornaut/faramir/internal/secretref"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/termsafe"
@@ -57,9 +56,9 @@ func splitExecCode(text string) (string, string) {
 // execFailureCode is which of the three a resolve failure was.
 func execFailureCode(err error) string {
 	switch {
-	case errors.Is(err, resolve.ErrNotFound):
+	case errors.Is(err, errNotFound):
 		return codeNotFound
-	case errors.Is(err, resolve.ErrNotExecutable):
+	case errors.Is(err, errNotExecutable):
 		return codeNotExecutable
 	}
 	return codeExecFailed
@@ -227,7 +226,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		return s.refuse(codeBlocked, declaredRefusal(rule), logID, peer, cmd, cwd)
 	}
 
-	argv0Path, err := resolve.Program(cmd[0], cwd, execCfg)
+	argv0Path, err := resolveProgram(cmd[0], cwd, execCfg)
 	if err != nil {
 		// Redacted like every other agent-visible string.
 		record := s.redactor()

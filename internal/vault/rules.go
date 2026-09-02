@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"slices"
 
-	"github.com/andornaut/faramir/internal/agekey"
+	"github.com/andornaut/faramir/internal/keygen"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
@@ -127,7 +127,7 @@ func RuleRecipientsFrom(body []byte, path string) ([]string, error) {
 // the files would already be sealed to a set without the only identity on the
 // host.
 func KeeperStaysAReader(keyPath string, wanted []string, rulePath string) error {
-	recipient, err := agekey.Recipient(keyPath)
+	recipient, err := keygen.AgeRecipient(keyPath)
 	if err != nil {
 		return fmt.Errorf("age key: %w", err)
 	}

@@ -2,12 +2,12 @@ package auditview
 
 import (
 	"encoding/json"
-	"io"
-	"os"
 	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/termui"
+	"github.com/andornaut/faramir/internal/termuitest"
+	"github.com/andornaut/faramir/internal/testio"
 )
 
 // renderRecord is printRecord's output, captured. The command writes to stdout
@@ -18,21 +18,8 @@ func renderRecord(t *testing.T, line string, paint termui.Palette) string {
 	if err := json.Unmarshal([]byte(line), &record); err != nil {
 		t.Fatal(err)
 	}
-	read, write, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	original := os.Stdout
-	os.Stdout = write
-	done := make(chan string)
-	go func() {
-		body, _ := io.ReadAll(read)
-		done <- string(body)
-	}()
-	PrintRecord(record, paint)
-	os.Stdout = original
-	_ = write.Close()
-	return <-done
+	out, _ := testio.CaptureStdout(t, func() int { PrintRecord(record, paint); return 0 })
+	return out
 }
 
 // The detail view is every field a record can carry, in one rendering: the
@@ -50,7 +37,7 @@ const detailFixture = `{"log_id":"w5vq7dbf000007","op":"run",` +
 	`"output":"ok: [host.example.com]\nchanged=0\n","output_truncated":true}`
 
 func TestPrintRecordRendersEveryField(t *testing.T) {
-	got := renderRecord(t, detailFixture, plain(t))
+	got := renderRecord(t, detailFixture, termuitest.Plain(t))
 	for _, want := range []string{
 		// The id leads the summary line rather than being a field of its own.
 		"w5vq7dbf000007",
@@ -78,7 +65,7 @@ func TestPrintRecordRendersEveryField(t *testing.T) {
 // with no refs prints nothing either, so the view looks the same both ways.
 func TestRefsRowReadsTheShapeTheBrokerWrites(t *testing.T) {
 	got := renderRecord(t, `{"log_id":"x","op":"run",`+
-		`"env_refs":{"TOKEN":"api/token","PW":"db/password"}}`, plain(t))
+		`"env_refs":{"TOKEN":"api/token","PW":"db/password"}}`, termuitest.Plain(t))
 	// Sorted by variable name rather than by whatever the map iterated to first.
 	if !strings.Contains(got, "refs       PW=db/password, TOKEN=api/token") {
 		t.Errorf("the refs row is not the record's pairs in order:\n%s", got)
@@ -89,7 +76,7 @@ func TestRefsRowReadsTheShapeTheBrokerWrites(t *testing.T) {
 // nothing after it reads as a value that is empty rather than one that is
 // absent.
 func TestPrintRecordOmitsAbsentFields(t *testing.T) {
-	got := renderRecord(t, `{"log_id":"x","op":"redact","input_bytes":2048}`, plain(t))
+	got := renderRecord(t, `{"log_id":"x","op":"redact","input_bytes":2048}`, termuitest.Plain(t))
 	for _, absent := range []string{
 		"caller", "cwd", "program", "reason", "reduced",
 		"refs", "from", "to", "redacted", "output",
@@ -104,7 +91,7 @@ func TestPrintRecordOmitsAbsentFields(t *testing.T) {
 // decides whether a row prints has to see the value rather than the escapes
 // around it.
 func TestPrintRecordWithColourPrintsTheSameRows(t *testing.T) {
-	colour, mono := renderRecord(t, detailFixture, always(t)), renderRecord(t, detailFixture, plain(t))
+	colour, mono := renderRecord(t, detailFixture, termuitest.Always(t)), renderRecord(t, detailFixture, termuitest.Plain(t))
 	if strings.Count(colour, "\n") != strings.Count(mono, "\n") {
 		t.Errorf("colour changed how many rows print:\n%s\nvs\n%s", colour, mono)
 	}
@@ -122,7 +109,7 @@ func TestPrintRecordRendersTerminalControlsInCallerText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := renderRecord(t, string(line), plain(t))
+	got := renderRecord(t, string(line), termuitest.Plain(t))
 	if strings.Contains(got, "\x1b[2J") {
 		t.Errorf("an escape from the record reached the terminal: %q", got)
 	}

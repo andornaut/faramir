@@ -7,20 +7,8 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
-
-// touch creates a file and the directories above it, for a home a test is
-// building up one marker at a time.
-func touch(t *testing.T, home, rel string) {
-	t.Helper()
-	path := filepath.Join(home, rel)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
 
 // finding is the one row named, or a failure: every case here is about a single
 // agent's state, and asserting on the whole list would couple each case to how
@@ -80,7 +68,7 @@ func TestAgentRulesNamesTheFilesWhenTheyAreThere(t *testing.T) {
 	home := t.TempDir()
 	target := agentcfg.Targets["claude"]
 	for _, file := range target.AccountFiles {
-		touch(t, home, file.Path)
+		layouttest.Touch(t, home, file.Path)
 	}
 
 	var report Report
@@ -105,7 +93,7 @@ func TestAgentRulesFailWhenTheAgentIsHereAndItsRulesAreNot(t *testing.T) {
 	home := t.TempDir()
 	// Its own directory and none of the rules: the shape an operator who
 	// installed the agent after running `faramir init` is left in.
-	touch(t, home, ".claude/some-state.json")
+	layouttest.Touch(t, home, ".claude/some-state.json")
 
 	var report Report
 	reportAgentRules(&report, home, nil)
@@ -130,7 +118,7 @@ func TestAgentRulesFailWhenTheAgentIsHereAndItsRulesAreNot(t *testing.T) {
 func TestAgentRulesAreOKWhereOnlyTheRulesAreThere(t *testing.T) {
 	home := t.TempDir()
 	for _, file := range agentcfg.Targets["opencode"].AccountFiles {
-		touch(t, home, file.Path)
+		layouttest.Touch(t, home, file.Path)
 	}
 
 	var report Report
@@ -169,7 +157,7 @@ func TestAgentRulesAreUnaskedWithoutAnOperator(t *testing.T) {
 // running the command it advises protects a key it will not touch.
 func TestTheMissingRulesFindingClaimsOnlyWhatTheRulesCover(t *testing.T) {
 	home := t.TempDir()
-	touch(t, home, ".claude/some-state.json")
+	layouttest.Touch(t, home, ".claude/some-state.json")
 
 	var report Report
 	reportAgentRules(&report, home, nil)

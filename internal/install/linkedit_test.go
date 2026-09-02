@@ -9,13 +9,14 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/layouttest"
 	"github.com/andornaut/faramir/internal/secretlink"
 )
 
 // writeLinkConfig is an install whose config declares the entries given.
 func writeLinkConfig(t *testing.T, entries string) string {
 	t.Helper()
-	return configDirWith(t, "[command]\ntimeout_sec = 600\n"+entries)
+	return layouttest.ConfigDir(t, "[command]\ntimeout_sec = 600\n"+entries)
 }
 
 // Every refusal `link add` can make before it has touched anything: the entry

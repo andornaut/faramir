@@ -8,6 +8,7 @@ import (
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 const sharedGroupConfig = "[command]\ntimeout_sec = 600\n\n[server]\nallowed_group = \"faramir-clients\"\n"
@@ -16,7 +17,7 @@ const sharedGroupConfig = "[command]\ntimeout_sec = 600\n\n[server]\nallowed_gro
 // makes a shared tree usable: a tree shared with any other group is one the
 // executor can enter and the broker will not serve.
 func TestTheClientGroupIsReadOffTheInstalledConfig(t *testing.T) {
-	run := &project{opts: Options{ConfigDir: configDirWith(t, sharedGroupConfig)}}
+	run := &project{opts: Options{ConfigDir: layouttest.ConfigDir(t, sharedGroupConfig)}}
 
 	if err := run.resolveGroup(); err != nil {
 		t.Fatal(err)
@@ -34,7 +35,7 @@ func TestTheClientGroupIsReadOffTheInstalledConfig(t *testing.T) {
 // resolved, and leave a tree the broker still will not serve.
 func TestAConfigThatAdmitsNoGroupIsRefused(t *testing.T) {
 	run := &project{opts: Options{
-		ConfigDir: configDirWith(t,
+		ConfigDir: layouttest.ConfigDir(t,
 			"[command]\ntimeout_sec = 600\n\n[server]\nallowed_group = \"\"\n"),
 	}}
 
@@ -104,7 +105,7 @@ func TestANamedGroupTakesTheSudoGrantOnlyFromTheSameInstall(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			configDir := t.TempDir()
 			if tc.config != "" {
-				configDir = configDirWith(t, tc.config)
+				configDir = layouttest.ConfigDir(t, tc.config)
 			}
 			run := &project{opts: Options{
 				ConfigDir: configDir, ClientGroup: tc.group,
@@ -129,7 +130,7 @@ func TestANamedGroupTakesTheSudoGrantOnlyFromTheSameInstall(t *testing.T) {
 func TestTheSectionFollowsTheGrantTheEnrolmentRead(t *testing.T) {
 	const marker = "escalation_in_progress"
 	run := &project{opts: Options{
-		ConfigDir: configDirWith(t,
+		ConfigDir: layouttest.ConfigDir(t,
 			sharedGroupConfig+"\n[sudo]\nexec_user = \"faramir-exec\"\n"),
 	}}
 	if err := run.resolveGroup(); err != nil {
@@ -157,7 +158,7 @@ func TestTheDefaultClientGroupNamesTheGrant(t *testing.T) {
 			"rather than refusing, so every current member gains the broker",
 			hostlayout.DefaultClientGroup)
 	}
-	dir := configDirWith(t, "[command]\ntimeout_sec = 600\n")
+	dir := layouttest.ConfigDir(t, "[command]\ntimeout_sec = 600\n")
 	cfg, err := config.Load(filepath.Join(dir, "config.toml"))
 	if err != nil {
 		t.Fatal(err)

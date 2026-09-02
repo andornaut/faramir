@@ -1,4 +1,12 @@
-package main
+// Package sudoprompt is the operator's side of an escalation, at a terminal:
+// it shows a question, reads the answer typed against it, and says how the run
+// it approved ended. The broker renders the caller's strings before they
+// arrive (see escalation.Command), so what is printed here carries no escape
+// sequence to obey; what is painted is the chrome, never the value.
+//
+// The `faramir sudo` commands drive it. They own the socket and the answer
+// sent back; this owns the screen and the keyboard.
+package sudoprompt
 
 import (
 	"bufio"
@@ -6,12 +14,8 @@ import (
 	"os"
 	"os/user"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
-	"unicode"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/andornaut/faramir/internal/auditview"
 	"github.com/andornaut/faramir/internal/escalation"
@@ -41,11 +45,11 @@ func ranFor(outcome escalation.Outcome) string {
 		outcome.DurationSec-outcome.WaitedSec, outcome.WaitedSec, outcome.DurationSec)
 }
 
-// printOutcome says how the approved run ended, in one line naming the record
+// PrintOutcome says how the approved run ended, in one line naming the record
 // rather than reproducing it: the log holds the command, the refs and the
 // output. A run with no exit code is said to have ended without one, a zero
 // there reading as a clean exit.
-func printOutcome(outcome escalation.Outcome, paint termui.Palette) {
+func PrintOutcome(outcome escalation.Outcome, paint termui.Palette) {
 	// The same green and red `faramir logs` gives the outcome column, the same
 	// operator reading both: a watcher left running all afternoon is scanned for
 	// the endings that were not clean. The log id is dimmed as it is there, and
@@ -73,7 +77,7 @@ func printOutcome(outcome escalation.Outcome, paint termui.Palette) {
 	}
 }
 
-// warnIfTypeable says so when this terminal is one the coding agent could type
+// WarnIfTypeable says so when this terminal is one the coding agent could type
 // into. The socket check makes the answer come from root; it cannot make root
 // the one doing the typing.
 //
@@ -87,7 +91,7 @@ func printOutcome(outcome escalation.Outcome, paint termui.Palette) {
 //
 // A real console, an ssh session from another machine, or a login as another
 // account have neither problem.
-func warnIfTypeable() {
+func WarnIfTypeable() {
 	var reasons []string
 	if os.Getenv("TMUX") != "" {
 		reasons = append(reasons, "a tmux pane takes `send-keys` from any process "+
@@ -123,12 +127,12 @@ func warnIfTypeable() {
 // and eat the answer to the next.
 var answers = bufio.NewReader(os.Stdin)
 
-// fromTerminal is answers as it starts out, compared against in readLines to
+// fromTerminal is answers as it starts out, compared against in ReadLines to
 // set the terminal field discard reads: a test substitutes a reader of its own,
 // whose scripted answers are read in order rather than discarded.
 var fromTerminal = answers
 
-// typed is the operator's terminal, read on a goroutine of its own so that a
+// Terminal is the operator's terminal, read on a goroutine of its own so that a
 // prompt can give up without the read holding the watcher: a blocking read
 // would sit there until somebody typed, so the question's clock would run out
 // unnoticed and the next question would not be shown until a keystroke arrived.
@@ -136,7 +140,7 @@ var fromTerminal = answers
 // One goroutine for the life of the watcher, for the reason there is one
 // reader: a second would buffer past the newline and eat the answer to the next
 // question.
-type typed struct {
+type Terminal struct {
 	lines chan string
 	// paint is the palette the prompt below is printed with. Held here because
 	// the prompt is reprinted on every blank line, and the reader is what knows
@@ -149,12 +153,12 @@ type typed struct {
 	terminal bool
 }
 
-func readLines(paint termui.Palette) *typed {
+func ReadLines(paint termui.Palette) *Terminal {
 	// Captured, not read through the package variable: the goroutine outlives a
 	// test that substituted a reader of its own, and one reading whatever the
 	// variable holds now would take the lines meant for whoever set it.
 	source, fromTTY := answers, answers == fromTerminal
-	t := &typed{lines: make(chan string, 1), terminal: fromTTY, paint: paint}
+	t := &Terminal{lines: make(chan string, 1), terminal: fromTTY, paint: paint}
 	go func() {
 		defer close(t.lines)
 		for {
@@ -181,32 +185,18 @@ func readLines(paint termui.Palette) *typed {
 //
 // This narrows the window rather than closing it: a line the goroutine holds
 // between its read and its send lands after the drain.
-func (t *typed) discard() {
+func (t *Terminal) discard() {
 	if !t.terminal {
 		return
 	}
-	if !flushTypeahead() {
+	if !termui.FlushTypeahead() {
 		return
 	}
 	t.drain()
 }
 
-// flushTypeahead drops input that arrived before a prompt was printed, so a
-// keystroke meant for something else cannot answer it. This is what makes a
-// one-character answer safe, and every prompt taking one has to call it.
-//
-// Terminals only, and it reports whether it flushed. Input that was not typed
-// was not typed early: a substituted reader is a test's script and a redirected
-// stdin is a file, and both are meant to be read in order.
-func flushTypeahead() bool {
-	if !termui.IsTerminal(os.Stdin) {
-		return false
-	}
-	return unix.IoctlSetInt(int(os.Stdin.Fd()), unix.TCFLSH, unix.TCIFLUSH) == nil
-}
-
 // drain empties the channel of lines the goroutine has already delivered.
-func (t *typed) drain() {
+func (t *Terminal) drain() {
 	for {
 		select {
 		case <-t.lines:
@@ -216,26 +206,26 @@ func (t *typed) drain() {
 	}
 }
 
-// answerState is how the wait for an answer ended.
-type answerState int
+// State is how the wait for an answer ended.
+type State int
 
 const (
-	// answered: the operator typed one, and it is the line returned beside this.
-	answered answerState = iota
-	// expired: the question's clock ran out while the terminal waited. Nothing
+	// Answered: the operator typed one, and it is the line returned beside this.
+	Answered State = iota
+	// Expired: the question's clock ran out while the terminal waited. Nothing
 	// is sent to the broker, which has already refused it on the way out.
-	expired
-	// stdinClosed: there is no more input to read, which is the one condition
+	Expired
+	// StdinClosed: there is no more input to read, which is the one condition
 	// that ends the watch.
-	stdinClosed
+	StdinClosed
 )
 
-// answer waits for the operator, until the question it is about expires. A
+// Answer waits for the operator, until the question it is about expires. A
 // line holding nothing printable is asked again rather than counted as a no: a
 // stray newline is nobody saying anything. Deny by default comes from the
 // expiry instead, which the broker applies whether or not this terminal is
 // still asking.
-func (t *typed) answer(deadline time.Time) (string, answerState) {
+func (t *Terminal) Answer(deadline time.Time) (string, State) {
 	t.discard()
 	for {
 		// Bold, and the trailing space left outside it: what is being asked for is
@@ -245,40 +235,20 @@ func (t *typed) answer(deadline time.Time) (string, answerState) {
 		select {
 		case line, open := <-t.lines:
 			if !open {
-				return "", stdinClosed
+				return "", StdinClosed
 			}
-			if answerOf(line) == "" {
+			if termui.AnswerOf(line) == "" {
 				continue
 			}
-			return line, answered
+			return line, Answered
 		case <-time.After(time.Until(deadline)):
 			// Anything the goroutine delivered as the clock ran out was typed for the
 			// question that just expired, so it goes with it: left in the channel, a
 			// yes would approve root for a command nobody answered for.
 			t.drain()
-			return "", expired
+			return "", Expired
 		}
 	}
-}
-
-// answerOf is the part of a line that carries the answer: what is left once the
-// whitespace and unprintable bytes around it are gone. Empty is no answer at
-// all. The edges only, so nothing is edited down into an approval it did not
-// spell: "y<NUL>e" is a refusal, as it reads.
-func answerOf(line string) string {
-	return strings.TrimFunc(line, func(r rune) bool {
-		return unicode.IsSpace(r) || !unicode.IsPrint(r)
-	})
-}
-
-// approves is deny by default: only an explicit y approves, and a typo, a
-// stray word or a punctuation mark is a no, "yes" among them.
-//
-// One character, so one keystroke answers the prompt. That is what the flush at
-// the top of typed.answer is for: input that arrived before the question was
-// shown must not be able to spell the answer to it.
-func approves(line string) bool {
-	return strings.ToLower(answerOf(line)) == "y"
 }
 
 // receivedAt renders the broker's timestamp as a wall clock.
@@ -320,11 +290,11 @@ func promptField(paint termui.Palette, label, value string) {
 	fmt.Printf("  %s%s\n", paint.Key(auditview.Pad(label, promptLabelWidth)), value)
 }
 
-// printQuestion shows one question. Every caller-chosen string in it was
+// PrintQuestion shows one question. Every caller-chosen string in it was
 // rendered for a terminal by the broker (see escalation.Command), so what
 // arrives here holds no escape sequence to obey. One field per line: a question
 // is read before it is answered.
-func printQuestion(question escalation.Question, paint termui.Palette) {
+func PrintQuestion(question escalation.Question, paint termui.Palette) {
 	// The question without the command, which is the cmd line below: a prompt
 	// carrying it too pushes everything worth reading off the screen. Bold
 	// because it is the sentence being answered, and everything under it is the

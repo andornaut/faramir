@@ -16,6 +16,7 @@ import (
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/termui"
+	"github.com/andornaut/faramir/internal/testio"
 )
 
 // escalationsSocket answers one escalations op with the questions given and closes.
@@ -51,7 +52,7 @@ func escalationsSocket(t *testing.T, questions []escalation.Question) string {
 // reads which of the two it was off the status rather than off the array.
 func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	t.Run("nothing waiting", func(t *testing.T) {
-		out, code := captureStdout(t, func() int {
+		out, code := testio.CaptureStdout(t, func() int {
 			return listEscalations(escalationsSocket(t, nil), true, termui.Palette{})
 		})
 		if code != 1 {
@@ -70,7 +71,7 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 		socket := escalationsSocket(t, []escalation.Question{{
 			ID: "9f2a1c", Cmd: "ansible-playbook site.yml", ExpiresInSec: 118,
 		}})
-		out, code := captureStdout(t, func() int { return listEscalations(socket, true, termui.Palette{}) })
+		out, code := testio.CaptureStdout(t, func() int { return listEscalations(socket, true, termui.Palette{}) })
 		if code != 0 {
 			t.Errorf("code = %d, want 0 with one waiting", code)
 		}
@@ -86,7 +87,7 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	// A broker that could not be reached prints no listing at all: an empty array
 	// there would report a host as quiet when nothing was asked.
 	t.Run("no broker", func(t *testing.T) {
-		out, code := captureStdout(t, func() int {
+		out, code := testio.CaptureStdout(t, func() int {
 			return listEscalations(filepath.Join(t.TempDir(), "absent.sock"), true, termui.Palette{})
 		})
 		if code != 69 {
@@ -96,10 +97,4 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 			t.Errorf("stdout carries a listing for a broker that was not reached: %q", out)
 		}
 	})
-}
-
-// captureStderr is the same for the stream a refusal is written to.
-func captureStderr(t *testing.T, fn func() int) (string, int) {
-	t.Helper()
-	return captureFile(t, &os.Stderr, fn)
 }

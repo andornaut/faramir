@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/testio"
 )
 
 // --quiet is how an agent runs a command, so what it suppresses decides what an
@@ -42,8 +44,8 @@ func TestQuietSuppressesTheSummaryAndNothingThatChangesTheOutput(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			socketPath := refreshBroker(t, response)
-			said, _ := captureStderr(t, func() int {
+			socketPath := answeringBroker(t, response)
+			said, _ := testio.CaptureStderr(t, func() int {
 				return send("run", socketPath, map[string]any{"op": "run"}, false, tc.quiet)
 			})
 			for _, want := range tc.want {

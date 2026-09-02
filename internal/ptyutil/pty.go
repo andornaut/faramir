@@ -1,5 +1,9 @@
 // Package ptyutil opens a PTY pair without a third-party dependency: the three
 // syscalls involved are what any pty library wraps.
+//
+// A leaf of its own rather than a file in execclient: execserver's tests open
+// a pair too, and execclient imports execserver, so it cannot be the one to
+// supply them.
 package ptyutil
 
 import (

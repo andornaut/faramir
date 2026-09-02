@@ -9,6 +9,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // Every refusal `block add` can make before it touches anything. There is no
@@ -30,7 +31,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 		{"the whole filesystem", "", "/", "every file on the host"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := writeBlockConfig(t, tc.entries)
+			dir := layouttest.BlockConfigDir(t, tc.entries)
 			before, err := os.ReadFile(filepath.Join(dir, "config.toml"))
 			if err != nil {
 				t.Fatal(err)
@@ -58,7 +59,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 // The path a caller names is the one the refusal quotes, so an operator can see
 // which of several entries was rejected.
 func TestAddRefusedNamesThePathItRefused(t *testing.T) {
-	dir := writeBlockConfig(t, "")
+	dir := layouttest.BlockConfigDir(t, "")
 	_, _, err := AddBlockedPaths(Options{ConfigDir: dir}, []config.BlockedPath{{Path: "relative/path"}})
 	if err == nil {
 		t.Fatal("a relative path was accepted")
@@ -97,7 +98,7 @@ func TestTheEntrySetAnAddRenders(t *testing.T) {
 // entry, the caller telling the two apart by that. It is not an error: what was
 // asked for is the state the host is in.
 func TestRemoveRefusedOnAPathTheInstallDoesNotRefuse(t *testing.T) {
-	dir := writeBlockConfig(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
+	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
 	before := readConfigFile(t, dir)
 
 	_, removed, err := RemoveBlockedPaths(Options{ConfigDir: dir}, []config.BlockedPath{{Path: "/etc/other.key"}})
@@ -117,7 +118,7 @@ func TestRemoveRefusedOnAPathTheInstallDoesNotRefuse(t *testing.T) {
 // What `block ls` reads. An install that refuses nothing is not an error: it
 // is every install until the first entry.
 func TestRefusedPathsReadsWhatTheConfigDeclares(t *testing.T) {
-	dir := writeBlockConfig(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n\n"+
+	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n\n"+
 		"[[secret.block]]\npath = \"/home/op/.ssh\"\n")
 
 	got, err := BlockedPaths(dir)
@@ -128,7 +129,7 @@ func TestRefusedPathsReadsWhatTheConfigDeclares(t *testing.T) {
 		t.Fatalf("BlockedPaths = %+v", got)
 	}
 
-	empty, err := BlockedPaths(writeBlockConfig(t, ""))
+	empty, err := BlockedPaths(layouttest.BlockConfigDir(t, ""))
 	if err != nil {
 		t.Fatalf("an install that refuses nothing reported an error: %v", err)
 	}
@@ -140,7 +141,7 @@ func TestRefusedPathsReadsWhatTheConfigDeclares(t *testing.T) {
 // Adoption is what stops a plain `init` from erasing the entries: no flag names
 // one, so a run that did not read them back would drop every rule they render.
 func TestARerunKeepsTheRefusedPaths(t *testing.T) {
-	dir := writeBlockConfig(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
+	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
 	opts := Options{ConfigDir: dir}
 
 	if _, err := opts.adoptInstalled(); err != nil {
@@ -155,7 +156,7 @@ func TestARerunKeepsTheRefusedPaths(t *testing.T) {
 // removing the last entry would read as "nothing was named" and adoption would
 // put it back.
 func TestRemovingTheLastBlockedPathIsNotMistakenForSilence(t *testing.T) {
-	dir := writeBlockConfig(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
+	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
 	opts := Options{ConfigDir: dir, blocked: nil, blockedSet: true}
 
 	if _, err := opts.adoptInstalled(); err != nil {
@@ -176,7 +177,7 @@ func TestChangingOneKindOfEntryKeepsTheOther(t *testing.T) {
 		"[[secret.block]]\npath = \"/etc/luks/volume.key\"\n"
 
 	t.Run("block add keeps the links", func(t *testing.T) {
-		dir := writeBlockConfig(t, both)
+		dir := layouttest.BlockConfigDir(t, both)
 		opts := Options{
 			ConfigDir: dir,
 			blocked: append(refusedAt("/etc/luks/volume.key"),
@@ -195,7 +196,7 @@ func TestChangingOneKindOfEntryKeepsTheOther(t *testing.T) {
 	})
 
 	t.Run("link add keeps the blocked paths", func(t *testing.T) {
-		dir := writeBlockConfig(t, both)
+		dir := layouttest.BlockConfigDir(t, both)
 		opts := Options{
 			ConfigDir: dir,
 			links: []config.Link{
@@ -232,7 +233,7 @@ func TestABatchCarryingOneBadEntryWritesNoneOfIt(t *testing.T) {
 		{"an entry naming nothing", config.BlockedPath{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := writeBlockConfig(t, "")
+			dir := layouttest.BlockConfigDir(t, "")
 			before := readConfigFile(t, dir)
 
 			_, added, err := AddBlockedPaths(Options{ConfigDir: dir},
@@ -345,7 +346,7 @@ func TestEachFormOfEntryIsWarnedAboutOnItsOwnTerms(t *testing.T) {
 // cannot lift. Nothing in such an entry is a secret: the file inside worth
 // refusing can be named on its own.
 func TestAddRefusedWillNotBlockAnEnrolledTree(t *testing.T) {
-	dir := writeBlockConfig(t, "")
+	dir := layouttest.BlockConfigDir(t, "")
 	home := t.TempDir()
 	tree := filepath.Join(home, "proj")
 	if err := os.MkdirAll(filepath.Join(tree, "sub"), 0o755); err != nil {

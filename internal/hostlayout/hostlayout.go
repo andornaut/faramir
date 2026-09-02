@@ -22,7 +22,6 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/escalation"
-	"github.com/andornaut/faramir/internal/hostfs"
 )
 
 // Default paths. Only ConfigDir is meant to be moved; the rest are here so the
@@ -586,32 +585,4 @@ func (l Layout) validateNotifyCommand() error {
 			l.notifySource(), l.NotifyCommand[0])
 	}
 	return nil
-}
-
-// HomeIsMounted reports whether an encrypted home has been unlocked. Writing
-// into one before its owner logs in lands in the unencrypted backing directory,
-// where it is shadowed the moment the home mounts. A mounted filesystem sits
-// on a different device from the directory it covers, which is what this
-// compares; mountpoint(1) is not on every host, and its absence would read as
-// "not mounted".
-func HomeIsMounted(home string) bool {
-	info, err := os.Stat(home)
-	if err != nil {
-		return false
-	}
-	parent, err := os.Stat(filepath.Dir(home))
-	if err != nil {
-		return false
-	}
-	return hostfs.DeviceOf(info) != hostfs.DeviceOf(parent)
-}
-
-// LooksEncrypted reports whether a home is one of the ecryptfs layouts, which
-// are the ones that are a different directory before login.
-func LooksEncrypted(home string) bool {
-	if _, err := os.Stat(filepath.Join("/home/.ecryptfs", filepath.Base(home))); err == nil {
-		return true
-	}
-	_, err := os.Stat(filepath.Join(home, ".ecryptfs"))
-	return err == nil
 }

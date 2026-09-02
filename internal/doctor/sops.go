@@ -10,10 +10,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/keeper"
+	"github.com/andornaut/faramir/internal/keygen"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
@@ -68,7 +68,7 @@ func diagnoseSopsRecipients(report *Report, opts Options, path string) {
 	// The key is 0400 and the keeper's, so this answers only under sudo, and is
 	// reported as unchecked rather than as a pass.
 	keyPath := filepath.Join(opts.ConfigDir, "age.key")
-	keeper, err := agekey.Recipient(keyPath)
+	keeper, err := keygen.AgeRecipient(keyPath)
 	if err != nil {
 		// A key that is not there is not a privilege problem, and telling root to
 		// re-run as root would send the operator in a circle: the keeper can
@@ -104,7 +104,7 @@ func diagnoseSopsRecipients(report *Report, opts Options, path string) {
 func recipientsAreWellFormed(report *Report, listed []string, path string) bool {
 	ok := true
 	for _, recipient := range listed {
-		err := agekey.ValidateRecipient(recipient)
+		err := keygen.ValidateRecipient(recipient)
 		if err == nil {
 			continue
 		}

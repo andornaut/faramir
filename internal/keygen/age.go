@@ -1,7 +1,9 @@
-// Package agekey mints and reads the age identities the keeper decrypts with,
-// so a faramir host needs no age binary. It does not replace the sops CLI,
-// which is what edits encrypted files.
-package agekey
+// Package keygen mints the key files an install creates: the age identity the
+// keeper decrypts with, and the ed25519 identity the broker lends to brokered
+// commands. In process rather than through the age and ssh-keygen binaries, so
+// the host needs neither installed and no key appears on a command line. It
+// does not replace the sops CLI, which is what edits encrypted files.
+package keygen
 
 import (
 	"bufio"
@@ -22,18 +24,18 @@ import (
 var recipientPattern = regexp.MustCompile(`age1[0-9a-z]+`)
 
 // Format renders an identity as the file's contents.
-func Format(id *age.X25519Identity) string {
+func formatAge(id *age.X25519Identity) string {
 	return fmt.Sprintf("# public key: %s\n%s\n", id.Recipient(), id)
 }
 
-// Generate mints an identity at path and returns its recipient. created is
+// Age mints an age identity at path and returns its recipient. created is
 // false when the file was already there, in which case nothing is written:
 // overwriting an identity destroys access to every value it was a recipient
 // for, retroactively, so the file is opened O_EXCL and 0400.
-func Generate(path string) (recipient string, created bool, err error) {
+func Age(path string) (recipient string, created bool, err error) {
 	handle, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o400)
 	if errors.Is(err, os.ErrExist) {
-		recipient, err = Recipient(path)
+		recipient, err = AgeRecipient(path)
 		return recipient, false, err
 	}
 	if err != nil {
@@ -45,7 +47,7 @@ func Generate(path string) (recipient string, created bool, err error) {
 		_ = os.Remove(path)
 		return "", false, err
 	}
-	if _, err := handle.WriteString(Format(id)); err != nil {
+	if _, err := handle.WriteString(formatAge(id)); err != nil {
 		_ = handle.Close()
 		return "", false, err
 	}
@@ -149,14 +151,14 @@ func privateHalf(s string) string {
 	return ""
 }
 
-// Recipient reads the public half out of an identity file.
+// AgeRecipient reads the public half out of an identity file.
 //
 // Derived from the private half wherever there is one: the "# public key:"
 // comment is a comment, absent from a hand-written key and free to disagree
 // with the identity beneath it. A wrong answer here seals the secrets to a key
 // the host does not hold. The comment is the fallback, for a file holding a
 // recipient and no identity; the last of either wins.
-func Recipient(path string) (string, error) {
+func AgeRecipient(path string) (string, error) {
 	handle, err := os.Open(path)
 	if err != nil {
 		return "", err

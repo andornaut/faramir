@@ -1,4 +1,4 @@
-package sshkey
+package keygen
 
 import (
 	"os"
@@ -10,10 +10,10 @@ import (
 // Regenerating a key locks the broker out of every host its public half is on,
 // with a key file that looks healthy, so a second run reports what it found and
 // writes nothing.
-func TestGenerateNeverClobbersAnExistingKey(t *testing.T) {
+func TestSSHNeverClobbersAnExistingKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519")
 
-	first, created, err := Generate(path, "faramir-broker@host")
+	first, created, err := SSH(path, "faramir-broker@host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestGenerateNeverClobbersAnExistingKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, created, err := Generate(path, "faramir-broker@host")
+	second, created, err := SSH(path, "faramir-broker@host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,9 +47,9 @@ func TestGenerateNeverClobbersAnExistingKey(t *testing.T) {
 // Two halves, two modes, both from the write rather than the umask. 0600 keeps
 // the private half to the broker's uid; 0644 on the public half is deliberate,
 // it being copied into authorized_keys on every managed host.
-func TestGenerateWritesBothModes(t *testing.T) {
+func TestSSHWritesBothModes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519")
-	if _, _, err := Generate(path, "faramir-broker@host"); err != nil {
+	if _, _, err := SSH(path, "faramir-broker@host"); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -75,7 +75,7 @@ func TestGenerateWritesBothModes(t *testing.T) {
 // What the caller is handed is printed by init and pasted into a ticket.
 func TestTheReturnedLineCarriesNoPrivateKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519")
-	public, _, err := Generate(path, "faramir-broker@host")
+	public, _, err := SSH(path, "faramir-broker@host")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestTheReturnedLineCarriesNoPrivateKey(t *testing.T) {
 func TestTheAuthorizedKeyLineIsCompleteAndCarriesTheComment(t *testing.T) {
 	const comment = "faramir-broker@host"
 	path := filepath.Join(t.TempDir(), "id_ed25519")
-	public, _, err := Generate(path, comment)
+	public, _, err := SSH(path, comment)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,13 +128,13 @@ func TestTheAuthorizedKeyLineIsCompleteAndCarriesTheComment(t *testing.T) {
 }
 
 // Public reads the line back, which is what a second run does.
-func TestPublicReadsTheLineBack(t *testing.T) {
+func TestSSHPublicReadsTheLineBack(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519")
-	public, _, err := Generate(path, "faramir-broker@host")
+	public, _, err := SSH(path, "faramir-broker@host")
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := Public(path + ".pub")
+	read, err := SSHPublic(path + ".pub")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,12 +144,12 @@ func TestPublicReadsTheLineBack(t *testing.T) {
 }
 
 // An error rather than a line the operator would paste into authorized_keys.
-func TestPublicRefusesSomethingElse(t *testing.T) {
+func TestSSHPublicRefusesSomethingElse(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519.pub")
 	if err := os.WriteFile(path, []byte("not a key\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Public(path); err == nil {
+	if _, err := SSHPublic(path); err == nil {
 		t.Error("a file that is not a public key was accepted")
 	}
 }

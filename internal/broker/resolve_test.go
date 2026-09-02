@@ -1,4 +1,4 @@
-package resolve
+package broker
 
 // Turning cmd[0] into the path the executor runs. There is no allowlist; what
 // matters is resolving a name to the file the child would itself have run, since
@@ -116,7 +116,7 @@ func TestProgramResolvesAgainstTheChildsOwnPath(t *testing.T) {
 		{name: "an empty command is refused", arg: "", cwd: dir},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := Program(tc.arg, tc.cwd, tc.cfg)
+			got, err := resolveProgram(tc.arg, tc.cwd, tc.cfg)
 			if tc.want == "" {
 				if err == nil {
 					t.Fatalf("resolved to %q, want a failure: %s", got, tc.why)
@@ -137,7 +137,7 @@ func TestProgramResolvesAgainstTheChildsOwnPath(t *testing.T) {
 				t.Fatalf("%v: %s", err, tc.why)
 			}
 			if got != tc.want {
-				t.Errorf("Program(%q) = %q, want %q", tc.arg, got, tc.want)
+				t.Errorf("resolveProgram(%q) = %q, want %q", tc.arg, got, tc.want)
 			}
 		})
 	}
@@ -160,12 +160,12 @@ func TestAProgramOnThePathWithNoExecuteBitIsNotReportedAsMissing(t *testing.T) {
 	}
 	cfg := config.CommandConfig{Env: map[string]string{"PATH": dir}}
 
-	_, err := Program("deploy", dir, cfg)
+	_, err := resolveProgram("deploy", dir, cfg)
 	if err == nil {
 		t.Fatal("a file with no execute bit resolved")
 	}
-	if !errors.Is(err, ErrNotExecutable) {
-		t.Errorf("err = %v, want ErrNotExecutable: a shell exits 126 for this", err)
+	if !errors.Is(err, errNotExecutable) {
+		t.Errorf("err = %v, want errNotExecutable: a shell exits 126 for this", err)
 	}
 	if strings.Contains(err.Error(), "not found") {
 		t.Errorf("err = %q, which sends the operator to install what is there", err)
@@ -179,13 +179,13 @@ func TestAProgramOnThePathWithNoExecuteBitIsNotReportedAsMissing(t *testing.T) {
 	if err := os.Chmod(program, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Program("deploy", dir, cfg); err != nil {
+	if _, err := resolveProgram("deploy", dir, cfg); err != nil {
 		t.Errorf("an executable program on the PATH did not resolve: %v", err)
 	}
 
 	// And a name nothing on the PATH carries is still not found.
-	_, err = Program("absent-xyzzy", dir, cfg)
-	if !errors.Is(err, ErrNotFound) {
-		t.Errorf("err = %v, want ErrNotFound for a name nothing carries", err)
+	_, err = resolveProgram("absent-xyzzy", dir, cfg)
+	if !errors.Is(err, errNotFound) {
+		t.Errorf("err = %v, want errNotFound for a name nothing carries", err)
 	}
 }

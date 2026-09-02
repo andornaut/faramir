@@ -8,11 +8,10 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/asaccount"
 	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/keygen"
 	"github.com/andornaut/faramir/internal/sopsrule"
-	"github.com/andornaut/faramir/internal/sshkey"
 )
 
 // brokerGroupName is the group a chown in an error message has to name, looked
@@ -36,7 +35,7 @@ func (r *runner) stepAgeKey() error {
 		r.reportPresence("age key", r.layout.AgeKeyPath, "mint")
 		return nil
 	}
-	recipient, created, err := agekey.Generate(r.layout.AgeKeyPath)
+	recipient, created, err := keygen.Age(r.layout.AgeKeyPath)
 	if err != nil {
 		return err
 	}
@@ -172,7 +171,7 @@ func (r *runner) stepSSHKey() error {
 		return err
 	}
 	host, _ := os.Hostname()
-	public, minted, err := sshkey.Generate(r.layout.SSHKey, "faramir broker on "+host)
+	public, minted, err := keygen.SSH(r.layout.SSHKey, "faramir broker on "+host)
 	if err != nil {
 		return err
 	}

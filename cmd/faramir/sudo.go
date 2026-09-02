@@ -23,7 +23,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/brokerclient"
 	"github.com/andornaut/faramir/internal/escalation"
+	"github.com/andornaut/faramir/internal/sudoprompt"
 	"github.com/andornaut/faramir/internal/termui"
 )
 
@@ -41,7 +43,7 @@ func requireRootToAnswer(command string) bool {
 	}
 	// Not "try sudo": reaching root that way from the account the agent runs as
 	// leaves a warm sudo timestamp in a shell the agent can use. The three places
-	// named here are the ones warnIfTypeable does not warn about.
+	// named here are the ones sudoprompt.WarnIfTypeable does not warn about.
 	fmt.Fprintf(os.Stderr, "faramir %s must run as root, but not by `sudo` from this "+
 		"shell: that warms a timestamp the coding agent can spend. Answer from a "+
 		"console, an ssh session on another machine, or a login as another account.\n",
@@ -205,7 +207,7 @@ func rejectWaiting(socketPath string, asJSON bool, paint termui.Palette) int {
 	// Not under --json, where the answer is the whole output and a question
 	// printed ahead of it would leave nothing able to parse the result.
 	if !asJSON {
-		printQuestion(questions[0], paint)
+		sudoprompt.PrintQuestion(questions[0], paint)
 	}
 	return answer("sudo reject", socketPath, questions[0].ID, false, asJSON)
 }
@@ -214,7 +216,7 @@ func rejectWaiting(socketPath string, asJSON bool, paint termui.Palette) int {
 // for a broker that could not be reached, 1 for nothing waiting. One question,
 // never a queue, so the caller indexes rather than loops.
 func waiting(socketPath, verb string) ([]escalation.Question, int) {
-	questions, _, err := pending(socketPath, 0, "")
+	questions, _, err := brokerclient.Escalations(socketPath, 0, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
 		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
@@ -238,7 +240,7 @@ func listEscalations(socketPath string, asJSON bool, paint termui.Palette) int {
 		return code
 	}
 	for _, question := range questions {
-		printQuestion(question, paint)
+		sudoprompt.PrintQuestion(question, paint)
 		// The answer is a second command here, so the question says how to type
 		// it.
 		fmt.Printf("  approve with: faramir sudo approve %s\n", question.ID)
@@ -270,7 +272,7 @@ func listAsJSON(questions []escalation.Question, code int) int {
 // how an approved run ended. The prompt must not land where the agent can
 // type, so run it somewhere the agent does not reach.
 func watchEscalations(socketPath string, paint termui.Palette) int {
-	warnIfTypeable()
+	sudoprompt.WarnIfTypeable()
 	fmt.Fprintln(os.Stderr, "Waiting for escalation requests. Ctrl-c to stop.")
 	// No set of ids already answered: the broker drops a question the moment it
 	// is answered, refused or expired, and only one is ever outstanding. A set
@@ -281,9 +283,9 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 	// of. One, never a list: an approved run holds every other brokered command
 	// until it ends.
 	var awaiting string
-	terminal := readLines(paint)
+	terminal := sudoprompt.ReadLines(paint)
 	for {
-		questions, finished, err := pending(socketPath, watchWait, awaiting)
+		questions, finished, err := brokerclient.Escalations(socketPath, watchWait, awaiting)
 		if err != nil {
 			// Out, rather than reconnecting: a watcher that heals itself is one whose
 			// absence is invisible, every question raised while it reconnected
@@ -299,28 +301,28 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			return 69 // EX_UNAVAILABLE, as every other broker-facing command
 		}
 		if finished != nil {
-			printOutcome(*finished, paint)
+			sudoprompt.PrintOutcome(*finished, paint)
 			awaiting = ""
 		}
 		for _, question := range questions {
-			printQuestion(question, paint)
+			sudoprompt.PrintQuestion(question, paint)
 			// The question's own clock, which is what the answer is typed against.
 			// Reaching it ends the wait rather than the watch: the broker refused it
 			// on the way out, so there is nothing to send.
-			line, state := terminal.answer(
+			line, state := terminal.Answer(
 				time.Now().Add(time.Duration(question.ExpiresInSec) * time.Second))
 			switch state {
-			case stdinClosed:
+			case sudoprompt.StdinClosed:
 				// Nothing further can be answered here, and leaving the loop spinning
 				// would refuse nothing and approve nothing.
 				fmt.Fprintln(os.Stderr, "faramir sudo approve: stdin closed; stopping")
 				return 0
-			case expired:
+			case sudoprompt.Expired:
 				fmt.Printf("\n  %s %s\n", paint.Dim(question.LogID), paint.Bad("expired"))
 				continue
-			case answered:
+			case sudoprompt.Answered:
 			}
-			approve := approves(line)
+			approve := termui.Approves(line)
 			// The two failures are not alike. 69 is the broker not reached, so the
 			// answer was never delivered and the question is open with nobody
 			// attending it, which is the silent hole the poll above refuses to leave.
@@ -358,4 +360,10 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			}
 		}
 	}
+}
+
+func answer(prog, socketPath, id string, approve, asJSON bool) int {
+	return send(prog, socketPath, map[string]any{
+		"op": "answer", "id": id, "approved": approve,
+	}, asJSON, true)
 }

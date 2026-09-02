@@ -12,6 +12,8 @@ import (
 	"github.com/andornaut/faramir/internal/auditview"
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/protocol"
+	"github.com/andornaut/faramir/internal/termuitest"
+	"github.com/andornaut/faramir/internal/testio"
 )
 
 func writeLog(t *testing.T, lines ...string) string {
@@ -467,7 +469,7 @@ func TestFollowerSurvivesAReopenThatFindsNothing(t *testing.T) {
 // and then told this.
 func TestLogsRefusesAWatchWithALogID(t *testing.T) {
 	f := logsFlags{when: "never", watch: true, count: 20}
-	said, code := captureStderr(t, func() int { return runLogs(f, []string{"a"}) })
+	said, code := testio.CaptureStderr(t, func() int { return runLogs(f, []string{"a"}) })
 	if code != 2 {
 		t.Errorf("faramir logs --watch w5vq7dbg000002 = %d, want 2 (usage)", code)
 	}
@@ -484,7 +486,7 @@ func TestLogsRefusesAWatchWithALogID(t *testing.T) {
 // script it was invoked wrongly.
 func TestLogsRefusesAnUnknownColour(t *testing.T) {
 	f := logsFlags{when: "pink", count: 20}
-	said, code := captureStderr(t, func() int { return runLogs(f, nil) })
+	said, code := testio.CaptureStderr(t, func() int { return runLogs(f, nil) })
 	if code != 2 {
 		t.Errorf("faramir logs --color pink = %d, want 2 (usage)", code)
 	}
@@ -543,7 +545,7 @@ func rec(t *testing.T, line string) map[string]any {
 func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
 	line := auditview.Summarise(rec(t, `{"log_id":"w5vq7dbf00a91f","op":"run",`+
 		`"cmd":["ansible-playbook","msmtp.yml"],"exit_code":0,"duration_sec":1.5,`+
-		`"redactions":[{"token":"«SECRET:a»","count":2}]}`), plain(t))
+		`"redactions":[{"token":"«SECRET:a»","count":2}]}`), termuitest.Plain(t))
 	// The whole id, which is what a lookup takes: asserting on its tail would
 	// pass a row that printed only the tail.
 	for _, want := range []string{"w5vq7dbf00a91f", "run", "exit 0", "1.50s", "2 redacted",
@@ -558,7 +560,7 @@ func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
 // say something.
 func TestSummariseSaysSomethingForARedact(t *testing.T) {
 	line := auditview.Summarise(rec(t, `{"log_id":"w5vq7dbf00b1c2","op":"redact","input_bytes":1447,`+
-		`"redactions":[{"token":"«SECRET:a»","count":1}]}`), plain(t))
+		`"redactions":[{"token":"«SECRET:a»","count":1}]}`), termuitest.Plain(t))
 	if strings.Contains(line, "exit") {
 		t.Errorf("a record that ran nothing was given an exit: %s", line)
 	}
@@ -613,7 +615,7 @@ func TestOutcomeReportsTheRefusalCode(t *testing.T) {
 		}
 		// The code is what the caller was answered with, so the row can be
 		// scanned for it and matched against what the agent reported.
-		if line := auditview.Summarise(record, plain(t)); !strings.Contains(line, code) {
+		if line := auditview.Summarise(record, termuitest.Plain(t)); !strings.Contains(line, code) {
 			t.Errorf("the listing does not name the refusal: %s", line)
 		}
 	}
@@ -650,12 +652,12 @@ func TestOutcomeLeavesTheOrdinaryRecordsAlone(t *testing.T) {
 // Padding counts escape bytes as width.
 func TestPaintOutcomePadsBeforeColouring(t *testing.T) {
 	record := rec(t, `{"log_id":"x","op":"run","exit_code":0}`)
-	got := auditview.PaintOutcome(record, always(t))
+	got := auditview.PaintOutcome(record, termuitest.Always(t))
 	if !strings.HasSuffix(got, "\x1b[0m") {
 		t.Fatalf("padding landed outside the colour span: %q", got)
 	}
 	bare := strings.TrimSuffix(strings.TrimPrefix(got, "\x1b[32m"), "\x1b[0m")
-	if len(bare) != len(auditview.PaintOutcome(record, plain(t))) {
+	if len(bare) != len(auditview.PaintOutcome(record, termuitest.Plain(t))) {
 		t.Errorf("coloured field is a different width from the plain one: %q", got)
 	}
 }
@@ -710,7 +712,7 @@ func TestRedactionCountsRenderTokensAndCounts(t *testing.T) {
 // https://no-color.org: honoured whatever its value, empty included.
 func TestNoColorDisablesColourWhateverItsValue(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
-	if mustPalette(t, "auto").On() {
+	if termuitest.Palette(t, "auto").On() {
 		t.Error("NO_COLOR set to empty did not disable colour")
 	}
 }
@@ -718,7 +720,7 @@ func TestNoColorDisablesColourWhateverItsValue(t *testing.T) {
 // --color=always is for piping into a pager, so it beats the terminal check.
 func TestColorAlwaysBeatsTheTerminalCheck(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
-	paint := always(t)
+	paint := termuitest.Always(t)
 	if !paint.On() {
 		t.Error("--color=always did not force colour on")
 	}
@@ -728,7 +730,7 @@ func TestColorAlwaysBeatsTheTerminalCheck(t *testing.T) {
 }
 
 func TestTokenHighlightsEverySecretToken(t *testing.T) {
-	got := always(t).Token("a «SECRET:one» b «SECRET:two» c")
+	got := termuitest.Always(t).Token("a «SECRET:one» b «SECRET:two» c")
 	if strings.Count(got, "\x1b[35m") != 2 {
 		t.Errorf("expected both tokens highlighted: %q", got)
 	}
@@ -743,7 +745,7 @@ func TestTokenHighlightsEverySecretToken(t *testing.T) {
 // A record truncated mid-token must come back whole rather than be swallowed by
 // the search for the close.
 func TestTokenLeavesAnUnterminatedTokenAlone(t *testing.T) {
-	if got := always(t).Token("tail «SECRET:trunc"); got != "tail «SECRET:trunc" {
+	if got := termuitest.Always(t).Token("tail «SECRET:trunc"); got != "tail «SECRET:trunc" {
 		t.Errorf("token mangled an unterminated token: %q", got)
 	}
 }
@@ -753,7 +755,7 @@ func TestTokenLeavesAnUnterminatedTokenAlone(t *testing.T) {
 // wrong.
 func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 	line := auditview.Summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"run_started",`+
-		`"approved":false,"cmd":["sudo","id","-un"]}`), plain(t))
+		`"approved":false,"cmd":["sudo","id","-un"]}`), termuitest.Plain(t))
 	if strings.Contains(line, "run_startedstarted") {
 		t.Errorf("op and outcome merged: %q", line)
 	}
@@ -784,7 +786,7 @@ func TestEveryOpFitsTheColumn(t *testing.T) {
 // The row shifts, which is legible; the columns merging is not.
 func TestSummariseKeepsTheColumnsApartForALongRefusalCode(t *testing.T) {
 	line := auditview.Summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"run",`+
-		`"refused":"escalation_in_progress","cmd":["sudo","id","-un"]}`), plain(t))
+		`"refused":"escalation_in_progress","cmd":["sudo","id","-un"]}`), termuitest.Plain(t))
 	if !regexp.MustCompile(`escalation_in_progress +sudo id -un`).MatchString(line) {
 		t.Errorf("summarise = %q, want the code and the command as separate columns", line)
 	}

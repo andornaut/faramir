@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/audit"
+	"github.com/andornaut/faramir/internal/brokerclient"
 	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/termui"
 	"github.com/andornaut/faramir/internal/vault"
@@ -191,7 +192,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	stopped := reReadNote(tellBrokerToReRead(),
+	stopped := reReadNote(brokerclient.Refresh(socketDefault()),
 		"it stops serving them within one refresh interval")
 	if strings.HasPrefix(stopped, "the broker has re-read") {
 		stopped = "the broker has stopped serving them"
@@ -202,8 +203,8 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 }
 
 // confirmRemoval puts the question to whoever is at the terminal, and takes the
-// same answer an escalation does: `approves`, so one y and nothing else,
-// preceded by the same [flushTypeahead]. Deny by default, so a closed stdin, an
+// same answer an escalation does: termui.Approves, so one y and nothing else,
+// preceded by the same termui.FlushTypeahead. Deny by default, so a closed stdin, an
 // empty line or a typo is a no. What the question is worth comes from the lines
 // above it, which name the file and every ref that goes with it.
 func confirmRemoval(target string, refs []string, refsErr error) bool {
@@ -219,14 +220,14 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	// One keystroke answers this, so what was typed before the question was put
 	// must not be able to spell the answer to it. The same flush an escalation
 	// does, and for the same reason.
-	flushTypeahead()
+	termui.FlushTypeahead()
 	fmt.Fprint(os.Stderr, "Remove? [y/n] ")
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && line == "" {
 		fmt.Fprintln(os.Stderr)
 		return false
 	}
-	return approves(line)
+	return termui.Approves(line)
 }
 
 // newRefsCmd is what the broker is serving, which is not the same question as

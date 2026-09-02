@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/brokercheck"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostunit"
+	"github.com/andornaut/faramir/internal/keygen"
 	"github.com/andornaut/faramir/internal/sopsrule"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -107,7 +107,7 @@ func onlyFinding(t *testing.T, report Report, name string) Finding {
 // recipient a healthy rule has to list.
 func mintKey(t *testing.T, configDir string) string {
 	t.Helper()
-	recipient, _, err := agekey.Generate(filepath.Join(configDir, "age.key"))
+	recipient, _, err := keygen.Age(filepath.Join(configDir, "age.key"))
 	if err != nil {
 		t.Fatal(err)
 	}

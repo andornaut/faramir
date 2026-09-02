@@ -358,8 +358,14 @@ func ExitFor(code string) int {
 // deadline of its own: the escalations op holds the connection open on
 // purpose.
 func RoundTrip(socketPath string, request map[string]any, timeout time.Duration) ([]byte, error) {
+	return roundTrip(socketPath, request, 5*time.Second, timeout)
+}
+
+// roundTrip is RoundTrip with the dial bounded separately from the read: a
+// caller that can proceed without the broker gives up on the dial sooner.
+func roundTrip(socketPath string, request map[string]any, dialWait, timeout time.Duration) ([]byte, error) {
 	request["version"] = version.Version
-	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(
+	conn, err := (&net.Dialer{Timeout: dialWait}).DialContext(
 		context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", socketPath, err)

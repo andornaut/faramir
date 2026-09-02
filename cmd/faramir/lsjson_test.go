@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/guard"
+	"github.com/andornaut/faramir/internal/testio"
 )
 
 // An install that declares none is the first answer a caller gets, and the one
@@ -30,7 +31,7 @@ func TestListingNothingIsAnEmptyArray(t *testing.T) {
 			// A directory with no config at all, which is a host not provisioned
 			// yet: Links and BlockedPaths both read that as declaring none.
 			atConfigDir(t, t.TempDir())
-			out, code := captureStdout(t, run)
+			out, code := testio.CaptureStdout(t, run)
 			if code != 0 {
 				t.Fatalf("exit %d, want 0: %s", code, out)
 			}
@@ -55,7 +56,7 @@ func TestListingNothingIsAnEmptyArray(t *testing.T) {
 // derived from the layout rather than written anywhere they would read.
 func TestBlockLsCarriesTheInstallsOwnDirectories(t *testing.T) {
 	atConfigDir(t, t.TempDir())
-	out, code := captureStdout(t, func() int {
+	out, code := testio.CaptureStdout(t, func() int {
 		return runBlockList(blockFlags{json: true})
 	})
 	if code != 0 {
@@ -101,7 +102,7 @@ func TestBlockLsCarriesTheInstallsOwnDirectories(t *testing.T) {
 // set, which is how a rule that covers something comes to be reported as a gap.
 func TestRefuseLsCarriesTheCommandRules(t *testing.T) {
 	atConfigDir(t, t.TempDir())
-	out, code := captureStdout(t, func() int {
+	out, code := testio.CaptureStdout(t, func() int {
 		return runBlockList(blockFlags{json: true})
 	})
 	if code != 0 {
@@ -126,7 +127,7 @@ func TestRefuseLsCarriesTheCommandRules(t *testing.T) {
 			commands, len(guard.ActionPatterns()))
 	}
 	// --declared is the config's own half, which no command rule is part of.
-	out, _ = captureStdout(t, func() int {
+	out, _ = testio.CaptureStdout(t, func() int {
 		return runBlockList(blockFlags{json: true, declared: true})
 	})
 	if strings.Contains(out, `"command"`) {
@@ -162,7 +163,7 @@ func TestAListingRefusesAnInstallThatIsNotThere(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("FARAMIR_CONFIG", filepath.Join(t.TempDir(), "config.toml"))
-			out, code := captureStdout(t, run)
+			out, code := testio.CaptureStdout(t, run)
 			if code == 0 {
 				t.Errorf("exit 0 against a config that is not there: %s", out)
 			}
@@ -179,7 +180,7 @@ func TestTheTwoHalvesOfBlockLsPartitionIt(t *testing.T) {
 	count := func(f blockFlags) int {
 		t.Helper()
 		f.json = true
-		out, code := captureStdout(t, func() int { return runBlockList(f) })
+		out, code := testio.CaptureStdout(t, func() int { return runBlockList(f) })
 		if code != 0 {
 			t.Fatalf("exit %d: %s", code, out)
 		}
@@ -205,7 +206,7 @@ func TestTheTwoHalvesOfBlockLsPartitionIt(t *testing.T) {
 // wrote both meant one of them.
 func TestNamingBothHalvesIsRefused(t *testing.T) {
 	atConfigDir(t, t.TempDir())
-	out, code := captureStdout(t, func() int {
+	out, code := testio.CaptureStdout(t, func() int {
 		return runBlockList(blockFlags{declared: true, builtIn: true})
 	})
 	if code != 2 {
@@ -216,7 +217,7 @@ func TestNamingBothHalvesIsRefused(t *testing.T) {
 // --built-in reports only rows nothing declared, whatever the config carries.
 func TestBuiltInLeavesTheDeclaredEntriesOut(t *testing.T) {
 	atConfigDir(t, t.TempDir())
-	out, code := captureStdout(t, func() int {
+	out, code := testio.CaptureStdout(t, func() int {
 		return runBlockList(blockFlags{json: true, builtIn: true})
 	})
 	if code != 0 {
@@ -259,7 +260,7 @@ command = "op read"
 		t.Fatal(err)
 	}
 	t.Setenv("FARAMIR_CONFIG", filepath.Join(dir, "config.toml"))
-	out, code := captureStdout(t, func() int { return runBlockList(blockFlags{json: true}) })
+	out, code := testio.CaptureStdout(t, func() int { return runBlockList(blockFlags{json: true}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -350,7 +351,7 @@ path = "/zzz/last.key"
 		t.Fatal(err)
 	}
 	t.Setenv("FARAMIR_CONFIG", filepath.Join(dir, "config.toml"))
-	out, code := captureStdout(t, func() int { return runBlockList(blockFlags{when: "never"}) })
+	out, code := testio.CaptureStdout(t, func() int { return runBlockList(blockFlags{when: "never"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, out)
 	}
@@ -394,7 +395,7 @@ func TestNoBuiltInRuleIsDroppedFromTheTextListing(t *testing.T) {
 	}
 	t.Setenv("FARAMIR_CONFIG", filepath.Join(dir, "config.toml"))
 
-	raw, code := captureStdout(t, func() int { return runBlockList(blockFlags{json: true}) })
+	raw, code := testio.CaptureStdout(t, func() int { return runBlockList(blockFlags{json: true}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, raw)
 	}
@@ -402,7 +403,7 @@ func TestNoBuiltInRuleIsDroppedFromTheTextListing(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &rows); err != nil {
 		t.Fatal(err)
 	}
-	text, code := captureStdout(t, func() int { return runBlockList(blockFlags{when: "never"}) })
+	text, code := testio.CaptureStdout(t, func() int { return runBlockList(blockFlags{when: "never"}) })
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, text)
 	}

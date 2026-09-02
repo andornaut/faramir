@@ -6,6 +6,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/layouttest"
 )
 
 // A linked path renders the same subject a blocked one does, covering the path
@@ -13,7 +14,7 @@ import (
 // every file in the directory it works in, whichever command wrote it, and both
 // commands have to say so before writing.
 func TestALinkNamingAnEnrolledTreeIsRefused(t *testing.T) {
-	dir := writeBlockConfig(t, "")
+	dir := layouttest.BlockConfigDir(t, "")
 	tree := t.TempDir()
 	if err := agentcfg.RecordEnrolment(dir, agentcfg.EnrolledTree{Dir: tree, AgentUser: "op"}); err != nil {
 		t.Fatal(err)
@@ -43,7 +44,7 @@ func TestALinkNamingAnEnrolledTreeIsRefused(t *testing.T) {
 // to the other. Asserted as a pair, so a guard added to one and not the other
 // fails here.
 func TestBothFormsRefuseAnEnrolledTree(t *testing.T) {
-	dir := writeBlockConfig(t, "")
+	dir := layouttest.BlockConfigDir(t, "")
 	tree := t.TempDir()
 	if err := agentcfg.RecordEnrolment(dir, agentcfg.EnrolledTree{Dir: tree, AgentUser: "op"}); err != nil {
 		t.Fatal(err)

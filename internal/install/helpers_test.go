@@ -38,19 +38,6 @@ func section(t *testing.T) string {
 	return body
 }
 
-// touch writes an empty JSON object at rel under home, creating the
-// directories above it: the mark that says an agent is in use there.
-func touch(t *testing.T, home, rel string) {
-	t.Helper()
-	path := filepath.Join(home, rel)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // writeRule writes a .sops.yaml sealing to these recipients.
 func writeRule(t *testing.T, path string, recipients ...string) {
 	t.Helper()
@@ -65,21 +52,4 @@ func writeRule(t *testing.T, path string, recipients ...string) {
 	if err := os.WriteFile(path, []byte(body.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-}
-
-// writeBlockConfig is an install whose config declares the entries given.
-func writeBlockConfig(t *testing.T, entries string) string {
-	t.Helper()
-	return configDirWith(t, "[command]\ntimeout_sec = 600\n"+entries)
-}
-
-// configDirWith is an install directory holding this config.toml, for the
-// commands that take a directory and join the file name onto it.
-func configDirWith(t *testing.T, body string) string {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return dir
 }
