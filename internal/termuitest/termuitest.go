@@ -16,17 +16,17 @@ import (
 // escapes.
 func Plain(t *testing.T) termui.Palette {
 	t.Helper()
-	return Palette(t, "never")
+	return palette(t, "never")
 }
 
 // Always is colour on whatever stdout is, so the escapes can be asserted.
 func Always(t *testing.T) termui.Palette {
 	t.Helper()
-	return Palette(t, "always")
+	return palette(t, "always")
 }
 
-// Palette is the palette --color=when selects, or a fatal test.
-func Palette(t *testing.T, when string) termui.Palette {
+// palette is the palette --color=when selects, or a fatal test.
+func palette(t *testing.T, when string) termui.Palette {
 	t.Helper()
 	paint, err := termui.NewPalette(when)
 	if err != nil {

@@ -32,7 +32,7 @@ func redactions(record map[string]any) []redaction {
 			continue
 		}
 		count, _ := num(fields, "count")
-		out = append(out, redaction{token: Str(fields, "token"), count: int(count)})
+		out = append(out, redaction{token: str(fields, "token"), count: int(count)})
 	}
 	return out
 }
@@ -85,14 +85,14 @@ func printField(paint termui.Palette, label, value string) {
 func PrintRecord(record map[string]any, paint termui.Palette) {
 	// The summary line leads with the id, so it is not repeated as a field
 	// below.
-	fmt.Println(Summarise(record, paint))
+	fmt.Println(summarise(record, paint))
 	// Above the fields it qualifies rather than under them: a reader has to know
 	// the record was cut before believing a short argv or a truncated ref list.
 	if reduced, _ := boolean(record, "record_reduced"); reduced {
 		printField(paint, "reduced", paint.Dim(
 			"fields were cut to fit the record cap"))
 	}
-	printField(paint, "caller", DescribePeer(record))
+	printField(paint, "caller", describePeer(record))
 	// The labels are not all the field names. argv0_path reads as `program`, the
 	// word the escalation question uses for what root or the executor actually
 	// ran, and sits under the cwd a relative argv[0] resolved against. outcome is
@@ -105,7 +105,7 @@ func PrintRecord(record map[string]any, paint termui.Palette) {
 		{"cwd", "cwd"}, {"argv0_path", "program"}, {"error", "error"},
 		{"outcome", "outcome"}, {"reason", "reason"}, {"run_log_id", "run_log_id"},
 	} {
-		if value := Str(record, row.field); value != "" {
+		if value := str(record, row.field); value != "" {
 			printField(paint, row.label, termsafe.Line(value))
 		}
 	}
@@ -125,7 +125,7 @@ func PrintRecord(record map[string]any, paint termui.Palette) {
 	for _, field := range []string{"from", "to"} {
 		printField(paint, field, paint.Ref(strings.Join(list(record, field), ", ")))
 	}
-	printField(paint, "redacted", paint.Ref(RedactionCounts(record)))
+	printField(paint, "redacted", paint.Ref(redactionCounts(record)))
 	// What the output is not. Each only where it happened: on an ordinary record
 	// the output is what the command wrote and a row saying so is noise.
 	if truncated, _ := boolean(record, "output_truncated"); truncated {
@@ -176,8 +176,8 @@ func envRefs(record map[string]any) string {
 	return termsafe.Line(strings.Join(pairs, ", "))
 }
 
-// RedactionCounts is per token, for the detail view; the listing sums them.
-func RedactionCounts(record map[string]any) string {
+// redactionCounts is per token, for the detail view; the listing sums them.
+func redactionCounts(record map[string]any) string {
 	counts := redactions(record)
 	out := make([]string, 0, len(counts))
 	for _, entry := range counts {

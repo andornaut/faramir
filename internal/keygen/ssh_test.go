@@ -134,7 +134,7 @@ func TestSSHPublicReadsTheLineBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := SSHPublic(path + ".pub")
+	read, err := sshPublic(path + ".pub")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestSSHPublicRefusesSomethingElse(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not a key\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SSHPublic(path); err == nil {
+	if _, err := sshPublic(path); err == nil {
 		t.Error("a file that is not a public key was accepted")
 	}
 }

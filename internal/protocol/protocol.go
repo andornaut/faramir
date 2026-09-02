@@ -14,7 +14,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -22,12 +21,6 @@ import (
 	"github.com/andornaut/faramir/internal/secretref"
 	"github.com/andornaut/faramir/internal/version"
 )
-
-var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
-// ValidEnvName reports whether name can be an environment variable. Exported
-// so the CLI can refuse one where it can still name the file and line.
-func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
 
 // OperatorEnv names the account this host belongs to. Reserved below: the broker
 // sets it, and a caller naming a different account would be telling a brokered
@@ -264,7 +257,7 @@ func parseEnvRefs(payload map[string]any, req *Request) error {
 		return errors.New("'env_refs' must be an object of NAME -> faramir:// URI")
 	}
 	for name, uri := range m {
-		if !envNameRe.MatchString(name) {
+		if !secretref.ValidEnvName(name) {
 			return fmt.Errorf("invalid environment variable name: %q", name)
 		}
 		if ReservedEnv[name] {

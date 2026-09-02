@@ -15,19 +15,19 @@ import (
 // CaptureStdout runs fn with stdout on a pipe and returns what it wrote.
 func CaptureStdout(t *testing.T, fn func() int) (string, int) {
 	t.Helper()
-	return CaptureFile(t, &os.Stdout, fn)
+	return captureFile(t, &os.Stdout, fn)
 }
 
 // CaptureStderr is the same for the stream a refusal is written to.
 func CaptureStderr(t *testing.T, fn func() int) (string, int) {
 	t.Helper()
-	return CaptureFile(t, &os.Stderr, fn)
+	return captureFile(t, &os.Stderr, fn)
 }
 
-// CaptureFile points one of the process's own streams at a pipe for the length
+// captureFile points one of the process's own streams at a pipe for the length
 // of the call. Both are package variables, so the stream is named by pointer
 // rather than by a flag saying which of the two was meant.
-func CaptureFile(t *testing.T, stream **os.File, fn func() int) (string, int) {
+func captureFile(t *testing.T, stream **os.File, fn func() int) (string, int) {
 	t.Helper()
 	reader, writer, err := os.Pipe()
 	if err != nil {

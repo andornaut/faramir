@@ -49,7 +49,7 @@ func TestASpaceInAGlobIsRefusedInBothSpellings(t *testing.T) {
 	const home = "/home/op"
 	const path = "/home/op/.config/Exampleditor/Local Storage"
 
-	rule := GlobUnder(home, path)
+	rule := globUnder(home, path)
 	if rule == "" {
 		t.Fatal("no glob rule for a path under a home, so this asserts nothing")
 	}

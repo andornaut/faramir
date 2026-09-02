@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Extract reads a file another tool owns, so its input is whatever that tool
+// extract reads a file another tool owns, so its input is whatever that tool
 // last wrote: a half-written file, a binary one, a YAML bomb. It answers or it
 // refuses, and a value it returns is one the file actually holds.
 func FuzzExtractAnswersWhateverTheFileHolds(f *testing.F) {
@@ -24,7 +24,7 @@ func FuzzExtractAnswersWhateverTheFileHolds(f *testing.F) {
 		if !kinds[kind] {
 			t.Skip()
 		}
-		got, err := Extract(kind, key, []byte(body))
+		got, err := extract(kind, key, []byte(body))
 		if err != nil {
 			if got != "" {
 				t.Fatalf("a refused extract came back with a value: %q", got)

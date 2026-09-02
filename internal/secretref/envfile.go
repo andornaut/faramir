@@ -1,6 +1,6 @@
-package main
+package secretref
 
-// The refs a `run` builds its environment from: the --env flags and the
+// The refs a run builds its environment from: the --env flags and the
 // --env-file files, and what an entry in either may spell.
 
 import (
@@ -8,9 +8,6 @@ import (
 	"maps"
 	"os"
 	"strings"
-
-	"github.com/andornaut/faramir/internal/protocol"
-	"github.com/andornaut/faramir/internal/secretref"
 )
 
 // noConflict records name=uri unless the map already carries the name with a
@@ -25,7 +22,7 @@ func noConflict(refs map[string]string, where, name, uri string) error {
 	return nil
 }
 
-// execRefs is what a command's environment is built from: every --env-file in
+// EnvRefs is what a command's environment is built from: every --env-file in
 // the order it was given, and then every --env. A --env overrides a file that
 // names the same variable, by design: a flag is the near edit to a file's
 // defaults. But two files, or two --env flags, that name one variable with two
@@ -33,7 +30,7 @@ func noConflict(refs map[string]string, where, name, uri string) error {
 // how the wrong credential reaches a host: those are refused, the same as a
 // name given twice inside one file. Its own function so the rule can be asserted
 // without a broker to run a command against.
-func execRefs(envFiles, envRefs []string) (map[string]string, error) {
+func EnvRefs(envFiles, envRefs []string) (map[string]string, error) {
 	refs := map[string]string{}
 	for _, path := range envFiles {
 		pairs, err := readEnvFile(path)
@@ -53,12 +50,12 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 		name, uri, ok := strings.Cut(pair, "=")
 		if !ok {
 			// A name on its own, the same shortcut a bare --env-file line is. Not
-			// taken on trust: checkRef holds it to what an environment variable may
+			// taken on trust: checkEnv holds it to what an environment variable may
 			// be called and to what a ref may be, so a word that is neither is
 			// refused rather than becoming a ref nothing serves.
 			name, uri = pair, "faramir://"+pair
 		}
-		if err := checkRef(name, uri); err != nil {
+		if err := checkEnv(name, uri); err != nil {
 			return nil, fmt.Errorf("--env %w", err)
 		}
 		if err := noConflict(flags, "--env ", name, uri); err != nil {
@@ -69,12 +66,12 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 	return refs, nil
 }
 
-// checkRef validates one NAME=faramir://ref pair, for both --env and
+// checkEnv validates one NAME=faramir://ref pair, for both --env and
 // --env-file. The error names the variable and never quotes the value: a
 // pasted credential is the mistake this exists to prevent, and echoing one puts
 // it in the scrollback.
-func checkRef(name, uri string) error {
-	if !protocol.ValidEnvName(name) {
+func checkEnv(name, uri string) error {
+	if !ValidEnvName(name) {
 		// Cutting on "=" would name the variable "export NAME".
 		if strings.HasPrefix(name, "export ") {
 			return fmt.Errorf("%q is not a usable environment variable name; "+
@@ -86,7 +83,7 @@ func checkRef(name, uri string) error {
 		// they cannot be the same word. Said with the long form, that being what
 		// somebody reaching for the shortcut wanted.
 		if uri == "faramir://"+name {
-			if _, err := secretref.Parse(uri); err == nil {
+			if _, err := Parse(uri); err == nil {
 				return fmt.Errorf("%q is a ref, not a name a variable may have. The "+
 					"short form uses one word for both, so a ref spelled like this one "+
 					"needs a variable of its own: --env NAME=%s", name, uri)
@@ -108,7 +105,7 @@ func checkRef(name, uri string) error {
 	// not, so a bare `_NAME` line is a usable variable name whose ref no store
 	// can hold. Blocked here, with the file and the line, rather than at the
 	// broker with the line long gone.
-	if _, err := secretref.Parse(uri); err != nil {
+	if _, err := Parse(uri); err != nil {
 		return fmt.Errorf("%s names %s, which is not a ref a store can hold: "+
 			"letters, digits, and then any of . _ - /", name, uri)
 	}
@@ -159,14 +156,14 @@ func readEnvFile(path string) (map[string]string, error) {
 		line = strings.TrimSpace(dropComment(line))
 		name, uri, ok := strings.Cut(line, "=")
 		if !ok {
-			// A name on its own. Not taken on trust: checkRef below holds it to
+			// A name on its own. Not taken on trust: checkEnv below holds it to
 			// what an environment variable may be called, so a line that is not a
 			// name at all is refused, naming this file and this line.
 			name, uri = line, "faramir://"+line
 		}
 		name, uri = strings.TrimSpace(name), strings.TrimSpace(uri)
 		// Checked here so the message can name the file and the line.
-		if err := checkRef(name, uri); err != nil {
+		if err := checkEnv(name, uri); err != nil {
 			return nil, fmt.Errorf("%s:%d: %w", path, i+1, err)
 		}
 		if err := noConflict(refs, fmt.Sprintf("%s:%d: ", path, i+1), name, uri); err != nil {

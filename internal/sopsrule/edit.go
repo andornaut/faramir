@@ -19,13 +19,13 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 )
 
-// SetRecipients returns body with the creation rule's age recipients replaced
+// setRecipients returns body with the creation rule's age recipients replaced
 // by want, and everything else in the file left as it was.
 //
 // The same shapes [Load]'s callers refuse are refused here, plus the two only a
 // writer cares about: more than one key group, and a group pulling in others by
 // merge. Both leave two answers to "which list is the recipient list".
-func SetRecipients(body []byte, path string, want []string) ([]byte, error) {
+func setRecipients(body []byte, path string, want []string) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(body, &doc); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -168,7 +168,7 @@ func Add(body []byte, path, recipient string) (out []byte, added bool, err error
 	if slices.Contains(current, recipient) {
 		return body, false, nil
 	}
-	out, err = SetRecipients(body, path, append(slices.Clone(current), recipient))
+	out, err = setRecipients(body, path, append(slices.Clone(current), recipient))
 	return out, err == nil, err
 }
 
@@ -188,6 +188,6 @@ func Remove(body []byte, path, recipient string) (out []byte, removed bool, err 
 		return nil, false, fmt.Errorf("%s would be left naming no recipient, and a rule "+
 			"that seals to nobody fails at the next file sops writes", path)
 	}
-	out, err = SetRecipients(body, path, want)
+	out, err = setRecipients(body, path, want)
 	return out, err == nil, err
 }

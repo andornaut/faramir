@@ -279,7 +279,7 @@ func declaredPaths(secret config.SecretConfig) (linked []config.Link, blocked []
 // host.
 func subjectsUnder(home, path string) []string {
 	out := []string{DirUnder(home, path)}
-	if glob := GlobUnder(home, path); glob != "" {
+	if glob := globUnder(home, path); glob != "" {
 		out = append(out, glob)
 	}
 	return out
@@ -291,7 +291,7 @@ func subjectsUnder(home, path string) []string {
 // Case-insensitively. A path is a path whatever case it is written in on the
 // filesystems this runs on, and the spelling a model gets wrong is the one a
 // rule has to catch. The command words are the exception and say so themselves:
-// ReadCommands and WriteCommands spell their alternations `(?-i:...)`, a program
+// readCommands and WriteCommands spell their alternations `(?-i:...)`, a program
 // called CAT being a different program.
 //
 // Three callers compiled this themselves before, and one of them had forgotten

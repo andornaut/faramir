@@ -13,7 +13,7 @@ import (
 func TestAPathUnderAHomeIsRefusedInEverySpellingAShellExpands(t *testing.T) {
 	const home = "/home/op"
 	subject := DirUnder(home, home+"/.private")
-	re := regexp.MustCompile("(?i)" + ReadCommands + ArgSpan + `(` + subject + `)`)
+	re := regexp.MustCompile("(?i)" + readCommands + ArgSpan + `(` + subject + `)`)
 	for _, cmd := range []string{
 		"cat /home/op/.private/x",
 		"cat ~/.private/x",
@@ -31,7 +31,7 @@ func TestAPathUnderAHomeIsRefusedInEverySpellingAShellExpands(t *testing.T) {
 func TestTheHomeSpellingsDoNotWiden(t *testing.T) {
 	const home = "/home/op"
 	subject := DirUnder(home, home+"/.private")
-	re := regexp.MustCompile("(?i)" + ReadCommands + ArgSpan + `(` + subject + `)`)
+	re := regexp.MustCompile("(?i)" + readCommands + ArgSpan + `(` + subject + `)`)
 	for _, cmd := range []string{
 		"cat ~/.privateer/x",
 		"cat /home/op/.private-notes.md",
@@ -65,7 +65,7 @@ func TestTheHomeSpellingsDoNotWiden(t *testing.T) {
 func TestTheTailSpellingReachesAnotherRootOnPurpose(t *testing.T) {
 	const home = "/home/op"
 	subject := DirUnder(home, home+"/.private")
-	re := regexp.MustCompile("(?i)" + ReadCommands + ArgSpan + `(` + subject + `)`)
+	re := regexp.MustCompile("(?i)" + readCommands + ArgSpan + `(` + subject + `)`)
 	for _, cmd := range []string{
 		// Another account's file of the same name, which is the false positive.
 		"cat /home/other/.private/x",

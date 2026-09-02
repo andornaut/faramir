@@ -17,13 +17,12 @@ import (
 const (
 	DefaultConfigPath = "/etc/faramir/config.toml"
 	defaultPATH       = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-	// SopsExecPATH is the PATH the keeper and the rule-coverage check run sops
-	// under. Fixed and absolute, not inherited: which sops decrypts the store
+	// sopsExecPATH is the PATH sops runs under, wherever the install runs it. Fixed and absolute, not inherited: which sops decrypts the store
 	// must not depend on how the keeper unit was launched, and the account that
 	// resolves a bare "sops" here is the one holding the age key. Equal to
 	// defaultPATH today but a separate concern, so a change to the brokered
 	// command's PATH cannot move sops resolution with it.
-	SopsExecPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	sopsExecPATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	// The one key three sections share, named once so the list of keys a section
 	// accepts and the lookup that reads it cannot drift apart.
 	keySocketPath = "socket_path"
@@ -135,12 +134,26 @@ func DecryptCommand() []string {
 	return []string{"sops", "--output-type", "json", "--decrypt", "{file}"}
 }
 
-// SecretPatterns is the managed store, derived from where the config sits
+// SopsEnv is the environment every sops the install runs is started with:
+// the keeper decrypting the store, `faramir secrets` editing it, and the
+// rule-coverage check. Fixed rather than inherited, so nothing about the
+// calling process reaches sops, with one exception: HOME is passed through,
+// falling back to /tmp, because sops writes its keys directory under it. What
+// a caller adds is only the age key file it holds.
+func SopsEnv() []string {
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = "/tmp"
+	}
+	return []string{"PATH=" + sopsExecPATH, "HOME=" + home, "LANG=C.UTF-8"}
+}
+
+// secretPatterns is the managed store, derived from where the config sits
 // rather than configured, so it cannot be pointed at a checkout that a clone or
 // a branch could move. One extension, not the three sops can read: faramir
 // writes the store, and a second spelling would be a second way for a file to
 // be named.
-func SecretPatterns(configPath string) []string {
+func secretPatterns(configPath string) []string {
 	dir := filepath.Join(filepath.Dir(configPath), "secrets")
 	return []string{filepath.Join(dir, "*.sops.yml")}
 }

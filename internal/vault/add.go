@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/andornaut/faramir/internal/fserr"
+	"github.com/andornaut/faramir/internal/hostfs"
 )
 
 // Add writes the new file, with the plaintext living only in a tmpfs.
@@ -117,7 +118,7 @@ func createManaged(target string, data []byte) error {
 	if err := os.Rename(tmp.Name(), target); err != nil {
 		return err
 	}
-	if err := syncDir(filepath.Dir(target)); err != nil {
+	if err := hostfs.SyncDir(filepath.Dir(target)); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %s was written, but %s could not be flushed "+
 			"(%v), so it may not survive a power loss until something else syncs that "+
 			"filesystem\n", target, filepath.Dir(target), err)

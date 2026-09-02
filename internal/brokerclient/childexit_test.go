@@ -42,3 +42,30 @@ func TestChildExitCode(t *testing.T) {
 		t.Errorf("a non-exit error = %d, want -1", got)
 	}
 }
+
+// The exit status a script branches on. A shell answers a program it could not
+// find with 127 and one it found and could not run with 126, and both shapes
+// of faramir give the same numbers for the same conditions: one number for
+// both had a caller reading "not installed" where the file was present and not
+// executable, and `run` gave a bare 1 for either.
+func TestTheShellsTwoExitCodesAreGivenForTheirOwnConditions(t *testing.T) {
+	for _, tc := range []struct {
+		code string
+		want int
+	}{
+		{"not_found", 127},
+		{"not_executable", 126},
+		{"busy", 75},
+		// Everything else is a refusal to read rather than to branch on.
+		{"exec_failed", 1},
+		{"bad_request", 1},
+		{"no_secrets", 1},
+		{"", 1},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			if got := ExitFor(tc.code); got != tc.want {
+				t.Errorf("errorExit(%q) = %d, want %d", tc.code, got, tc.want)
+			}
+		})
+	}
+}

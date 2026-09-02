@@ -2,15 +2,11 @@ package main
 
 import (
 	"bytes"
-	"math"
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/cobra"
-
-	"github.com/andornaut/faramir/internal/brokerclient"
 )
 
 // optionalOperand matches the trailing "[NAME]" of a Use line, which is how a
@@ -91,32 +87,6 @@ func TestACommandTakingOneOperandStillTakesOne(t *testing.T) {
 	}
 }
 
-// A command timeout is any positive integer the caller likes, clamped by the
-// broker to [command] max_timeout_sec. The wait built from it is a Duration,
-// and int64 nanoseconds run out somewhere past 292 years: an unsaturated
-// multiplication wraps negative there, the deadline is already past, and the
-// request fails on the write with "i/o timeout" before a command is run. That
-// reads as a broker that is not there.
-func TestTheResponseWaitDoesNotWrapOnAHugeTimeout(t *testing.T) {
-	for _, seconds := range []int{
-		1, 600, 3600, 1 << 30, brokerclient.MaxWaitSeconds, brokerclient.MaxWaitSeconds + 1,
-		1 << 62, math.MaxInt64,
-	} {
-		got := brokerclient.ResponseWait(map[string]any{"op": brokerclient.OpRun, "timeout_sec": seconds})
-		if got <= 0 {
-			t.Errorf("responseWait(%d) = %v, which is a deadline already past", seconds, got)
-		}
-		if got < brokerclient.ExecGrace {
-			t.Errorf("responseWait(%d) = %v, shorter than the grace alone", seconds, got)
-		}
-	}
-	// And the ordinary values still get what they asked for plus the grace.
-	if got, want := brokerclient.ResponseWait(map[string]any{"op": brokerclient.OpRun, "timeout_sec": 600}),
-		600*time.Second+brokerclient.ExecGrace; got != want {
-		t.Errorf("responseWait(600) = %v, want %v", got, want)
-	}
-}
-
 // --command-env takes a name as well as a value. A name no shell can reference
 // reached the rendered config either as a TOML key that would not parse, so the
 // run failed with a line number and nothing about the flag, or as one that
@@ -163,32 +133,5 @@ func TestRedactHasNoRawResponseToPrint(t *testing.T) {
 	}
 	if code := exitCode(err); code != 2 {
 		t.Errorf("exit = %d, want 2 for a flag this command does not take", code)
-	}
-}
-
-// The exit status a script branches on. A shell answers a program it could not
-// find with 127 and one it found and could not run with 126, and both shapes
-// of faramir give the same numbers for the same conditions: one number for
-// both had a caller reading "not installed" where the file was present and not
-// executable, and `run` gave a bare 1 for either.
-func TestTheShellsTwoExitCodesAreGivenForTheirOwnConditions(t *testing.T) {
-	for _, tc := range []struct {
-		code string
-		want int
-	}{
-		{"not_found", 127},
-		{"not_executable", 126},
-		{"busy", 75},
-		// Everything else is a refusal to read rather than to branch on.
-		{"exec_failed", 1},
-		{"bad_request", 1},
-		{"no_secrets", 1},
-		{"", 1},
-	} {
-		t.Run(tc.code, func(t *testing.T) {
-			if got := brokerclient.ExitFor(tc.code); got != tc.want {
-				t.Errorf("errorExit(%q) = %d, want %d", tc.code, got, tc.want)
-			}
-		})
 	}
 }

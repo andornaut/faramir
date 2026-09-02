@@ -193,19 +193,9 @@ func Covers(sopsPath, configPath string, recipients []string, target string) (bo
 	ctx, cancel := context.WithTimeout(context.Background(), coverTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, sopsPath, append(argv, probe)...)
-	// Fixed: the rule is named in the argv above, and nothing else about this
-	// process's environment should reach sops.
-	home := os.Getenv("HOME")
-	if home == "" {
-		home = "/tmp"
-	}
-	cmd.Env = []string{
-		// The same fixed PATH the keeper decrypts under, so a rule this reports as
-		// covered is one the keeper's own sops would read the same way.
-		"PATH=" + config.SopsExecPATH,
-		"HOME=" + home,
-		"LANG=C.UTF-8",
-	}
+	// The same fixed environment the keeper decrypts under, so a rule this
+	// reports as covered is one the keeper's own sops would read the same way.
+	cmd.Env = config.SopsEnv()
 	if _, err := cmd.Output(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) && strings.Contains(string(exit.Stderr), "no matching creation rules") {

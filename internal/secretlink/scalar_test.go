@@ -11,18 +11,18 @@ import (
 // file spelled, which is what gets injected and what the redactor is given.
 func TestANumericValueIsReadAsTheTextItWasWritten(t *testing.T) {
 	for _, tc := range []struct{ kind, body, want string }{
-		{KindJSON, `{"pin": 90210}`, "90210"},
+		{kindJSON, `{"pin": 90210}`, "90210"},
 		{KindYAML, "pin: 90210\n", "90210"},
-		{KindTOML, "pin = 90210\n", "90210"},
-		{KindINI, "pin = 90210\n", "90210"},
-		{KindJSON, `{"pin": 1.5}`, "1.5"},
+		{kindTOML, "pin = 90210\n", "90210"},
+		{kindINI, "pin = 90210\n", "90210"},
+		{kindJSON, `{"pin": 1.5}`, "1.5"},
 		{KindYAML, "pin: 1.5\n", "1.5"},
-		{KindTOML, "pin = 1.5\n", "1.5"},
+		{kindTOML, "pin = 1.5\n", "1.5"},
 	} {
 		t.Run(tc.kind+" "+tc.want, func(t *testing.T) {
-			got, err := Extract(tc.kind, "pin", []byte(tc.body))
+			got, err := extract(tc.kind, "pin", []byte(tc.body))
 			if err != nil {
-				t.Fatalf("Extract: %v", err)
+				t.Fatalf("extract: %v", err)
 			}
 			if got != tc.want {
 				t.Errorf("got %q, want %q", got, tc.want)
@@ -37,15 +37,15 @@ func TestANumericValueIsReadAsTheTextItWasWritten(t *testing.T) {
 // holding "" would match everywhere.
 func TestAValueThatIsNotThereIsRefusedRatherThanInjected(t *testing.T) {
 	for _, tc := range []struct{ kind, body, wantErr string }{
-		{KindJSON, `{"token": null}`, "is null"},
+		{kindJSON, `{"token": null}`, "is null"},
 		{KindYAML, "token:\n", "is null"},
-		{KindJSON, `{"token": ""}`, "is empty"},
+		{kindJSON, `{"token": ""}`, "is empty"},
 		{KindYAML, "token: \"\"\n", "is empty"},
-		{KindTOML, "token = \"\"\n", "is empty"},
-		{KindINI, "token =\n", "is empty"},
+		{kindTOML, "token = \"\"\n", "is empty"},
+		{kindINI, "token =\n", "is empty"},
 	} {
 		t.Run(tc.kind+" "+tc.wantErr, func(t *testing.T) {
-			got, err := Extract(tc.kind, "token", []byte(tc.body))
+			got, err := extract(tc.kind, "token", []byte(tc.body))
 			if err == nil {
 				t.Fatalf("got %q, want an error containing %q", got, tc.wantErr)
 			}
@@ -61,7 +61,7 @@ func TestAValueThatIsNotThereIsRefusedRatherThanInjected(t *testing.T) {
 // segment being the one that ran out. It carries nothing of the contents, as
 // every error here does.
 func TestASelectorAgainstATopLevelScalarNamesTheFile(t *testing.T) {
-	_, err := Extract(KindJSON, "token", []byte(`"a-long-secret-value"`))
+	_, err := extract(kindJSON, "token", []byte(`"a-long-secret-value"`))
 	if err == nil {
 		t.Fatal("a walk into a file that is one scalar was accepted")
 	}
@@ -80,18 +80,18 @@ func TestASelectorAgainstATopLevelScalarNamesTheFile(t *testing.T) {
 func TestABackslashBeforeAnOrdinaryCharacterIsLiteral(t *testing.T) {
 	data := []byte(`{"back\\slash": "a-long-secret-value"}`)
 	for _, key := range []string{`back\slash`, `back\\slash`} {
-		got, err := Extract(KindJSON, key, data)
+		got, err := extract(kindJSON, key, data)
 		if err != nil {
-			t.Errorf("Extract(%q): %v", key, err)
+			t.Errorf("extract(%q): %v", key, err)
 			continue
 		}
 		if got != "a-long-secret-value" {
-			t.Errorf("Extract(%q) = %q", key, got)
+			t.Errorf("extract(%q) = %q", key, got)
 		}
 	}
 	// And the separator still separates, so the escape is not a way to spell one
 	// away by accident.
-	if _, err := Extract(KindJSON, `back/slash`, data); err == nil {
+	if _, err := extract(kindJSON, `back/slash`, data); err == nil {
 		t.Error("an unescaped slash selected a key that holds a backslash")
 	}
 }
@@ -100,7 +100,7 @@ func TestABackslashBeforeAnOrdinaryCharacterIsLiteral(t *testing.T) {
 // would run over whatever the bytes happen to be, and the entry it matched
 // would be a substring of binary.
 func TestAnINIFileThatIsNotTextIsRefused(t *testing.T) {
-	_, err := Extract(KindINI, "token", []byte("token = \xff\xfe\n"))
+	_, err := extract(kindINI, "token", []byte("token = \xff\xfe\n"))
 	if err == nil || !strings.Contains(err.Error(), "UTF-8") {
 		t.Errorf("err = %v, want a refusal naming the encoding", err)
 	}

@@ -71,7 +71,7 @@ func WrongOwner(info os.FileInfo, uid, gid int) (bool, error) {
 	return gid != Keep && int(stat.Gid) != gid, nil
 }
 
-func DeviceOf(info os.FileInfo) uint64 {
+func deviceOf(info os.FileInfo) uint64 {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return 0
@@ -179,7 +179,7 @@ func HomeIsMounted(home string) bool {
 	if err != nil {
 		return false
 	}
-	return DeviceOf(info) != DeviceOf(parent)
+	return deviceOf(info) != deviceOf(parent)
 }
 
 // LooksEncrypted reports whether a home is one of the ecryptfs layouts, which

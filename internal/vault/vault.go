@@ -34,6 +34,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
@@ -202,27 +204,13 @@ func WriteBack(target string, data []byte) error {
 	// failed is the promise that it survives a power loss. An error would tell
 	// the operator their edit did not take, and would have `reseal` count the file
 	// among those still sealed to the recipients they had.
-	if err := syncDir(filepath.Dir(target)); err != nil {
+	if err := hostfs.SyncDir(filepath.Dir(target)); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %s was replaced, but %s could not be "+
 			"flushed (%v), so the change may not survive a power loss until "+
 			"something else syncs that filesystem\n",
 			target, filepath.Dir(target), err)
 	}
 	return nil
-}
-
-// syncDir flushes a directory entry, which is what makes a rename survive a
-// power loss rather than only a process dying.
-func syncDir(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	if err := dir.Sync(); err != nil {
-		_ = dir.Close()
-		return err
-	}
-	return dir.Close()
 }
 
 // runSops execs sops with the key as a path (SOPS_AGE_KEY_FILE), as the keeper
@@ -242,12 +230,7 @@ func syncDir(path string) error {
 func runSops(keyPath, rulePath string, args ...string) ([]byte, error) {
 	argv := append([]string{"--config", sopsConfigPath(rulePath)}, args...)
 	cmd := exec.CommandContext(context.Background(), sopsBinary, argv...)
-	cmd.Env = []string{
-		envPATH,
-		"HOME=" + envOr("HOME", "/tmp"),
-		envLANG,
-		"SOPS_AGE_KEY_FILE=" + keyPath,
-	}
+	cmd.Env = append(config.SopsEnv(), "SOPS_AGE_KEY_FILE="+keyPath)
 	cmd.Stderr = os.Stderr
 	return cmd.Output()
 }
@@ -266,13 +249,6 @@ func sealTo(keyPath, rulePath, target string, recipients []string, plain string)
 	return runSops(keyPath, rulePath, "--encrypt",
 		"--age", strings.Join(recipients, ","),
 		"--filename-override", target, plain)
-}
-
-func envOr(name, fallback string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
-	}
-	return fallback
 }
 
 // chownLike gives the replacement the original's owner and group, so an edit

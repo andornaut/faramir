@@ -92,7 +92,7 @@ func TestTheListingShowsTheRunTimeNotTheWallClock(t *testing.T) {
 	record := map[string]any{
 		"op": "run", "exit_code": 1.0, "duration_sec": 50.52, "waited_sec": 50.51,
 	}
-	label, bad := Outcome(record)
+	label, bad := outcome(record)
 	if !strings.Contains(label, "0.01s") {
 		t.Errorf("label = %q, want the run time rather than 50.52s", label)
 	}
@@ -100,7 +100,7 @@ func TestTheListingShowsTheRunTimeNotTheWallClock(t *testing.T) {
 		t.Error("a non-zero exit is still the row that asked to be read")
 	}
 	// And a record with no wait is unchanged: the two numbers are the same one.
-	plain, _ := Outcome(map[string]any{
+	plain, _ := outcome(map[string]any{
 		"op": "run", "exit_code": 0.0, "duration_sec": 12.44,
 	})
 	if !strings.Contains(plain, "12.44s") {

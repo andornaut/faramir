@@ -23,10 +23,10 @@ const dateLayout = "2006-01-02 MST"
 // question being read without the surrounding day the log has.
 const StampLayout = "2006-01-02 15:04:05 MST"
 
-// StartedAt is when the record's subject happened: started_at where the record
+// startedAt is when the record's subject happened: started_at where the record
 // has one, which is the child's fork rather than the moment the line was
 // written, and otherwise the `at` every other record carries.
-func StartedAt(record map[string]any) time.Time {
+func startedAt(record map[string]any) time.Time {
 	for _, field := range []string{"started_at", "at"} {
 		if seconds, ok := num(record, field); ok {
 			return time.Unix(int64(seconds), 0)
@@ -37,22 +37,22 @@ func StartedAt(record map[string]any) time.Time {
 
 // clockTime is local, the log being read against what somebody remembers doing.
 func clockTime(record map[string]any) string {
-	at := StartedAt(record)
+	at := startedAt(record)
 	if at.IsZero() {
 		return "        "
 	}
 	return at.Format("15:04:05")
 }
 
-// MatchesID compares the log_id as it is printed, so what is on screen pastes
+// matchesID compares the log_id as it is printed, so what is on screen pastes
 // back.
-func MatchesID(record map[string]any, want string) bool {
-	return Str(record, "log_id") == want
+func matchesID(record map[string]any, want string) bool {
+	return str(record, "log_id") == want
 }
 
-// DescribePeer renders the caller from pid, uid and gid, resolving the uid to a
+// describePeer renders the caller from pid, uid and gid, resolving the uid to a
 // name where the account still exists.
-func DescribePeer(record map[string]any) string {
+func describePeer(record map[string]any) string {
 	fields, ok := record["peer"].(map[string]any)
 	if !ok {
 		return ""
@@ -66,9 +66,9 @@ func DescribePeer(record map[string]any) string {
 	return fmt.Sprintf("%s, pid %d", who, int(pid))
 }
 
-// HumanBytes keeps a size to three significant figures; this column is for
+// humanBytes keeps a size to three significant figures; this column is for
 // judging scale.
-func HumanBytes(n int64) string {
+func humanBytes(n int64) string {
 	const unit = 1024
 	if n < unit {
 		return fmt.Sprintf("%d B", n)
@@ -81,7 +81,7 @@ func HumanBytes(n int64) string {
 	return fmt.Sprintf("%.1f %ciB", value, "KMGT"[exponent])
 }
 
-func Str(record map[string]any, key string) string {
+func str(record map[string]any, key string) string {
 	value, _ := record[key].(string)
 	return value
 }

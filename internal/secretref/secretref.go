@@ -15,13 +15,13 @@ import (
 // unreachable.
 const refPattern = `[A-Za-z0-9][A-Za-z0-9._/-]*`
 
-// Scheme is what a ref carries when it is written as a URI. `faramir refs`
+// scheme is what a ref carries when it is written as a URI. `faramir refs`
 // prints that form and a [[secret.link]] entry stores the name inside it, so
 // the two spellings meet wherever an operator pastes one into the other.
-const Scheme = "faramir://"
+const scheme = "faramir://"
 
 var (
-	URIRe = regexp.MustCompile(`^` + Scheme + `(` + refPattern + `)$`)
+	uriRe = regexp.MustCompile(`^` + scheme + `(` + refPattern + `)$`)
 	refRe = regexp.MustCompile(`^` + refPattern + `$`)
 )
 
@@ -30,7 +30,7 @@ var (
 // prints is the URI, what the config stores is the name, and refusing the
 // spelling the operator has in front of them buys nothing.
 func Bare(ref string) string {
-	return strings.TrimPrefix(strings.TrimSpace(ref), Scheme)
+	return strings.TrimPrefix(strings.TrimSpace(ref), scheme)
 }
 
 // Valid reports whether a bare ref, with no scheme, is one Parse would return.
@@ -38,9 +38,19 @@ func Valid(ref string) bool { return refRe.MatchString(ref) }
 
 // Parse returns the ref inside a faramir:// URI.
 func Parse(uri string) (string, error) {
-	m := URIRe.FindStringSubmatch(strings.TrimSpace(uri))
+	m := uriRe.FindStringSubmatch(strings.TrimSpace(uri))
 	if m == nil {
 		return "", fmt.Errorf("invalid secret reference %q; expected faramir://path/to/key", uri)
 	}
 	return m[1], nil
 }
+
+// envNameRe is what a variable may be called. Not the same shape as a ref: a
+// variable may open with an underscore and a ref may not, and a ref may carry
+// "/" and "." where a variable may not.
+var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// ValidEnvName reports whether name can be an environment variable. Held here
+// beside the ref grammar because a NAME=faramir://ref pair is checked against
+// both, and the CLI refuses one where it can still name the file and line.
+func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }

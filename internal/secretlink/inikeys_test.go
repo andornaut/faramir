@@ -19,7 +19,7 @@ func TestTheKeysAnINIFileOffersAreNamedTheWayASelectorIs(t *testing.T) {
 		"password = deployer\n" +
 		"not an entry\n")
 
-	got := Keys(KindINI, data)
+	got := Keys(kindINI, data)
 
 	want := []string{"//registry.npmjs.org/:_authToken", "distributionManagement/password"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
@@ -34,10 +34,10 @@ func TestTheKeysAnINIFileOffersAreNamedTheWayASelectorIs(t *testing.T) {
 func TestAListingOffersNamesAndNeverValues(t *testing.T) {
 	const value = "gho_the-actual-credential"
 	for _, tc := range []struct{ kind, body string }{
-		{KindJSON, `{"github.com": {"oauth_token": "` + value + `"}}`},
+		{kindJSON, `{"github.com": {"oauth_token": "` + value + `"}}`},
 		{KindYAML, "github.com:\n    oauth_token: " + value + "\n"},
-		{KindTOML, "[\"github.com\"]\noauth_token = \"" + value + "\"\n"},
-		{KindINI, "[github.com]\noauth_token = " + value + "\n"},
+		{kindTOML, "[\"github.com\"]\noauth_token = \"" + value + "\"\n"},
+		{kindINI, "[github.com]\noauth_token = " + value + "\n"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			keys := Keys(tc.kind, []byte(tc.body))
@@ -56,7 +56,7 @@ func TestAListingOffersNamesAndNeverValues(t *testing.T) {
 // The whole-file kinds select nothing, so there is nothing to offer: a listing
 // of keys against a file read whole would name selectors that do not apply.
 func TestTheWholeFileKindsOfferNoKeys(t *testing.T) {
-	for _, kind := range []string{KindText, KindBase64, "not-a-kind"} {
+	for _, kind := range []string{KindText, kindBase64, "not-a-kind"} {
 		if keys := Keys(kind, []byte("a-secret-value\n")); len(keys) != 0 {
 			t.Errorf("%s offers %v, want nothing", kind, keys)
 		}
@@ -67,25 +67,25 @@ func TestTheWholeFileKindsOfferNoKeys(t *testing.T) {
 // a file's keys read as the whole of them, and an operator told their selector
 // is not among them would be looking for a typo they did not make.
 func TestAFileThatDoesNotParseOffersNothing(t *testing.T) {
-	for _, kind := range []string{KindJSON, KindYAML, KindTOML} {
+	for _, kind := range []string{kindJSON, KindYAML, kindTOML} {
 		if keys := Keys(kind, []byte("{{{ not this kind at all")); len(keys) != 0 {
 			t.Errorf("%s offers %v for a file it cannot read, want nothing", kind, keys)
 		}
 	}
 }
 
-// KeysIn reads through the same bound Read uses, so a link pointed at something
+// keysIn reads through the same bound Read uses, so a link pointed at something
 // enormous is refused for its size rather than slurped to enumerate it.
 func TestKeysInReportsAFileItCannotRead(t *testing.T) {
-	if _, err := KeysIn(filepath.Join(t.TempDir(), "gone.json"), KindJSON); err == nil {
+	if _, err := keysIn(filepath.Join(t.TempDir(), "gone.json"), kindJSON); err == nil {
 		t.Error("a missing file was not reported")
 	}
 
 	path := filepath.Join(t.TempDir(), "big.json")
-	if err := os.WriteFile(path, make([]byte, MaxBytes+1), 0o600); err != nil {
+	if err := os.WriteFile(path, make([]byte, maxBytes+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := KeysIn(path, KindJSON); err == nil {
+	if _, err := keysIn(path, kindJSON); err == nil {
 		t.Error("an oversize file was enumerated rather than refused")
 	}
 }

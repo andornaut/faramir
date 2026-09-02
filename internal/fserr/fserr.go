@@ -14,9 +14,9 @@ import (
 	"os/exec"
 )
 
-// Cause is the error under a wrapper that already carried the path: the errno
+// cause is the error under a wrapper that already carried the path: the errno
 // on its own, in the words the C library uses for it.
-func Cause(err error) error {
+func cause(err error) error {
 	if pathErr, ok := errors.AsType[*os.PathError](err); ok {
 		return pathErr.Err
 	}
@@ -29,7 +29,7 @@ func Cause(err error) error {
 	// A dial carries the address and the network as well: "dial unix /run/x.sock:
 	// connect: no such file or directory" is four things around one.
 	if opErr, ok := errors.AsType[*net.OpError](err); ok {
-		return Cause(opErr.Err)
+		return cause(opErr.Err)
 	}
 	if callErr, ok := errors.AsType[*os.SyscallError](err); ok {
 		return callErr.Err
@@ -40,5 +40,5 @@ func Cause(err error) error {
 // At is one sentence: the path, then what the kernel said about it. The cause
 // is wrapped, so errors.Is still reaches the errno through it.
 func At(path string, err error) error {
-	return fmt.Errorf("%s: %w", path, Cause(err))
+	return fmt.Errorf("%s: %w", path, cause(err))
 }

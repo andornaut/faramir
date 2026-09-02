@@ -75,12 +75,12 @@ func ParseLine(line []byte) (record map[string]any, lost bool) {
 	return record, false
 }
 
-// RingCapMax bounds what the ring is sized to up front: --count accepts any
+// ringCapMax bounds what the ring is sized to up front: --count accepts any
 // int, so sizing to it would cost a slice header times that number before a
 // line has been read. The ring grows to what the log actually holds.
-const RingCapMax = 1024
+const ringCapMax = 1024
 
-func RingCap(count int) int { return min(count, RingCapMax) }
+func ringCap(count int) int { return min(count, ringCapMax) }
 
 // Ring keeps the last count lines it was given. A count of zero or less
 // keeps nothing, which is what --count asked for.
@@ -92,7 +92,7 @@ type Ring struct {
 }
 
 func NewRing(count int) *Ring {
-	return &Ring{count: count, lines: make([][]byte, 0, max(RingCap(count), 0))}
+	return &Ring{count: count, lines: make([][]byte, 0, max(ringCap(count), 0))}
 }
 
 func (r *Ring) Add(line []byte) {
@@ -179,14 +179,14 @@ func Find(path, id string) (map[string]any, int, error) {
 		if lost {
 			skipped++
 		}
-		if record == nil || !MatchesID(record, id) {
+		if record == nil || !matchesID(record, id) {
 			return true
 		}
 		found = record
 		// Stopped at the ending, which is the last of the pair: reading on would
 		// scan the whole file for a record already in hand. A start half is not
 		// the end of the pair, so that one reads on.
-		return Str(record, "op") == OpRunStarted
+		return str(record, "op") == OpRunStarted
 	})
 	return found, skipped, err
 }

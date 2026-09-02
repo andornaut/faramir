@@ -33,15 +33,15 @@ const (
 	OpReseal = "reseal"
 )
 
-// Summarise is one record on one line: when, what, how it ended, how many
+// summarise is one record on one line: when, what, how it ended, how many
 // values it touched, and the id to ask for the rest. The id is printed whole,
 // which is what a lookup takes.
-func Summarise(record map[string]any, paint termui.Palette) string {
+func summarise(record map[string]any, paint termui.Palette) string {
 	var b strings.Builder
-	b.WriteString(paint.Dim(Pad(Str(record, "log_id"), logIDWidth)))
+	b.WriteString(paint.Dim(Pad(str(record, "log_id"), logIDWidth)))
 	b.WriteString(" " + clockTime(record) + "  ")
-	b.WriteString(paint.Bold(Pad(Str(record, "op"), OpWidth)))
-	b.WriteString(PaintOutcome(record, paint))
+	b.WriteString(paint.Bold(Pad(str(record, "op"), OpWidth)))
+	b.WriteString(paintOutcome(record, paint))
 	b.WriteString(paint.Ref(Pad(outputNotes(record), 12)))
 	b.WriteString(detail(record))
 	return strings.TrimRight(b.String(), " ")
@@ -55,21 +55,21 @@ func detail(record map[string]any) string {
 		return cmd
 	}
 	if size, ok := num(record, "input_bytes"); ok {
-		return HumanBytes(int64(size)) + " in"
+		return humanBytes(int64(size)) + " in"
 	}
-	if file := Str(record, "file"); file != "" {
+	if file := str(record, "file"); file != "" {
 		return termsafe.Line(file)
 	}
-	if detail := Str(record, "error"); detail != "" {
+	if detail := str(record, "error"); detail != "" {
 		return termsafe.Line(detail)
 	}
 	return ""
 }
 
-// PaintOutcome pads before colouring: pad() counts escape bytes as width.
-func PaintOutcome(record map[string]any, paint termui.Palette) string {
+// paintOutcome pads before colouring: pad() counts escape bytes as width.
+func paintOutcome(record map[string]any, paint termui.Palette) string {
 	const width = 16
-	label, failed := Outcome(record)
+	label, failed := outcome(record)
 	padded := Pad(label, width)
 	switch {
 	case label == "":
@@ -102,15 +102,15 @@ func answerLabel(code string) string {
 	return termsafe.Line(code)
 }
 
-// Outcome is how an exec ended, and whether that is a failure. A redact ran no
+// outcome is how an exec ended, and whether that is a failure. A redact ran no
 // command, so it has neither.
-func Outcome(record map[string]any) (string, bool) {
+func outcome(record map[string]any) (string, bool) {
 	// The first half of a run's pair, which has no ending yet: said rather than
 	// left blank, which would render a command still running as one that ran and
 	// did nothing. "started" rather than "running", a log being read later: the
 	// record is of a moment, and the missing second record is what says the
 	// command never reported an ending.
-	if Str(record, "op") == OpRunStarted {
+	if str(record, "op") == OpRunStarted {
 		return "started", false
 	}
 	if timedOut, _ := boolean(record, "timed_out"); timedOut {
@@ -128,7 +128,7 @@ func Outcome(record map[string]any) (string, bool) {
 	// yes is painted as a failure, not because refusing is wrong but because
 	// something asked, which is what an operator is scanning for. Which no it
 	// was comes from the code rather than the sentence beside it.
-	if code := Str(record, "outcome_code"); code != "" {
+	if code := str(record, "outcome_code"); code != "" {
 		return answerLabel(code), code != escalation.CodeApproved
 	}
 	if approved, ok := boolean(record, "approved"); ok {
@@ -140,7 +140,7 @@ func Outcome(record map[string]any) (string, bool) {
 	// The refusal's own code, which is the string the caller was answered with,
 	// so an operator handed a log_id can confirm they are reading the refusal
 	// that was cited.
-	if refused := Str(record, "refused"); refused != "" {
+	if refused := str(record, "refused"); refused != "" {
 		return refused, true
 	}
 	code, ok := num(record, "exit_code")
@@ -148,7 +148,7 @@ func Outcome(record map[string]any) (string, bool) {
 		// No exit code and an error: this never became a finished command. Named
 		// generically, the records shaped this way differing in how far they got,
 		// and the error is on the detail view for all of them.
-		if Str(record, "error") != "" {
+		if str(record, "error") != "" {
 			return "failed", true
 		}
 		return "", false

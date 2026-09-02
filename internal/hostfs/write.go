@@ -204,3 +204,19 @@ func (f FS) CopyFile(src, dst string, mode os.FileMode, uid, gid int) (bool, err
 	}
 	return f.WriteFile(dst, data, mode, uid, gid)
 }
+
+// SyncDir flushes a directory entry, which is what makes a create or a rename
+// survive a power loss rather than only a process dying. Not done by the writes
+// above: what they write, an install rewrites, and a file that cannot be
+// regenerated is the caller's to make durable.
+func SyncDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return err
+	}
+	return dir.Close()
+}

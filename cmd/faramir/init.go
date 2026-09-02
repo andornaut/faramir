@@ -12,6 +12,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/protocol"
+	"github.com/andornaut/faramir/internal/secretref"
 )
 
 type initFlags struct {
@@ -187,7 +188,7 @@ func namedValues(pairs []string) (map[string]string, error) {
 		// config either as a TOML key that would not parse, so the run failed with
 		// a line number and no mention of the flag, or as one that parsed and left
 		// the child holding a variable nothing in it could read.
-		if !protocol.ValidEnvName(name) {
+		if !secretref.ValidEnvName(name) {
 			return nil, fmt.Errorf("--command-env %q is not a usable environment "+
 				"variable name: a letter or underscore, then letters, digits and "+
 				"underscores", name)

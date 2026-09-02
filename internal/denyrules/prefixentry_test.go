@@ -67,7 +67,7 @@ func TestAPrefixEntryLeavesTheRestOfTheDirectoryAlone(t *testing.T) {
 // expand to a file that starts with it. A pattern that could not is still left
 // alone, and the parent directory still bounds every one of them.
 func TestAPrefixEntryRefusesThePatternsThatCouldReachIt(t *testing.T) {
-	rule := GlobUnder(prefixHome, prefixEntry)
+	rule := globUnder(prefixHome, prefixEntry)
 	if rule == "" {
 		t.Fatal("no glob rule for a prefix entry, so this asserts nothing")
 	}
@@ -95,7 +95,7 @@ func TestAPrefixEntryRefusesThePatternsThatCouldReachIt(t *testing.T) {
 	}
 }
 
-// GlobUnder writes no rule at or above a home, and a prefix entry has to meet
+// globUnder writes no rule at or above a home, and a prefix entry has to meet
 // that bound by the literal it opens on. "/home/o*" is not "/home/op" by the
 // element comparison, and its parent is /home, so without the prefix reading it
 // rendered a pattern rule over /home -- refusing `cat /home/*` for every account
@@ -109,13 +109,13 @@ func TestAPrefixOfAHomeGetsNoGlobRule(t *testing.T) {
 		"/home/op",
 		"/home",
 	} {
-		if rule := GlobUnder(prefixHome, entry); rule != "" {
-			t.Errorf("GlobUnder(%q, %q) wrote a rule, and it is at or above the home",
+		if rule := globUnder(prefixHome, entry); rule != "" {
+			t.Errorf("globUnder(%q, %q) wrote a rule, and it is at or above the home",
 				prefixHome, entry)
 		}
 	}
 	// A prefix below the home still gets one: the bound is the home, not the form.
-	if GlobUnder(prefixHome, "/home/op/.ssh/id_*") == "" {
+	if globUnder(prefixHome, "/home/op/.ssh/id_*") == "" {
 		t.Error("a prefix entry under the home got no glob rule")
 	}
 }

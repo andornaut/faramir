@@ -32,6 +32,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostsudo"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/runcmd"
+	"github.com/andornaut/faramir/internal/secretref"
 )
 
 // stepSudoGrant writes or removes the grant: a sudoers entry and the PAM
@@ -291,7 +292,7 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 		// first '=', so everything after one in the name arrives here as part of the
 		// name, and a newline there renders a second line this file never named.
 		// sudo skips the line without an '=' and applies the one after it.
-		if !protocol.ValidEnvName(name) {
+		if !secretref.ValidEnvName(name) {
 			r.warnf("[command] env %q is not a variable name, so it is left out of %s",
 				name, r.layout.SudoEnvFile())
 			continue

@@ -19,7 +19,7 @@ import (
 func SSH(path, comment string) (public string, created bool, err error) {
 	handle, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, os.ErrExist) {
-		public, err = SSHPublic(path + ".pub")
+		public, err = sshPublic(path + ".pub")
 		return public, false, err
 	}
 	if err != nil {
@@ -41,7 +41,7 @@ func SSH(path, comment string) (public string, created bool, err error) {
 		_ = handle.Close()
 		return "", false, err
 	}
-	if err := handle.Close(); err != nil {
+	if err := settle(handle); err != nil {
 		return "", false, err
 	}
 	signer, err := ssh.NewPublicKey(pub)
@@ -59,8 +59,8 @@ func SSH(path, comment string) (public string, created bool, err error) {
 	return line[:len(line)-1], true, nil
 }
 
-// SSHPublic reads an authorized_keys line back from a .pub file.
-func SSHPublic(path string) (string, error) {
+// sshPublic reads an authorized_keys line back from a .pub file.
+func sshPublic(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err

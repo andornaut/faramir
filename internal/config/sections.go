@@ -133,7 +133,7 @@ type SudoConfig struct {
 type SecretConfig struct {
 	// Patterns and DecryptCommand are derived rather than configured, filled in
 	// at load so that everything reading them reads one value. See
-	// SecretPatterns and DecryptCommand.
+	// secretPatterns and DecryptCommand.
 	Patterns       []string
 	DecryptCommand []string
 	// MinLength is the floor a value has to clear to be held at all. Below it a

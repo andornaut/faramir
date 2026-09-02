@@ -36,7 +36,7 @@ func TestAtNamesThePathOnceAndNoSyscall(t *testing.T) {
 //
 // The errno itself rather than something that unwraps to it: every wrapper here
 // has an Unwrap, so errors.Is reaches the errno through one that was never
-// taken off, and an assertion written that way holds whether Cause unwrapped or
+// taken off, and an assertion written that way holds whether cause unwrapped or
 // returned its argument.
 func TestCauseUnwrapsOnlyWhatCarriesThePath(t *testing.T) {
 	inner := errors.New("the reason")
@@ -53,16 +53,16 @@ func TestCauseUnwrapsOnlyWhatCarriesThePath(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			//nolint:errorlint // identity is the assertion: errors.Is reaches the
-			// errno through a wrapper Cause left on, so it cannot fail here.
-			if got := Cause(tc.err); got != inner {
-				t.Errorf("Cause(%T) = %v (%T), want the errno under it", tc.err, got, got)
+			// errno through a wrapper cause left on, so it cannot fail here.
+			if got := cause(tc.err); got != inner {
+				t.Errorf("cause(%T) = %v (%T), want the errno under it", tc.err, got, got)
 			}
 		})
 	}
 	plain := errors.New("nothing wrapped")
 	//nolint:errorlint // identity again, for the error that carries no path
-	if got := Cause(plain); got != plain {
-		t.Errorf("Cause left an unwrapped error as %v", got)
+	if got := cause(plain); got != plain {
+		t.Errorf("cause left an unwrapped error as %v", got)
 	}
 }
 

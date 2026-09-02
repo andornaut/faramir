@@ -1,4 +1,4 @@
-package main
+package secretref
 
 import (
 	"os"
@@ -202,22 +202,22 @@ func TestAnEmptyFileYieldsNoRefs(t *testing.T) {
 	}
 }
 
-// checkRef backs both --env and --env-file.
+// checkEnv backs both --env and --env-file.
 func TestNoRejectionEverQuotesTheValue(t *testing.T) {
 	for _, name := range []string{"PW", "export PW", "", "1BAD"} {
-		err := checkRef(name, pasted)
+		err := checkEnv(name, pasted)
 		if err == nil {
-			t.Errorf("checkRef(%q, <literal>) accepted a non-ref", name)
+			t.Errorf("checkEnv(%q, <literal>) accepted a non-ref", name)
 			continue
 		}
 		if strings.Contains(err.Error(), pasted) {
-			t.Errorf("checkRef(%q, ...) echoed the value: %v", name, err)
+			t.Errorf("checkEnv(%q, ...) echoed the value: %v", name, err)
 		}
 	}
 }
 
 func TestAWellFormedRefIsAccepted(t *testing.T) {
-	if err := checkRef("VAULT_PW", "faramir://home/router/admin"); err != nil {
+	if err := checkEnv("VAULT_PW", "faramir://home/router/admin"); err != nil {
 		t.Errorf("a valid pair was rejected: %v", err)
 	}
 }
@@ -227,7 +227,7 @@ func TestAWellFormedRefIsAccepted(t *testing.T) {
 // file's other entries survive it.
 func TestAnEnvFlagOverridesTheFileThatNamesIt(t *testing.T) {
 	file := writeEnvFile(t, "ROUTER_PW=faramir://nope\nAPI=faramir://home/api/token\n")
-	refs, err := execRefs([]string{file}, []string{"ROUTER_PW=faramir://home/router/admin"})
+	refs, err := EnvRefs([]string{file}, []string{"ROUTER_PW=faramir://home/router/admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestAnEnvFlagOverridesTheFileThatNamesIt(t *testing.T) {
 func TestConflictingEnvFilesAreRefused(t *testing.T) {
 	first := writeEnvFile(t, "PW=faramir://first\n")
 	second := writeEnvFile(t, "PW=faramir://second\n")
-	_, err := execRefs([]string{first, second}, nil)
+	_, err := EnvRefs([]string{first, second}, nil)
 	if err == nil {
 		t.Fatal("two files naming PW differently were not refused")
 	}
@@ -260,7 +260,7 @@ func TestConflictingEnvFilesAreRefused(t *testing.T) {
 func TestIdenticalEnvFilesArePermitted(t *testing.T) {
 	first := writeEnvFile(t, "PW=faramir://home/router/admin\n")
 	second := writeEnvFile(t, "PW=faramir://home/router/admin\n")
-	refs, err := execRefs([]string{first, second}, nil)
+	refs, err := EnvRefs([]string{first, second}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestIdenticalEnvFilesArePermitted(t *testing.T) {
 // Two --env flags naming one variable with two different refs is refused for the
 // same reason two files are: neither takes on trust.
 func TestConflictingEnvFlagsAreRefused(t *testing.T) {
-	_, err := execRefs(nil, []string{"PW=faramir://a", "PW=faramir://b"})
+	_, err := EnvRefs(nil, []string{"PW=faramir://a", "PW=faramir://b"})
 	if err == nil {
 		t.Fatal("two --env flags naming PW differently were not refused")
 	}
@@ -313,7 +313,7 @@ func TestAnOrdinaryBareNameStillResolves(t *testing.T) {
 // A bare --env is the shortcut a bare --env-file line already was: the variable
 // takes the ref of its own name, so `--env FOO` is `--env FOO=faramir://FOO`.
 func TestABareEnvNamesTheRefOfThatName(t *testing.T) {
-	refs, err := execRefs(nil, []string{"FOO", "BAR=faramir://home/router/admin"})
+	refs, err := EnvRefs(nil, []string{"FOO", "BAR=faramir://home/router/admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestABareEnvNamesTheRefOfThatName(t *testing.T) {
 // variable name and a ref a store can hold.
 func TestABareEnvIsHeldToBothNamespaces(t *testing.T) {
 	for _, name := range []string{"db/password", "_LEADING", "has space", "9", ""} {
-		if _, err := execRefs(nil, []string{name}); err == nil {
+		if _, err := EnvRefs(nil, []string{name}); err == nil {
 			t.Errorf("--env %q was accepted", name)
 		}
 	}
@@ -342,26 +342,26 @@ func TestABareEnvIsHeldToBothNamespaces(t *testing.T) {
 // to go, the long form being what serves it.
 func TestABareRefThatCannotBeAVariableNameNamesTheLongForm(t *testing.T) {
 	for _, ref := range []string{"api/token", "a-b", "1abc", "a.b"} {
-		err := checkRef(ref, "faramir://"+ref)
+		err := checkEnv(ref, "faramir://"+ref)
 		if err == nil {
-			t.Errorf("checkRef(%q) accepted a name no variable may have", ref)
+			t.Errorf("checkEnv(%q) accepted a name no variable may have", ref)
 			continue
 		}
 		for _, want := range []string{"--env NAME=faramir://" + ref, "is a ref"} {
 			if !strings.Contains(err.Error(), want) {
-				t.Errorf("checkRef(%q) does not offer %q: %v", ref, want, err)
+				t.Errorf("checkEnv(%q) does not offer %q: %v", ref, want, err)
 			}
 		}
 	}
 	// The long form itself is not this: the caller has already given the ref a
 	// variable, and a name that is neither is still just a bad name.
-	if err := checkRef("V", "faramir://api/token"); err != nil {
+	if err := checkEnv("V", "faramir://api/token"); err != nil {
 		t.Errorf("the long form was refused: %v", err)
 	}
 	for _, name := range []string{"", "a b", "_x"} {
-		err := checkRef(name, "faramir://"+name)
+		err := checkEnv(name, "faramir://"+name)
 		if err != nil && strings.Contains(err.Error(), "is a ref") {
-			t.Errorf("checkRef(%q) offered the long form for something that is no ref: %v",
+			t.Errorf("checkEnv(%q) offered the long form for something that is no ref: %v",
 				name, err)
 		}
 	}

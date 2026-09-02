@@ -32,9 +32,9 @@ const (
 // code reads the other.
 const PamDir = "/etc/pam.d"
 
-// SharedStacks are the stacks every account's sudo reads, one per launch type:
+// sharedStacks are the stacks every account's sudo reads, one per launch type:
 // `sudo` for a command and `sudo-i` for a login shell.
-func SharedStacks(pamDir string) []string {
+func sharedStacks(pamDir string) []string {
 	return []string{pamDir + "/sudo", pamDir + "/sudo-i"}
 }
 
@@ -66,7 +66,7 @@ func StackFile(pamDir, pamService string) (string, error) {
 	if _, err := os.Stat(own); err == nil {
 		return own, nil
 	}
-	for _, path := range SharedStacks(pamDir) {
+	for _, path := range sharedStacks(pamDir) {
 		body, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -76,7 +76,7 @@ func StackFile(pamDir, pamService string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("there is no %s and no faramir block in %s", own,
-		strings.Join(SharedStacks(pamDir), " or "))
+		strings.Join(sharedStacks(pamDir), " or "))
 }
 
 // HasBlock reports whether a stack carries a whole faramir block. Both markers,

@@ -10,12 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
 	"filippo.io/age"
 	"filippo.io/age/agessh"
 
+	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/termsafe"
 )
 
@@ -53,7 +55,7 @@ func Age(path string) (recipient string, created bool, err error) {
 	}
 	// Reported rather than swallowed: the key would be short, and O_EXCL means
 	// the next attempt refuses to overwrite it.
-	if err := handle.Close(); err != nil {
+	if err := settle(handle); err != nil {
 		return "", false, err
 	}
 	return id.Recipient().String(), true, nil
@@ -186,4 +188,19 @@ func AgeRecipient(path string) (string, error) {
 		return "", fmt.Errorf("no age identity or recipient in %s", path)
 	}
 	return found, nil
+}
+
+// settle makes a freshly written key durable: the contents are flushed before
+// the file is closed, and the directory entry after it, so a power loss cannot
+// leave the name pointing at a file whose data never landed. Every other file
+// an install writes it can write again; a private key is the one it cannot.
+func settle(handle *os.File) error {
+	if err := handle.Sync(); err != nil {
+		_ = handle.Close()
+		return err
+	}
+	if err := handle.Close(); err != nil {
+		return err
+	}
+	return hostfs.SyncDir(filepath.Dir(handle.Name()))
 }

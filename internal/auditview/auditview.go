@@ -29,9 +29,9 @@ type Printer struct {
 }
 
 func (p *Printer) Row(record map[string]any) {
-	if at := StartedAt(record); !at.IsZero() && at.Format(dateLayout) != p.day {
+	if at := startedAt(record); !at.IsZero() && at.Format(dateLayout) != p.day {
 		p.day = at.Format(dateLayout)
 		fmt.Println(p.Paint.Dim(p.day))
 	}
-	fmt.Println(Summarise(record, p.Paint))
+	fmt.Println(summarise(record, p.Paint))
 }

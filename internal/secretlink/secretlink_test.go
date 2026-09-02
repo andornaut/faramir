@@ -22,9 +22,9 @@ func TestExtractTextTakesTheWholeFileTrimmed(t *testing.T) {
 		"inner space kept": {"two words\n", "two words"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := Extract(KindText, "", []byte(tc.data))
+			got, err := extract(KindText, "", []byte(tc.data))
 			if err != nil {
-				t.Fatalf("Extract: %v", err)
+				t.Fatalf("extract: %v", err)
 			}
 			if got != tc.want {
 				t.Errorf("got %q, want %q", got, tc.want)
@@ -37,7 +37,7 @@ func TestExtractTextTakesTheWholeFileTrimmed(t *testing.T) {
 // matched in output. The refusal has to name the way out, or an operator whose
 // link is refused has nothing to do about it.
 func TestExtractTextRefusesBinary(t *testing.T) {
-	_, err := Extract(KindText, "", []byte{0xff, 0xfe, 0x00, 0x01})
+	_, err := extract(KindText, "", []byte{0xff, 0xfe, 0x00, 0x01})
 	if err == nil {
 		t.Fatal("binary accepted as text")
 	}
@@ -47,9 +47,9 @@ func TestExtractTextRefusesBinary(t *testing.T) {
 }
 
 func TestExtractBase64EncodesTheWholeFile(t *testing.T) {
-	got, err := Extract(KindBase64, "", []byte{0x00, 0x01, 0xff})
+	got, err := extract(kindBase64, "", []byte{0x00, 0x01, 0xff})
 	if err != nil {
-		t.Fatalf("Extract: %v", err)
+		t.Fatalf("extract: %v", err)
 	}
 	if got != "AAH/" {
 		t.Errorf("got %q, want %q", got, "AAH/")
@@ -57,8 +57,8 @@ func TestExtractBase64EncodesTheWholeFile(t *testing.T) {
 }
 
 func TestExtractEmptyIsRefused(t *testing.T) {
-	for _, kind := range []string{KindText, KindBase64} {
-		if _, err := Extract(kind, "", nil); err == nil {
+	for _, kind := range []string{KindText, kindBase64} {
+		if _, err := extract(kind, "", nil); err == nil {
 			t.Errorf("%s: empty file accepted", kind)
 		}
 	}
@@ -81,14 +81,14 @@ func TestExtractJSONSelectsByKeyPath(t *testing.T) {
 			wantErr: "has no count/deeper: count is not a table or a list"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := Extract(KindJSON, tc.key, data)
+			got, err := extract(kindJSON, tc.key, data)
 			switch {
 			case tc.wantErr != "":
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("got (%q, %v), want an error containing %q", got, err, tc.wantErr)
 				}
 			case err != nil:
-				t.Fatalf("Extract: %v", err)
+				t.Fatalf("extract: %v", err)
 			case got != tc.want:
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
@@ -97,14 +97,14 @@ func TestExtractJSONSelectsByKeyPath(t *testing.T) {
 }
 
 func TestExtractJSONList(t *testing.T) {
-	got, err := Extract(KindJSON, "keys/1", []byte(`{"keys":["first","second"]}`))
+	got, err := extract(kindJSON, "keys/1", []byte(`{"keys":["first","second"]}`))
 	if err != nil {
-		t.Fatalf("Extract: %v", err)
+		t.Fatalf("extract: %v", err)
 	}
 	if got != "second" {
 		t.Errorf("got %q, want %q", got, "second")
 	}
-	if _, err := Extract(KindJSON, "keys/9", []byte(`{"keys":["first"]}`)); err == nil {
+	if _, err := extract(kindJSON, "keys/9", []byte(`{"keys":["first"]}`)); err == nil {
 		t.Error("an index past the end was accepted")
 	}
 }
@@ -113,14 +113,14 @@ func TestExtractJSONList(t *testing.T) {
 func TestExtractYAMLSelectsByKeyPath(t *testing.T) {
 	data := []byte("github.com:\n    oauth_token: gho_example\n    user: someone\n" +
 		"    git_protocol: ssh\n")
-	got, err := Extract(KindYAML, "github.com/oauth_token", data)
+	got, err := extract(KindYAML, "github.com/oauth_token", data)
 	if err != nil {
-		t.Fatalf("Extract: %v", err)
+		t.Fatalf("extract: %v", err)
 	}
 	if got != "gho_example" {
 		t.Errorf("got %q, want %q", got, "gho_example")
 	}
-	if _, err := Extract(KindYAML, "github.com/nothing", data); err == nil {
+	if _, err := extract(KindYAML, "github.com/nothing", data); err == nil {
 		t.Error("a selector naming nothing was accepted")
 	}
 }
@@ -142,14 +142,14 @@ func TestExtractINISelectsBySectionAndKey(t *testing.T) {
 		"section not searched flat": {key: "token", wantErr: "has no token"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := Extract(KindINI, tc.key, data)
+			got, err := extract(kindINI, tc.key, data)
 			switch {
 			case tc.wantErr != "":
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("got (%q, %v), want an error containing %q", got, err, tc.wantErr)
 				}
 			case err != nil:
-				t.Fatalf("Extract: %v", err)
+				t.Fatalf("extract: %v", err)
 			case got != tc.want:
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
@@ -158,7 +158,7 @@ func TestExtractINISelectsBySectionAndKey(t *testing.T) {
 }
 
 func TestExtractUnknownKindNamesTheKnownOnes(t *testing.T) {
-	_, err := Extract("xml", "k", []byte("<k>v</k>"))
+	_, err := extract("xml", "k", []byte("<k>v</k>"))
 	if err == nil {
 		t.Fatal("unknown type accepted")
 	}
@@ -178,16 +178,16 @@ func TestErrorsCarryNoFileContent(t *testing.T) {
 		kind, key string
 		data      string
 	}{
-		{KindJSON, "k", `{"k": "` + value + `"`},        // truncated JSON
+		{kindJSON, "k", `{"k": "` + value + `"`},        // truncated JSON
 		{KindYAML, "k", "k: [" + value},                 // truncated YAML
-		{KindJSON, "absent", `{"k":"` + value + `"}`},   // selector misses
+		{kindJSON, "absent", `{"k":"` + value + `"}`},   // selector misses
 		{KindYAML, "absent", "k: " + value + "\n"},      // selector misses
-		{KindINI, "absent", "k=" + value + "\n"},        // selector misses
-		{KindJSON, "k/deeper", `{"k":"` + value + `"}`}, // walks through a leaf
+		{kindINI, "absent", "k=" + value + "\n"},        // selector misses
+		{kindJSON, "k/deeper", `{"k":"` + value + `"}`}, // walks through a leaf
 		{"unknown", "k", "k=" + value},                  // unknown type
 	}
 	for _, tc := range cases {
-		_, err := Extract(tc.kind, tc.key, []byte(tc.data))
+		_, err := extract(tc.kind, tc.key, []byte(tc.data))
 		if err == nil {
 			t.Errorf("%s/%s: no error", tc.kind, tc.key)
 			continue
@@ -201,7 +201,7 @@ func TestErrorsCarryNoFileContent(t *testing.T) {
 func TestReadRefusesAnOversizeFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "big")
-	if err := os.WriteFile(path, bytes.Repeat([]byte("a"), MaxBytes+1), 0o600); err != nil {
+	if err := os.WriteFile(path, bytes.Repeat([]byte("a"), maxBytes+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Read(path, KindText, ""); err == nil {
@@ -217,8 +217,8 @@ func TestReadReportsAMissingFile(t *testing.T) {
 
 func TestOnlyTheStructuredKindsNeedAKey(t *testing.T) {
 	for kind, want := range map[string]bool{
-		KindText: false, KindBase64: false,
-		KindJSON: true, KindYAML: true, KindTOML: true, KindINI: true,
+		KindText: false, kindBase64: false,
+		kindJSON: true, KindYAML: true, kindTOML: true, kindINI: true,
 	} {
 		if !slices.Contains(Kinds(), kind) {
 			t.Errorf("%q is not a known kind, so this row asserts nothing", kind)
@@ -239,7 +239,7 @@ func TestASelectorNamesAKeyHoldingASlash(t *testing.T) {
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Read(path, KindJSON, `auths/https:\/\/index.docker.io\/v1\//auth`)
+	got, err := Read(path, kindJSON, `auths/https:\/\/index.docker.io\/v1\//auth`)
 	if err != nil {
 		t.Fatalf("escaped selector did not read: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestASelectorNamesAKeyHoldingASlash(t *testing.T) {
 	}
 	// Unescaped, the same text walks levels that are not there rather than
 	// silently selecting something else.
-	if _, err := Read(path, KindJSON, "auths/https://index.docker.io/v1//auth"); err == nil {
+	if _, err := Read(path, kindJSON, "auths/https://index.docker.io/v1//auth"); err == nil {
 		t.Error("an unescaped slash selected something; it names no such path")
 	}
 }
@@ -260,14 +260,14 @@ func TestEveryKeyOfferedCanBeSelected(t *testing.T) {
 		// The trailing-backslash key is the one that pins escaping the escape: a
 		// segment ending in "\\" runs into the separator after it, and unescaped
 		// the two read as one escaped slash and the walk loses a level.
-		{KindJSON, `{"auths": {"ghcr.io": {"auth": "a"}, "https://x.io/v1/": {"auth": "b"}},
+		{kindJSON, `{"auths": {"ghcr.io": {"auth": "a"}, "https://x.io/v1/": {"auth": "b"}},
 		             "back\\slash": "c", "trailing\\": {"leaf": "e"}, "list": ["d"]}`},
 		{KindYAML, "plain: a\n\"with/slash\": b\n\"back\\\\slash\": c\nlist:\n  - d\n"},
-		{KindTOML, "plain = \"a\"\n\"with/slash\" = \"b\"\n[table]\nkey = \"c\"\n"},
+		{kindTOML, "plain = \"a\"\n\"with/slash\" = \"b\"\n[table]\nkey = \"c\"\n"},
 		// ini matches a key whole and escapes nothing, so what pins it is the
 		// section prefix: the listing joins with "/" and the selector splits on it,
 		// and a name offered under the wrong prefix selects nothing.
-		{KindINI, "plain = a\n//registry.npmjs.org/:_authToken = b\n[table]\nkey = c\n"},
+		{kindINI, "plain = a\n//registry.npmjs.org/:_authToken = b\n[table]\nkey = c\n"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			dir := t.TempDir()
@@ -275,7 +275,7 @@ func TestEveryKeyOfferedCanBeSelected(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			keys, err := KeysIn(path, tc.kind)
+			keys, err := keysIn(path, tc.kind)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -304,7 +304,7 @@ func TestTOMLSelectsLikeTheOthers(t *testing.T) {
 		{"token", "top-level"},
 		{"registry/ghcr.io/token", "nested"},
 	} {
-		got, err := Read(path, KindTOML, tc.key)
+		got, err := Read(path, kindTOML, tc.key)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.key, err)
 		}
@@ -312,7 +312,7 @@ func TestTOMLSelectsLikeTheOthers(t *testing.T) {
 			t.Errorf("%s = %q, want %q", tc.key, got, tc.want)
 		}
 	}
-	if _, err := Read(path, KindTOML, "nope"); err == nil {
+	if _, err := Read(path, kindTOML, "nope"); err == nil {
 		t.Error("a key that is not there was read")
 	}
 }
@@ -321,7 +321,7 @@ func TestTOMLSelectsLikeTheOthers(t *testing.T) {
 // the way the selector was: cut on a raw "/" it would divide a key holding one
 // and name a parent nobody wrote.
 func TestAnErrorNamesTheParentInTheSelectorsOwnSpelling(t *testing.T) {
-	_, err := Extract(KindJSON, `a/b\/c`, []byte(`{"a":"leaf"}`))
+	_, err := extract(kindJSON, `a/b\/c`, []byte(`{"a":"leaf"}`))
 	if err == nil {
 		t.Fatal("walking through a leaf was accepted")
 	}
@@ -337,7 +337,7 @@ func TestAnErrorNamesTheParentInTheSelectorsOwnSpelling(t *testing.T) {
 // clear if anything prints it.
 func TestAnAmbiguousINISelectorIsRefused(t *testing.T) {
 	body := []byte("a/b/c = sectionless\n\n[a]\nb/c = in-a\n\n[a/b]\nc = in-ab\n")
-	_, err := Extract(KindINI, "a/b/c", body)
+	_, err := extract(kindINI, "a/b/c", body)
 	if err == nil {
 		t.Fatal("an ambiguous selector was answered rather than refused")
 	}
@@ -347,7 +347,7 @@ func TestAnAmbiguousINISelectorIsRefused(t *testing.T) {
 		}
 	}
 	// Naming only one of them is unambiguous and still reads.
-	got, err := Extract(KindINI, "a/b", []byte("[a]\nb = plain\n"))
+	got, err := extract(kindINI, "a/b", []byte("[a]\nb = plain\n"))
 	if err != nil || got != "plain" {
 		t.Errorf("an unambiguous section key stopped reading: %q %v", got, err)
 	}
@@ -367,7 +367,7 @@ func TestADuplicateINIKeyIsRefused(t *testing.T) {
 			key = "s/k"
 		}
 		t.Run(name, func(t *testing.T) {
-			got, err := Extract(KindINI, key, []byte(body))
+			got, err := extract(kindINI, key, []byte(body))
 			if err == nil {
 				t.Fatalf("a duplicate key resolved to %q", got)
 			}
@@ -398,9 +398,9 @@ func TestASingleINIKeyStillReads(t *testing.T) {
 		"same name under two sections": {"s/k", "[s]\nk = only\n[t]\nk = other\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := Extract(KindINI, tc.key, []byte(tc.body))
+			got, err := extract(kindINI, tc.key, []byte(tc.body))
 			if err != nil {
-				t.Fatalf("Extract: %v", err)
+				t.Fatalf("extract: %v", err)
 			}
 			if got != "only" {
 				t.Errorf("got %q, want %q", got, "only")
@@ -458,8 +458,8 @@ func TestTheOfferedSelectorsAreRenderedBeforeTheyAreShown(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, cause := Read(path, KindINI, "no-such-key")
-	got := Refusal(path, KindINI, cause).Error()
+	_, cause := Read(path, kindINI, "no-such-key")
+	got := Refusal(path, kindINI, cause).Error()
 	for _, raw := range []string{"\x1b", "\r", "\x07"} {
 		if strings.Contains(got, raw) {
 			t.Errorf("the offers carry %q into the terminal: %q", raw, got)

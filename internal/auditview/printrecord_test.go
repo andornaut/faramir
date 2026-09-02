@@ -114,3 +114,12 @@ func TestPrintRecordRendersTerminalControlsInCallerText(t *testing.T) {
 		t.Errorf("an escape from the record reached the terminal: %q", got)
 	}
 }
+
+// Counts, never values.
+func TestRedactionCountsRenderTokensAndCounts(t *testing.T) {
+	got := redactionCounts(rec(t,
+		`{"log_id":"x","redactions":[{"token":"«SECRET:a»","count":2},{"token":"«SECRET:b»","count":1}]}`))
+	if got != "«SECRET:a»×2, «SECRET:b»×1" {
+		t.Errorf("redactionCounts = %q", got)
+	}
+}

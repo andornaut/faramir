@@ -211,7 +211,7 @@ func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
 		return err
 	}
 	*out = DefaultSecret()
-	out.Patterns = SecretPatterns(path)
+	out.Patterns = secretPatterns(path)
 	if out.Links, err = loadLinks(sec["link"], where); err != nil {
 		return err
 	}

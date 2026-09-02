@@ -254,7 +254,7 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 	// Per chunk, and refreshed for each: a redact runs no command, so an answer
 	// that has not arrived by now is not coming. The deadline covers the write as
 	// well.
-	_ = rc.conn.SetDeadline(time.Now().Add(QuickWait))
+	_ = rc.conn.SetDeadline(time.Now().Add(quickWait))
 	request := map[string]any{"op": "redact", "text": text, "version": version.Version}
 	if more {
 		request["more"] = true
@@ -292,11 +292,11 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 const (
 	// DialWait is reaching the socket, which is local and immediate or broken.
 	DialWait = 5 * time.Second
-	// QuickWait bounds a round trip that runs no command.
-	QuickWait = 15 * time.Second
-	// ExecGrace is what a brokered command's own timeout is padded by: the broker
+	// quickWait bounds a round trip that runs no command.
+	quickWait = 15 * time.Second
+	// execGrace is what a brokered command's own timeout is padded by: the broker
 	// kills at the timeout and still has to write the record and the response.
-	ExecGrace = 30 * time.Second
+	execGrace = 30 * time.Second
 )
 
 // ResponseWait is how long to wait for this request's answer. A command's own
@@ -310,7 +310,7 @@ const (
 // not there rather than as a number nothing could wait that long for.
 func ResponseWait(request map[string]any) time.Duration {
 	if request["op"] != OpRun {
-		return QuickWait
+		return quickWait
 	}
 	// A named -t is the bound the broker will clamp to and honour, so the wait is
 	// built from it. With no -t the broker applies its own default and enforces
@@ -320,16 +320,16 @@ func ResponseWait(request map[string]any) time.Duration {
 	// never answered and makes it kill the run. So the client sets no ceiling of
 	// its own; it waits the largest span a Duration holds and lets the broker's
 	// answer end the wait. Overflow is the only bound.
-	seconds := MaxWaitSeconds
-	if s, ok := request["timeout_sec"].(int); ok && s > 0 && s < MaxWaitSeconds {
+	seconds := maxWaitSeconds
+	if s, ok := request["timeout_sec"].(int); ok && s > 0 && s < maxWaitSeconds {
 		seconds = s
 	}
-	return time.Duration(seconds)*time.Second + ExecGrace
+	return time.Duration(seconds)*time.Second + execGrace
 }
 
-// MaxWaitSeconds is the largest command timeout responseWait can add execGrace
+// maxWaitSeconds is the largest command timeout responseWait can add execGrace
 // to and still hold in a Duration.
-const MaxWaitSeconds = int(math.MaxInt64/int64(time.Second)) - int(ExecGrace/time.Second)
+const maxWaitSeconds = int(math.MaxInt64/int64(time.Second)) - int(execGrace/time.Second)
 
 // ExitFor is the status a refused request exits with. One code is separated
 // out: a broker at its concurrency limit refused nothing about the command and

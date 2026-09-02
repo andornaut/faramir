@@ -15,6 +15,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/brokerclient"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/secretref"
 	"github.com/andornaut/faramir/internal/termui"
 )
 
@@ -52,7 +53,7 @@ func newRunCmd() *cobra.Command {
 		// or `--env` after it is the program's and is passed through untouched.
 		// A `--` still works and is not required.
 		RunE: func(c *cobra.Command, rest []string) error {
-			refs, err := execRefs(envFiles, envRefs)
+			refs, err := secretref.EnvRefs(envFiles, envRefs)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
 				return codeErr(2)

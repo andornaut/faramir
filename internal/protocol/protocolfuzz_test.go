@@ -3,6 +3,8 @@ package protocol
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/secretref"
 )
 
 // Parse is the first thing a request meets, on a socket any account in the
@@ -31,7 +33,7 @@ func FuzzParseAnswersWhateverArrives(f *testing.F) {
 			t.Fatal("Parse returned no request and no error")
 		}
 		for name := range req.EnvRefs {
-			if !ValidEnvName(name) {
+			if !secretref.ValidEnvName(name) {
 				t.Fatalf("accepted an environment name Parse's own check refuses: %q", name)
 			}
 		}
