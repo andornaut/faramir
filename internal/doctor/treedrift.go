@@ -17,7 +17,8 @@ import (
 
 // What an enrolled tree still carries of what `enrol` wrote into it,
 // which is Claude Code's routing hook and nothing else: every other agent is
-// guarded from a home, and routing costs a permission on this one alone.
+// guarded from a home, and only on this one does routing suppress a permission
+// prompt.
 //
 // A tree is shared with the client group, and unlink and rename are permissions
 // on the directory, so a brokered command can replace one of these whatever

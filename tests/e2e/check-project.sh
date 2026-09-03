@@ -45,7 +45,7 @@ head_ "1. what an enrolment writes into a tree"
 
 # Almost nothing, and that is the claim. The guard is installed for the account,
 # so a tree gets the credentials section and, for Claude Code alone, the hook
-# that routes what it runs: routing costs a permission there and nowhere else.
+# that routes what it runs: only there does routing suppress a permission prompt.
 
 D=$(tree /home/op/p-claude); enrol "$D" --agent claude >/tmp/p-claude.log 2>&1 \
   || bad "claude enrolment failed: $(tail -2 /tmp/p-claude.log)"

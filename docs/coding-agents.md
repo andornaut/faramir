@@ -41,8 +41,9 @@ return a permission decision, so a hook that rewrites a command must also
 approve it, and that approval covers every command the deny list does not
 name. Claude Code refuses the permission rule that would approve the rewrite
 instead, with "'source' evaluates arguments as shell code". So on those two
-agents routing costs a permission, and the operator accepts that cost one tree
-at a time. Account-wide, they run `faramir guard --deny-only`, which refuses
+agents routing suppresses the Bash permission prompt, and the operator accepts
+that per tree, by enrolling it. Account-wide, they run `faramir guard
+--deny-only`, which refuses
 what the list names and says nothing about any other command, so the agent's
 own permission flow is unchanged.
 

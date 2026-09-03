@@ -219,9 +219,10 @@ var Targets = map[string]*Target{
 	"claude": {
 		Name: "claude",
 		// A tree-level settings file, which only Claude Code and Codex get, for
-		// the only thing that costs a permission: the hook that rewrites a command
-		// has to approve it, and that approval covers every command the deny list
-		// does not name. An operator takes that trade one tree at a time. The
+		// the one thing that suppresses a permission prompt: the hook that
+		// rewrites a command has to approve it, and that approval covers every
+		// command the deny list does not name. An operator accepts that per
+		// tree, by enrolling it. The
 		// tree instructions file below is the other thing a tree gets. Everything
 		// else Claude Code gets is account-wide, including a deny-only copy of
 		// this hook.
