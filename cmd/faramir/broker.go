@@ -33,7 +33,7 @@ func newBrokerCmd() *cobra.Command {
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runBroker(f)) },
 	}
-	c.Flags().BoolVar(&f.check, "check", false, "validate config and exit")
+	c.Flags().BoolVar(&f.check, "check", false, "validate the config and exit")
 	// Whether a config parses, judged by the parser that will judge it later.
 	// Distinct from --check, which also opens the SSH keys and the secrets files
 	// and so needs a running keeper.

@@ -38,24 +38,24 @@ func newAddCmd() *cobra.Command {
 		Use:   "add [options] NAME",
 		Short: "Add a new encrypted secret file",
 		Long: "Creates one file in the secrets directory, encrypted to the recipients\n" +
-			".sops.yaml names.\n\n" +
-			"NAME is a name, relative to the secrets directory: `.sops.yml` is added\n" +
-			"for you, and a name that already carries it is taken as it stands.\n\n" +
-			"The content comes from an editor faramir picks, on a 0600 file in a\n" +
-			"tmpfs, so no plaintext reaches a disk. That editor runs as root over the\n" +
-			"decrypted value, so it must be a binary no account but root can write or\n" +
-			"replace: --editor, $VISUAL and $EDITOR each name one by absolute path and\n" +
-			"are each held to that.\n\n" +
-			"--from encrypts a file you already have and leaves it cleartext where it\n" +
-			"is.",
+			"listed in .sops.yaml.\n\n" +
+			"NAME is relative to the secrets directory. The `.sops.yml` suffix is\n" +
+			"added unless NAME already ends with it.\n\n" +
+			"The content is written in an editor, on a 0600 file in a tmpfs, so no\n" +
+			"plaintext reaches a disk. The editor runs as root over the decrypted\n" +
+			"value, so it must be a binary that only root can write or replace.\n" +
+			"--editor, $VISUAL and $EDITOR each name one by absolute path, and each\n" +
+			"is checked.\n\n" +
+			"--from encrypts an existing file instead. That file is left where it is,\n" +
+			"still in cleartext.",
 		Args: exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runAdd(f, args[0])) },
 	}
-	c.Flags().StringVar(&f.editor, "editor", "", "absolute path to the editor to run, with no arguments "+
+	c.Flags().StringVar(&f.editor, "editor", "", "absolute path of the editor, run with no arguments "+
 		"(default: $VISUAL, then $EDITOR, then the first of "+strings.Join(vault.Editors, ", ")+
-		" that root alone can write; sudo's env_reset drops both variables unless the sudoers keep them)")
+		" that only root can write; sudo's env_reset drops both variables unless sudoers keeps them)")
 	c.Flags().StringVar(&f.from, "from", "",
-		"encrypt this plaintext `FILE` instead of opening an editor; it is left where it is")
+		"encrypt this plaintext `FILE` instead of opening an editor; the file is left where it is")
 	return c
 }
 

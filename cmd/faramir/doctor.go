@@ -49,15 +49,15 @@ func newDoctorCmd() *cobra.Command {
 	// would answer about accounts a host installed with other names does not
 	// have. Each is an override for a host whose install is not this one.
 	fl.StringVar(&f.clientGroup, "client-group", "",
-		"override the group admitted to the broker socket, instead of reading [server] allowed_group")
+		"the group admitted to the broker socket (default: [server] allowed_group)")
 	fl.StringVar(&f.secretsGroup, "secrets-group", "",
-		"override the group owning the ciphertext, instead of reading it off <config-dir>/secrets")
+		"the group that owns the ciphertext (default: the group on <config-dir>/secrets)")
 	fl.StringVar(&f.brokerUser, "broker-user", "",
-		"override the account the broker runs as, instead of reading faramir-broker.service")
+		"the account the broker runs as (default: read from faramir-broker.service)")
 	fl.StringVar(&f.keeperUser, "keeper-user", "",
-		"override the account that holds the age key, instead of reading faramir-keeper.service")
+		"the account that holds the age key (default: read from faramir-keeper.service)")
 	fl.StringVar(&f.execUser, "exec-user", "",
-		"override the account brokered commands run as, instead of reading faramir-exec.service")
+		"the account brokered commands run as (default: read from faramir-exec.service)")
 	fl.BoolVar(&f.asJSON, "json", false, "print the findings as JSON")
 	addColorFlag(c, &f.when)
 	return c

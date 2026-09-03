@@ -113,14 +113,14 @@ func newRunCmd() *cobra.Command {
 	o.add(c)
 	c.Flags().BoolVar(&quiet, "quiet", false, "suppress the redaction summary")
 	c.Flags().BoolVarP(&stdin, "stdin", "i", false,
-		"send what is piped in to the command; without it a pipeline is refused rather than dropped")
-	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory for the command (default: the caller's)")
+		"pass piped input to the command; without this flag, piped input is refused")
+	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory for the command (default: the current directory)")
 	c.Flags().StringVarP(&timeout, "timeout", "t", "",
-		"how long the command may run: a duration such as 90s or 5m, or a bare number of seconds")
+		"how long the command may run: a duration such as 90s or 5m, or a number of seconds")
 	c.Flags().StringArrayVar(&envRefs, "env", nil,
-		"NAME=faramir://ref, or a bare NAME for the ref of that name (repeatable)")
+		"NAME=faramir://ref, or NAME alone for the ref of the same name; repeatable")
 	c.Flags().StringArrayVar(&envFiles, "env-file", nil,
-		"file of NAME=faramir://ref lines, or a bare NAME for the ref of that name (repeatable)")
+		"file of NAME=faramir://ref lines, or NAME alone for the ref of the same name; repeatable")
 	// Stop at the program name so its own flags stay with it. Without this pflag
 	// reads a colliding flag after the command (-C, -t, --env, --quiet) as run's
 	// own, running a different command than the caller typed.

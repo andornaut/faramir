@@ -85,10 +85,10 @@ func newSudoListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   useLs,
 		Short: "List the sudo requests waiting for an answer",
-		Long: "Prints what is waiting and exits. Exit status is 0 where something was\n" +
-			"waiting, 1 where nothing was, 69 where the broker could not be reached,\n" +
-			"which prints nothing rather than an empty list.\n\n" +
-			"`faramir sudo watch` is the other form: it waits and answers from that\n" +
+		Long: "Prints the waiting requests and exits. Exit status is 0 when something\n" +
+			"is waiting, 1 when nothing is, and 69 when the broker cannot be reached,\n" +
+			"in which case nothing is printed.\n\n" +
+			"`faramir sudo watch` waits for requests and answers them from the\n" +
 			"terminal.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -116,10 +116,11 @@ func newSudoWatchCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "watch",
 		Short: "Watch for sudo requests and answer them as they arrive",
-		Long: "Holds this terminal: prints each question as it arrives, reads your\n" +
+		Long: "Keeps the terminal: prints each request as it arrives, reads your\n" +
 			"answer, and prints how each approved run ended.\n\n" +
-			"Run it as root somewhere the coding agent cannot type. The socket check\n" +
-			"makes the answer come from root; it cannot make root the one typing.",
+			"Run it as root, in a terminal the coding agent cannot type into. The\n" +
+			"broker checks that the answer comes from root; it cannot check who is\n" +
+			"typing.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			if !requireRootToAnswer("sudo watch") {
@@ -175,7 +176,7 @@ func newRejectCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   "reject [options] [ID]",
-		Short: "Refuse one sudo request, or whichever is waiting",
+		Short: "Refuse one sudo request by id, or the one that is waiting",
 		Args:  atMostOneArg("id"),
 		RunE: func(c *cobra.Command, args []string) error {
 			if !requireRootToAnswer("sudo reject") {

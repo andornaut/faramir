@@ -49,17 +49,16 @@ func newLinkAddCmd() *cobra.Command {
 		Use:   "add [options] REF FILE",
 		Short: "Add a secret read from a file another tool maintains",
 		Long: "Adds one [[secret.link]] entry and applies it: the broker is granted read\n" +
-			"on the file, the file is refused to the agent's file tools, and the daemons\n" +
-			"are reloaded.\n\n" +
-			"REF is the name a caller asks by, with or without the faramir:// that\n" +
-			"`faramir refs` prints it with.\n\n" +
+			"access to the file, the file is refused to the agent's file tools, and\n" +
+			"the daemons are reloaded.\n\n" +
+			"REF is the name a caller asks for, with or without the faramir:// prefix\n" +
+			"that `faramir refs` prints.\n\n" +
 			"The file is read once, as the broker, before anything is written, so a\n" +
-			"selector naming nothing is an error here rather than later.\n\n" +
-			"Re-adding the same entry re-applies it, which is what restores a grant or\n" +
-			"a rule something took away, and reports changed=false. The same ref\n" +
-			"against a different file, type or key is an error; against a different\n" +
-			"--strict it changes the entry, that being how strictly one rule is\n" +
-			"matched rather than a second rule.\n\n" +
+			"--key that selects nothing fails here rather than later.\n\n" +
+			"Adding an entry that already exists re-applies it, which restores a\n" +
+			"grant or a rule that was removed, and reports changed=false. The same\n" +
+			"ref with a different file, type or key is an error. The same ref with a\n" +
+			"different --strict updates the entry.\n\n" +
 			"Prints the ref it added. --json prints the file-by-file report.",
 		Args: exactlyArgs(2, "a ref and a file"),
 		RunE: func(c *cobra.Command, args []string) error {
@@ -69,12 +68,11 @@ func newLinkAddCmd() *cobra.Command {
 	c.Flags().StringVar(&f.kind, "type", "",
 		"how to read the file: "+strings.Join(secretlink.Kinds(), ", "))
 	c.Flags().StringVar(&f.key, "key", "",
-		"what to select out of it, for the types that select")
+		"the entry to select from the file, for types that have entries")
 	c.Flags().BoolVar(&f.strict, "strict", false,
-		"refuse every command NAMING this file, not only the ones that would "+
-			"print it: ls, stat, chmod and mv included. Ask for the ref "+
-			"instead. Off by default, since a file nothing may touch is a file its own "+
-			"tool cannot be told to rewrite either")
+		"refuse every command that names this file, not only the ones that would "+
+			"print it: ls, stat, chmod and mv included. Off by default, since the "+
+			"tool that owns the file could then not be told to rewrite it")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
@@ -138,15 +136,15 @@ func newLinkRemoveCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "rm [options] REF",
 		Short: "Remove a linked secret",
-		Long: "Removes the entry, so the value leaves the redactor and stops being\n" +
-			"injectable.\n\n" +
-			"The rules faramir wrote into your agent's settings go with it, against\n" +
-			"the record of what it last wrote there; a rule you added yourself naming\n" +
-			"the same path is not in that record and stays.\n\n" +
-			"One thing it does not undo: the read granted to the broker, whose previous\n" +
-			"mode this does not know. It is printed with what undoes it.\n\n" +
+		Long: "Removes the entry. The value leaves the redactor and can no longer be\n" +
+			"injected.\n\n" +
+			"The rules faramir wrote into your agent's settings are removed with it,\n" +
+			"using its record of what it last wrote there. A rule you added yourself\n" +
+			"for the same path is not in that record and stays.\n\n" +
+			"The read access granted to the broker is not undone, because the file's\n" +
+			"previous mode is unknown. The command that undoes it is printed.\n\n" +
 			"Prints the ref it removed. --json prints the file-by-file report.\n\n" +
-			"A ref this install does not carry reports changed=false.",
+			"A ref this install does not have reports changed=false.",
 		Args: exactlyOneArg("ref"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runLinkRemove(f, secretref.Bare(args[0])))

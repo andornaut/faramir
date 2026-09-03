@@ -45,7 +45,7 @@ func newReadLinkCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&path, "path", "", "the file to read")
-	c.Flags().StringVar(&kind, "type", "", "how to read it")
-	c.Flags().StringVar(&key, "key", "", "what to select out of it")
+	c.Flags().StringVar(&kind, "type", "", "how to read the file: text, base64, json, yaml, toml or ini")
+	c.Flags().StringVar(&key, "key", "", "the entry to select from the file")
 	return c
 }

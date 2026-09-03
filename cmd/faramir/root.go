@@ -74,14 +74,14 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "faramir",
 		Short: "A secrets broker for AI coding agents",
-		Long: "A secrets broker for AI coding agents: it runs the commands that need\n" +
+		Long: "A secrets broker for AI coding agents. It runs the commands that need\n" +
 			"credentials and keeps the values out of the agent's context.\n\n" +
-			"Every command that talks to the broker finds it at $FARAMIR_SOCKET, else\n" +
-			defaultSocket + ", and accepts --json, except redact, whose output is\n" +
-			"the redaction itself.\n\n" +
+			"Commands that talk to the broker use the socket at $FARAMIR_SOCKET, or\n" +
+			defaultSocket + " when that is unset. All of them accept --json except\n" +
+			"redact, whose output is the redacted text.\n\n" +
 			"Name secrets with --env NAME=faramir://ref, or --env-file for a file of them.\n\n" +
-			"Secrets are injected as environment variables only; they are never substituted\n" +
-			"into the command line.",
+			"Secrets are injected as environment variables only. They are never put on\n" +
+			"the command line.",
 		Version: version.Version,
 		// A wrong invocation is cobra's to print, and is refused before
 		// PersistentPreRunE runs; what comes after it is silenced there.
@@ -111,8 +111,8 @@ func newRootCmd() *cobra.Command {
 
 	root.AddGroup(
 		&cobra.Group{ID: groupOperator, Title: "Commands:"},
-		&cobra.Group{ID: groupProvisioning, Title: "Provisioning (need root; they change files, and ask a running broker where the install is):"},
-		&cobra.Group{ID: groupInternal, Title: "Run by systemd and by the coding agent, not by you:"},
+		&cobra.Group{ID: groupProvisioning, Title: "Operator commands (need root; they change files, and ask a running broker where the install is):"},
+		&cobra.Group{ID: groupInternal, Title: "Internal commands (run by systemd, PAM and the coding agent):"},
 	)
 
 	root.SetVersionTemplate("faramir {{.Version}}\n")

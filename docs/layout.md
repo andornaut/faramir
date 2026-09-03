@@ -1,6 +1,6 @@
 # Layout
 
-Every path the install creates, what owns it, and what each account can reach through it. `faramir init` writes all of it except the last two rows, which are `faramir enrol`'s.
+Every path the install creates, what owns it, and what each account can reach through it. `faramir init` writes all of it except the last two rows, which `faramir enrol` writes.
 
 ```text
 /usr/local/bin/faramir          0755 root:root, the only binary; every role is a subcommand
@@ -40,42 +40,42 @@ Every path the install creates, what owns it, and what each account can reach th
 <any tree you enrol>            2770 <operator>:<client-group>, setgid
 ```
 
-`sudo-env` sits in `/usr/local/libexec/faramir`, beside the other files this install renders for its own use, rather than in either place it might otherwise go. Not `/etc/sudoers.d`, which sudo parses in its entirety. Not `<config-dir>`, which an uninstall keeps and so must never remove wholesale. It is root-owned and nowhere the executor's uid can write, because PAM reads it as root: a file that uid could rewrite would be that uid choosing root's environment.
+`sudo-env` lives in `/usr/local/libexec/faramir` with the other files the install renders for its own use. It is not in `/etc/sudoers.d`, because sudo parses every file there, and not in `<config-dir>`, because an uninstall keeps that directory. It is owned by root and nowhere the executor's uid can write, because PAM reads it as root: if that uid could rewrite the file, it would be choosing root's environment.
 
-`init` also checks any file a `[[secret.link]]` entry names, which is a file it does not own and does not create. It reports what is wrong and the command that fixes it, and changes nothing:
+`init` also checks any file a `[[secret.link]]` entry names. It does not own or create that file, so it reports what is wrong and the command that fixes it, and changes nothing:
 
 ```text
 <any file you link>             group-readable by <broker's group>, and by nobody else
 <the directories above it>      enterable by <client-group>, down from the home
 ```
 
-`init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>` and a missing parent `0700`; one already there keeps its own owner, group and mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
+`init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>`, and a missing parent is `0700`. A file that already exists keeps its owner, group and mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
 
 Agent | Rule file | What faramir installs beside it | Credentials section | Notes
 --- | --- | --- | --- | ---
-Antigravity CLI (`agy`) | `~/.gemini/antigravity-cli/settings.json` | the hook in `~/.gemini/config/hooks.json` | `~/.gemini/GEMINI.md` | `~/.gemini` is where the whole Antigravity family keeps its own things, so the section and the hook are shared with the IDE and the deny rules are not
-Antigravity IDE | none | the same hook | `~/.gemini/GEMINI.md` | It keeps its permission lists as its own state rather than in a file an install may write, so that hook is what refuses its file tools
-Claude Code | `~/.claude/settings.json` | a deny-only hook, in that same file | `~/.claude/CLAUDE.md` | The ordinary case: a rule file and a section
-Codex | none | a deny-only hook in `~/.codex/hooks.json` | `~/.codex/AGENTS.md` | Its own `.rules` files are an exec policy: they decide commands and name no path, so there is no rule file to write and the hook is what refuses its file tools
-Kilo Code | `~/.config/kilo/kilo.json` | `~/.config/kilo/plugin/faramir.js` | `~/.kilocode/rules/faramir.md` | Its rule file is a prompt rather than a refusal, so the plugin is what refuses. It has no single home instructions file either, so the section goes in a file of faramir's own in the global rules directory, where every `.md` is loaded for every project
-opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/plugin/faramir.js` | `~/.config/opencode/AGENTS.md` | The same rule file, a prompt rather than a refusal, so the plugin is what refuses here too
-Pi | none | `~/.pi/agent/extensions/faramir.ts` | `~/.pi/agent/AGENTS.md` | No rule file an install can write, so the extension is the whole of it. Pi loads a home's extensions for every project without the project being trusted
+Antigravity CLI (`agy`) | `~/.gemini/antigravity-cli/settings.json` | the hook in `~/.gemini/config/hooks.json` | `~/.gemini/GEMINI.md` | The whole Antigravity family keeps its files under `~/.gemini`, so the section and the hook are shared with the IDE. The deny rules are not
+Antigravity IDE | none | the same hook | `~/.gemini/GEMINI.md` | It keeps its permission lists as internal state, not in a file an install can write, so the hook refuses its file tools
+Claude Code | `~/.claude/settings.json` | a deny-only hook, in that same file | `~/.claude/CLAUDE.md` | A rule file and a section
+Codex | none | a deny-only hook in `~/.codex/hooks.json` | `~/.codex/AGENTS.md` | Its own `.rules` files are an exec policy: they decide commands and name no path. There is no rule file to write, so the hook refuses its file tools
+Kilo Code | `~/.config/kilo/kilo.json` | `~/.config/kilo/plugin/faramir.js` | `~/.kilocode/rules/faramir.md` | Its rule file is a prompt, not a refusal, so the plugin refuses. It has no single home instructions file, so the section goes in a file of faramir's own in the global rules directory, where every `.md` is loaded for every project
+opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/plugin/faramir.js` | `~/.config/opencode/AGENTS.md` | Its rule file is also a prompt, not a refusal, so the plugin refuses
+Pi | none | `~/.pi/agent/extensions/faramir.ts` | `~/.pi/agent/AGENTS.md` | No rule file an install can write, so the extension does everything. Pi loads a home's extensions for every project without the project being trusted
 
-Every one of these refuses a path by asking `faramir guard`, and every one but Claude Code's and Codex's also routes a command through the broker. Those two return a permission decision, so the hook that rewrites a command must also approve it, and their account-wide hooks are `--deny-only`: each refuses what the list names and nothing else, and routing is what an enrolment buys.
+Every one of these refuses a path by asking `faramir guard`. Every one except Claude Code's and Codex's also routes commands through the broker. Those two return a permission decision, so a hook that rewrites a command must also approve it. Their account-wide hooks are `--deny-only`: each refuses what the list names and nothing else. Routing is what an enrolment adds.
 
 Why each agent gets what it gets is in [coding-agents.md](coding-agents.md).
 
-In an enrolled tree, every agent reads the tree's own `AGENTS.md`, or its `CLAUDE.md` where that is what the tree has. Three agents read a name of their own as well, and get a file there:
+In an enrolled tree, every agent reads the tree's own `AGENTS.md`, or its `CLAUDE.md` if that is what the tree has. Three agents also read a file name of their own, and get a file there:
 
 Agent | File in the tree | Why
 --- | --- | ---
-Antigravity | `.agents/rules/faramir.md` | It reads `.agents/rules/*.md` as well as the tree's own file, so a tree whose own file is a `CLAUDE.md` would leave it nothing, that being a name it does not read
-Claude Code | `CLAUDE.md` | It reads `CLAUDE.md` and not `AGENTS.md`, so a tree whose own file is an `AGENTS.md` would leave it nothing
-Codex | `AGENTS.md` | The mirror image of Claude Code: it reads `AGENTS.md` and not `CLAUDE.md`. Where the tree's own file has that name the two are one file and the section is written once
+Antigravity | `.agents/rules/faramir.md` | It reads `.agents/rules/*.md` as well as the tree's own file. It does not read `CLAUDE.md`, so a tree whose own file is `CLAUDE.md` would give it nothing
+Claude Code | `CLAUDE.md` | It reads `CLAUDE.md` and not `AGENTS.md`, so a tree whose own file is `AGENTS.md` would give it nothing
+Codex | `AGENTS.md` | It reads `AGENTS.md` and not `CLAUDE.md`. If the tree's own file has that name, the two are one file and the section is written once
 
-Two agents also get a hook in the tree, which is what routing costs them: Claude Code a `.claude/settings.local.json` and Codex a `.codex/hooks.json`. Both name paths this machine decided, so both belong in git's ignores, and an enrolment says so when they are not there.
+Two agents also get a hook in the tree, which is what routing costs them: Claude Code gets `.claude/settings.local.json` and Codex gets `.codex/hooks.json`. Both name paths chosen on this machine, so both belong in git's ignores. An enrolment says so when they are not there.
 
-Every instructions file in a tree carries the same section, so linking one at another is supported and writes it once: an operator who keeps a single file for every agent points `CLAUDE.md` at `AGENTS.md`, and the section goes into the file both names.
+Every instructions file in a tree gets the same section, so you can symlink one to another and the section is written once. An operator who keeps a single file for every agent points `CLAUDE.md` at `AGENTS.md`, and the section goes into the file both names reach.
 
 The section says what the deny rules cannot: why they refuse, and what to do instead.
 
@@ -83,21 +83,21 @@ The section says what the deny rules cannot: why they refuse, and what to do ins
 
 ## What the modes decide
 
-- **A brokered command** can write the working tree and reach the broker socket, its output redacted and audited like any other. It cannot reach the age key by any route: the modes above refuse the key file, the secrets directory, the keeper socket, the audit log and the SSH keys, no request returns the key, and nothing puts `SOPS_AGE_KEY` in its environment.
-- **`0400 faramir-keeper` keeps the operator out of the key wherever it sits.** Owning the directory is permission to unlink the file, not to read it, so replacing the key yields denial of service rather than disclosure, secrets encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; only the three `.socket` units are enabled.
+- **A brokered command** can write the working tree and reach the broker socket. Its output is redacted and audited like any other. It cannot reach the age key by any route: the modes above refuse the key file, the secrets directory, the keeper socket, the audit log and the SSH keys, no request returns the key, and nothing puts `SOPS_AGE_KEY` in its environment.
+- **`0400 faramir-keeper` keeps the operator out of the key wherever it is.** Owning the directory is permission to unlink the file, not to read it. Replacing the key causes denial of service, not disclosure: secrets encrypted to the old key decrypt for nobody. Nothing starts the keeper at boot; only the three `.socket` units are enabled.
 - **The `--allow-sudo` files are `root:root`** because they decide who becomes root, so the account they govern must not be able to write them. Re-running `init` without the flag removes both.
-- **The directory directly holding a file the enrolment wrote is sticky as well as setgid**, so unlink and rename inside it belong to the file's owner. The tree root deliberately is not, and what that costs is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config).
+- **The directory directly holding a file the enrolment wrote is sticky as well as setgid**, so only the file's owner can unlink or rename inside it. The tree root is deliberately not sticky. What that costs is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config).
 - **Every install renders the executor unit with `Delegate=yes`**, so each run gets its own cgroup and is reaped there.
 
-`--config-dir` moves the config, the secrets directory and the age key together, and the reason is in [design.md](design.md#the-secrets-live-in-a-directory-not-a-tree). What does not follow: the audit log, which is the broker unit's `ReadWritePaths`, and the two sudo files, which are the paths `sudo` and PAM read. `faramir status` reports the paths in use.
+`--config-dir` moves the config, the secrets directory and the age key together. The reason is in [design.md](design.md#the-secrets-live-in-a-directory-not-a-tree). Two things do not follow it: the audit log, which is the broker unit's `ReadWritePaths`, and the two sudo files, which are at the paths `sudo` and PAM read. `faramir status` reports the paths in use.
 
 ## Sharing a working tree
 
-**The enrolled tree is the one place faramir changes ownership and modes.** Everywhere else it checks and reports. The directories above the tree are not part of it, so the traversal `faramir-exec` needs through a 0700 home is the operator's to grant:
+**The enrolled tree is the only place faramir changes ownership and modes.** Everywhere else it checks and reports. The directories above the tree are not part of it, so the operator grants the traversal `faramir-exec` needs through a `0700` home:
 
-- Every directory from the home down has to be enterable by the client group, execute only, so those uids pass through without listing what they pass. `enrol` refuses to share a tree it cannot reach, naming each directory and the `chgrp` and `chmod` that open it.
-- Never `chmod o+x`, which grants the same to every account on the machine.
+- Every directory from the home down must be enterable by the client group (execute only), so those uids can pass through without listing what they pass. `enrol` refuses to share a tree it cannot reach, and names each directory and the `chgrp` and `chmod` that open it.
+- Never `chmod o+x`. That grants the same to every account on the machine.
 - Everyone in the group gets that traversal, so keep membership to the accounts that need it.
-- A directory already traversable by `other` is accepted as it is: tightening one the operator left open is not this command's business.
-- Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
-- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. That is the whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings faramir manages are regrouped but deliberately left not group-writable. `enrol` reports how many paths it altered, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.
+- A directory already traversable by `other` is accepted as it is. Tightening one the operator left open is not this command's job.
+- Membership is a permission, not a mount, so an encrypted home still unmounts at logout. A brokered command running at the time holds it open.
+- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. That covers the whole tree, so a `.env` or `.pem` in the checkout is shared along with the code. The agent settings faramir manages are regrouped but deliberately left not group-writable. `enrol` reports how many paths it changed, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.

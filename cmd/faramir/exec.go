@@ -32,8 +32,8 @@ func newExecCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "exec",
 		Short: "Run the executor daemon",
-		Long: "The executor daemon, run by faramir-exec.service. To run a command\n" +
-			"through the broker, use `faramir run`.",
+		Long: "The executor daemon, started by faramir-exec.service. To run a\n" +
+			"command through the broker, use `faramir run`.",
 		GroupID: groupInternal,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runExec(f)) },

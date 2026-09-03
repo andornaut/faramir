@@ -88,16 +88,18 @@ func newInitCmd() *cobra.Command {
 	}
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
-		"account the coding agent runs as, which is the one this host belongs to. "+
-			"The only command that names it; everything else reads what this "+
-			"records (default $FARAMIR_OPERATOR, then $SUDO_USER, then you)")
+		"account the coding agent runs as; the operator's own account. Only init "+
+			"takes it, and every other command reads what init recorded "+
+			"(default: $FARAMIR_OPERATOR, then $SUDO_USER, then the current user)")
 	// One admits a caller to the broker socket and shares the working tree, the
 	// other owns the ciphertext; holding one is not holding the other.
 	fl.StringVar(&f.clientGroup, "client-group", "",
-		"group admitted to the broker socket, and shared with the executor on a working "+
+		"group admitted to the broker socket, and given access to an enrolled working "+
 			"tree (default: what the install uses, then "+hostlayout.DefaultClientGroup+")")
 	fl.StringVar(&f.secretsGroup, "secrets-group", "",
-		"group owning the ciphertext in <config-dir>/secrets (default: what the install uses, then the keeper's own group, which is the only account that opens one; naming another adds a second reader)")
+		"group that owns the ciphertext in <config-dir>/secrets; naming a group other "+
+			"than the keeper's adds a second reader (default: what the install uses, then "+
+			"the keeper's own group)")
 	fl.StringVar(&f.brokerUser, "broker-user", "",
 		"account that holds the SSH keys and the audit log (default: what the install "+
 			"uses, then "+hostlayout.DefaultBrokerUser+")")
@@ -111,35 +113,35 @@ func newInitCmd() *cobra.Command {
 		"where config.toml, the age key and the managed sops files are "+
 			"installed (default: ask the broker, then read its unit, then "+hostlayout.DefaultConfigDir+")")
 	fl.StringVar(&f.sshKey, "ssh-key", "",
-		"where the identity the broker lends to brokered commands lives "+
-			"(default: what the install uses, then id_ed25519 beside the age key; "+
-			"one is minted either way)")
+		"path of the SSH identity the broker lends to brokered commands; it is "+
+			"minted if missing (default: what the install uses, then id_ed25519 beside "+
+			"the age key)")
 	fl.StringVar(&f.knownHosts, "known-hosts", "",
-		"host keys pinned for the executor, copied to <exec-home>/.ssh/known_hosts "+
-			"(default: none, verifying against /etc/ssh/ssh_known_hosts alone)")
+		"a known_hosts file to copy to <exec-home>/.ssh/known_hosts for the executor "+
+			"(default: none; only /etc/ssh/ssh_known_hosts is used)")
 	fl.StringArrayVar(&f.initAgents, "agent", nil,
-		"install the deny rules into this agent's own settings, repeatable. "+
-			"Default \""+agentcfg.Auto+"\": whichever agents the agent account's home "+
-			"already carries. A name writes them whether or not the agent is there, "+
-			"and composes with auto. Known: "+
-			strings.Join(agentcfg.Known(), ", "))
+		"coding agent to install the deny rules for; repeatable. \""+agentcfg.Auto+"\" "+
+			"(the default) means every agent the agent account's home already has. A name "+
+			"installs them whether or not the agent is there, and can be combined with "+
+			"auto. Known: "+strings.Join(agentcfg.Known(), ", "))
 	fl.BoolVar(&f.allowSudo, "allow-sudo", false,
-		"let a brokered command ASK to sudo; it cannot sudo on its own. A human approves "+
-			"each through 'faramir sudo approve', and no password exists anywhere. Off by "+
-			"default; re-running without it takes the grant away")
+		"let a brokered command ask to run sudo. Each request is approved by a person "+
+			"with 'faramir sudo approve'; there is no password. Off by default, and "+
+			"re-running init without it removes the grant")
 	fl.StringArrayVar(&f.notifyCommand, "notify-command", nil,
 		// The backquoted word is cobra's placeholder for the value, taken from the
 		// first one in the string; without it the help reads "stringArray".
-		"announce a waiting escalation: one `ARG` each, repeatable, --notify-command "+
-			"/usr/bin/wall --notify-command '{prompt}'. One of \"{prompt}\" and \"{id}\" must "+
-			"appear; keep \"{id}\" off anything that broadcasts. The program is resolved on "+
-			"PATH and runs inside the broker unit's sandbox. Needs --allow-sudo. Kept "+
-			"across a re-run that does not name it; naming it replaces the whole list")
+		"command that announces a waiting sudo request, one `ARG` per flag: "+
+			"--notify-command /usr/bin/wall --notify-command '{prompt}'. One of \"{prompt}\" "+
+			"and \"{id}\" is required; do not pass \"{id}\" to anything that broadcasts. The "+
+			"program is found on PATH and runs inside the broker unit's sandbox. Needs "+
+			"--allow-sudo. A re-run that omits it keeps the current command; naming it "+
+			"replaces the whole list")
 	fl.BoolVar(&f.repointConfig, "repoint-config", false,
-		"consent to point this host's daemons at a different --config-dir. Nothing is "+
-			"moved: the new directory replaces the old, so the refs the old one served "+
-			"stop being redacted while its age key and ciphertext stay on disk where "+
-			"they are. Blocked without this")
+		"allow a different --config-dir than the one the daemons use now. Nothing is "+
+			"moved: the old directory's age key and ciphertext stay on disk, and the "+
+			"refs it served are no longer redacted. Without this flag a new "+
+			"--config-dir is refused")
 	// The name this had when it read as though init relocated the directory. Kept
 	// so a converge that names it keeps working, and hidden so nothing learns it
 	// from --help.
@@ -152,21 +154,21 @@ func newInitCmd() *cobra.Command {
 	// land in.
 	command, secret := config.DefaultCommand(), config.DefaultSecret()
 	fl.StringArrayVar(&f.commandEnv, "command-env", nil,
-		"NAME=VALUE in a brokered command's environment; repeatable, and it adds to the built-in table rather than replacing it")
+		"NAME=VALUE to add to every brokered command's environment; repeatable, and added to the built-in table")
 	fl.StringVar(&f.commandTimeout, "command-timeout", asDuration(command.TimeoutSec),
-		"how long a command runs when the request names no timeout: a duration such as 5m, or a bare number of seconds")
+		"timeout for a command whose request names none: a duration such as 5m, or a number of seconds")
 	fl.StringVar(&f.commandMaxTimeout, "command-max-timeout", asDuration(command.MaxTimeoutSec),
-		"the most a caller may ask for, and the idle bound on a redact stream: a duration, or a bare number of seconds")
+		"the longest timeout a caller may ask for, and the idle limit on a redact stream: a duration, or a number of seconds")
 	fl.IntVar(&f.commandConcurrency, "command-concurrency", command.Concurrency,
-		"how many brokered commands run at once; the rest are refused busy. Held to what the executor forks at once")
+		"how many brokered commands may run at once; further requests are refused as busy")
 	fl.IntVar(&f.commandMaxMemoryPct, "command-max-memory-percent", command.MaxMemoryPercent,
-		"the backstop: how much of this machine's memory every brokered command together may hold, as MemoryMax on the executor unit (1 to 100). It is a cgroup total, so it catches fan-out that no per-process limit sees, and it counts page cache; 100 is the whole machine, which is no bound")
+		"the share of this machine's memory all brokered commands together may use, as MemoryMax on the executor unit (1 to 100). A cgroup total, so it counts every child process and page cache; 100 is no limit")
 	fl.IntVar(&f.commandMaxProcMB, "command-max-process-memory-mb", command.MaxProcessMemoryMB,
-		"what one brokered process may allocate, as LimitDATA on the executor unit (at least 256). Anonymous memory only, so a command is not charged for page cache, and one that reaches it gets an allocation failure it can report rather than the OOM killer")
+		"how much one brokered process may allocate, as LimitDATA on the executor unit (at least 256). Anonymous memory only, not page cache; a process that reaches it gets an allocation failure rather than the OOM killer")
 	fl.StringVar(&f.sudoTimeout, "sudo-timeout", asDuration(config.DefaultSudoTimeoutSec),
-		"how long a sudo question waits for a human before it is refused (1s to 1h, and never more than --command-max-timeout: the command waits inside sudo for the whole question)")
+		"how long a sudo request waits for an answer before it is refused (1s to 1h, and at most --command-max-timeout, since the command waits inside sudo the whole time)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
-		"refuse a secret shorter than this: it cannot be redacted without matching inside ordinary words (at least 6)")
+		"refuse a secret shorter than this, since a short value would match inside ordinary words (at least 6)")
 	return c
 }
 

@@ -50,7 +50,7 @@ func newLogsCmd() *cobra.Command {
 		Args:    atMostOneArg("log-id"),
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runLogs(f, args)) },
 	}
-	c.Flags().IntVarP(&f.count, "count", "n", defaultLogCount, "how many recent records to list")
+	c.Flags().IntVarP(&f.count, "count", "n", defaultLogCount, "how many of the latest records to list")
 	c.Flags().BoolVar(&f.asJSON, "json", false, "print the records as JSON")
 	c.Flags().BoolVar(&f.watch, "watch", false, "keep printing records as they are appended")
 	addColorFlag(c, &f.when)

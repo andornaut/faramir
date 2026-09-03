@@ -32,7 +32,7 @@ func newAccessCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:     "access [options] PATH",
-		Short:   "Answer access(2) as this process's own account (run by doctor)",
+		Short:   "Report whether this account can access a path (run by doctor)",
 		GroupID: groupInternal,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) != 1 {
@@ -44,13 +44,13 @@ func newAccessCmd() *cobra.Command {
 			return codeErr(runAccess(args[0], read, write, execute))
 		},
 	}
-	c.Flags().BoolVarP(&read, "read", "r", false, "may this account read it")
-	c.Flags().BoolVarP(&write, "write", "w", false, "may this account write it")
+	c.Flags().BoolVarP(&read, "read", "r", false, "check read access")
+	c.Flags().BoolVarP(&write, "write", "w", false, "check write access")
 	// On a directory this is traversal: passing through without being able to
 	// list it, which is what an enrolment grants and what every path under a home
 	// depends on.
 	c.Flags().BoolVarP(&execute, "execute", "x", false,
-		"may this account execute it, or traverse it where it is a directory")
+		"check execute access, or traversal for a directory")
 	return c
 }
 

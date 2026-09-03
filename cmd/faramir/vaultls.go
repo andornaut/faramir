@@ -39,9 +39,9 @@ func newVaultListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   useLs,
 		Short: "List the encrypted files, their refs and who can read them",
-		Long: "Reads the secrets directory rather than asking the broker, so a file the\n" +
-			"broker refused to load is listed here with the reason. `faramir refs` is\n" +
-			"the other question: what the broker is serving.\n\n" +
+		Long: "Reads the secrets directory directly, so a file the broker refused to\n" +
+			"load is listed here with the reason. `faramir refs` lists what the broker\n" +
+			"is serving.\n\n" +
 			"Ref names are cleartext in a sops file, so this decrypts nothing.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runVaultList(f)) },
@@ -133,17 +133,17 @@ func newVaultRemoveCmd() *cobra.Command {
 		Use:     "rm [options] NAME",
 		Aliases: []string{opRemove},
 		Short:   "Remove an encrypted secret file",
-		Long: "Deletes one managed file and every value in it. Only a backup brings\n" +
-			"them back.\n\n" +
-			"It names the refs it is about to destroy and asks. --force answers for\n" +
-			"you.",
+		Long: "Deletes one managed file and every value in it. Only a backup can\n" +
+			"restore them.\n\n" +
+			"It lists the refs it is about to delete and asks for confirmation.\n" +
+			"--force skips the question.",
 		Args: exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runVaultRemove(f, args[0]))
 		},
 	}
 	c.Flags().BoolVar(&f.force, "force", false,
-		"do not ask; the file and every value in it go without confirmation")
+		"delete the file and every value in it without asking")
 	return c
 }
 
@@ -241,11 +241,11 @@ func newRefsCmd() *cobra.Command {
 		Use:     "refs [options]",
 		Short:   "List the secret names you can inject; values are never shown",
 		GroupID: groupOperator,
-		Long: "Each name is a ref: what `--env NAME=faramir://<ref>` and `env_refs`\n" +
+		Long: "Each name is a ref, the value `--env NAME=faramir://<ref>` and `env_refs`\n" +
 			"take.\n\n" +
-			"Asks the broker, so this is what a brokered command could name.\n" +
-			"`faramir vault ls` is the other question: what is in the directory.\n\n" +
-			"Needs no root. Names only, never a value.",
+			"Asks the broker, so this lists what a brokered command can name.\n" +
+			"`faramir vault ls` lists what is in the secrets directory.\n\n" +
+			"Needs no root. Prints names only, never a value.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(send("refs", socketDefault(), map[string]any{"op": "refs"},

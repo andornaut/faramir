@@ -62,7 +62,7 @@ func (f *readerFlags) register(c *cobra.Command, writes bool) {
 		return
 	}
 	fl.BoolVar(&f.dryRun, "dry-run", false,
-		"report the rule change and which files would be re-encrypted, and write neither")
+		"report the rule change and the files that would be re-encrypted, and write nothing")
 }
 
 func newReaderAddCmd() *cobra.Command {
@@ -71,10 +71,10 @@ func newReaderAddCmd() *cobra.Command {
 		Use:   "add [options] KEY",
 		Short: "Add a key that can decrypt the secret files",
 		Long: "Adds an age recipient to .sops.yaml and re-encrypts every managed file to\n" +
-			"it, so the rule and the ciphertext never disagree.\n\n" +
-			"KEY is a PUBLIC key, age1... or ssh. The private half is refused,\n" +
-			".sops.yaml being world-readable. Mint one with 'age-keygen -o FILE' on\n" +
-			"the machine that will hold it.",
+			"it, so the rule and the ciphertext always agree.\n\n" +
+			"KEY is a public key: age1... or an ssh public key. A private key is\n" +
+			"refused, because .sops.yaml is world-readable. Create one with\n" +
+			"'age-keygen -o FILE' on the machine that will hold it.",
 		Args: exactlyArgs(1, "one age recipient"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runReaderChange(f, args[0], true))
@@ -92,8 +92,8 @@ func newReaderRemoveCmd() *cobra.Command {
 		Short:   "Remove a key, so it can no longer decrypt the secret files",
 		Long: "Removes an age recipient from .sops.yaml and re-encrypts every managed\n" +
 			"file without it.\n\n" +
-			"This reaches no copy of the ciphertext somebody already holds. Treat what\n" +
-			"that key could read as read, and rotate it.",
+			"Copies of the old ciphertext can still be decrypted by that key. Treat\n" +
+			"every value it could read as disclosed, and rotate them.",
 		Args: exactlyArgs(1, "one age recipient"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runReaderChange(f, args[0], false))
@@ -121,11 +121,10 @@ func newReaderResealCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "reseal [options] [FILE...]",
 		Short: "Re-encrypt every file to the keys .sops.yaml names",
-		Long: "Makes the ciphertext agree with the rule, for what `add` and `rm` cannot\n" +
-			"reach: a `.sops.yaml` changed some other way, or a pass that failed\n" +
-			"partway.\n\n" +
-			"Every managed file unless some are named. Files already sealed to the\n" +
-			"rule are skipped.",
+		Long: "Re-encrypts the managed files to match .sops.yaml. Use it after editing\n" +
+			".sops.yaml by hand, or after an `add` or `rm` that failed partway.\n\n" +
+			"Every managed file is re-encrypted unless FILEs are named. Files already\n" +
+			"encrypted to the current rule are skipped.",
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runReseal(f, args)) },
 	}
 	f.register(c, true)

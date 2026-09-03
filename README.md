@@ -3,7 +3,7 @@
 [![Release](https://github.com/andornaut/faramir/actions/workflows/release.yml/badge.svg)](https://github.com/andornaut/faramir/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/MIT)
 
-A secrets broker for AI coding agents: it runs the commands that need credentials and keeps the values out of the agent's context. Those commands run as a uid that holds nothing.
+A secrets broker for AI coding agents. It runs the commands that need credentials as a separate uid, injects the values there, and redacts them from the output before the agent sees it.
 
 ```console
 $ faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
@@ -12,42 +12,42 @@ faramir run: redacted «SECRET:home/router/admin»×1; log_id=w5vq7dbf00002c
 ```
 
 > [!IMPORTANT]
-> **One install per host, and it serves one operator.** Every member of the client group is the same caller to the broker: one value set, one SSH key, one executor uid, one `agent_user` on every record. A second operator needs a second host.
+> **One install per host, serving one operator.** Every member of the client group is the same caller to the broker: one value set, one SSH key, one executor uid, one `agent_user` on every audit record. A second operator needs a second host.
 
 ## Supported agents
 
-All seven get full redaction: what the agent runs is rewritten into a brokered command, and its output comes back with every value replaced. `faramir init` installs that everywhere the agent works, except on Claude Code and Codex, where routing costs a permission and so is taken one tree at a time.
+All seven agents get full redaction: the command the agent runs is rewritten into a brokered command, and the output comes back with every managed value replaced. `faramir init` installs this in the agent's home, so it applies in every directory. Claude Code and Codex are the exception: routing costs a permission there, so it is enrolled one tree at a time.
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
-[Antigravity CLI](https://antigravity.google/docs/cli/) (`agy`) | `PreToolUse` hook in `~/.gemini/config/hooks.json`; deny rules in `~/.gemini/antigravity-cli/settings.json`; credentials section in `.agents/rules/faramir.md`, the tree's own `AGENTS.md` and `~/.gemini/GEMINI.md` | None: the permission check runs before the hook, so the guard's allow approves nothing that was going to prompt
+[Antigravity CLI](https://antigravity.google/docs/cli/) (`agy`) | `PreToolUse` hook in `~/.gemini/config/hooks.json`; deny rules in `~/.gemini/antigravity-cli/settings.json`; credentials section in `.agents/rules/faramir.md`, the tree's own `AGENTS.md` and `~/.gemini/GEMINI.md` | None. The permission check runs before the hook, so the hook's allow approves nothing that would have prompted
 [Antigravity IDE](https://antigravity.google/) | The same hook and the same prose. No account-wide rule file: the hook refuses its file tools instead | None
-[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook and a credentials section in `CLAUDE.md` in the tree | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
-[Codex](https://developers.openai.com/codex/cli/) | A deny-only `PreToolUse` hook in `~/.codex/hooks.json`; the routing hook in `.codex/hooks.json` and a credentials section in `AGENTS.md` in the tree | The same as Claude Code, and only where Codex is run with approvals on. It has no rule file an install can write, so that hook is what refuses its file tools, `apply_patch` included
-[Kilo Code](https://kilo.ai/) | [`tool.execute.before` plugin](https://kilo.ai/docs/automate/extending/plugins) in `~/.config/kilo/plugin/`, loaded by the CLI and the VS Code extension; deny patterns in `~/.config/kilo/kilo.json` | None: there is no allow to return, so a plugin that has not denied has not approved
+[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook and a credentials section in `CLAUDE.md` in the tree | Bash runs without asking, except what the deny list refuses. That list names credential disclosure only, nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
+[Codex](https://developers.openai.com/codex/cli/) | A deny-only `PreToolUse` hook in `~/.codex/hooks.json`; the routing hook in `.codex/hooks.json` and a credentials section in `AGENTS.md` in the tree | Same as Claude Code, and only when Codex runs with approvals on. Codex has no rule file an install can write, so the hook is what refuses its file tools, `apply_patch` included
+[Kilo Code](https://kilo.ai/) | [`tool.execute.before` plugin](https://kilo.ai/docs/automate/extending/plugins) in `~/.config/kilo/plugin/`, loaded by the CLI and the VS Code extension; deny patterns in `~/.config/kilo/kilo.json` | None. A plugin has no allow to return, so one that has not denied has not approved
 [opencode](https://open-code.ai/) | [The same plugin API](https://open-code.ai/en/docs/plugins) in `~/.config/opencode/plugin/`; deny patterns in `~/.config/opencode/opencode.json` | Same as Kilo Code
-[Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) in `~/.pi/agent/extensions/` | None. Installed in a home rather than a tree, which Pi loads for every project without the project being trusted
+[Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) in `~/.pi/agent/extensions/` | None. Installed in the home, not the tree, and Pi loads it for every project without the project being trusted
 
-Choosing agents with `--agent`, repeatable on `init` and `enrol`:
+Choose agents with `--agent`, repeatable on `init` and `enrol`:
 
-- Names are `agy`, `antigravity`, `claude`, `codex`, `kilocode`, `opencode` and `pi`. `agy` is the Antigravity CLI and `antigravity` the IDE; they share one tree enrolment, so naming either writes the same files.
-- The default is `auto`: whichever agents are already there, which `init` asks of your home and `enrol` of the tree. Codex is asked of your home either way, a tree carrying nothing of its own for it.
-- A name configures that agent regardless and composes, so `--agent auto --agent pi` is "whatever is installed, plus pi".
-- Claude Code and the Antigravity CLI are the only two that refuse a path from a rule file of their own. Pi and the Antigravity IDE have none an install can write; Codex has none either, its own `.rules` files being an exec policy that decides commands and names no path; and opencode's and Kilo Code's are not refusals: an entry of `deny` is put to the operator as a prompt, and an autonomous run approves it. Faramir refuses a path itself for all seven, from the plugin, the extension or the hook, so the two with a rule file are refused twice: a rule file is applied in some of the permission modes an agent runs in and a hook in all of them.
+- Names: `agy`, `antigravity`, `claude`, `codex`, `kilocode`, `opencode`, `pi`. `agy` is the Antigravity CLI and `antigravity` the IDE. They share one tree enrolment, so naming either writes the same files.
+- The default is `auto`: whichever agents are already present. `init` looks in your home, `enrol` in the tree. Codex is detected from your home either way, since a tree carries nothing of its own for it.
+- A name configures that agent whether or not it is present, and composes with `auto`: `--agent auto --agent pi` means "whatever is installed, plus pi".
+- Only Claude Code and the Antigravity CLI refuse a path from a rule file of their own. Pi and the Antigravity IDE have no rule file an install can write. Codex's `.rules` files are an exec policy that decides commands and names no path. opencode's and Kilo Code's `deny` entries are prompts, not refusals, and an autonomous run approves them. Faramir refuses a path itself for all seven, from the plugin, the extension or the hook. The two agents with a rule file are refused twice: the rule file applies in some permission modes, the hook in all of them.
 
-Each agent is also told what those rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)). What each agent gets, feature by feature, is [the table in docs/coding-agents.md](docs/coding-agents.md#what-each-agent-gets); what each contract makes of the rewrite is the rest of that page.
+Each agent is also told what the rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)). [docs/coding-agents.md](docs/coding-agents.md#what-each-agent-gets) lists what each agent gets, feature by feature, and how each agent's contract shapes the rewrite.
 
 > [!NOTE]
-> **Antigravity is covered by its hooks.** [Its `PreToolUse` hook](https://antigravity.google/docs/hooks) returns `overwrite`, a shallow merge into the tool call's own arguments whose merged form is what runs, so a command is routed through the broker and comes back redacted. The same hook refuses a file tool that names key material, which is what covers the IDE: its permission lists are its own state rather than a file an install can write, so there are no deny rules to fall back on there. The CLI has both.
+> **Antigravity is covered by its hooks.** [Its `PreToolUse` hook](https://antigravity.google/docs/hooks) returns `overwrite`, a shallow merge into the tool call's arguments, and the merged form is what runs. That routes a command through the broker and returns it redacted. The same hook refuses a file tool that names key material. That is what covers the IDE: its permission lists are internal state, not a file an install can write, so it has no deny rules to fall back on. The CLI has both.
 >
-> `faramir init` writes that hook into `~/.gemini/config/hooks.json`, which both halves read for every workspace, so a tree nobody enrolled is covered too. No hook goes into a tree.
+> `faramir init` writes the hook into `~/.gemini/config/hooks.json`. Both the CLI and the IDE read it for every workspace, so an unenrolled tree is covered too. No hook goes into a tree.
 >
-> What an enrolment writes into a *tree* is the credentials section, which for Antigravity means `.agents/rules/faramir.md` as well as the tree's own file. Both load a tree's customizations only once that tree is a project they have opened, so until then that file is there and inert, which enrolling says. The hook is not conditional on it.
+> An enrolment writes the credentials section into the *tree*: `.agents/rules/faramir.md` and the tree's own instructions file. Antigravity loads a tree's customizations only once it has opened that tree as a project. Until then the file is present and inert, and enrolling says so. The hook does not depend on it.
 
 One agent needs something from you before any of this holds.
 
 > [!IMPORTANT]
-> **Codex has two conditions faramir cannot meet for you.** It skips a hook it has not been told to trust and says nothing when it does, so what `faramir init` writes is inert until you start Codex once and trust it. And it must run without its own sandbox (`codex --dangerously-bypass-approvals-and-sandbox`): sandboxed, it is refused the broker socket, and the wrapper fails closed, so every command's output is withheld rather than redacted. Both commands say so on every run. The detail is in [coding-agents.md](docs/coding-agents.md#codex).
+> **Codex has two conditions faramir cannot meet for you.** It skips a hook it has not been told to trust, silently, so what `faramir init` writes is inert until you start Codex once and trust it. And it must run without its own sandbox (`codex --dangerously-bypass-approvals-and-sandbox`): in the sandbox it cannot reach the broker socket, the wrapper fails closed, and every command's output is withheld instead of redacted. Both commands print a reminder on every run. Details in [coding-agents.md](docs/coding-agents.md#codex).
 
 ## What it protects against
 
@@ -60,27 +60,27 @@ One agent needs something from you before any of this holds.
 
 Failure | How
 --- | ---
-**Accidental disclosure.** `printenv`, a vault read, `-vvv`, a `debug: var=` task | No account can read the key material, yours included; output is redacted before the agent sees it, whichever command printed it
-**Passive discovery.** Reading an age key, an SSH key, or a daemon's `/proc/<pid>/environ` | Uid separation plus `ProtectProc=invisible`. Named for the agent because that is who it holds against: two brokered commands share one uid and can read each other
+**Accidental disclosure.** `printenv`, a vault read, `-vvv`, a `debug: var=` task | No account can read the key material, yours included. Output is redacted before the agent sees it, whichever command printed it
+**Passive discovery.** Reading an age key, an SSH key, or a daemon's `/proc/<pid>/environ` | Uid separation plus `ProtectProc=invisible`. This holds against the agent. Two brokered commands share one uid and can read each other
 **Casual prompt injection.** Instructions to print or exfiltrate credentials | The agent process never holds them
-**Master key loss.** The master key decrypts every managed file retroactively | It lives in a uid that executes nothing; no brokered command can read it, reach the keeper's socket, or receive it in its environment
+**Master key loss.** The master key decrypts every managed file | It lives in a uid that executes nothing. No brokered command can read it, reach the keeper's socket, or receive it in its environment
 
 ### Not prevented
 
 Failure | Why
 --- | ---
-**Adversarial exfiltration.** Transforming a value (`\| rev`, `\| sha256sum`) defeats redaction | The child chooses the encoding of its own output, so the matcher cannot be completed
-**Blast radius.** A brokered command runs anything the executor's uid can | Out of scope. That uid is the bound. With `--allow-sudo` it may also *ask* to become root, answered per command by a human
-**Root persistence by the *approved* command** | Configuring a host and backdooring it are the same primitives. A *second, unapproved* command cannot ride the escalation, the broker serialising approved runs
-**Every managed value, not only the injected ones.** `env_refs` scopes one command's environment, not what a brokered command can reach | The executor is in the client group, so a brokered command is itself a broker client: it can ask for a second command with any ref injected. Redaction still covers what comes back through the broker
+**Adversarial exfiltration.** Transforming a value (`\| rev`, `\| sha256sum`) defeats redaction | The child chooses the encoding of its own output, so no matcher can be complete
+**Blast radius.** A brokered command runs anything the executor's uid can | Out of scope. That uid is the bound. With `--allow-sudo` it may also *ask* to become root, and a human answers per command
+**Root persistence by the *approved* command** | Configuring a host and backdooring it use the same primitives. A *second, unapproved* command cannot ride the escalation: the broker serialises approved runs
+**Every managed value, not only the injected ones.** `env_refs` scopes one command's environment, not what a brokered command can reach | The executor is in the client group, so a brokered command is itself a broker client and can ask for a second command with any ref injected. Redaction still covers what comes back through the broker
 **Network egress** | Out of scope. No iptables, namespaces or proxy allowlist
-**Anything at rest** | The uid boundaries hold only while the machine runs; full-disk encryption is the measure. `--allow-sudo` mints no credential, so a stolen disk carries nothing that can sudo here
+**Anything at rest** | The uid boundaries hold only while the machine runs. Full-disk encryption is the measure. `--allow-sudo` mints no credential, so a stolen disk carries nothing that can sudo here
 **Unenrolled projects.** The value set is global | A command in a project you never enrolled can print a managed value uncaught
-**Credentials faramir does not manage.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials` | The deny rules cover this install's own paths. Anything faramir does not write is yours to declare with [`faramir block`](docs/configuration.md#blocked-paths), and an install that declares none refuses none
+**Credentials faramir does not manage.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials` | The deny rules cover this install's own paths. Declare anything else with [`faramir block`](docs/configuration.md#blocked-paths). An install that declares nothing refuses nothing
 
 ## How it works
 
-One binary. The daemons and the guard are subcommands of it, separated by the uid each unit runs its subcommand as. The agent reaches the broker through that same binary: there is no server to register and nothing to install per project for it.
+One binary. The daemons and the guard are subcommands of it, each run by a systemd unit as its own uid. The agent reaches the broker through the same binary: there is no server to register and nothing to install per project.
 
 uid | Runs | Holds
 --- | --- | ---
@@ -92,54 +92,48 @@ you | the coding agent, and `faramir run` | nothing secret
 One call, end to end:
 
 1. The request reaches `/run/faramir/broker.sock` carrying a ref, never a value. `cmd` is an array; there is no allowlist.
-2. The broker asks the keeper over a socket only it can open. The keeper execs sops and returns values; the key stays in that uid.
-3. The broker creates a PTY, hands the slave to the executor over `/run/faramir/exec.sock`, and the executor forks the command as `faramir-exec`: value in the environment, never in `argv`.
+2. The broker asks the keeper over a socket only it can open. The keeper execs sops and returns values. The key stays in the keeper's uid.
+3. The broker creates a PTY, hands the slave to the executor over `/run/faramir/exec.sock`, and the executor forks the command as `faramir-exec`, with the value in the environment and never in `argv`.
 4. Output returns through the broker's end of the PTY. Every managed secret becomes `«SECRET:ref»` before the agent sees a byte.
-5. The audit log records what ran, against which refs, and what came back. Tokens only, operator-readable only.
+5. The audit log records what ran, against which refs, and what came back. Tokens only, readable by the operator only.
 
-**SSH keys** are held by the broker in an `ssh-agent` it owns; the child gets only `SSH_AUTH_SOCK`, so it can authenticate and cannot read a key. The broker relays, forwarding only `REQUEST_IDENTITIES` and `SIGN_REQUEST`. A brokered command may forward that relay onward with `ssh -A`.
+**SSH keys** are held by the broker in an `ssh-agent` it owns. The child gets only `SSH_AUTH_SOCK`, so it can authenticate but cannot read a key. The broker relays only `REQUEST_IDENTITIES` and `SIGN_REQUEST`. A brokered command may forward the relay onward with `ssh -A`.
 
-**Allowing sudo** is off by default and adds no credential; see [below](#allowing-sudo-on-the-controller).
+**Allowing sudo** is off by default and adds no credential. See [below](#allowing-sudo-on-the-controller).
 
 ### Redaction
 
-- The value set is **every managed secret**, not only the injected ones, so a host printing a credential nothing injected is still covered. A `[[secret.link]]` entry adds a credential another tool owns, read where that tool keeps it.
-- Children run on a PTY, so programs behave normally, and they get no controlling terminal, so `/dev/tty` cannot be opened at all: a prompt that would have gone there falls back to stderr, which the redactor is reading. The cost is that stdout and stderr arrive merged.
-- ANSI escapes are stripped before matching; base64, base32, hex, URL, JSON and shell quoting are matched as encodings; a streaming overlap buffer catches a value split across reads.
+- The value set is **every managed secret**, not only the injected ones, so a host that prints a credential nothing injected is still covered. A `[[secret.link]]` entry adds a credential another tool owns, read from where that tool keeps it.
+- Children run on a PTY, so programs behave normally. They get no controlling terminal, so `/dev/tty` cannot be opened: a prompt that would have gone there falls back to stderr, which the redactor reads. The cost is that stdout and stderr arrive merged.
+- ANSI escapes are stripped before matching. base64, base32, hex, URL, JSON and shell quoting are matched as encodings. A streaming overlap buffer catches a value split across reads.
 - Tokens are stable, so the model can reason about a secret across turns.
-- Two things are outside the value set: a value shorter than `[secret] min_length`, refused at load because it would match inside ordinary words, and the age key, which no child can obtain. `--allow-sudo` adds nothing, escalation minting no credential.
+- Two things are outside the value set: a value shorter than `[secret] min_length`, refused at load because it would match inside ordinary words, and the age key, which no child can obtain. `--allow-sudo` adds nothing: escalation mints no credential.
 
-Detail in [docs/redaction.md](docs/redaction.md).
+Details in [docs/redaction.md](docs/redaction.md).
 
 ### The audit log
 
-Every brokered command is recorded: what ran, against which refs, and what came back. The log holds tokens rather than values, is readable by the broker and root alone, and is logrotate's to bound.
+Every brokered command is recorded: what ran, against which refs, and what came back. The log holds tokens, not values. Only the broker and root can read it, and logrotate bounds it.
 
-- A brokered command writes two records under one `log_id`: `run_started` when the child runs, and `run` when it ends or when it never ran.
-- A command that cannot be recorded does not run. The broker checks the log can be written before starting anything, and refuses with `no_audit`.
+- A brokered command writes two records under one `log_id`: `run_started` when the child starts, and `run` when it ends or when it never ran.
+- A command that cannot be recorded does not run. The broker checks that the log is writable before starting anything, and refuses with `no_audit` if it is not.
 
-What a record is made of, and the rules a command does not state: [docs/operating.md](docs/operating.md).
+What a record contains, and the rules a command does not state: [docs/operating.md](docs/operating.md).
 
 ## Installation
 
-Requires [systemd](https://systemd.io/) and [sops](https://github.com/getsops/sops); Go to build. The binary is static, so the host needs no interpreter. The agent's session needs `XDG_RUNTIME_DIR`: the hook captures output before redacting it and will not write that anywhere another account can read, so a session without one refuses every Bash command.
+Requires [systemd](https://systemd.io/) and [sops](https://github.com/getsops/sops), and Go to build. The binary is static, so the host needs no interpreter. The agent's session needs `XDG_RUNTIME_DIR`: the hook captures output before redacting it and will not write that anywhere another account can read, so a session without one refuses every Bash command.
 
 ### Pre-compiled binary
 
-Archives are published on the
-[releases page](https://github.com/andornaut/faramir/releases): one per tagged
-version, plus a `dev` release rebuilt on every push to `main`. Linux only, since
-the broker reads peer credentials with `SO_PEERCRED` and the executor allocates
-PTYs with `TIOCGPTN`.
+Archives are on the [releases page](https://github.com/andornaut/faramir/releases): one per tagged version, plus a `dev` release rebuilt on every push to `main`. Linux only: the broker reads peer credentials with `SO_PEERCRED` and the executor allocates PTYs with `TIOCGPTN`.
 
 Platform | Asset
 --- | ---
 Linux x86_64 | `faramir_linux_x86_64.tar.gz`
 Linux arm64 | `faramir_linux_arm64.tar.gz`
 
-The archive carries `LICENSE` and `README.md` alongside the binary, so name the
-binary rather than extracting everything into the current directory. `init`
-installs it, so there is nothing to copy into place first:
+The archive also holds `LICENSE` and `README.md`, so extract only the binary. `init` installs it, so there is nothing to copy into place first:
 
 ```bash
 tar -xzf faramir_linux_x86_64.tar.gz faramir
@@ -155,20 +149,20 @@ sudo ./bin/faramir init
 
 ### What init does
 
-`init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. It is idempotent, so it is also the upgrade, and a re-run with a flag left out keeps what the install already uses rather than reverting to the default.
+`init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. It is idempotent, so it is also the upgrade. A re-run that leaves a flag out keeps the value the install already uses rather than reverting to the default.
 
 Every flag, what a re-run adopts, and where the config directory may not go: [docs/installing.md](docs/installing.md).
 
 ## Getting Started
 
-A bare host to a redacted command, in six steps. Each names the section that carries the detail.
+From a bare host to a redacted command in six steps.
 
-1. **Install the binary**, from [an archive](#pre-compiled-binary) or [a build](#compile-from-source). `init` puts it in `/usr/local/bin` itself, so there is nothing to copy into place first.
+1. **Install the binary**, from [an archive](#pre-compiled-binary) or [a build](#compile-from-source). `init` puts it in `/usr/local/bin` itself.
 2. **Provision the host** with `sudo faramir init`. It creates the accounts, mints the age key, renders the config and the units, and starts the sockets. [What it does](#what-init-does), and [every flag](docs/installing.md).
-3. **Check it** with `sudo faramir doctor`. It reports whether the install is doing its job, and as root what each account can reach. Without root it still runs, reporting what it could not ask as unasked rather than as passing. [What it checks](docs/operating.md#checking-an-install).
+3. **Check it** with `sudo faramir doctor`. It reports whether the install works and, as root, what each account can reach. Without root it still runs, and reports what it could not check as unasked rather than as passing. [What it checks](docs/operating.md#checking-an-install).
 4. **Name what this machine should block.** A fresh install refuses its own files and nothing else, so your SSH key is readable by your agent until you say otherwise. [Below](#naming-what-this-machine-should-block).
-5. **Enrol a project** with `cd <project> && sudo faramir enrol`, in the trees where managed credentials are in play rather than in every tree. [What an enrolment writes, and the three steps before it](#onboarding-a-project).
-6. **Run something.** `faramir refs` names what the broker serves, and `faramir run` is how a command receives one:
+5. **Enrol a project** with `cd <project> && sudo faramir enrol`, in the trees where managed credentials are used. [What an enrolment writes, and the three steps before it](#onboarding-a-project).
+6. **Run something.** `faramir refs` lists what the broker serves, and `faramir run` gives a command one:
 
 ```bash
 faramir refs
@@ -177,9 +171,9 @@ faramir run --env TOKEN=faramir://svc/token -- printenv TOKEN   # -> «SECRET:sv
 
 ### Naming what this machine should block
 
-**A fresh install blocks its own files and nothing else.** Everything under `<config-dir>`, the managed store, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' directories, at the paths this host uses. That is the whole of it: faramir does not guess at what else you keep, so `~/.ssh`, `~/.gnupg` and `~/.aws/credentials` are refused to your agent only once you say so.
+**A fresh install blocks its own files and nothing else**: everything under `<config-dir>`, the managed store, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' directories, at the paths this host uses. Faramir does not guess what else you keep. `~/.ssh`, `~/.gnupg` and `~/.aws/credentials` are refused to your agent only once you declare them.
 
-Say so once, in one command. This one is deliberately broad: delete the lines that do not apply to this machine, and add the ones that do.
+Declare them in one command. This example is deliberately broad: delete the lines that do not apply to this machine, and add the ones that do.
 
 ```bash
 sudo faramir block add \
@@ -189,41 +183,43 @@ sudo faramir block add \
     --command 'op read' --command 'pass show'
 ```
 
-Two forms, each named by its own flag, and they mix in one command. Neither is the default, so a bare argument is refused rather than read as a path.
+Two forms, each with its own flag, and they mix in one command. Neither is the default: a bare argument is refused rather than read as a path.
 
-**Name the directory, not the files in it.** `--path ~/.ssh` refuses every key under it, including the one named `identity` and whatever an `IdentityFile` line points at. A list of file names covers the ones you thought of.
+**Name the directory, not the files in it.** `--path ~/.ssh` refuses every key under it, including one named `identity` and whatever an `IdentityFile` line points at. A list of file names covers only the ones you thought of.
 
-Your agent's shell is refused a declared path named at all. `--strict` says the same of a **brokered** command, which is otherwise still allowed to change the file where it stands:
+Your agent's shell is refused any command that names a declared path. `--strict` extends that to **brokered** commands, which are otherwise still allowed to change the file in place:
 
 ```bash
 sudo faramir block add --path ~/.private --strict
 ```
 
-That covers `ls` and `chmod` as well as `cat`, so nothing converges the path any more. It is the wrong flag for a key something has to rotate, which is why it is off unless you ask.
+That refuses `ls` and `chmod` as well as `cat`, so nothing can rotate the file any more. It is the wrong flag for a key something has to rotate, which is why it is off by default.
 
 Form | Blocks | Matched against
 --- | --- | ---
-`--path` | one file or directory on this host, and everything under it | the path as written, so it is absolute and in its shortest form
-`--command` | what may not be run, written as it would be typed | where a command starts, so `grep` naming one is left alone
+`--path` | one file or directory on this host, and everything under it | the path as written, so it must be absolute and in its shortest form
+`--command` | what may not be run, written as it would be typed | the start of a command, so `grep` naming one is left alone
 
-A path reaches the agent's file tools and its shell alike; a command is nothing a file tool can name, so it reaches the shell. **The broker holds the same entries**, so a brokered command cannot print a declared file either, that being the one route no rule file reaches. It also refuses a brokered command that names one of faramir's own directories, an approved escalation running as root, where a file mode refuses nothing. The two sides answer differently. Your agent's shell is refused a declared path named at all, whatever the command would do with it. A brokered command is refused the ones that would print the file, and left alone otherwise, moving it and writing over it included: it has to be able to *use* a credential, and the programs that read one without printing it are not a list anybody could finish. [How that line falls](docs/configuration.md#the-brokered-route).
+A path rule reaches the agent's file tools and its shell. A command rule reaches the shell only, since a file tool cannot name a command. **The broker holds the same entries**, so a brokered command cannot print a declared file either: that is the one route no rule file reaches. The broker also refuses a brokered command that names one of faramir's own directories, because an approved escalation runs as root, where a file mode refuses nothing.
 
-`faramir block ls` lists everything in force, the rules faramir carries itself included. It is one of the three operator commands that answer in full without root, beside `reader ls` and `link ls`.
+The two sides answer differently. Your agent's shell is refused any command that names a declared path, whatever the command would do with it. A brokered command is refused only the commands that would print the file; moving it or writing over it is allowed. A brokered command has to be able to *use* a credential, and the programs that read one without printing it are not a list anybody could finish. [How that line is drawn](docs/configuration.md#the-brokered-route).
 
-A fleet declares these where it declares everything else: every `block` command is idempotent and reports what changed with `--json`, so a configuration manager can name the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
+`faramir block ls` lists everything in force, including the rules faramir carries itself. It is one of three operator commands that answer in full without root, with `reader ls` and `link ls`.
+
+Every `block` command is idempotent and reports what changed with `--json`, so a configuration manager can declare the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
 
 ## Usage
 
 ### Onboarding a project
 
-1. **Write the values**, one file per thing that consumes them. `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from an editor faramir picks, on a `0600` file in a tmpfs, so no plaintext reaches a disk. That editor runs as root over the decrypted value, so what runs has to be a program no account but root can change: `--editor`, `$VISUAL` and `$EDITOR` each name one by absolute path with no arguments, and each is held to that check ([how the editor is chosen](docs/operating.md#choosing-the-editor)). Nothing restarts: the next refresh picks the file up. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
+1. **Write the values**, one file per thing that consumes them. `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory. The content comes from an editor faramir picks, on a `0600` file in a tmpfs, so no plaintext reaches a disk. The editor runs as root over the decrypted value, so it must be a program only root can change: `--editor`, `$VISUAL` and `$EDITOR` each name one by absolute path with no arguments, and each is held to that check ([how the editor is chosen](docs/operating.md#choosing-the-editor)). Nothing restarts: the next refresh picks the file up. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
 2. **Have the project read each credential from an environment variable** rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
 3. **Write the refs beside the project**, one per line, in a file that holds refs and never values: [the two line forms](docs/integrations.md#onboarding-in-three-steps).
 4. **`cd <project> && sudo faramir enrol`.** Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
-`faramir init` installs the guard into the agent's home, where it holds in every directory: a command the deny list names is refused wherever the agent is working, which is what a `[[secret.block]]` entry is for. An enrolment adds the credentials section to the tree's own instructions file, and to a file of its own for the two agents that read a name that is not it ([which name](docs/layout.md)), and shares the tree so the broker's account can reach it. For Claude Code it also registers the routing hook, that being the one agent where routing costs a permission and so the one thing still taken tree by tree.
+`faramir init` installs the guard into the agent's home, where it applies in every directory: a command the deny list names is refused wherever the agent is working. That is what a `[[secret.block]]` entry is for. An enrolment adds the credentials section to the tree's own instructions file, and to a file of its own for the two agents that read a different name ([which name](docs/layout.md)), and shares the tree so the broker's account can reach it. For Claude Code it also registers the routing hook, since that is the one agent where routing costs a permission.
 
-What to run in one: [below](#running-commands).
+What to run in an enrolled tree: [below](#running-commands).
 
 Per-tool recipes, the `faramir link` types and selectors, SSH keys, and a worked Ansible example: [docs/integrations.md](docs/integrations.md).
 
@@ -243,22 +239,22 @@ faramir redact -- ./deploy.sh
 --- | ---
 `--env NAME=faramir://ref` | Once per secret, or a bare `NAME` meaning `faramir://NAME`
 `--env-file FILE` | `NAME=faramir://ref` per line, or a bare `NAME` meaning `faramir://NAME`. `#` starts a comment, at the start of a line or after whitespace
-`--quiet` | Suppress the redaction summary on stderr. Only that: why a `sudo` was refused is printed either way, and so is every note saying the output is not what the command produced, truncation among them
+`--quiet` | Suppress the redaction summary on stderr. Only that: why a `sudo` was refused is printed either way, and so is every note saying the output is not what the command produced, truncation included
 `--cwd`/`-C` | Where the command runs. A relative path is resolved against the caller's directory, which is also the default
-`--timeout`/`-t` | How long before the broker kills it: a duration (`90s`, `5m`) or a bare number of seconds, in whole seconds. Defaults to `[command] timeout_sec`, and `max_timeout_sec` is the ceiling
-`--json` | The raw response, on every broker-facing command but `redact`, whose output is the redaction itself
+`--timeout`/`-t` | How long before the broker kills it: a duration (`90s`, `5m`) or a bare number of seconds, in whole seconds. Defaults to `[command] timeout_sec`; `max_timeout_sec` is the ceiling
+`--json` | The raw response. Every broker-facing command accepts it except `redact`, whose output is the redaction itself
 
-- `--stdin`/`-i` sends what you pipe in to the command, up to 128 KiB; more than that is refused rather than cut, and a larger input belongs in a file the command opens itself. Without the flag a pipeline is refused rather than dropped: `faramir run` does not own the file on its own standard input, so a `while read ... done < hosts.txt` loop and an `ssh host 'faramir run …'` session keep theirs. An anonymous pipe every writer has closed with nothing in it is not a pipeline and is not refused: nothing can arrive on one, and that is what a program driving `faramir run` as a subprocess hands it. A FIFO stays refused, another writer being able to open one after the last has closed.
-- Flags after the program name are the program's own: parsing stops at the first non-flag word, so a `--` still works and is not required.
-- The child's exit code is faramir's own. A run whose exit status was lost keeps its output and reports a non-zero stand-in code, saying so on stderr. A broker that is not running exits 69 (`EX_UNAVAILABLE`), and one at its concurrency limit exits 75 (`EX_TEMPFAIL`), which is the one refusal that the same request survives a moment later. A program that is not there exits 127 and one that is there and cannot be run exits 126, which is what a shell gives for each. Every other refusal exits 1, and a usage error exits 2.
-- **`faramir redact` writes nothing it could not redact**, in either shape. A chunk the broker cannot cover is withheld, the stream stops there, and the exit status is non-zero: for `-- CMD` the child's own status when it failed, else 1. Chunks already redacted are kept, so a broker lost mid-stream truncates rather than empties.
-- Both `--env` and `--env-file` refuse a literal value and a name that cannot be an environment variable. A name given twice with different refs is refused, within a file, across files, and across `--env` flags, the bare and the mapping form counting as the same name; `--env` still overrides `--env-file`. A bad line is reported with file and line, and the offending value never appears. A bare name is held to both rules, so a word that is not a usable variable name or not a ref a store can hold is refused where it is written rather than becoming a ref nothing serves.
+- `--stdin`/`-i` sends what you pipe in to the command, up to 128 KiB. More than that is refused rather than cut; a larger input belongs in a file the command opens itself. Without the flag a pipeline is refused rather than dropped: `faramir run` does not own the file on its standard input, so a `while read ... done < hosts.txt` loop and an `ssh host 'faramir run …'` session keep theirs. An anonymous pipe every writer has closed with nothing in it is not refused: nothing can arrive on it, and that is what a program driving `faramir run` as a subprocess hands it. A FIFO stays refused, since another writer can open one after the last has closed.
+- Flags after the program name belong to the program. Parsing stops at the first non-flag word, so `--` works but is not required.
+- The child's exit code is faramir's exit code. A run whose exit status was lost keeps its output and reports a non-zero stand-in code, and says so on stderr. A broker that is not running exits 69 (`EX_UNAVAILABLE`). A broker at its concurrency limit exits 75 (`EX_TEMPFAIL`), the one refusal the same request may pass a moment later. A program that is not there exits 127, and one that cannot be run exits 126, as a shell does. Every other refusal exits 1, and a usage error exits 2.
+- **`faramir redact` writes nothing it could not redact**, in either form. A chunk the broker cannot cover is withheld, the stream stops there, and the exit status is non-zero: for `-- CMD` the child's own status when it failed, otherwise 1. Chunks already redacted are kept, so a broker lost mid-stream truncates the output rather than emptying it.
+- `--env` and `--env-file` both refuse a literal value and a name that cannot be an environment variable. A name given twice with different refs is refused, within a file, across files, and across `--env` flags; the bare and the mapping form count as the same name. `--env` still overrides `--env-file`. A bad line is reported with file and line, and the offending value never appears. A bare name must be both a usable variable name and a ref a store can hold, so a word that is neither is refused where it is written.
 
 ### Allowing sudo on the controller
 
-A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that also configures the controller has to leave it out with `--limit '!controller'`. `sudo faramir init --allow-sudo` closes that split: no password, a PAM service that asks the broker, and one question per run answered by `sudo faramir sudo approve ID`. An approved command gets real root and can make it permanent, so approving is trusting *that command* with permanent root.
+A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that also configures the controller has to leave it out with `--limit '!controller'`. `sudo faramir init --allow-sudo` closes that gap: no password, a PAM service that asks the broker, and one question per run answered by `sudo faramir sudo approve ID`. An approved command gets real root and can make it permanent, so approving is trusting *that command* with permanent root.
 
-**Works with either sudo.** Ubuntu ships two from 25.10 on, and `init` probes the `sudo` alternatives group and writes the arrangement that sudo can read. It needs `sudo` 1.9.11 or `sudo-rs` 0.2.9, and writes nothing if the host is older. What each arrangement touches: [the two sudos](docs/escalation.md#the-two-sudos).
+**Works with either sudo.** Ubuntu ships two from 25.10 on. `init` probes the `sudo` alternatives group and writes the arrangement that sudo can read. It needs `sudo` 1.9.11 or `sudo-rs` 0.2.9, and writes nothing on an older host. What each arrangement touches: [the two sudos](docs/escalation.md#the-two-sudos).
 
 - How to run it: [docs/escalation.md](docs/escalation.md)
 - Why it is shaped this way: [docs/design.md](docs/design.md#allowing-sudo-on-the-controller)
@@ -266,7 +262,7 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 
 ### Operator commands
 
-**Every operator command that changes the install or needs root is refused to the coding agent's shell**, with sudo and without. The four that only describe it are not: [which commands, and what each does](docs/operating.md#operator-commands).
+**Every operator command that changes the install or needs root is refused to the coding agent's shell**, with sudo and without. The four that only describe the install are allowed: [which commands, and what each does](docs/operating.md#operator-commands).
 
 Group | Commands
 --- | ---
@@ -277,16 +273,16 @@ A secret another tool owns | `link add`, `link ls`, `link rm`
 A path, name or command blocked from the agent | `block add`, `block ls`, `block rm`
 The record, and sudo | `logs`, `sudo approve`, `sudo ls`, `sudo reject`, `sudo watch`
 
-`init`, `enrol` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run.
+`init`, `enrol` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can declare every entry on every run.
 
 ### What the agent runs
 
 Command | What it is for
 --- | ---
-`faramir run --env NAME=faramir://ref -- program args` | Runs the command with the value injected, and returns its output with each one replaced by `«SECRET:ref»`
-`faramir refs` | The names that exist, values never. Where `run`'s `--env` refs come from
+`faramir run --env NAME=faramir://ref -- program args` | Runs the command with the value injected, and returns its output with each value replaced by `«SECRET:ref»`
+`faramir refs` | The names that exist, never the values. Where `run`'s `--env` refs come from
 
-These two are how a value reaches a command; `redact`, `status`, `version`, `help` and `completion` are open to the agent as well, and every other subcommand acts on the install and is the operator's. There is nothing to register: the binary is installed for the account, so the route is the same in every directory on the host, enrolled or not. Wire protocol: [docs/protocol.md](docs/protocol.md).
+These two are how a value reaches a command. `redact`, `status`, `version`, `help` and `completion` are open to the agent as well. Every other subcommand acts on the install and is the operator's. There is nothing to register: the binary is installed for the account, so the route is the same in every directory on the host, enrolled or not. Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 ## Configuration
 
@@ -314,19 +310,19 @@ Doc | Covers
 Target | Does
 --- | ---
 `make build` | A static binary into `bin/`
-`make test` | Everything that tests this: the Go suite and the end-to-end suites
+`make test` | Everything: the Go suite and the end-to-end suites
 `make e2e` | The end-to-end suites alone, against a real install in a container
 `make coverage` | Race-enabled Go suite plus per-function report
-`make fuzz` | Every fuzz target, `FUZZTIME` each (default 30s). Time-boxed rather than finished, so it is run by hand rather than by CI
+`make fuzz` | Every fuzz target, `FUZZTIME` each (default 30s). Time-boxed rather than exhaustive, so it is run by hand rather than by CI
 `make fmt` | Apply the import and format rules CI checks
-`make lint` | golangci-lint and ShellCheck. CI's Lint job also runs markdownlint and `goreleaser check`, which this tree asks for no tooling for
+`make lint` | golangci-lint and ShellCheck. CI's Lint job also runs markdownlint and `goreleaser check`, which need no tooling from this tree
 `make shellcheck` | The shell scripts alone, as CI checks them
 `make install`, `make uninstall` | Copy the binary to `/usr/local/bin` and remove it. Both use sudo
 `make clean` | Remove `bin/`, `dist/` and `coverage.txt`
 
-- Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. That decides where a new document goes: operator documentation in `docs/`, which ships, and developer documentation at the root, which does not.
-- Tests live where the logic does. Most of what the broker does is decide, so `internal/broker` substitutes the executor. `internal/execclient` drives a real child where the PTY and the streaming redactor mean nothing against synthetic bytes, and tests the rune and truncation rules directly, those being properties of the bytes: a test that needs a cgroup to run does not run everywhere.
+- Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. Operator documentation goes in `docs/`, which ships. Developer documentation goes at the root, which does not.
+- Tests live beside the logic they cover. Most of what the broker does is decide, so `internal/broker` substitutes the executor. `internal/execclient` drives a real child, because the PTY and the streaming redactor cannot be tested against synthetic bytes, and tests the rune and truncation rules directly. A test that needs a cgroup does not run everywhere.
 - The Go suite runs under one uid, so it never covers the uid boundary. That is real only on a host, which is what `sudo faramir doctor` and [tests/e2e](tests/e2e/README.md) are for. Adversarial exfiltration is asserted nowhere, as [Not prevented](#not-prevented) says.
-- The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, every brokered command being confined to its own. `make test` supplies one with `systemd-run --user --scope`; without it a couple of dozen tests skip, so the run ends by naming what it did not check. On a runner with no such scope, delegate a cgroup first, as [the test workflow](.github/workflows/test.yml) does. cgroup v1 is unsupported.
-- The suite needs `sops` on `PATH`. `internal/sopstest` builds its encrypted fixtures by running it, not by linking it, so the sops libraries are absent from the module as well as from the binary: the keeper execs sops, and linking it anywhere would pull the AWS, GCP, Azure and Vault SDKs back in. A missing binary fails the suites that need one rather than skipping them, those being the ones that hold sops' own resolution of a creation rule, which is the guard against a `.sops.yaml` planted in the agent's tree. `cmd/faramir/nosops_test.go` holds both halves: nothing the command reaches links sops, and `go.mod` requires no getsops module at all.
-- The shipped logic that is not Go is the plugin opencode and Kilo Code load, Pi's extension, and the shell of `wrap.sh` and the PAM helper. Node drives the two rendered files against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed; skipped where node is absent. The shell is ShellCheck's, and [tests/e2e](tests/e2e/README.md) runs all of it against a real install. No test covers a running opencode, Kilo Code or Pi, or Bun.
+- The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, since every brokered command is confined to its own. `make test` supplies one with `systemd-run --user --scope`. Without it a couple of dozen tests skip, and the run ends by naming what it did not check. On a runner with no such scope, delegate a cgroup first, as [the test workflow](.github/workflows/test.yml) does. cgroup v1 is unsupported.
+- The suite needs `sops` on `PATH`. `internal/sopstest` builds its encrypted fixtures by running it, not by linking it, so the sops libraries are absent from the module as well as from the binary: the keeper execs sops, and linking it anywhere would pull in the AWS, GCP, Azure and Vault SDKs. A missing binary fails the suites that need one rather than skipping them, because those suites hold sops' own resolution of a creation rule, which guards against a `.sops.yaml` planted in the agent's tree. `cmd/faramir/nosops_test.go` asserts both halves: nothing the command reaches links sops, and `go.mod` requires no getsops module.
+- The shipped logic that is not Go is the plugin opencode and Kilo Code load, Pi's extension, and the shell of `wrap.sh` and the PAM helper. Node drives the two rendered files against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed. Skipped where node is absent. ShellCheck covers the shell, and [tests/e2e](tests/e2e/README.md) runs all of it against a real install. No test covers a running opencode, Kilo Code or Pi, or Bun.

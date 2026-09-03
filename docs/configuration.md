@@ -10,25 +10,25 @@ Setting | Effect
 --- | ---
 `[command.env] PATH` | Where a bare program name is looked up, and the only `PATH` the child gets.
 `[command] max_timeout_sec` | How long a command may run.
-`[secret] min_length` | A value too short to redact is refused at load, so nothing can inject it. There is no matching maximum setting: a value of 16 KiB or more is always refused, being more than the broker will hold.
+`[secret] min_length` | A value too short to redact is refused at load, so nothing can inject it. There is no maximum setting: a value of 16 KiB or more is always refused, because the broker will not hold it.
 the executor's uid | The real bound.
 
 ## The file is rewritten on every `init`
 
-`init` renders the whole file each run. Before it writes, it reads the old file and takes some values from it. Those values survive; everything else is rendered fresh.
+`init` renders the whole file on each run. Before writing, it reads the old file and keeps some values from it. Everything else is rendered fresh.
 
 Edited by hand | Survives an `init`? | Why
 --- | --- | ---
-Any setting under [what a flag sets](#what-a-flag-sets) | **Yes**, unless you name the matching flag on that run | `init` reads these back so a bare re-run keeps the install instead of reverting it. A flag beats what the file says.
-`[[secret.link]]` and `[[secret.block]]` entries | **Yes** | No flag reaches them: `faramir link` and `faramir block` write them. Reading them back is what stops a plain `init` from erasing every deny rule they added.
-A **new** `[command.env]` variable | **Yes** | The environment merges: the file first, then anything a flag names on top.
-A **deleted** `[command.env]` variable | **No**, it comes back | The built-in table sits under that merge. There is no way to unset a built-in variable.
+Any setting under [what a flag sets](#what-a-flag-sets) | **Yes**, unless you name the matching flag on that run | `init` reads these back, so a bare re-run keeps the install instead of reverting it. A flag overrides the file.
+`[[secret.link]]` and `[[secret.block]]` entries | **Yes** | No flag sets them: `faramir link` and `faramir block` write them. Reading them back keeps a plain `init` from erasing the deny rules they added.
+A **new** `[command.env]` variable | **Yes** | The environment merges: the file first, then any flag on top.
+A **deleted** `[command.env]` variable | **No**, it comes back | The built-in table is the base of that merge. A built-in variable cannot be unset.
 Comments, ordering, whitespace | **No** | The whole file is rendered, so you get the template's.
-Anything under [what is derived](#what-is-derived) | **No** | Re-derived from the install every run. The account names come from the units' own `User=` rather than from the file, so editing `allowed_user` changes nothing.
+Anything under [what is derived](#what-is-derived) | **No** | Re-derived from the install on every run. The account names come from the units' `User=` lines, not from the file, so editing `allowed_user` changes nothing.
 
-Two things follow:
+Two consequences:
 
-- **Use the flag, not the edit.** A flag is written into the file and read back next run. An edit to a derived value is discarded on the next `init` without a word, and until then the daemons are using what you typed.
+- **Use the flag, not the edit.** A flag is written into the file and read back on the next run. An edit to a derived value is discarded on the next `init` without notice, and until then the daemons use what you typed.
 - **A file that does not parse stops the run.** `init` reads the old config before writing, so a hand edit that will not load is refused rather than replaced. No daemon can load it either, and overwriting it would destroy the evidence. Fix the file, or delete it to install fresh.
 
 ## What a flag sets
@@ -40,21 +40,21 @@ Flag | Key | Default | Bounds
 `--command-env NAME=VALUE` | `[command.env] NAME` | `PATH`, `TERM`, `LANG`, `LC_ALL`, `DEBIAN_FRONTEND` | Repeatable, and it **adds**: naming one variable keeps the rest. `PATH` may not be empty, and every component must be absolute.
 `--command-timeout` | `[command] timeout_sec` | 600 | A duration (`10m`) or a bare number of seconds, in whole seconds. At least 1. Zero would kill every command as it started.
 `--command-max-timeout` | `[command] max_timeout_sec` | 3600 | A duration or a bare number of seconds. At least 1, and not below `timeout_sec`. A lower value would silently replace `timeout_sec` for every command.
-`--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor forks at once. `init` refuses a negative value and anything above 16, where the surplus is refused by the executor *after* the run was recorded as started. Zero is the unset signal: it keeps what the install already has, and takes the default only where the file holds none.
+`--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor forks at once. `init` refuses a negative value and anything above 16; above 16, the executor refuses the surplus *after* the run was recorded as started. Zero means unset: it keeps what the install already has, and takes the default only where the file holds none.
 `--command-max-memory-percent` | `[command] max_memory_percent` | 25 | 1 to 100. Rendered as `MemoryMax=` on the executor unit.
 `--command-max-process-memory-mb` | `[command] max_process_memory_mb` | 4096 | 256 to 1048576. Rendered as `LimitDATA=` on the executor unit and inherited by every child.
-`--sudo-timeout` | `[sudo] timeout_sec` | 120 | A duration or a bare number of seconds. 1 to 3600, and never more than `[command] max_timeout_sec`: a longer value is read as that one. How long a sudo question waits for a human. While a question is open every other brokered command is refused, so a long one holds the whole host.
+`--sudo-timeout` | `[sudo] timeout_sec` | 120 | A duration or a bare number of seconds. 1 to 3600, and never more than `[command] max_timeout_sec`: a longer value is read as that one. How long a sudo question waits for a human. While a question is open every other brokered command is refused, so a long timeout holds the whole host.
 `--secret-min-length` | `[secret] min_length` | 8 | At least 6. Counted in characters, not bytes.
-`--notify-command ARG` | `[sudo] notify_command` | none | Repeatable, one argument per flag, and it **replaces**: naming the flag at all discards the installed list. Must contain `{prompt}` or `{id}`, or it would announce that something is waiting without saying what. Needs `--allow-sudo`, which is what writes the `[sudo]` section: a re-run without that flag takes the grant back and the announcement with it. The program must be installed, so a kept notifier whose program has since been removed refuses the run rather than being written out again.
+`--notify-command ARG` | `[sudo] notify_command` | none | Repeatable, one argument per flag, and it **replaces**: naming the flag at all discards the installed list. Must contain `{prompt}` or `{id}`, or it would announce a question without saying which. Needs `--allow-sudo`, which writes the `[sudo]` section: a re-run without that flag removes the grant and the notifier with it. The program must be installed: a kept notifier whose program has been removed refuses the run.
 
-On a host that grants sudo, the `[command.env]` variables are also written to `/usr/local/libexec/faramir/sudo-env`, so a command keeps them across `sudo`: `env_reset` discards what the caller held, and this file puts them back from somewhere the caller cannot write. Not all of them survive. `HOME`, `PATH` and `SUDO_*` stay sudo's own, because sudo sets those itself and this file only adds what sudo did not. A name that is not a valid variable name, or a value holding a newline or a `#`, is [left out with a warning](escalation.md#what-a-brokered-command-keeps-across-sudo).
+On a host that grants sudo, the `[command.env]` variables are also written to `/usr/local/libexec/faramir/sudo-env`, so a command keeps them across `sudo`: `env_reset` discards the caller's environment, and this file restores these variables from a location the caller cannot write. `HOME`, `PATH` and `SUDO_*` are not restored, because sudo sets those itself. A name that is not a valid variable name, or a value holding a newline or a `#`, is [left out with a warning](escalation.md#what-a-brokered-command-keeps-across-sudo).
 
 ### The two memory settings
 
-They do different jobs, and both are read by `init`: changing either key alone does not reach the systemd unit until the next `sudo faramir init`.
+They do different jobs. Both are read by `init`: changing either key by hand does not reach the systemd unit until the next `sudo faramir init`.
 
-- `max_memory_percent` is the **backstop**. It is a cgroup total for every brokered command at once, so it cannot tell one process holding everything from twenty holding a fair share each, and it counts page cache. What it catches is fan-out, which no per-process limit sees. It is a percentage because nothing here knows how much memory the host has. Cache is reclaimed before anything is killed, so a source build meets this as reclaim while a process that really allocated the memory meets the OOM killer. 100 means the whole machine, which is the same as no bound.
-- `max_process_memory_mb` is the **bound**. A runaway command is usually one process asking for far more than a real one, and this refuses it. Anonymous memory only, so a command is never charged for page cache. A process that reaches the limit gets an allocation failure it can report, rather than being picked by the OOM killer.
+- `max_memory_percent` is the **backstop**. It is a cgroup total for every brokered command at once, so it cannot tell one process holding everything from twenty holding a fair share each, and it counts page cache. It catches fan-out, which no per-process limit sees. It is a percentage because faramir does not know how much memory the host has. Cache is reclaimed before anything is killed, so a source build meets this limit as reclaim, and a process that really allocated the memory meets the OOM killer. 100 means the whole machine, which is no bound.
+- `max_process_memory_mb` is the **bound**. A runaway command is usually one process asking for far more than a real one, and this refuses it. Anonymous memory only, so a command is never charged for page cache. A process that reaches the limit gets an allocation failure it can report, instead of the OOM killer.
 
 ### Why `--secret-min-length` has a floor of 6
 
@@ -64,13 +64,13 @@ The file carries two more things, and no flag writes either: [`[[secret.link]]`]
 
 ## What is derived
 
-Everything else. `init` computes these from the install and rewrites them every run.
+Everything else. `init` computes these from the install and rewrites them on every run.
 
 Key | Derived from
 --- | ---
 `socket_path` on `[server]`, `[keeper]`, `[executor]` | Rendered alongside the `.socket` units
 `[server] allowed_group` | `--client-group`
-`[server] agent_user` | `faramir init --agent-user`, then `$FARAMIR_OPERATOR`, then `$SUDO_USER`, then you. No other command takes this flag: they all read this key instead, so adding an entry cannot rename the host's owner. Passed to every brokered command as `FARAMIR_OPERATOR`, and to its `sudo` through the environment file its PAM service reads
+`[server] agent_user` | `faramir init --agent-user`, then `$FARAMIR_OPERATOR`, then `$SUDO_USER`, then you. No other command takes this flag: they all read this key, so adding an entry cannot rename the host's owner. Passed to every brokered command as `FARAMIR_OPERATOR`, and to its `sudo` through the environment file its PAM service reads
 `[keeper] allowed_user`, `[executor] allowed_user` | `--broker-user`
 `[keeper] age_key_file` | `--config-dir`
 `[keeper] age_key_credential` | Rendered alongside the keeper unit's `LoadCredential=`
@@ -82,29 +82,29 @@ Key | Derived from
 
 ## What is not a key at all
 
-Nine values are constants in the binary. No install ever sets them.
+Nine values are constants in the binary. No install sets them.
 
 Value | Is
 --- | ---
-`max_output_bytes` | 256 KiB, roughly 64k tokens. It limits how much text reaches the model, so it belongs to the conversation rather than to the host. Truncation is reported, not silent
-`max_request_bytes` | 256 KiB. The largest request line the broker socket will read, a guard against a malformed request rather than a size anyone chooses
-`max_record_bytes` | 256 KiB. The largest one audit record's line may be, counted in encoded bytes. A record keeps the head and tail of the output and cuts every other field to fit, so a long command degrades its record rather than failing to write one
-`term_cols`, `term_rows` | 120x40. The PTY size every child gets, which decides where a program wraps its own output
-`kill_grace_sec` | 5 seconds between SIGTERM and SIGKILL. This window only opens once a command has already overrun its timeout
-`min_refresh_sec` | 1 second. The soonest the broker asks the keeper again whether a managed file changed, checked when a command arrives rather than on a timer, so an idle host makes no round trip. Not a setting because every larger value is worse: the check costs one stat per managed file, and what a longer interval buys with that is a wider window in which a value rotated outside faramir is still missing from the redactor. Linked files are not on this clock at all; they are stat'ed on every request
-the managed store | `<config-dir>/secrets/` matching `*.sops.yml`. Derived from where the config sits, so the store cannot be pointed at a checkout. What the agent cannot open is the directory, which the deny rules name by path
-the decrypt command | sops, invoked one way. A second way would be a second thing that could be pointed elsewhere by the account holding the age key
+`max_output_bytes` | 256 KiB, roughly 64k tokens. It limits how much text reaches the model, which is a property of the conversation rather than of the host. Truncation is reported, never silent
+`max_request_bytes` | 256 KiB. The largest request line the broker socket reads. A guard against a malformed request, not a size anyone chooses
+`max_record_bytes` | 256 KiB. The largest one audit record's line may be, in encoded bytes. A record keeps the head and tail of the output and cuts every other field to fit, so a long command degrades its record rather than losing it
+`term_cols`, `term_rows` | 120x40. The PTY size every child gets, which decides where a program wraps its output
+`kill_grace_sec` | 5 seconds between SIGTERM and SIGKILL. This window opens only after a command has overrun its timeout
+`min_refresh_sec` | 1 second. The soonest the broker asks the keeper again whether a managed file changed. Checked when a command arrives, not on a timer, so an idle host makes no round trip. Not a setting because every larger value is worse: the check costs one stat per managed file, and a longer interval only widens the window in which a value rotated outside faramir is missing from the redactor. Linked files are not on this clock; they are stat'ed on every request
+the managed store | `<config-dir>/secrets/` matching `*.sops.yml`. Derived from where the config sits, so the store cannot be pointed at a checkout. The deny rules name the directory by path, so the agent cannot open it
+the decrypt command | sops, invoked one way. A second way would be a second thing the account holding the age key could point elsewhere
 
 ## Linked secrets
 
-A `[[secret.link]]` entry reads one secret out of a file that another tool maintains, instead of copying it into the managed store. See [when to reach for one](integrations.md#where-the-value-lives).
+A `[[secret.link]]` entry reads one secret out of a file that another tool maintains, instead of copying it into the managed store. See [when to use one](integrations.md#where-the-value-lives).
 
 ```sh
 sudo faramir link add gh/token ~/.config/gh/hosts.yml \
     --type yaml --key github.com/oauth_token
 ```
 
-That is the whole interface. The [three link commands](operating.md#operator-commands) are the only way these entries get written. The entry looks like this:
+That is the whole interface. The [three link commands](operating.md#operator-commands) are the only way these entries are written. The entry looks like this:
 
 ```toml
 [[secret.link]]
@@ -116,35 +116,35 @@ key  = "github.com/oauth_token"
 
 Field | Rule
 --- | ---
-`ref` | The name a caller asks by, in the same namespace the sops store uses. Nothing marks a ref as linked: where a secret is kept is not part of its name. If it were, moving one into the store later would rename it, and every `faramir.env` that names it would have to change too. A link claiming a ref the store already defines is refused by `link add` before any entry is written.
-`path` | Absolute, and in its shortest form: the file is opened as written and the deny rule matches the path as written, so `/etc/./k` and `/etc/k` are one file and two rules, of which one matches nothing. No `~`, which nothing expands here, and the broker runs as its own account, so a home directory would be the wrong one. No control characters, because the path is rendered into the deny rules one rule per line, and a newline would split the rule into two halves that will not compile. No wildcard, and not `/`: a link opens the file it names, here and on every load, so the trailing-`*` form a blocked path may carry would render a rule and never resolve a value, leaving the ref permanently degraded. That one difference aside, held to [the same rules a blocked path is](#what-each-form-accepts): the two render the same rule over the file, and differ only in which entry a refusal names.
+`ref` | The name a caller asks by, in the same namespace as the sops store. Nothing marks a ref as linked: where a secret is kept is not part of its name, so moving one into the store later does not rename it or change any `faramir.env` that names it. A link claiming a ref the store already defines is refused by `link add` before any entry is written.
+`path` | Absolute, and in its shortest form: the file is opened as written and the deny rule matches the path as written, so `/etc/./k` and `/etc/k` are one file and two rules, one of which matches nothing. No `~`: nothing expands it here, and the broker runs as its own account, so the home would be the wrong one. No control characters: the path is rendered into the deny rules one rule per line, and a newline would split the rule into two halves that do not compile. No wildcard, and not `/`: a link opens the file it names on every load, so the trailing-`*` form a blocked path may carry would render a rule and never resolve a value, leaving the ref permanently degraded. Otherwise held to [the same rules as a blocked path](#what-each-form-accepts): the two render the same rule over the file, and differ only in which entry a refusal names.
 `type` | `text` or `base64` for the whole file. `json`, `yaml`, `toml` or `ini` to select a value out of it.
 `key` | Required for the four types that select, refused for the two that do not. Held to the same character rules as `path`, because `faramir link ls` prints it to a terminal. `a/b/c` walks a tree the way a sops ref does, and a number indexes a list; `ini` matches the whole key instead. See [selectors, escaping and the per-tool recipes](integrations.md#linking-a-credential-another-tool-owns).
-`strict` | Optional, written by `link add --strict`. Narrows the brokered route to refusing every command naming the file rather than the ones that would print it. The ref still answers either way. See [refusing every mention of an entry](#refusing-every-mention-of-an-entry).
+`strict` | Optional, written by `link add --strict`. Makes the broker refuse every command naming the file, not only the ones that would print it. The ref still answers either way. See [refusing every mention of an entry](#refusing-every-mention-of-an-entry).
 
 ### The three commands are idempotent
 
-A configuration manager can run them on every converge. Adding an entry the install already has re-applies it: the deny rules and the config are rendered again, the file's access is checked again, `--json` reports `changed: false`, and the daemons reload only where something actually changed. Removing a ref that is not there writes nothing.
+A configuration manager can run them on every converge. Adding an entry the install already has re-applies it: the deny rules and the config are rendered again, the file's access is checked again, `--json` reports `changed: false`, and the daemons reload only where something changed. Removing a ref that is not there writes nothing.
 
-The one thing refused is the same ref pointing at a different file, type or key. The error names both definitions. A ref has one definition, and answering by replacing the entry would change which credential every caller of that name receives.
+The one refusal is the same ref pointing at a different file, type or key. The error names both definitions. A ref has one definition; replacing the entry would change which credential every caller of that name receives.
 
 ### `link add` asks everything before it writes
 
-Nothing about the file is altered to make an answer come out right. In order, `link add`:
+Nothing about the file is altered to make a check pass. In order, `link add`:
 
 1. Refuses a ref this install already defines against a different file, type or key.
-2. Requires the file to be there.
+2. Requires the file to exist.
 3. Reads it as root, to confirm the type and the key yield a value.
 4. Asks the running broker whether it already serves that ref.
-5. Checks that the file is arranged the way a link needs.
+5. Checks that the file's ownership and mode are what a link needs.
 6. Reads it again as the broker's own account, to confirm that account can reach the value.
 7. Writes the entry.
 
 [Why there are two reads, and in that order](integrations.md#linking-a-credential-another-tool-owns).
 
-Step 4 needs a broker that answers, and `link add` refuses rather than skipping it. An entry claiming a name the store already answers would refuse every brokered command on the host, and one written while nothing could check arrives at a moment nobody chose. `refs` answers on a host with no secrets yet, so this locks out no first install. A file that is not arranged correctly is reported along with the commands that fix it, and no entry is written.
+Step 4 needs a running broker, and `link add` refuses rather than skipping it. An entry claiming a name the store already answers would refuse every brokered command on the host. `refs` answers on a host with no secrets yet, so this does not block a first install. A file with the wrong ownership or mode is reported along with the commands that fix it, and no entry is written.
 
-`init` reads these entries back before rewriting the file, so every deny rule is re-asserted and every file re-checked on each run. That is what catches an arrangement some other tool took away.
+`init` reads these entries back before rewriting the file, so every deny rule is re-asserted and every file re-checked on each run. That catches a mode or group some other tool changed.
 
 ### The permissions a link needs
 
@@ -152,36 +152,36 @@ Step 4 needs a broker that answers, and `link add` refuses rather than skipping 
 
 Path | Has to be
 --- | ---
-The linked file | Owned by the broker's group and group-readable, and readable by nobody else. The owner and the owner bits are the operator's business. That group holds one account, which is what keeps the executor out
+The linked file | Owned by the broker's group and group-readable, and readable by nobody else. The owner and the owner bits are the operator's choice. That group holds one account, which keeps the executor out
 Every directory above it, down from the home | Enterable by the client group. Traversal is not read access. Never `chmod o+x`, which grants the same to every account on the machine
 
-Why it is shaped this way, with one ref per entry rather than a whole-file flatten, the broker reading these rather than the keeper, and modes rather than an ACL, is in [design.md](design.md#linked-secrets-are-read-by-the-broker).
+Why it is shaped this way (one ref per entry rather than a whole-file flatten, the broker reading these rather than the keeper, and modes rather than an ACL) is in [design.md](design.md#linked-secrets-are-read-by-the-broker).
 
 ### Keeping a link working
 
-- **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. The agents with no rule file of their own reach the same list by asking `faramir guard`.
-- **A tool that replaces its own file rather than rewriting it takes the group with it.** A temp file renamed over the original is created fresh, and mode `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file, and `init` and `link add` check again on every converge.
-- **A repair needs a restart, and nothing does it for you.** The broker fingerprints a linked file by mtime and size, and `chgrp` changes neither, so its view of a file it gave up on stands until you run `sudo systemctl restart faramir-broker`. `init` and `link add` restart the daemons only when they changed something, and neither of them changes a file it does not own.
+- **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. The agents with no rule file of their own get the same list by asking `faramir guard`.
+- **A tool that replaces its file instead of rewriting it drops the group.** A temp file renamed over the original is created fresh, and mode `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file, and `init` and `link add` check again on every converge.
+- **A repair needs a restart, and nothing does it for you.** The broker fingerprints a linked file by mtime and size, and `chgrp` changes neither, so the broker keeps treating a file it gave up on as broken until you run `sudo systemctl restart faramir-broker`. `init` and `link add` restart the daemons only when they changed something, and neither changes a file it does not own.
 
 ### When a link breaks
 
-**A link that does not load costs that one ref.** The broker refuses that ref by name and goes on serving every other one. Both failures reach this: a file that is gone, and a file that is there and will not read.
+**A link that does not load costs that one ref.** The broker refuses that ref by name and goes on serving every other one. This covers both failures: a file that is gone, and a file that is there and cannot be read.
 
-This is the whole difference between a link and a managed file. A managed file holds any number of refs and names none of them until it decrypts, so one that did not load leaves the broker knowing values are missing but not which, and it stops serving. A link is one ref by construction, so the broker can name it and keep going.
+This is the difference between a link and a managed file. A managed file holds any number of refs and names none of them until it decrypts, so one that did not load leaves the broker knowing values are missing but not which, and it stops serving. A link is one ref, so the broker can name it and keep going.
 
 What reports it:
 
 - `faramir status` names the ref and exits non-zero.
-- `faramir doctor` fails, which is what tells you before a command does.
+- `faramir doctor` fails, so you learn before a command does.
 - `faramir init` reports it and finishes. The fault is in one credential, the config for this run is already written, and the file belongs to a tool that `init` cannot write, so stopping would leave you without the install and no closer to the repair.
 
-**The unreadable case costs something; the missing case does not.** If the file is there and will not read, the plaintext is still on disk while the redactor does not hold it, so that value can print in the clear through anything that touches the file. The broker cannot cover a value it does not have. Withholding every command's output over it would take out commands with no relationship to the credential, so it names the missing ref instead of stopping. A file that is *gone* leaves no plaintext to cover.
+**The unreadable case costs something; the missing case does not.** If the file is there and cannot be read, the plaintext is still on disk while the redactor does not hold it, so that value can print in the clear through anything that reads the file. Withholding every command's output over it would break commands unrelated to the credential, so the broker names the missing ref instead of stopping. A file that is *gone* leaves no plaintext to cover.
 
-**One link is refused the way a managed file is**: a link claiming a ref the managed store already defines. That ref is answered by the store, so the *second* value the linked file holds for the same name is one nothing reads and nothing redacts. Rename the link or remove the managed value.
+**One link is refused the way a managed file is**: a link claiming a ref the managed store already defines. The store answers that ref, so the *second* value the linked file holds for the same name is one nothing reads and nothing redacts. Rename the link or remove the managed value.
 
 ## Blocked paths
 
-A `[[secret.block]]` entry keeps one thing away from the agent, for a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity. See [when to reach for one](integrations.md#where-the-value-lives).
+A `[[secret.block]]` entry keeps one thing away from the agent. Use it for a credential faramir never needs the value of: a LUKS keyfile, an SSH identity. See [when to use one](integrations.md#where-the-value-lives).
 
 ```sh
 sudo faramir block add --path /etc/luks/volume.key   # this file, on this host
@@ -194,83 +194,83 @@ sudo faramir block add --path ~/.gnupg --path ~/.config/sops/age --path ~/.netrc
 sudo faramir block add --command 'op read' --command 'pass show'
 ```
 
-**Each form has its own flag, and one entry is one form.** A bare argument is refused rather than read as a path. The two forms block different things, and neither is the obvious default.
+**Each form has its own flag, and one entry is one form.** A bare argument is refused rather than read as a path. The two forms block different things, and neither is the default.
 
 Form | Covers | Blocks
 --- | --- | ---
 `--path` | That path on this host, and everything under it | File tools, the shell, and a brokered command that would print it
-`--command` | Command text | The shell and a brokered command, a command being nothing a file tool can name
+`--command` | Command text | The shell and a brokered command. A file tool cannot name a command, so the rule does not reach it
 
-`--path` also takes [`--strict`](#refusing-every-mention-of-an-entry), which narrows what a **brokered** command may do to the entry. It changes nothing for the agent's own shell or file tools, which refuse a declared path named at all either way.
+`--path` also takes [`--strict`](#refusing-every-mention-of-an-entry), which narrows what a **brokered** command may do to the entry. It changes nothing for the agent's own shell or file tools, which refuse any command naming a declared path either way.
 
 The deny rules, the command guard's patterns and the broker's own check are built from one set, so a declared path refuses a file tool, `cat` and `faramir run` alike, and `faramir init` re-asserts all of them.
 
-**A path covers the directory, so name the directory rather than the files in it.** `--path ~/.ssh` refuses every key under it, including `identity` and whatever an `IdentityFile` line points at. Enumerating `id_rsa`, `id_ecdsa` and `id_ed25519` covers the three you thought of and nothing else.
+**A path covers the directory, so name the directory rather than the files in it.** `--path ~/.ssh` refuses every key under it, including `identity` and whatever an `IdentityFile` line points at. Listing `id_rsa`, `id_ecdsa` and `id_ed25519` covers those three and nothing else.
 
 ### What each form accepts
 
 Form | Rule
 --- | ---
-`path` | Absolute, and in its shortest form. A rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules of which one matches nothing. A path under a home is also refused in the spellings a shell expands to it: `~/`, `$HOME/` and `${HOME}/`, which is how a person and a model both write one. No bare `~`, which nothing expands here. The tail on its own goes with them where the tail is a path rather than a word, meaning one holding a `/` or opening on a dot: a rule has no working directory to follow, so `cd $HOME && cat .ssh/id_rsa` is refused, and so is the same tail under another root: on a host with several homes, `/home/other/.ssh/id_rsa` is refused by this account's entry, and the refusal names that entry rather than the file the command touched. Deliberate, and the same looseness is what catches a path built from a variable such as `$PWD/.ssh/id_rsa`; narrowing it to the account's own tree would drop both. A name that is neither, `~/notes` say, is refused only in the four spellings above, a rule for it otherwise refusing every command using the word. `/` is refused, being every file on the host. **A wildcard is refused in every position but one.** A path is otherwise matched as written rather than expanded, so `/srv/keys/*.key` would refuse a command typing that pattern and leave `/srv/keys/server.key` readable. Name the directory, which covers everything under it. The exception is a **trailing `*` on the last component, after at least one literal character**: `/srv/keys/server*` refuses `/srv/keys/server-2026.key` and every other name opening on `server`, up to the end of that component. It is for a file whose name this config cannot write in full, a sentry or a session file carrying a per-account number among them, and the literal parent is what bounds it. `/srv/keys/*`, `/srv/*/key` and `/srv/keys/*.key` stay refused: the first is the directory under another name, and the other two reach a directory or a file set this cannot know. So is a top-level prefix such as `/h*`: a rule is not anchored on the left, so that one reaches `/home` and `/etc` alike, and there is no literal parent to bound it. The form is for `[[secret.block]]` only: a link opens the file it names, so a wildcard there names nothing. An entry whose rule would reach an enrolled tree is refused as a literal one is, compared against the literal rather than the whole entry, so `~/pro*` is refused where `~/project` is enrolled.
-`command` | A command the agent's shell may not run, written as it would be typed: `op read`, `sops -d`. The words are literal and the space between them matches any run of whitespace, so there is no pattern to get wrong. It reaches the command guard and no file-tool rules, a command not being a path. A single-character word is refused, since it would match nearly every command line.
+`path` | Absolute, and in its shortest form. A rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules, one of which matches nothing. A path under a home is also refused in the spellings a shell expands to it: `~/`, `$HOME/` and `${HOME}/`. No bare `~`, which nothing expands here. The tail of the path is refused on its own where the tail is a path rather than a word, meaning it holds a `/` or starts with a dot: a rule has no working directory to follow, so `cd $HOME && cat .ssh/id_rsa` is refused, and so is the same tail under another root. On a host with several homes, `/home/other/.ssh/id_rsa` is refused by this account's entry, and the refusal names that entry rather than the file the command touched. This is deliberate: the same looseness catches a path built from a variable such as `$PWD/.ssh/id_rsa`, and narrowing it to the account's own tree would drop both. A tail that is a plain word, `~/notes` say, is refused only in the four spellings above; a rule for the word itself would refuse every command using it. `/` is refused: it is every file on the host. **A wildcard is refused in every position but one.** A path is matched as written, not expanded, so `/srv/keys/*.key` would refuse a command typing that pattern and leave `/srv/keys/server.key` readable. Name the directory, which covers everything under it. The exception is a **trailing `*` on the last component, after at least one literal character**: `/srv/keys/server*` refuses `/srv/keys/server-2026.key` and every other name starting with `server`, up to the end of that component. Use it for a file whose name this config cannot write in full, such as a sentry or a session file carrying a per-account number; the literal parent bounds it. `/srv/keys/*`, `/srv/*/key` and `/srv/keys/*.key` stay refused: the first is the directory under another name, and the other two reach a directory or a file set this config cannot know. So is a top-level prefix such as `/h*`: a rule is not anchored on the left, so that one reaches `/home` and `/etc` alike, and there is no literal parent to bound it. The form is for `[[secret.block]]` only: a link opens the file it names, so a wildcard there names nothing. An entry whose rule would reach an enrolled tree is refused as a literal one is, compared on the literal part rather than the whole entry, so `~/pro*` is refused where `~/project` is enrolled.
+`command` | A command the agent's shell may not run, written as it would be typed: `op read`, `sops -d`. The words are literal and the space between them matches any run of whitespace, so there is no pattern to get wrong. It reaches the command guard and no file-tool rules, because a command is not a path. A single-character word is refused: it would match nearly every command line.
 
-**A command rule matches where a command starts**, not wherever the words appear: after a separator, a pipe, a subshell, an assignment, `sudo` and its kin, or a shell's `-c` string. So `pass` is safe to declare on its own, where matching anywhere would have refused every `ansible-playbook --ask-become-pass`, and a `grep` that merely names a declared command is left alone. The cost runs the other way: a command reached through a wrapper the anchor does not know is missed. That is the better error for a list [the design says is not the boundary](design.md#three-layers): it is there to catch an accident, and an accident is typed rather than wrapped.
+**A command rule matches where a command starts**, not wherever the words appear: after a separator, a pipe, a subshell, an assignment, `sudo` and its equivalents, or a shell's `-c` string. So `pass` is safe to declare on its own, where matching anywhere would have refused every `ansible-playbook --ask-become-pass`, and a `grep` that merely names a declared command is left alone. The cost: a command reached through a wrapper the anchor does not know is missed. That is the better error for a list [the design says is not the boundary](design.md#three-layers): it exists to catch an accident, and an accident is typed rather than wrapped.
 
-**A heredoc body is read as commands**, whichever way its delimiter is spelled. `<<'EOF'` does make every line up to the terminator literal, and literal is what an interpreter runs: `bash <<'EOF'` executes every line of its body, as do `sh`, `python3`, and a body piped into any of them. Nothing in the redirection separates that from `cat <<'EOF' > doc`, so the body that is a script and the body that is a document are the same bytes. They are read as commands, which refuses the script. The cost is that writing a document quoting an operator command is refused: use your editing tool rather than a shell heredoc for that.
+**A heredoc body is read as commands**, whichever way its delimiter is spelled. `<<'EOF'` makes every line up to the terminator literal, and literal is what an interpreter runs: `bash <<'EOF'` executes every line of its body, as do `sh`, `python3`, and a body piped into any of them. Nothing in the redirection separates that from `cat <<'EOF' > doc`, so a script body and a document body are the same bytes. Both are read as commands, which refuses the script. The cost is that writing a document quoting an operator command is refused: use your editing tool rather than a shell heredoc for that.
 
 ### How the entries behave
 
-- **An entry carrying a control character is refused, in both forms.** A rule is one line of a generated file, so a newline would end that rule early and start a second line with the rest. Neither half is the rule that was asked for, both are unbalanced expressions the guard cannot compile, and a rule that will not compile is skipped, so an entry meant to refuse one more file would take the rules protecting the install with it. Other control characters are refused because a listing prints an entry back to a terminal, which obeys what it is sent. `faramir doctor` fails on any rendered rule that will not compile, whatever wrote it.
-- **A path that is not there is still recorded, and you are told.** The rule costs nothing while the file is absent and takes hold once the volume mounts, which is the case these exist for. A path spelled wrong looks the same, so the message says both.
-- **An entry covers the path and everything under it**, whether or not it is a directory today. The filesystem is not consulted: these rules are a function of the config alone, or a key on an unmounted volume would render no subtree rule and gain one when it mounted. The subject is bounded, so `~/.sshrc` is not part of `~/.ssh`.
-- **A shell pattern that could reach the entry is refused too.** The rules are matched against the text of a command, and a shell expands `*` after the guard has answered, so a rule carrying a file name can never match a pattern: declaring `~/.ssh/id_rsa` would leave `cat ~/.ssh/*` printing it. So each entry also refuses the patterns that could still produce its last component. `~/.ssh/*`, `~/.ssh/id_r*` and `~/.ssh/id_rs?` are refused; `~/.ssh/known_*` is not, `known_` being no prefix of `id_rsa`, and neither is a pattern anywhere else. What this does not reach is a wildcard higher up the path (`~/.s*/id_rsa`), a character class standing in for a literal (`~/.ssh/id_[r]sa`), and any path a command builds while it runs. An entry that is itself a trailing-`*` prefix cannot constrain the end of the name, so what it refuses is any pattern whose literal opening is a prefix of the declared one: for `~/.ssh/id_*`, that is `~/.ssh/*`, `~/.ssh/i*` and `~/.ssh/id_*` but not `~/.ssh/known_*`.
-- **A path this install occupies cannot be unblocked, and asking fails.** `block rm /etc/faramir/age.key` names a rule the layout renders on every run, not an entry this install carries, so there is nothing to remove and the host goes on blocking it. Reporting that as "nothing removed" would read as the file becoming readable. If an install declared the same path as well, its entry is removed and the directory is named as what still blocks it. Nothing else is unremovable: no rule is compiled in.
-- **A change reloads the daemons.** The broker holds these entries itself and compiles them once, at start, so an entry added into a running install is not refused until it reloads, and one removed goes on being refused. `block add` and `block rm` reload where they changed something, and not where a converge found the host as it should be.
-- **A path that is, or holds, an enrolled tree is refused**, in a `[[secret.link]]` entry as well as a blocked one. The rules hold wherever the agent works, so such an entry would refuse it every file in the directory it was pointed at.
-- **Removing an entry takes its rule out of the agent files too.** `block rm` and `link rm` re-render the same steps `add` does, and the merge is given the record of what faramir last wrote into each file: a rule in that record and no longer backed by an entry comes out, and a rule nobody recorded is the operator's and stays, whatever it looks like. What removal does not take back is the grant, which `link rm` prints with the `chmod` that narrows it.
+- **An entry carrying a control character is refused, in both forms.** A rule is one line of a generated file, so a newline would end that rule early and start a second line with the rest. Neither half is the rule that was asked for, both are unbalanced expressions the guard cannot compile, and a rule that does not compile is skipped, so an entry meant to refuse one more file would remove the rules protecting the install. Other control characters are refused because a listing prints an entry back to a terminal, which obeys what it is sent. `faramir doctor` fails on any rendered rule that does not compile, whatever wrote it.
+- **A path that is not there is still recorded, and you are told.** The rule costs nothing while the file is absent and takes effect once the volume mounts. A path spelled wrong looks the same, so the message says both.
+- **An entry covers the path and everything under it**, whether or not it is a directory today. The filesystem is not consulted: these rules are a function of the config alone, so a key on an unmounted volume gets its subtree rule before the volume mounts. The subject is bounded, so `~/.sshrc` is not part of `~/.ssh`.
+- **A shell pattern that could reach the entry is refused too.** The rules are matched against the text of a command, and a shell expands `*` after the guard has answered, so a rule carrying a file name can never match a pattern: declaring `~/.ssh/id_rsa` alone would leave `cat ~/.ssh/*` printing it. So each entry also refuses the patterns that could produce its last component. `~/.ssh/*`, `~/.ssh/id_r*` and `~/.ssh/id_rs?` are refused; `~/.ssh/known_*` is not, because `known_` is no prefix of `id_rsa`, and neither is a pattern anywhere else. This does not reach a wildcard higher up the path (`~/.s*/id_rsa`), a character class standing in for a literal (`~/.ssh/id_[r]sa`), or any path a command builds while it runs. An entry that is itself a trailing-`*` prefix cannot constrain the end of the name, so it refuses any pattern whose literal opening is a prefix of the declared one: for `~/.ssh/id_*`, that is `~/.ssh/*`, `~/.ssh/i*` and `~/.ssh/id_*` but not `~/.ssh/known_*`.
+- **A path this install occupies cannot be unblocked, and asking fails.** `block rm /etc/faramir/age.key` names a rule the layout renders on every run, not an entry this install carries, so there is nothing to remove and the host goes on blocking it. Reporting "nothing removed" would read as the file becoming readable. If an install declared the same path as well, its entry is removed and the directory is named as what still blocks it. Nothing else is unremovable: no rule is compiled in.
+- **A change reloads the daemons.** The broker holds these entries itself and compiles them once, at start, so an entry added to a running install is not refused until it reloads, and one removed goes on being refused. `block add` and `block rm` reload where they changed something, and not where a converge found the host already correct.
+- **A path that is, or holds, an enrolled tree is refused**, in a `[[secret.link]]` entry as well as a blocked one. The rules hold wherever the agent works, so such an entry would refuse it every file in that tree.
+- **Removing an entry takes its rule out of the agent files too.** `block rm` and `link rm` re-render the same steps `add` does, and the merge is given the record of what faramir last wrote into each file: a rule in that record and no longer backed by an entry comes out, and a rule nobody recorded is the operator's and stays, whatever it looks like. Removal does not take back the grant; `link rm` prints the `chmod` that narrows it.
 - **The form is part of what identifies an entry.** `block rm --command` removes a command entry, so a command is not removed by giving the same string to `--path`.
 - **Both commands are idempotent.** A path already refused is not an error: the entry stands, the rules are rendered again, and `--json` reports `changed: false`. Removing a path this install does not refuse writes nothing.
-- **`faramir block ls` answers "what is blocked here".** It prints the declared entries in a table of kind and entry, and under it the rules faramir carries itself: this install's own directories, and the command rules covering its binary, the files an enrolment installs, and the commands that act on the install rather than through it. The kind is `path` or `command`, and where a rule is enforced follows from the kind; a strict path reads `path (strict)`, that being the difference between a refusal a reader expected and one they did not. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges; `--built-in` narrows it to the half faramir renders from its own layout, which no entry names. Neither half can be asked any other way: a refusal names the rule that matched, not the set. Naming both is the default and is refused. The table and each section are sorted by kind and then by entry, and not sorted into each other. `--json` adds three fields that are not columns: `state`, whether a declared path is there today, `strict`, the same flag the kind cell marks and which the install's own directories carry as well, the broker refusing a command that names one whatever it would do with it, and `source`, which half a row came from.
+- **`faramir block ls` answers "what is blocked here".** It prints the declared entries in a table of kind and entry, and under it the rules faramir carries itself: this install's own directories, and the command rules covering its binary, the files an enrolment installs, and the commands that act on the install rather than through it. The kind is `path` or `command`, and where a rule is enforced follows from the kind; a strict path reads `path (strict)`, so a reader can tell an expected refusal from an unexpected one. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges; `--built-in` narrows it to the half faramir renders from its own layout, which no entry names. Neither half can be asked any other way: a refusal names the rule that matched, not the set. Naming both flags is the default and is refused. The table and each section are sorted by kind and then by entry, and not merged into each other. `--json` adds three fields that are not columns: `state`, whether a declared path exists today; `strict`, the same flag the kind cell marks, which the install's own directories also carry because the broker refuses any command naming one; and `source`, which half a row came from.
 
-`init` reads these entries back before rewriting `config.toml`, so every rule is re-asserted on each run. That is what restores one an agent's settings dropped.
+`init` reads these entries back before rewriting `config.toml`, so every rule is re-asserted on each run. That restores a rule an agent's settings dropped.
 
 ### What a block does not cover
 
-**A rule matches the command as it was written.** The guard reads the text of a command and has no working directory to resolve a relative path against. So in the agent's own shell `cat /srv/keys/luks.key` is refused and `cd /srv/keys && cat luks.key` is not, and neither is a path the shell assembles from a variable. Where a file must be beyond reach whatever is typed, the file mode is what holds: this rule refuses a name, not an `open(2)`.
+**A rule matches the command as it was written.** The guard reads the text of a command and has no working directory to resolve a relative path against. So in the agent's own shell `cat /srv/keys/luks.key` is refused and `cd /srv/keys && cat luks.key` is not, and neither is a path the shell assembles from a variable. Where a file must be unreachable whatever is typed, the file mode is what holds: this rule refuses a name, not an `open(2)`.
 
 The broker is handed the working directory along with the command, so the same relative spelling is refused there. That is the one reading the guard cannot make.
 
-A managed or linked value is covered whichever route reads it, the command being rewritten so its output is redacted on the way back. A blocked path holds no value faramir has read, so the refusal is all it adds.
+A managed or linked value is covered whichever route reads it, because the command is rewritten so its output is redacted on the way back. A blocked path holds no value faramir has read, so the refusal is all it adds.
 
 ### The brokered route
 
-**A brokered command may not read a declared file either.** The agent's deny rules and the guard cover its own file tools and its own shell, and a brokered command is neither: what it runs, it runs as another uid on the far side of the broker. So the broker holds the same entries itself and refuses the command before it runs, with the [`blocked`](protocol.md) code. The refusal names the entry that matched and the list it is in.
+**A brokered command may not read a declared file either.** The agent's deny rules and the guard cover its own file tools and its own shell. A brokered command is neither: it runs as another uid on the far side of the broker. So the broker holds the same entries itself and refuses the command before it runs, with the [`blocked`](protocol.md) code. The refusal names the entry that matched and the list it is in.
 
-Both tiers are built from one catalogue and read it the same way, case included, so an entry cannot reach one and miss the other. What each tier does with a rule differs and is meant to: the guard packs the paths into one pattern per kind, a file of patterns having nowhere to keep a message, and the broker keeps a rule per entry so it can name that entry. The rules about faramir's own commands are in it too, which is why `faramir run -- faramir vault ls` is refused here as the bare spelling is refused to a shell: the account on the far side of the broker is not the operator either.
+Both tiers are built from one catalogue and read it the same way, case included, so an entry cannot reach one and miss the other. What each tier does with a rule differs, on purpose: the guard packs the paths into one pattern per kind, because a file of patterns has nowhere to keep a message, and the broker keeps a rule per entry so it can name that entry. The rules about faramir's own commands are in it too, which is why `faramir run -- faramir vault ls` is refused here as the bare spelling is refused to a shell: the account on the far side of the broker is not the operator either.
 
-`[[secret.link]]` entries are held to the same rule, for a reason of their own. A linked ref comes back tokenised wherever it appears, but a file holds more than the one key a link selects, and the rest of it is in no redactor. The mode that keeps the executor's uid out of a linked file is checked at install time and by `doctor`; this is the same bound at the moment the command runs.
+`[[secret.link]]` entries are held to the same rule, for their own reason. A linked ref comes back tokenised wherever it appears, but a file holds more than the one key a link selects, and the rest of it is in no redactor. The mode that keeps the executor's uid out of a linked file is checked at install time and by `doctor`; this is the same bound at the moment the command runs.
 
-**On this side, and only this side, what is refused is a vocabulary rather than a direction: the commands that put a file's contents in the output, wherever the declared path sits in the line. Everything else is left alone, moving the file and writing over it included.** The agent's own shell is answered differently: there, naming a declared path is refused whatever the command would do with it, because a brokered command has to be able to *use* a credential file and an agent's shell does not. A list of every program that reads a secret without printing it could not be finished, so the side that needs one keeps a vocabulary and the side that does not has none.
+**On this side, and only this side, what is refused is a vocabulary rather than a direction: the commands that put a file's contents in the output, wherever the declared path sits in the line. Everything else is left alone, moving the file and writing over it included.** The agent's own shell is answered differently: there, naming a declared path is refused whatever the command would do with it. A brokered command has to be able to *use* a credential file and an agent's shell does not. A list of every program that reads a secret without printing it could not be finished, so the side that needs one keeps a vocabulary and the side that does not has none.
 
 Through the broker | Example
 --- | ---
 Refused | `cat`, `head`, `python3`, `jq`, `cp`, `tar`, `scp`, `sops -d`, `< file`, and `p=/srv/keys/luks.key`
-Refused | `sed -n p`, `awk`, `rev`, `zcat`: a reader under another name, which the vocabulary carries by name rather than by what the line looks like
+Refused | `sed -n p`, `awk`, `rev`, `zcat`: readers under other names, which the vocabulary carries by name rather than by what the line looks like
 Left alone | `chmod`, `chown`, `setfacl`, `rm`, `shred`, `truncate`, `echo x > file`, `mv`, `ln`, `gzip`, `cryptsetup --key-file`, `stat`, `test -f`, `ls -l`
 
-That line is not the read/write one the agent's own rules are split on, and the difference is deliberate. Nobody asked for what the agent types, so it is refused both directions: a value it cannot read is one it can still destroy, and an age key replaced is every managed file unreadable retroactively. A brokered command runs as an account of its own, so managing a declared file is ordinary work: fixing its mode, changing its owner, moving one into place, removing one that is finished. What none of that does is put a byte of the file into the conversation, and reading it is refused because nothing else can cover it. A declared file is one faramir either never reads or reads a single ref out of, which leaves the redactor holding nothing to replace the output with.
+That line is not the read/write one the agent's own rules are split on, and the difference is deliberate. Nobody asked for what the agent types, so it is refused in both directions: a value it cannot read is one it can still destroy, and an age key replaced makes every managed file unreadable retroactively. A brokered command runs as an account of its own, so managing a declared file is ordinary work: fixing its mode, changing its owner, moving one into place, removing one that is finished. None of that puts a byte of the file into the conversation. Reading it is refused because nothing else can cover it: a declared file is one faramir either never reads or reads a single ref out of, so the redactor holds nothing to replace the output with.
 
-To read the file, run it outside faramir or take the entry out with `faramir block rm` or `faramir link rm`.
+To read the file, run the command outside faramir, or remove the entry with `faramir block rm` or `faramir link rm`.
 
-**What that leaves open, said plainly.** A brokered `mv` or `ln -s` may put a declared file under a name no rule was written for, and the agent may then read that name with its own file tools. `faramir run` is the agent's to invoke: only an escalation is approved per command, so nobody is asked before this happens. It is two deliberate steps rather than an accident, which is the trade being made, and a rule against it also refuses the converge that rotates a keyfile by moving one into place. `--strict` is the per-entry answer for a file that would rather have the refusal than the converge.
+**What that leaves open.** A brokered `mv` or `ln -s` may put a declared file under a name no rule was written for, and the agent may then read that name with its own file tools. `faramir run` is the agent's to invoke: only an escalation is approved per command, so nobody is asked before this happens. It takes two deliberate steps rather than an accident, which is the trade being made, and a rule against it would also refuse the converge that rotates a keyfile by moving one into place. `--strict` is the per-entry answer for a file that should have the refusal rather than the converge.
 
-**Faramir's own directories are held to the stricter rule on this side, and no brokered command may name one.** Not the looser reading a declared path gets: that exists so a brokered command can still manage a credential file, and nothing brokered has an install to manage. This is also the one route where a mode is no answer. The agent's uid cannot read the age key whatever the rules say, but a brokered command runs as an account of its own, and as root wherever an escalation was approved, so the rule is what refuses it. The refusal offers no removal command, these being rendered from the layout on every run.
+**Faramir's own directories are held to the stricter rule on this side, and no brokered command may name one.** The looser reading exists so a brokered command can still manage a credential file, and nothing brokered has an install to manage. This is also the one route where a mode is no answer. The agent's uid cannot read the age key whatever the rules say, but a brokered command runs as an account of its own, and as root wherever an escalation was approved, so the rule is what refuses it. The refusal offers no removal command: these rules are rendered from the layout on every run.
 
 The rules match the text of a command rather than what it does once running, so a converge that sets the install up is untouched: `sudo ansible-playbook site.yml` goes through and `sudo cat <config-dir>/age.key` does not.
 
 ### Refusing every mention of an entry
 
-That default is the one that leaves a host working: most declared files still have to be managed, and a keyfile nothing may `chmod` is a keyfile nothing may rotate. It is the wrong default for the file no brokered command has any business naming.
+The default above keeps a host working: most declared files still have to be managed, and a keyfile nothing may `chmod` is a keyfile nothing may rotate. It is the wrong default for a file no brokered command has any business naming.
 
 `--strict` says so, per entry, on `block add` and on `link add`:
 
@@ -279,15 +279,15 @@ sudo faramir block add --path ~/.private --strict
 sudo faramir link add --strict gh/token ~/.config/gh/hosts.yml --type yaml --key github.com/oauth_token
 ```
 
-It changes what a **brokered** command may do, and nothing else. The agent's shell and its file tools already refuse a declared path named at all, strict or not, so the flag adds nothing there beyond the wording of the refusal: a strict entry is refused on both tiers, so the message drops the paragraph offering the brokered route and names the ref instead.
+It changes what a **brokered** command may do, and nothing else. The agent's shell and its file tools already refuse any command naming a declared path, strict or not, so there the flag changes only the wording of the refusal: a strict entry is refused on both tiers, so the message drops the paragraph offering the brokered route and names the ref instead.
 
-What it takes away is the looser reading the broker uses. Without it a brokered command may do anything to the file that does not put its contents in the output: `chmod`, `chown`, `rm`, `truncate`, a redirect over it, and `mv`, `ln` or `gzip` as well. A file nothing may chmod is a file nothing may rotate, and this route runs what the operator asked for as an account of their own, so it does not defend against a name being walked out from under a rule. What stays refused is anything that prints the contents, whatever it is called: `sed -n p` is a read under another name. With `--strict`, no brokered command may name the path for any reason.
+It removes the looser reading the broker uses. Without it a brokered command may do anything to the file that does not put its contents in the output: `chmod`, `chown`, `rm`, `truncate`, a redirect over it, and `mv`, `ln` or `gzip` as well. A file nothing may chmod is a file nothing may rotate, and this route runs what the operator asked for as an account of their own, so it does not defend against a file being moved out from under a rule. What stays refused is anything that prints the contents, whatever it is called: `sed -n p` is a read under another name. With `--strict`, no brokered command may name the path for any reason.
 
-The cost is exactly what it says. **Nothing converges a path declared this way**, so it is for a file whose own tool is the only thing that should ever touch it, and not for a key something has to rotate. `faramir block ls` says which entries carry it.
+The cost is exactly that. **Nothing converges a path declared this way**, so it is for a file whose own tool is the only thing that should ever touch it, and not for a key something has to rotate. `faramir block ls` shows which entries carry it.
 
 It is not for `--command`, which is already matched wherever a command starts: an entry naming both is refused at load rather than accepted and ignored.
 
-On a link it is about the file and not about the value. The ref still answers, so `faramir run --env NAME=faramir://gh/token` injects the token either way: that is what the link is for, and it names no path. What the flag takes away is the brokered command that would name `~/.config/gh/hosts.yml` in order to manage it. A strict link is a value anything may be given and a file nothing may touch.
+On a link it is about the file, not the value. The ref still answers, so `faramir run --env NAME=faramir://gh/token` injects the token either way: that is what the link is for, and it names no path. What the flag removes is the brokered command that would name `~/.config/gh/hosts.yml` in order to manage it. A strict link is a value anything may be given and a file nothing may touch.
 
 A link is still the stronger of the two entries, because it reads the file:
 
@@ -295,19 +295,19 @@ What happens to the file | `[[secret.link]]` | `[[secret.block]]`
 --- | --- | ---
 Refused to the agent's file tools | Yes | Yes
 A brokered command cannot print it | Yes | Yes
-Held away from the executor's uid by the mode | Yes, checked and reported | No, the mode is nobody's business here
+Held away from the executor's uid by the mode | Yes, checked and reported | No, the mode is not checked
 The value is in the redactor, tokenised wherever it appears | Yes | No, faramir never reads it
 Injectable by ref | Yes | No
 
-**A path may carry both, and the link is the entry that stays.** The rule is the same either way and only the message differs, so one path renders one rule, and a refusal names the removal that lifts it rather than one that leaves the other entry refusing. What the dropped entry still carries is `--strict`: the two are two readings of one path and the stricter is what the pair asked for, so a block written strict keeps that reading when the link beside it was not. Both are still listed, `faramir block ls` and `faramir link ls` each showing their own.
+**A path may carry both, and the link is the entry that stays.** The rule is the same either way and only the message differs, so one path renders one rule, and a refusal names the removal that lifts it rather than one that leaves the other entry refusing. The dropped entry still contributes `--strict`: the two are two readings of one path and the stricter is what the pair asked for, so a block written strict keeps that reading when the link beside it was not. Both are still listed, `faramir block ls` and `faramir link ls` each showing their own.
 
 ## The sockets belong to their units
 
-- Under socket activation the daemons are handed a listening descriptor and never reach the bind path, so `ListenStream=` and `SocketMode=` are what define a socket.
+- Under socket activation the daemons are handed a listening descriptor and never reach the bind path, so `ListenStream=` and `SocketMode=` define a socket.
 - No config key is a file mode. `--check` and `doctor` stat the bound socket rather than reading a setting.
 - `socket_path` stays in the file because the broker *dials* the keeper and the executor at it, and a daemon run outside systemd binds it itself. `init` rewrites both sides together, so they cannot drift apart.
-- The broker binds its own ssh-agent socket. Its mode is a constant next to the code that sets it, rather than a value anything could widen past the group `exec_group` names.
-- `allowed_group` exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_user`. The group form is not a key there, and setting it is a hard error, the unknown-key refusal listing the keys that do exist, because the only group in play is the client group, which holds the agent's own uid.
+- The broker binds its own ssh-agent socket. Its mode is a constant next to the code that sets it, not a value anything could widen past the group `exec_group` names.
+- `allowed_group` exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_user`. The group form is not a key there, and setting it is a hard error; the unknown-key refusal lists the keys that do exist. The only group in play is the client group, which holds the agent's own uid.
 
 ## The install gate, and the same gate at startup
 
@@ -323,27 +323,27 @@ Fails on | Because
 --- | ---
 An unknown key or `[section]`, or a value out of range | A config that reads as though it took effect. Reported by the loader, which exits 2
 A ref too short to redact | Refused at load, so nothing covers it. `init` warns and carries on, since an install cannot lengthen a secret. `doctor` fails on it
-A `[[secret.link]]` entry whose file is missing or will not read | See [when a link breaks](#when-a-link-breaks). The exit code says a credential is missing; it does not mean the broker stopped
+A `[[secret.link]]` entry whose file is missing or cannot be read | See [when a link breaks](#when-a-link-breaks). The exit code says a credential is missing; it does not mean the broker stopped
 An `[ssh] key` the agent cannot load | `ssh-add` refuses it, leaving every managed host unreachable. Passphrase-protected, unreadable, or pointed at the `.pub`
 An `[sudo] helper` or PAM service file that is missing, or a `notify_command` that is not installed | Either every escalation fails with `sudo` reporting an authentication error, or nothing announces the questions waiting
 `[keeper]` or `[executor] allowed_user` naming an account that is not the broker | Each socket has one legitimate client. The keeper's alternative is the age key by another route; the executor's runs a command with no policy, no redaction and no audit record
 The bound broker socket having world bits | Every account on the host reaches the broker, whatever `allowed_group` says. Stat'ed rather than read from the config. An unbound socket is reported as unchecked
 An audit log that cannot be written | A command that cannot be recorded is not run
 
-**The daemon holds itself to the same rules, on every request rather than at boot.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only ever described the host as it was at install time.
+**The daemon holds itself to the same rules, on every request rather than at boot.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only describes the host as it was at install time.
 
 ### When the broker refuses to run anything
 
-The rule is: **the broker serves `run` and `redact` only while no managed file went unread.** Every managed file that was found must have loaded. `run` is held to this too, because a brokered command's output is redacted against the same value set.
+The rule: **the broker serves `run` and `redact` only while no managed file went unread.** Every managed file that was found must have loaded. `run` is held to this too, because a brokered command's output is redacted against the same value set.
 
-Matching no files is not this. So:
+Matching no files is not a failure. So:
 
 - **An empty value set serves.** Nothing configured, a store not written yet, a store that matched no file, and an install whose links have all gone: none of them holds a value that output could carry, so all of them run commands. The broker logs it at startup, `status` reports `count: 0` beside the pattern that matched nothing, and `doctor` warns.
 - **Otherwise the broker refuses with `no_secrets`**, naming why. It starts either way, and `status` and `refs` answer regardless.
 - **A ref no file defines** is answered with `unknown_secret`. What the files held does not enter into the serving decision.
-- **A keeper that could not be reached is the exception, once a set has loaded.** What the broker keeps then is the last thing known to be true, marked unconfirmed, and it loads again on the next request past the refresh interval. A cold start has nothing to keep and refuses: that is a broker that cannot ask, rather than one with nothing to hold.
+- **A keeper that could not be reached is the exception, once a set has loaded.** The broker keeps the last set known to be true, marked unconfirmed, and loads again on the next request past the refresh interval. A cold start has nothing to keep and refuses: that is a broker that cannot ask, not one with nothing to hold.
 
-Two cases deserve a warning rather than a refusal:
+Two cases get a warning rather than a refusal:
 
 - **Secrets on a filesystem that is not mounted yet look exactly like secrets never written.** Both leave the broker redacting nothing, and both serve. Nothing inside the broker can tell them apart, so `status` and `doctor` are where an operator sees it.
 - **An `[ssh] key` the agent does not load is logged and not fatal.** It breaks only commands that reach a managed host, which fail at the point of use with `ssh`'s own error. Stopping the daemon over it would stop the commands that never touch SSH. An unset key does not stop the daemon either, but `faramir doctor` fails on one: `init` mints a key on every run whether or not the host needs it, so an empty `key` is a hand edit rather than a host that authenticates some other way.

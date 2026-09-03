@@ -36,12 +36,12 @@ func newEnrolCmd() *cobra.Command {
 	// No --agent-user. The tree belongs to the account this host belongs to, which
 	// [server] agent_user records; `faramir init --agent-user` is what names it.
 	fl.StringVar(&f.clientGroup, "client-group", "",
-		"share the tree with this group instead of the one the installed config admits. It "+
-			"overrides that one value; the config still has to load")
+		"share the tree with this group instead of the installed config's client group; "+
+			"the config must still load")
 	fl.StringArrayVar(&f.agents, "agent", nil,
-		"coding agent to enrol, repeatable. Default \""+agentcfg.Auto+"\": "+
-			"whichever agents this tree already carries configuration for. A name "+
-			"enrols that agent whether or not it is there, and composes with auto. "+
+		"coding agent to enrol; repeatable. \""+agentcfg.Auto+"\" (the default) means "+
+			"every agent this tree already has configuration for. A name enrols that "+
+			"agent whether or not it is there, and can be combined with auto. "+
 			"Known: "+strings.Join(agentcfg.Known(), ", "))
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")

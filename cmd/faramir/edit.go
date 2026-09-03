@@ -40,9 +40,9 @@ func newEditCmd() *cobra.Command {
 		Args:  exactlyOneArg("file"),
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runEdit(f, args)) },
 	}
-	c.Flags().StringVar(&f.editor, "editor", "", "absolute path to the editor to run, with no arguments "+
+	c.Flags().StringVar(&f.editor, "editor", "", "absolute path of the editor, run with no arguments "+
 		"(default: $VISUAL, then $EDITOR, then the first of "+strings.Join(vault.Editors, ", ")+
-		" that root alone can write; sudo's env_reset drops both variables unless the sudoers keep them)")
+		" that only root can write; sudo's env_reset drops both variables unless sudoers keeps them)")
 	return c
 }
 
