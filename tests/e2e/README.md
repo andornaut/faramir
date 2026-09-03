@@ -77,7 +77,7 @@ In run order, which is what the prefix rule above is about: a set named to `run`
 | --- | --- |
 | `check-init.sh` | `faramir init` against the layout in `docs/layout.md`, and which agents it writes rules for |
 | `check-project.sh` | `faramir enrol`: the enrolment that protects a tree, the record of what was enrolled, and the credentials section |
-| `check-config.sh` | changing a configuration: drop-ins plus reload |
+| `check-config.sh` | changing a configuration: a flag plus a reload |
 | `check-disclose.sh` | what the broker tells the account it keeps values from |
 | `check-plugin.sh` | the opencode and Kilo Code plugins and pi's extension, executed |
 | `check-guard.sh` | the guard's decision surface |

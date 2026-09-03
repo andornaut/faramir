@@ -43,9 +43,8 @@ name. Claude Code refuses the permission rule that would approve the rewrite
 instead, with "'source' evaluates arguments as shell code". So on those two
 agents routing suppresses the Bash permission prompt, and the operator accepts
 that per tree, by enrolling it. Account-wide, they run `faramir guard
---deny-only`, which refuses
-what the list names and says nothing about any other command, so the agent's
-own permission flow is unchanged.
+--deny-only`, which refuses what the list names and says nothing about any
+other command, so the agent's own permission flow is unchanged.
 
 **File tools refused.** Faramir refuses them for every agent, through a hook,
 a plugin or an extension installed in a home. All of these ask `faramir
@@ -70,11 +69,11 @@ what the operator asked for, and it refuses a read in a session that never
 reaches the hook.
 
 For the same reason the hook is registered for every tool, not for the shell
-alone. An empty reply leaves a call alone, so answering for a tool that runs
-nothing costs nothing, and matching every tool is what puts the file tools in
-front of the deny list. `faramir doctor` reports a registration that matches
-less than every tool: an enrolment written by an older version matches `Bash`
-only, so its file tools never reach the guard.
+alone. An empty reply leaves a call unchanged, so answering for a tool that
+runs no command has no effect, and matching every tool is what makes the file
+tools reach the deny list. `faramir doctor` reports a registration that
+matches less than every tool: an enrolment written by an older version matches
+`Bash` only, so its file tools never reach the guard.
 
 **Runs a hook only once told to trust it.** Codex only. It skips a hook it has
 not been told to trust and does not say so, so what faramir writes does
@@ -95,9 +94,9 @@ Command | Where `auto` looks
 
 Codex is that agent: the only thing a tree carries for it is the hook an
 enrolment writes, so looking in the tree would only find Codex where it was
-already enrolled. `auto` reads `~/.codex` instead. The enrolment record is a
-separate question and counts only what the tree carries, so a tree does not
-keep an agent it never had.
+already enrolled. `auto` reads `~/.codex` instead. The enrolment record is
+separate: it counts only what the tree carries, so a tree does not record an
+agent it never had.
 
 Naming an agent configures it whether or not it is installed, which is how a
 tree is prepared for an agent before the agent is there. A name composes with
@@ -114,7 +113,7 @@ There are two such sections:
 
 - **The account-wide one**, in the file each agent reads for every project. In
   a tree that has never been enrolled, this is the only thing faramir says: the
-  deny rules still apply there, and there is no broker to point at.
+  deny rules still apply there, and there is no route to describe.
 - **The tree's own**, written by `enrol`. It is longer, because in an enrolled
   tree there is a route to describe.
 
@@ -165,10 +164,10 @@ tail alone, so `cd $HOME && cat .ssh/id_rsa` is refused like the absolute
 form. The tail is matched wherever it appears, so the same tail under another
 root is refused too: on a host with several homes, `/home/other/.ssh/id_rsa`
 is refused by this account's entry, and the refusal names that entry rather
-than the file the command touched. That is not a mismatch. The same looseness
-catches a path built from a variable, such as `$PWD/.ssh/id_rsa`; a rule has
-no working directory to tell the two apart. A space in a path is matched both
-quoted and backslash-escaped. See
+than the file the command touched. That is intended. The same looseness
+catches a path built from a variable, such as `$PWD/.ssh/id_rsa`, because a
+rule has no working directory to tell the two apart. A space in a path is
+matched both quoted and backslash-escaped. See
 [configuration.md](configuration.md#blocked-paths).
 
 A path this install names is a literal, so the guard tries the spellings that
@@ -177,15 +176,15 @@ segments and doubled separators removed. A relative path is resolved against
 the directory the payload names, where the host sends one, and otherwise
 against the guard's own working directory. The plugin and the extension run
 inside the agent's own process, so the guard's working directory is the one
-the call meant. A hook host runs the guard as a separate program and promises
-nothing about its working directory, so a hook host that names no directory
-has a relative path checked as written.
+the call meant. A hook host runs the guard as a separate program and does not
+define its working directory, so a hook host that names no directory has a
+relative path checked as written.
 
 The path is checked both as a read and as a write. A file tool does both, and
 the two are separate rules: the plugin, the extension and the hook an
-enrolment installs are refused to a write, and they are the only thing that
-refuses those agents' file tools. Codex's hook file is also a tree's own file,
-so one spelling covers `~/.codex/hooks.json` and a project's
+enrolment installs are refused as the target of a write, and they are the only
+thing that refuses those agents' file tools. Codex's hook file is also a
+tree's own file, so one spelling covers `~/.codex/hooks.json` and a project's
 `.codex/hooks.json`.
 
 Where an agent has a rule file of its own, that agent does the matching. Which
@@ -195,7 +194,7 @@ spellings it catches is the agent's answer, not faramir's.
 
 A file two agents both read is written once, and claims only what is true for
 both. Telling one agent that its file tools are refused everywhere would tell
-the other something false. The two halves of Antigravity are the case:
+the other something false. Antigravity's two halves are the case:
 `~/.gemini/GEMINI.md` and `~/.gemini/config/hooks.json` are each written once
 for the family, whichever half the enrolment named.
 
@@ -237,8 +236,8 @@ show the rewritten text rather than what was typed, and stop an unattended run
 at the first command.
 
 Hooks fire in every Claude Code permission mode and a `deny` is enforced in
-each, `--dangerously-skip-permissions` included. What enrolment costs depends
-on the mode:
+each, `--dangerously-skip-permissions` included. What enrolment removes from
+the permission flow depends on the mode:
 
 Mode | Cost
 --- | ---
@@ -254,8 +253,8 @@ rewrite is `updatedInput`, which replaces the call's arguments. So the
 enrolment has the same shape, for the same reason. The account gets a
 deny-only hook in `~/.codex/hooks.json`, which Codex reads wherever it works;
 an enrolled tree gets the routing hook in its own `.codex/hooks.json`. Both
-files load and both hooks run, the account's first. The only cost is a second
-pass over the deny list.
+files load and both hooks run, the account's first. The only overhead is a
+second pass over the deny list.
 
 Three things differ.
 
@@ -300,10 +299,10 @@ ref, so nothing else would report it.
 > [!IMPORTANT]
 > **Codex must run without its own sandbox** (`codex --dangerously-bypass-approvals-and-sandbox`). Sandboxed, it cannot reach the broker socket: `read-only` and `workspace-write` both deny the `AF_UNIX` connect and deny writes to `XDG_RUNTIME_DIR`, and `network_access` governs `AF_INET` only and does not lift it. The wrapper fails closed, so every command's output is withheld rather than redacted.
 
-Enrolling costs the same permission it costs on Claude Code, and only where
-Codex runs with approvals on: the hook that rewrites a command must approve
-it, and that approval covers every command the deny list does not name. With
-approvals bypassed there is no prompt to give away, so enrolling costs
+Enrolling removes the same permission prompt it removes on Claude Code, and
+only where Codex runs with approvals on: the hook that rewrites a command must
+approve it, and that approval covers every command the deny list does not
+name. With approvals bypassed there is no prompt, so enrolling removes
 nothing.
 
 ## Antigravity
@@ -315,20 +314,20 @@ files, so enrolling one does not report the other as unconfigured.
 
 The hook returns `overwrite` beside its decision: a shallow merge into the
 tool call's own arguments, and the merged form is what runs. So `run_command`
-is rewritten to `source .../wrap.sh '<command>'` exactly as Claude Code's
-`Bash` is, and the output comes back redacted. No other tool carries a
-command, and the guard answers for no other tool.
+is rewritten to `source .../wrap.sh --stream-state '<command>'`, as Claude
+Code's `Bash` is rewritten to `source .../wrap.sh '<command>'`, and the output
+comes back redacted. No other tool carries a command, and the guard rewrites
+no other tool.
 
 Every `run_command` is rewritten to `--stream-state`, which redacts live while
 the command runs in the host's persistent shell. `run_command` carries a wait
-after which the host takes the command async and polls, so a long build shows
-its output as it runs, and an `export` still survives the call. A trailing `&`
-streams as it does everywhere.
+after which the host runs the command asynchronously and polls it, so a long
+build shows its output as it runs, and an `export` still survives the call. A
+trailing `&` streams as it does everywhere.
 
-The registration matches every tool rather than naming `run_command`. An empty
-reply leaves a call alone, so answering for a tool that runs nothing costs
-nothing, and matching every tool means a payload the guard cannot read is
-refused rather than passed, whatever tool it arrived on.
+The registration matches every tool rather than naming `run_command`, so a
+payload the guard cannot read is refused rather than passed, whatever tool it
+arrived on.
 
 The permission check runs before the hook. A command no rule permits is
 refused before the guard is asked, so the guard's allow approves nothing that
@@ -341,7 +340,7 @@ well as the hook. The IDE keeps its permission lists as internal state, so it
 gets no rule file, and the hook is its only protection.
 
 The hook goes into `~/.gemini/config/hooks.json`, which both halves read for
-every workspace, so guarding does not wait on an enrolment. What an enrolment
+every workspace, so the guard applies before any enrolment. What an enrolment
 writes into a tree is the credentials section. Both halves load a tree's
 customizations only once that tree is a project they have opened, and the
 enrolment says so.
@@ -359,7 +358,7 @@ the install's own directories, and the file each `[[secret.link]]` and
 `[[secret.block]]` entry names, each covering what is under it. A path entry
 carrying a wildcard is passed through as written, and one whose wildcard is
 not leading matches nothing here. So a prefix entry ending in `*` renders a
-rule this syntax cannot read. That costs nothing: this family's file tools are
+rule this syntax cannot read. That loses nothing: this family's file tools are
 refused by the hook rather than by these rules, on both halves, and the hook
 is asked the same question every other agent's is. The rule is written anyway
 so the file records what the operator declared, and so a release that adds

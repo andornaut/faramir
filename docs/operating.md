@@ -8,7 +8,7 @@ How to check an install, run it, and change who can decrypt the store.
 sudo faramir doctor
 ```
 
-`doctor` asks questions only a real host can answer: whether the accounts exist, what each can reach, and whether the daemons serve what the config says. A broker serving zero refs, or a client group with unknown members, passes every other check. The checks, by the name each reports under:
+`doctor` checks what only a real host can report: whether the accounts exist, what each can reach, and whether the daemons serve what the config says. A broker serving zero refs, or a client group with unknown members, passes every other check. The checks, by the name each reports under:
 
 Group | Checks | What they answer
 --- | --- | ---
@@ -16,7 +16,7 @@ Install identity | `config`, `identities`, `client group`, `secrets group`, `sec
 Daemons | `sockets`, `unit drop-ins`, `broker`, `version`, `protectproc`, `managed store` | Are the socket units listening and enabled; does a drop-in override a unit; does `--check` pass; do the CLI and the running broker report the same build; do the units keep `ProtectProc=invisible`; what the store the broker read holds. A store with no managed file is a warning, not a failure: a `[[secret.link]]` entry can fill the value set by itself. A file that is present and did not load is a failure
 Store health | `refused refs`, `shadowed refs`, `linked refs` | Refs the redactor refused (never injected, never redacted); a ref two managed files define differently (one of the values is in no redactor); linked files that did not load (their refs answer nothing)
 Memory | `memory bounds`, `broker memory` | Whether the executor's per-process bound fits inside its cgroup total, and what the broker holds against its limit. Both are read from systemd, because the limits resolve against the cgroup's own numbers
-Key material | `age key`, `agent keys`, `audit log`, `ssh key` | The age key is readable only by the keeper; the executor can traverse the agent account's home and no more, and cannot read or list its `~/.ssh`, `~/.config/sops` and `~/.gnupg`; the log and the SSH keys are equally closed to it, while it can still authenticate
+Key material | `age key`, `agent keys`, `audit log`, `ssh key` | The age key is readable only by the keeper; the executor can traverse the agent account's home and no more, and cannot read or list its `~/.ssh`, `~/.config/sops` and `~/.gnupg`; the log and the SSH keys are also unreadable to it, while it can still authenticate
 Files | `config ownership`, `config reach`, `installed files`, `deny patterns` | The config, `.sops.yaml`, the binary, `wrap.sh` and the PAM helper are not writable by the operator; the broker's account can read the config (a reload needs this); the guard's pattern file matches what this install renders. `deny patterns` re-renders the file and compares: a rule missing from the host refuses less than the config asks and fails; a spare rule warns. Every rule is compiled first, because the hook skips a rule it cannot compile and a re-render would not notice. Comments are not compared
 Sockets | `keeper socket`, `executor socket`, `broker socket`, and a `policy` check for each of the first two | The internal sockets are closed to the accounts that must not open them; the broker's is open to the operator; each `allowed_user` names the broker
 Linked secrets | `linked file access`, `linked files` | Each linked file is readable by the broker's account and not by the executor, asked as those accounts rather than read off the mode; every linked path is refused by the agent's deny rules
@@ -30,10 +30,10 @@ Rotation | `log rotation` | logrotate is installed, its rule names the log the b
 Statuses are `ok`, `warn`, `failed` and `n/a`. `n/a` is a check whose subject this install does not have, counted in its own total so that it never reads as a pass. A run that stops early (no config, or an account that does not resolve) counts the remaining checks under `examination` as unasked, so one failure never reads as a host where everything else passed. Every probe runs on a deadline: a hung `systemctl` or broker is reported as unasked instead of hanging the run.
 
 - **Version skew fails.** If a new binary is installed and the daemons were never restarted, every other finding describes a build that is not running. Re-run `init`. The daemons also refuse a request from another version ([version](protocol.md#version)). A broker that does not answer at all is a warning: `doctor` is for a stopped install too. Two builds with the same version string are told apart by `build`, which is what makes the check work between two `dev` builds.
-- **`agent rules` reads `<config-dir>/enrolled.json`.** A tree depends on rules kept elsewhere, and the agent it was enrolled for may leave no trace in the home. An entry keeps every agent the tree carries, so enrolling one agent by name does not drop the others. An entry naming a tree that is not there is a warning, not a deletion: the tree may be unmounted.
+- **`agent rules` reads `<config-dir>/enrolled.json`.** A tree depends on rules kept elsewhere, and the agent it was enrolled for may have written nothing under the home. An entry keeps every agent the tree carries, so enrolling one agent by name does not drop the others. An entry naming a tree that is not there is a warning, not a deletion: the tree may be unmounted.
 - **`codex hook trust` fails on a hook Codex will not run.** Codex skips a hook it has not been told to trust and says nothing about it, so a guarded and an unguarded Codex look the same until this is asked. The check reads `~/.codex/config.toml` and compares what Codex recorded against the identity Codex computes for each hook on disk, so a hook trusted before a release rewrote it reads as untrusted. Only Codex's own prompt grants the trust: start Codex once where the hook is.
 - **`agent rule drift` names rather than deletes.** An entry in those files is a bare string or a key, so a rule faramir left behind and a rule you wrote for the same path look identical. Extra refusals are untidy, not unsafe.
-- **Three checks run a brokered command** instead of reading a mode: `ssh agent`, `brokered command` and `redaction`. The last seals a synthetic value into the store, expects exactly its token back, and removes it. The first two skip against a broker known to hold no values. `brokered command` and `redaction` need root; `ssh agent` runs as the caller. A refusal from a broker whose `--check` read every managed file is a failure, not a skip: the daemon came up before those files were written.
+- **Three checks run a brokered command** instead of reading a mode: `ssh agent`, `brokered command` and `redaction`. The last seals a synthetic value into the store, expects exactly its token back, and removes it. The first two skip against a broker known to hold no values. `brokered command` and `redaction` need root; `ssh agent` runs as the caller. A refusal from a broker whose `--check` read every managed file is a failure, not a skip: the daemon started before those files were written.
 
 **Without sudo**, checks that need another uid report as unchecked, grouped at the end, with a line under the totals counting them. The checks that ask what an account can reach report under `boundaries` as one line with a count, because no account can answer that question for another.
 
@@ -47,7 +47,7 @@ Order | Source
 2 | the running broker's own answer, asked at `$FARAMIR_SOCKET`, else `/run/faramir/broker.sock`
 3 | the `FARAMIR_CONFIG=` line in the broker's unit, which covers a host whose config moved and whose broker is down
 
-If nothing answers, the command fails and names both places it asked. It does not fall back to the compiled-in default: acting on the wrong install is worse than an error. A config file the ladder named but did not find is the same error. `$FARAMIR_CONFIG` is the way out, and the only thing an operator needs to say. It names the config **file**, not its directory; a directory value is refused.
+If nothing answers, the command fails and names both places it asked. It does not fall back to the compiled-in default: acting on the wrong install is worse than an error. A config file the ladder named but did not find is the same error. `$FARAMIR_CONFIG` is the override, and the only setting an operator needs to give. It names the config **file**, not its directory; a directory value is refused.
 
 `init` is the exception and takes `--config-dir`: a host with no install has no broker to ask and no unit to read, and `init`'s caller decides where the config goes. It asks the broker and reads the unit like the other commands, then falls back to `/etc/faramir`, and prints its choice before writing. `init` ignores `$FARAMIR_CONFIG`: it is a shell variable that `sudo -E` carries through, and a leftover from an earlier command must not decide where a host is provisioned.
 
@@ -69,12 +69,12 @@ There are two kinds, and the kind decides what a run may do to the file.
 - Codex's tree hook is `.codex/hooks.json`. Its account-wide hook has the same name under the home.
 - Neither tree file is git-ignored by default. The enrolment says so when nothing ignores it.
 - Your agent instructions file gets only the block between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`.
-- An existing file keeps its owner and mode. It keeps its group too, except in a tree, where the client group must be able to read the file the hook is written into. Only a file a run creates takes an owner from the run, and only one created in a rules directory gets the frontmatter that agent needs to load it.
+- An existing file keeps its owner. A rule file, hook or plugin is set to `0640` whatever mode it had; an instructions file keeps its mode. An existing file keeps its group too, except in a tree, where the client group must be able to read the file the hook is written into. Only a file a run creates takes an owner from the run, and only one created in a rules directory gets the frontmatter that agent needs to load it.
 
 A run stops rather than write a file it should not, and leaves it as it was:
 
 - **Not yours.** These commands run as root on paths in directories your agent's account can write. Root must not edit somebody else's file, and must not chown it to make it yours.
-- **A symlink it will not follow.** A symlink is followed and its target is written, so a dotfiles-managed `CLAUDE.md` or `settings.json` is updated in place. The target must be a regular file you own, and in a tree it must be inside the tree; otherwise the tree's group and mode would land on a dotfiles copy outside it.
+- **A symlink it will not follow.** A symlink is followed and its target is written, so a dotfiles-managed `CLAUDE.md` or `settings.json` is updated in place. The target must be a regular file you own, and in a tree it must be inside the tree; otherwise the tree's group and mode would be applied to a dotfiles copy outside it.
 - **Markers it cannot delimit.** One marker without the other, or a credentials section that is outside markers and differs from what would be written now. Either would leave two contradicting sets of instructions. Restore the markers or delete the section, then run again.
 - **One file twice.** Two paths in one run that a symlink makes the same file, such as `~/.gemini/GEMINI.md` pointing at `~/.claude/CLAUDE.md`. Each path is written for the agent that reads it, so one file standing in for two would keep only the last write. Point one at a file of its own. Two cases are fine: two agents that read the same file *by name* get one file with a section that claims only what holds for both; and a tree's instructions files all carry the same section, so a `CLAUDE.md` linked to the tree's `AGENTS.md` is written once.
 
@@ -82,7 +82,7 @@ Every check runs before anything is written, so a refusal changes nothing: `init
 
 The section tells the agent to wait for an escalation only where one can be raised. `enrol` reads `[sudo] exec_user` from the config to decide.
 
-A brokered command cannot delete these files: each agent's directory in a tree is sticky ([modes](layout.md#what-the-modes-decide)). The tree root is not sticky on purpose, so a tool can rewrite a lock file by rename, and a brokered command can move an agent's directory aside from above.
+A brokered command cannot delete these files: each agent's directory in a tree is sticky ([modes](layout.md#what-the-modes-decide)). The tree root is not sticky on purpose, so a tool can rewrite a lock file by rename, and a brokered command can rename an agent's directory: that is a write to the tree root, not to the directory.
 
 ## Operator commands
 
@@ -127,9 +127,9 @@ Command | Does
 
 At the broker these four `sudo` commands are two ops: `ls` and `watch` both ask `escalations`, and `approve` and `reject` both send `answer` with a different verdict. `escalations`, `answer` and `escalate` are root-only there too, checked with `SO_PEERCRED`, so the account the coding agent runs as cannot answer what the agent asked for. `escalate` is the op sudo's PAM helper asks, and the one that decides whether a brokered command becomes root.
 
-**`init` refuses to run inside a brokered command.** It asks the broker what the agent holds before it finishes, and a brokered command already holds the escalation that got it to root, so no second one can run while it is held: nested, `init` would do every step and then fail its own verification. `doctor` reports the same nesting as a check it could not ask, not as a broken install. So `faramir run -- sudo make <playbook>` works for every playbook except the one that installs faramir; run that one from your own shell.
+**`init` refuses to run inside a brokered command.** It asks the broker what the agent holds before it finishes. A brokered command already holds the escalation that made it root, and no second escalation can run while that one is held, so a nested `init` would do every step and then fail its own verification. `doctor` reports the same nesting as a check it could not ask, not as a broken install. So `faramir run -- sudo make <playbook>` works for every playbook except the one that installs faramir; run that one from your own shell.
 
-**Colour** is on when stdout is a terminal, off under `$NO_COLOR` whatever its value, and forced either way by `--color=always|never`. Every listing and report takes the flag: `block ls`, `link ls`, `vault ls`, `reader ls`, `logs`, `doctor`, `sudo ls`, `sudo watch` and `sudo reject`. `sudo approve` does not: it names an id and prints no report. Only faramir's own words are painted: column headings, kinds and states. A path, a ref or a filename is never painted, so a value cannot pass as one of faramir's words. Those are escaped too, along with every path a report prints: a terminal obeys what it is sent, and a carriage return in a filename could make a row read as a different entry. `--json` is never painted.
+**Colour** is on when stdout is a terminal, off under `$NO_COLOR` whatever its value, and forced either way by `--color=always|never`. Every listing and report takes the flag: `block ls`, `link ls`, `vault ls`, `reader ls`, `logs`, `doctor`, `sudo ls`, `sudo watch` and `sudo reject`. `sudo approve` does not: it names an id and prints no report. Only faramir's own words are coloured: column headings, kinds and states. A path, a ref or a filename is never coloured, so a value cannot pass as one of faramir's words. Those are escaped too, along with every path a report prints: a terminal obeys what it is sent, and a carriage return in a filename could make a row read as a different entry. `--json` is never coloured.
 
 ## When a reload is needed
 
@@ -138,16 +138,16 @@ The daemons read `config.toml` once, at start. The commands that change it reloa
 - **You edited `config.toml` by hand.** Nothing watches the file.
 - **A `block` or `link` command wrote its entry and then failed to reload**, and said so. Until the reload, an added block is not refused, a removed one still is, and an added link is a ref the broker does not serve.
 - **You repaired a linked file's group or mode yourself.** [Why that needs a restart](configuration.md#keeping-a-link-working).
-- **The config moved out of reach of the broker's account.** An install in that state keeps answering from what it already holds, so the reload is the first thing that fails. `doctor` checks it ahead of time.
+- **The config moved to where the broker's account cannot read it.** An install in that state keeps answering from what it already holds, so the reload is the first thing that fails. `doctor` checks it ahead of time.
 
 A reload is not needed for a new or edited managed sops file, which the next refresh picks up ([why](redaction.md#the-value-set-is-everything-the-keeper-manages)), nor after a converge that found the host already correct: that would restart the daemons under a running brokered command.
 
 ## Rules a command does not state
 
 - **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.
-- **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running. [`faramir reload`](#when-a-reload-is-needed) does this.
+- **Changing `config.toml` needs all three daemons restarted, keeper first.** None re-reads it while running. [`faramir reload`](#when-a-reload-is-needed) does this.
 - **The keeper must be up before the broker.** On a cold start there is no previous value set, so a broker that cannot reach the keeper has nothing to redact with and refuses `run` and `redact`. Its unit `Requires=` the keeper socket. A keeper lost *later* does not stop a running broker: it keeps its current set and retries.
-- **Run `init` before enrolling a tree with opencode, Kilo Code or pi.** Their plugins fail closed, so a binary too old to know the agent refuses every command in that tree instead of running it unredacted. [What those plugins ask the guard](coding-agents.md#opencode-kilo-code-and-pi).
+- **Run `init` before enrolling a tree with opencode, Kilo Code or pi.** Their plugins fail closed, so a binary that predates support for the agent refuses every command in that tree instead of running it unredacted. [What those plugins ask the guard](coding-agents.md#opencode-kilo-code-and-pi).
 - **Children do not inherit the broker's environment.** They get `[command.env]` plus the injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null` unless the caller piped something in with `faramir run -i`, and the child gets no controlling terminal either way. A prompt falls back to stderr, which is redacted and recorded; one written only to `/dev/tty` is lost ([why](redaction.md#why-a-pty-and-not-a-pipe)). A prompt that reads piped input gets the caller's first line, not a typed passphrase. Pass non-interactive flags.
 - **Output is truncated** at the output cap. The audit record keeps the head and the tail and says how many bytes it dropped.
@@ -173,7 +173,7 @@ A reload is not needed for a new or edited managed sops file, which the next ref
 
 A record's content comes from the account being recorded: the command, the cwd and the output are all the agent's. So every bound below is applied where the record is built, not left to whatever reads it.
 
-- One record is one line within the record cap, counted in encoded bytes: `<`, `>`, `&` and every control character cost six bytes each as JSON.
+- One record is one line within the record cap, counted in encoded bytes: `<`, `>`, `&` and every control character other than newline, carriage return and tab cost six bytes each as JSON.
 - An append is exclusive and all-or-nothing. A short write is rolled back, so a torn line cannot swallow the record after it.
 - Every `log_id` is distinct: the second it was minted in, the writer's nonce, and a counter that only advances. Fourteen characters, with no readable time; every record says when it happened in a field of its own.
 
@@ -219,12 +219,12 @@ A second reader and a backup cover different losses. Another reader keeps the *v
 - **The key is checked before anything is written.** An identity (private key) given where a recipient belongs is refused by name. `.sops.yaml` is `0644`, so an identity written there is readable by every account on the host: treat it as disclosed and rotate. `sudo faramir doctor` asks the same question of the file under `sops config`.
 - **A rule that drops the keeper's own key is refused** before anything is decrypted. It would leave secrets nothing on the host can open.
 - **Dropping a reader does not reach a copy already held elsewhere.** Treat what that key could read as read.
-- **`reader reseal` is for a `.sops.yaml` changed some other way.** Root can write a root-owned file however it likes. `reseal` takes the rule as it stands and brings the store to it.
+- **`reader reseal` is for a `.sops.yaml` changed some other way.** Root can write a root-owned file by any means. `reseal` takes the rule as it stands and brings the store to it.
 - **`doctor` reports the mismatch** under `recipient drift`, so a drifted store is found before a value fails to decrypt.
 - **A `.sops.yaml` with more than one creation rule is refused**, because the recipients would then depend on which `path_regex` a file matches. The count holds however the rules are written: keys in any order, flow style, `age:` as a string or a list. Use `sops updatekeys` per file: only sops can say which rule governs which file.
 - **A rule that splits the data key is refused too.** `shamir_threshold` means N key groups together, and re-encrypting to one list would make it any one of them.
 - **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from the current working directory, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there would write managed values in the clear. `$FARAMIR_CONFIG` moves the whole install, which is how to act on another one. If the file is removed, `edit` falls back to sops' defaults and `reseal` stops, because that file is where its recipients come from.
-- **A file no creation rule covers cannot be written back.** `edit` checks before opening the editor, so it costs a refusal rather than what you typed. `doctor` checks every managed file under `rule coverage`. This only happens when the rule was narrowed, or the managed store contains a file the shipped `*.sops.yml` rule does not match.
+- **A file no creation rule covers cannot be written back.** `edit` checks before opening the editor, so the result is a refusal rather than the loss of what you typed. `doctor` checks every managed file under `rule coverage`. This only happens when the rule was narrowed, or the managed store contains a file the shipped `*.sops.yml` rule does not match.
 
 ## Backing up and restoring
 
@@ -244,5 +244,5 @@ sudo faramir init --agent-user <account>
 `init` adopts what it finds. An existing `age.key` is reported `ok` rather than `changed` and is never overwritten, and an existing `.sops.yaml` is kept and read back. The accounts, units, modes and group are rebuilt around the key and the ciphertext, and nothing is re-encrypted. The same run imports a store from elsewhere: put the files in place first.
 
 - **The archive is the secret.** Everything under `secrets/` opens with the key beside it, so the archive is worth exactly what the store is.
-- **Nothing exports the identity.** `tar` and `cp` already do, and a command for it would be one more thing an agent could be talked into running.
+- **Nothing exports the identity.** `tar` and `cp` already do, and a command for it would be one more command an agent could be induced to run.
 - **No command decrypts with a key other than the install's own.** The check that keeps this host a reader reads the key it is handed, so a run pointed at a second identity could take the host's own key out of the rule and reseal the store without it.

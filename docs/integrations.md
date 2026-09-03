@@ -14,10 +14,10 @@ The choice depends on who owns the credential, not on the tool:
 Case | Where | Why
 --- | --- | ---
 You own the credential | The managed store: `sudo faramir vault add NAME` | faramir encrypts it and owns its rotation
-Another tool already owns the file | A `[[secret.link]]` entry: `sudo faramir link add` | The file stays where that tool expects it, so that tool still rotates it and nothing goes stale
-No command needs the value; the agent must only not read it | A `[[secret.block]]` entry: `sudo faramir block add` | For a LUKS keyfile or an SSH identity. The path is refused and never opened, so it is never redacted either: [what that costs](configuration.md#blocked-paths)
-A credential inside a container | An entry naming the path the agent uses | The agent names the container's mount point, so declare that path. A rule naming the host path covers nothing the agent runs
-Neither; you only want output scrubbed | Nothing | `faramir redact -- ./script.sh`, or use `faramir redact` as a filter
+Another tool already owns the file | A `[[secret.link]]` entry: `sudo faramir link add` | The file stays where that tool expects it, so that tool still rotates it and the value faramir holds stays current
+No command needs the value; the agent must only not read it | A `[[secret.block]]` entry: `sudo faramir block add` | For a LUKS keyfile or an SSH identity. The path is refused and never opened, so it is never redacted either: [what that gives up](configuration.md#blocked-paths)
+A credential inside a container | An entry naming the path the agent uses | The agent names the container's mount point, so declare that path. A rule naming the host path matches nothing the agent runs
+Neither; only the output needs redacting | Nothing | `faramir redact -- ./script.sh`, or use `faramir redact` as a filter
 
 ## Onboarding, in three steps
 
@@ -30,7 +30,7 @@ faramir run --env TOKEN=faramir://svc/token -- ./deploy.sh
 faramir run --env-file faramir.env -- ansible-playbook site.yml
 ```
 
-A line in the file takes one of two forms, and the forms mix. A bare name asks for the ref of that name. The mapping form is for a ref named something else.
+A line in the file takes one of two forms, and one file can mix them. A bare name asks for the ref of that name. The mapping form is for a ref named something else.
 
 ```text
 # faramir.env
@@ -39,16 +39,16 @@ deploy_token                            # -> faramir://deploy_token
 ROUTER_PW=faramir://home/router/admin   # a ref named something else
 ```
 
-`#` starts a comment at the start of a line or after whitespace. The whitespace requirement matters: `faramir://api#token` is a malformed ref and stays whole so it is refused, rather than being cut to `faramir://api`, which may be a ref that exists and holds another credential.
+`#` starts a comment at the start of a line or after whitespace. The whitespace requirement matters: `faramir://api#token` is a malformed ref. It stays whole and is refused, rather than being cut to `faramir://api`, which may be an existing ref that holds another credential.
 
-Name a credential after its variable and the file is the list of what a run needs. The file holds refs and never values. A bare line follows the same rule as a mapped one: a name that cannot be an environment variable is refused, with the file and line, rather than becoming a ref nothing serves.
+Name a credential after its variable and the file is the list of what a run needs. The file holds refs and never values. A bare line follows the same rule as a mapped one: a name that cannot be an environment variable is refused, with the file and line, rather than becoming a ref that nothing serves.
 
 Only step 2 varies by tool:
 
 What you are running | Step 2
 --- | ---
 A deploy or release script | Already reads `$TOKEN`. Nothing to change
-A cloud or infra CLI (`aws`, `terraform`, `flyctl`) | Use its documented environment variables and drop the credentials file
+A cloud or infra CLI (`aws`, `terraform`, `flyctl`) | Use its documented environment variables and remove the credentials file
 A database task | `PGPASSWORD`, `MYSQL_PWD`. The connection string goes in `argv`; the password never does
 A registry push | `bash -lc 'printf %s "$TOKEN" \| docker login -u me --password-stdin'`
 An HTTP call | `bash -lc 'printf "header = \"Authorization: Bearer $TOKEN\"" \| curl -K - https://…'`. The header goes to curl on stdin: on the command line it would be in the process list
@@ -63,13 +63,13 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 
 ## Linking a credential another tool owns
 
-`link add` checks everything before it writes anything, and changes nothing about the file to make a check pass: [the order of checks](configuration.md#link-add-asks-everything-before-it-writes). It leaves behind the entry, the value in the redactor, and a rule refusing the path to the agent's file tools.
+`link add` checks everything before it writes anything, and changes nothing about the file to make a check pass: [the order of checks](configuration.md#link-add-asks-everything-before-it-writes). It produces three things: the entry, the value in the redactor, and a rule refusing the path to the agent's file tools.
 
 Adding an entry the install already carries applies it again rather than refusing it, so a converge can name every link on every run: [what a re-add re-applies](configuration.md#linked-secrets).
 
-**A dotfile that is a symlink is covered at both names.** Several of the files below are commonly symlinks into a dotfiles checkout. The entry has to name the target, that being the file whose group is changed and the file the broker is granted, so `link add` resolves the path and blocks the spelling you typed instead of refusing it. Both names are then refused, and `link rm` takes both unless another entry still names the target.
+**A dotfile that is a symlink is covered at both names.** Several of the files below are commonly symlinks into a dotfiles checkout. The entry has to name the target: that is the file whose group is changed and the file the broker is granted. So `link add` resolves the path and blocks the path you typed instead of refusing it. Both names are then refused, and `link rm` removes both unless another entry still names the target.
 
-The file is read twice, and the order matters. The first read runs as root and confirms the content can be parsed: a wrong `--type` or a `--key` that names nothing fails here, before anyone is asked to change a file mode. The second read runs as the broker's own account and confirms that account can reach the value. A selector that names nothing fails the command and lists the selectors the file does offer, names only.
+The file is read twice, and the order matters. The first read runs as root and confirms the content can be parsed: a wrong `--type` or a `--key` that names nothing fails here, before any file mode is changed. The second read runs as the broker's own account and confirms that account can reach the value.
 
 ```bash
 sudo faramir link add gh/token ~/.config/gh/hosts.yml --type yaml --key github.com/oauth_token
@@ -97,9 +97,9 @@ sudo faramir link add hub/auth ~/.docker/config.json --type json \
     --key 'auths/https:\/\/index.docker.io\/v1\//auth'
 ```
 
-A selector that names nothing is refused by `link add`, not by a later command. The refusal lists what the file does offer, spelled the way a selector reads, so it can be copied back into `--key`.
+A selector that names nothing is refused by `link add`, not by a later command. The refusal lists what the file does offer, names only, spelled the way a selector reads so it can be copied back into `--key`.
 
-**`ini` is the exception: it matches a key whole and escapes nothing.** That is what lets npm's key be given as written. The format has two levels, so there is no path to walk. The cost is that a slash in a section or key name can make two entries read alike:
+**`ini` is the exception: it matches a key whole and escapes nothing.** That is what lets npm's key be given as written. The format has two levels, so there is no path to walk. The consequence is that a slash in a section or key name can make two entries compose to the same selector:
 
 ```ini
 a/b/c = one          # these three compose to the
@@ -109,7 +109,7 @@ b/c   = two
 c     = three
 ```
 
-That is refused, naming all of them. Picking one would pick which credential to inject, and the others would be absent from the redactor and printed in the clear. Rename a section, or link the file as `text`. A file holding the *same* key twice is a different case: INI's own rule applies, and the first one wins.
+That is refused, and the refusal names all of them. Choosing one would choose which credential to inject, and the others would be absent from the redactor and printed in the clear. Rename a section, or link the file as `text`. A file holding the *same* key twice is a different case, and is refused as well: faramir will not choose which one wins, so remove the duplicates.
 
 The alternative, if this comes up in practice, is to escape `ini` like the other types. npm's key would then become `\/\/registry.npmjs.org\/:_authToken`.
 
@@ -117,15 +117,15 @@ The alternative, if this comes up in practice, is to escape `ini` like the other
 
 **Link only what the agent can already read.** A link to a file the agent cannot read makes that value obtainable through `env_refs` and closes no disclosure path in return. A root-owned keyfile belongs outside the store. [Why](design.md#linked-secrets-are-read-by-the-broker).
 
-What an entry looks like, and what a lost grant costs: [configuration.md](configuration.md#linked-secrets).
+What an entry looks like, and what happens when a grant is lost: [configuration.md](configuration.md#linked-secrets).
 
 ## SSH keys and host verification
 
 Brokered commands run as `faramir-exec`. That account must be able to *use* the key that reaches managed hosts without being able to read it: a password can be rotated, but a copied fleet key cannot be un-copied.
 
-`faramir init` mints a key beside the age key and renders `[ssh] key`. Put the public half it prints into `authorized_keys` on each managed host. The broker keeps both halves under its own uid, loads the private half into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`.
+`faramir init` generates a key beside the age key and renders `[ssh] key`. Put the public half it prints into `authorized_keys` on each managed host. The broker keeps both halves under its own uid, loads the private half into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`.
 
-- The `ssh-agent` starts and stops with the broker, so nothing outlives the process holding the key in memory.
+- The `ssh-agent` starts and stops with the broker, so the key is in memory only while the broker runs.
 - A key the broker cannot load is logged, not fatal. `--check` and `doctor` report it, and only commands that reach a host fail, with ssh's own error.
 - The executor's account cannot read the key, so debug `ssh` problems through `faramir run`, or from the audit log using the reported `log_id`.
 
@@ -133,7 +133,7 @@ Two settings that are off by default:
 
 Setting | Why
 --- | ---
-`sudo faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True` | Host key checking for Ansible. Not in the shipped `[command.env]`. With it off, a broker holding credentials offers them to whatever answers on that address
+`sudo faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True` | Host key checking for Ansible. Not in the shipped `[command.env]`. With it off, the broker offers its credentials to whatever host answers at that address
 `sudo faramir init --known-hosts ~/.ssh/known_hosts` | `faramir-exec` has its own `known_hosts`, and it starts empty. A play whose hosts are trusted only in the operator's file fails verification before the key is offered
 
 `faramir doctor` reports how many host keys the executor can verify against. Both flags: [installing.md](installing.md#what-each-flag-sets). Which login a bare `ssh host` uses, which files it verifies against, and how to pin host keys across a fleet: [operating.md](operating.md#rules-a-command-does-not-state).
@@ -168,7 +168,7 @@ home:
 api_token: …        # faramir://api_token
 ```
 
-**Do not encrypt a file by hand.** It succeeds, and if the name is wrong it produces a file the broker never reads, which nothing reports until someone looks for the ref. `vault add` cannot make that mistake. It also passes sops `--config` and `--filename-override`, which are needed because **sops resolves which `.sops.yaml` to read from the working directory upward**: encrypting into the secrets directory from a checkout otherwise fails with `config file not found, or has no creation rules`.
+**Do not encrypt a file by hand.** It succeeds, and if the name is wrong it produces a file the broker never reads. Nothing reports that until someone looks for the ref. `vault add` cannot make that mistake. It also passes sops `--config` and `--filename-override`, which are needed because **sops resolves which `.sops.yaml` to read from the working directory upward**: encrypting into the secrets directory from a checkout otherwise fails with `config file not found, or has no creation rules`.
 
 ### Reading the environment
 
@@ -205,13 +205,16 @@ class VarsModule(BaseVarsPlugin):
 
 `declared_names` takes the left side of each `NAME=faramir://ref` line, and the whole of a bare-name line. Only the names: a ref is not a value, and the file holds none.
 
-Name a credential for what it is (`msmtp_password`). Where a role already reads a variable of that name, no mapping is needed. Where the destination is named differently, or one host draws two values from the same store, `host_vars/` keeps one line per mapping:
+Name a credential for what it is (`msmtp_password`). Where a role already reads a variable of that name, no mapping is needed. Where the destination variable is named differently, or one host needs two values from the same store, `host_vars/` holds one line per mapping:
 
 ```yaml
 app_sensor_password: "{{ sensor_password_west }}"
 ```
 
-Two things to know before choosing the plugin. `vars_plugins_enabled` in `ansible.cfg` **replaces** the default list rather than adding to it, so it must keep naming `host_group_vars` or `host_vars/` stops loading. And a store key that `faramir.env` does not name is invisible to Ansible. That is the cost of one list saying what a run needs.
+Two things to know before choosing the plugin:
+
+- `vars_plugins_enabled` in `ansible.cfg` **replaces** the default list rather than adding to it, so it must keep naming `host_group_vars` or `host_vars/` stops loading.
+- A store key that `faramir.env` does not name is invisible to Ansible. That follows from one list saying what a run needs.
 
 Have a missing or unreadable env file yield no names rather than an error. Every credential is then undefined, and the first task to read one fails and names it. That is the right failure for a run nothing was injected into, and an ad-hoc command against a host that needs no credential keeps working.
 
@@ -248,11 +251,11 @@ The controller is different. A brokered command runs as `faramir-exec`, which ha
 faramir run --env-file faramir.env -- ansible-playbook msmtp.yml --limit '!controller'
 ```
 
-A playbook that touches every host then splits in two: the fleet through the broker, and the controller as root some other way. `sudo faramir init --allow-sudo` closes that gap. A brokered command's `sudo` puts a question to a human, answered per run by `sudo faramir sudo approve ID`, with no password anywhere. How to run it: [escalation.md](escalation.md). Why it is shaped this way: [design.md](design.md#allowing-sudo-on-the-controller).
+A playbook that touches every host then splits in two: the fleet through the broker, and the controller as root some other way. `sudo faramir init --allow-sudo` removes that split. A brokered command's `sudo` asks a human, who answers per run with `sudo faramir sudo approve ID`. No password is involved. How to run it: [escalation.md](escalation.md). Why it is designed this way: [design.md](design.md#allowing-sudo-on-the-controller).
 
-The Ansible side needs nothing. `become` passes `-n` by default, which tells `sudo` to fail rather than authenticate. The grant sets `noninteractive_auth` for the executor alone, which lets the PAM stack run under `-n` and put the question. Nothing prompts, so there is no `SUDO_ASKPASS` and no `-A`.
+The Ansible side needs nothing. `become` passes `-n` by default, which tells `sudo` to fail rather than authenticate. The grant sets `noninteractive_auth` for the executor alone, which lets the PAM stack run under `-n` and ask the question. Nothing prompts, so there is no `SUDO_ASKPASS` and no `-A`.
 
-Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, because there is no become password. Leave a watcher running as root, in a terminal the coding agent cannot type into. The first task that runs sudo puts its question there, naming the playbook:
+Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, because there is no become password. Leave a watcher running as root, in a terminal the coding agent cannot type into. The first task that runs sudo asks its question there, naming the playbook:
 
 ```bash
 sudo faramir sudo watch
