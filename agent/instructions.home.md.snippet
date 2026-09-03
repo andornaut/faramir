@@ -3,39 +3,40 @@
 Your file tools are refused faramir's own directories on this machine, wherever
 you are working. Being able to reach a file is not permission to open it.
 
-A command needing a credential runs through `faramir run`, which injects what
-it asked for and redacts from the output every value the broker holds, not only
-the ones that run injected:
+Commands that need a credential run through `faramir run`. It injects the
+values asked for and redacts every value the broker holds from the output, not
+only the injected ones:
 
     faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
 
-`faramir refs` names what exists, values never. Neither needs a project to be
-enrolled: the binary reaches the broker from anywhere on this host.
+`faramir refs` lists the refs that exist, never the values. Neither command
+needs an enrolled project: the binary reaches the broker from anywhere on this
+host.
 
-Where a blocked path is genuinely needed, that is the operator's to undo, with
+If you need a blocked path, ask the operator to unblock it. Give them the full
+command, because it needs root and takes the subject as a flag:
 `sudo faramir block rm --path <path>` (or `--command <command>` for a blocked
-command). Give them that line in full: it needs root, and it takes the subject
-as a flag rather than as an operand, so the bare command name fails.
+command).
 
 {{ credentialRules }}
 {{- if .AllowSudo}}
 
 ## Escalation
 
-A brokered command may run `sudo`, one approval per command:
+A brokered command may run `sudo`, with one approval per command:
 
     faramir run -C <directory> -- sudo <command>
 
-Run one only where the operator asked for that command, never on your own
-reading that a task needs root.
+Run one only when the operator asked for that command. Never decide on your own
+that a task needs root.
 
-- **Never background it, and allow a long timeout.** It waits for the operator
-  to answer. The approval lands on a command that is still running; one that
-  ends first is refused as `not approved (run_ended)`.
+- **Never background it, and allow a long timeout.** The command waits for the
+  operator to answer. The approval applies to a command that is still running;
+  one that has already ended is refused as `not approved (run_ended)`.
 - **Name the directory with `-C`.** Without it the command runs in the caller's
   working directory.
-- **Do not re-run a refusal.** Three things come back alike as `a password is
-  required`: a refusal, a lapse, and a question that never reached the operator.
-  `journalctl -u faramir-broker.service` says which, and carries no command
+- **Do not re-run a refusal.** `a password is required` can mean a refusal, an
+  expired question, or a question that never reached the operator.
+  `journalctl -u faramir-broker.service` says which, without showing command
   output.
 {{- end}}

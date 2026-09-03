@@ -1,20 +1,22 @@
 - **Never decrypt, and never read key material.** `sops -d`, `ansible-vault
   view`, `age -d` and their equivalents are the operator's commands, not yours.
   Private keys, `age` identities, `~/.config/sops/`, vault files, dotenv files
-  and the managed secret store are off limits. To change a stored value, ask.
-- **Never route around a refusal.** Another tool, an interpreter, a container,
-  another host, or a copy in a new location are the same disclosure. So is
-  transformed output (base64, `rev`, `cut`).
-- **Never put one on a command line.** `curl -u user:$PW`, `mysql -p$PW` and
-  `-e password=$PW` write the value into the process list, where every account
-  on this host can read it while the command runs, and quoting does not change
-  that. An injected value belongs in the environment, which is where `--env`
-  puts it: use a tool's environment variable, netrc or config file instead.
+  and the managed secret store are off limits. To change a stored value, ask
+  the operator.
+- **Never route around a refusal.** Reaching the same value through another
+  tool, an interpreter, a container, another host, or a copy of the file
+  discloses it just the same. So does transforming the output (base64, `rev`,
+  `cut`).
+- **Never put a value on a command line.** `curl -u user:$PW`, `mysql -p$PW`
+  and `-e password=$PW` put the value in the process list, where every account
+  on this host can read it while the command runs. Quoting does not change
+  that. Keep injected values in the environment, where `--env` puts them: use
+  the tool's environment variable, netrc or config file instead.
 - **Never ask for a value.** Not pasted, not typed, not read out, not for
-  testing. Where something needs a credential that has no ref, ask the operator
-  to add one and name what it is for.
+  testing. If something needs a credential that has no ref, ask the operator to
+  add one and say what it is for.
 - **Never remove faramir's own entries** from a configuration file you edit.
-  Editing an agent's settings, its MCP list or its rules is ordinary work;
-  taking out the parts that name faramir is not.
+  Editing an agent's settings, MCP list or rules is ordinary work; removing the
+  parts that name faramir is not.
 
 If a value reaches you anyway, say so and tell the operator to rotate it.

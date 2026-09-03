@@ -1,21 +1,21 @@
 # Credentials
 
-Commands needing credentials run through `faramir run`, which injects the
-values and returns output with each one replaced by `«SECRET:ref»`:
+Commands that need a credential run through `faramir run`. It injects the
+values and replaces each one in the output with `«SECRET:ref»`:
 
     faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
 
-`faramir refs` names what exists. You do not need a value to use one.
+`faramir refs` lists the refs that exist. You never need the value itself.
 
 You may also run `faramir status`, `faramir redact`, `version`, `help` and
 `completion`, and the commands that only describe the install: `faramir doctor`,
 `faramir block ls`, `faramir link ls` and `faramir reader ls`. Every other
 faramir subcommand changes the install or needs root, and is refused.
 
-Where a blocked path is genuinely needed, that is the operator's to undo, with
+If you need a blocked path, ask the operator to unblock it. Give them the full
+command, because it needs root and takes the subject as a flag:
 `sudo faramir block rm --path <path>` (or `--command <command>` for a blocked
-command). Give them that line in full: it needs root, and it takes the subject
-as a flag rather than as an operand, so the bare command name fails.
+command).
 
 ## Rules
 
@@ -23,21 +23,20 @@ as a flag rather than as an operand, so the bare command name fails.
   a scratch file, your notes or a commit message. Write the `faramir://` ref
   instead.
 - **Never send one anywhere**: no web request, API call, upload, or paste into
-  an issue or a pull request. A hash, a prefix, or a partial redaction of a
+  an issue or a pull request. A hash, a prefix or a partial redaction of a
   value counts as the value.
 - **Never modify the broker's own files**: the secret store, the age keys, the
-  systemd units, or faramir's own binary and deny patterns.
+  systemd units, faramir's binary or its deny patterns.
 {{ credentialRules }}
 {{- if .AllowSudo}}
 
 ## Waiting for an escalation
 
-While a question is open, other brokered commands are refused with
-`escalation_in_progress`. A command refused that way was not run: run it again
-once the answer is in. `not_quiescent` means the same. Do not work around the
-pause.
+While an approval question is open, other brokered commands are refused with
+`escalation_in_progress` or `not_quiescent`. A command refused that way did not
+run: run it again once the operator has answered. Do not work around the pause.
 {{- end}}
 
-The pre-execution check that refuses these commands is not the security
-boundary. It is a fixed list of patterns, so "the hook allowed it" is not a
-reason to think something is permitted.
+The hook that refuses these commands is not the security boundary. It is a
+fixed list of patterns, so "the hook allowed it" does not mean something is
+permitted.

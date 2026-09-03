@@ -101,8 +101,8 @@ func TestEachSectionSaysWhatOnlyItCan(t *testing.T) {
 	}
 	for _, want := range []string{"faramir run", "faramir refs",
 		"Never write a value down", "Never send one anywhere",
-		"not the security\nboundary"} {
-		if !strings.Contains(project, want) {
+		"not the security boundary"} {
+		if !strings.Contains(collapse(project), want) {
 			t.Errorf("the tree's section does not say %q", want)
 		}
 	}
