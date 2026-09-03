@@ -121,7 +121,7 @@ func diagnoseBoundaries(report *Report, opts Options, cfg *config.Config, serves
 	if opts.AgentUser == "" || opts.deadProbers[opts.AgentUser] {
 		report.unaskedf("boundaries", len(aboutTheOperator), "the agent account "+
 			"is not named, so %d check(s) of what it can reach were not made. Run doctor "+
-			"through sudo (SUDO_USER names the account), or record it with `faramir init "+
+			"through sudo (SUDO_USER names the account), or record it with `sudo faramir init "+
 			"--agent-user`", len(aboutTheOperator))
 		return
 	}

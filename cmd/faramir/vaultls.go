@@ -240,12 +240,9 @@ func newRefsCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "refs [options]",
 		Short:   "List the secret names you can inject; values are never shown",
-		GroupID: groupOperator,
-		Long: "Each name is a ref, the value `--env NAME=faramir://<ref>` and `env_refs`\n" +
-			"take.\n\n" +
-			"Asks the broker, so this lists what a brokered command can name.\n" +
-			"`faramir vault ls` lists what is in the secrets directory.\n\n" +
-			"Needs no root. Prints names only, never a value.",
+		GroupID: groupAgent,
+		Long: "Asks the broker for the refs it serves, so this lists what a brokered\n" +
+			"command can name. `faramir vault ls` lists what is in the secrets directory.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(send("refs", socketDefault(), map[string]any{"op": "refs"},

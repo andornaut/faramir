@@ -79,7 +79,7 @@ func newInitCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "init [options]",
 		Short:   "Install or re-install faramir on this host",
-		GroupID: groupProvisioning,
+		GroupID: groupOperator,
 		Args:    noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			clearUnset(c, &f)
@@ -88,26 +88,26 @@ func newInitCmd() *cobra.Command {
 	}
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
-		"account the coding agent runs as; the operator's own account. Only init "+
+		"the account the coding agent runs as; the operator's own account. Only init "+
 			"takes it, and every other command reads what init recorded "+
 			"(default: $FARAMIR_OPERATOR, then $SUDO_USER, then the current user)")
 	// One admits a caller to the broker socket and shares the working tree, the
 	// other owns the ciphertext; holding one is not holding the other.
 	fl.StringVar(&f.clientGroup, "client-group", "",
-		"group admitted to the broker socket, and given access to an enrolled working "+
+		"the group admitted to the broker socket, and given access to an enrolled working "+
 			"tree (default: what the install uses, then "+hostlayout.DefaultClientGroup+")")
 	fl.StringVar(&f.secretsGroup, "secrets-group", "",
-		"group that owns the ciphertext in <config-dir>/secrets; naming a group other "+
+		"the group that owns the ciphertext in <config-dir>/secrets; naming a group other "+
 			"than the keeper's adds a second reader (default: what the install uses, then "+
 			"the keeper's own group)")
 	fl.StringVar(&f.brokerUser, "broker-user", "",
-		"account that holds the SSH keys and the audit log (default: what the install "+
+		"the account the broker runs as, holding the SSH keys and the audit log (default: what the install "+
 			"uses, then "+hostlayout.DefaultBrokerUser+")")
 	fl.StringVar(&f.keeperUser, "keeper-user", "",
-		"account that holds the age key (default: what the install uses, then "+
+		"the account that holds the age key (default: what the install uses, then "+
 			hostlayout.DefaultKeeperUser+")")
 	fl.StringVar(&f.execUser, "exec-user", "",
-		"account brokered commands run as (default: what the install uses, then "+
+		"the account brokered commands run as (default: what the install uses, then "+
 			hostlayout.DefaultExecUser+")")
 	fl.StringVar(&f.configDir, "config-dir", "",
 		"where config.toml, the age key and the managed sops files are "+
@@ -125,13 +125,13 @@ func newInitCmd() *cobra.Command {
 			"installs them whether or not the agent is there, and can be combined with "+
 			"auto. Known: "+strings.Join(agentcfg.Known(), ", "))
 	fl.BoolVar(&f.allowSudo, "allow-sudo", false,
-		"let a brokered command ask to run sudo. Each request is approved by a person "+
-			"with 'faramir sudo approve'; there is no password. Off by default, and "+
+		"let a brokered command ask to run sudo. Each escalation is approved by a person "+
+			"with `faramir sudo approve`; there is no password. Off by default, and "+
 			"re-running init without it removes the grant")
 	fl.StringArrayVar(&f.notifyCommand, "notify-command", nil,
 		// The backquoted word is cobra's placeholder for the value, taken from the
 		// first one in the string; without it the help reads "stringArray".
-		"command that announces a waiting sudo request, one `ARG` per flag: "+
+		"command that announces a waiting escalation, one `ARG` per flag: "+
 			"--notify-command /usr/bin/wall --notify-command '{prompt}'. One of \"{prompt}\" "+
 			"and \"{id}\" is required; do not pass \"{id}\" to anything that broadcasts. The "+
 			"program is found on PATH and runs inside the broker unit's sandbox. Needs "+
@@ -156,9 +156,9 @@ func newInitCmd() *cobra.Command {
 	fl.StringArrayVar(&f.commandEnv, "command-env", nil,
 		"NAME=VALUE to add to every brokered command's environment; repeatable, and added to the built-in table")
 	fl.StringVar(&f.commandTimeout, "command-timeout", asDuration(command.TimeoutSec),
-		"timeout for a command whose request names none: a duration such as 5m, or a number of seconds")
+		"timeout for a command that names none: a duration such as 90s or 5m, or a bare number of seconds")
 	fl.StringVar(&f.commandMaxTimeout, "command-max-timeout", asDuration(command.MaxTimeoutSec),
-		"the longest timeout a caller may ask for, and the idle limit on a redact stream: a duration, or a number of seconds")
+		"the longest timeout a caller may ask for, and the idle limit on a redact stream: a duration such as 90s or 5m, or a bare number of seconds")
 	fl.IntVar(&f.commandConcurrency, "command-concurrency", command.Concurrency,
 		"how many brokered commands may run at once; further requests are refused as busy")
 	fl.IntVar(&f.commandMaxMemoryPct, "command-max-memory-percent", command.MaxMemoryPercent,
@@ -166,7 +166,7 @@ func newInitCmd() *cobra.Command {
 	fl.IntVar(&f.commandMaxProcMB, "command-max-process-memory-mb", command.MaxProcessMemoryMB,
 		"how much one brokered process may allocate, as LimitDATA on the executor unit (at least 256). Anonymous memory only, not page cache; a process that reaches it gets an allocation failure rather than the OOM killer")
 	fl.StringVar(&f.sudoTimeout, "sudo-timeout", asDuration(config.DefaultSudoTimeoutSec),
-		"how long a sudo request waits for an answer before it is refused (1s to 1h, and at most --command-max-timeout, since the command waits inside sudo the whole time)")
+		"how long an escalation waits for an answer before it is refused (1s to 1h, and at most --command-max-timeout, since the command waits inside sudo the whole time)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
 		"refuse a secret shorter than this, since a short value would match inside ordinary words (at least 6)")
 	return c
@@ -284,7 +284,7 @@ func runInit(f initFlags) int {
 	// document is printed whether or not the run failed, and a marshal that
 	// fails is itself fatal; see printJSON.
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir init: %v\n", err)
+		reportErr("init", err)
 	}
 	if f.asJSON {
 		if code := printJSON("init", report); code != 0 {

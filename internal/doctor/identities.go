@@ -42,7 +42,7 @@ func diagnoseGroup(report *Report, opts Options) {
 		report.unaskedf("client group", len(groups), "the agent account is not "+
 			"named, so a member of %s cannot be told from an account left behind. Run "+
 			"doctor through sudo (SUDO_USER names the account), or record it with "+
-			"`faramir init --agent-user`", opts.ClientGroup)
+			"`sudo faramir init --agent-user`", opts.ClientGroup)
 		return
 	}
 	// The agent's account belongs in the client group and nowhere near the
@@ -177,7 +177,7 @@ func resolveIdentities(report *Report, opts Options, cfg *config.Config) (Option
 	if opts.ClientGroup == "" {
 		if cfg.Server.AllowedGroup == "" {
 			report.addf("identities", StatusFailed, "[server] allowed_group is unset, so "+
-				"the broker admits nobody but root and itself. Run `faramir init "+
+				"the broker admits nobody but root and itself. Run `sudo faramir init "+
 				"--client-group NAME`, or pass --client-group to examine anyway")
 			return opts, false
 		}

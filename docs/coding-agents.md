@@ -285,7 +285,7 @@ runs the patch tool has its headers read the same way the tool's own call
 does.
 
 Reads need none of this. Codex reads a file by running one of the shell's own
-readers, so the command guard covers every read it makes.
+readers, so the guard covers every read it makes.
 
 **A hook has to be trusted before it runs.** Codex skips a hook it has not
 been told to trust and does not say so, so what `faramir init` and `faramir

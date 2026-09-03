@@ -46,7 +46,7 @@ func newLogsCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "logs [options] [LOG-ID]",
 		Short:   "Show the audit log: what ran, against which refs, and how it ended",
-		GroupID: groupProvisioning,
+		GroupID: groupOperator,
 		Args:    atMostOneArg("log-id"),
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runLogs(f, args)) },
 	}
@@ -189,7 +189,7 @@ func runWatch(path string, f logsFlags, paint termui.Palette) int {
 		}
 		printer.Row(record)
 	}
-	fmt.Fprintf(os.Stderr, "watching %s. Ctrl-c to stop.\n", path)
+	fmt.Fprintf(os.Stderr, "Watching %s. Ctrl-c to stop.\n", path)
 
 	for {
 		if err := follow.Drain(emit); err != nil {

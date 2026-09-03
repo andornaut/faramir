@@ -25,7 +25,7 @@ type brokerOptions struct {
 }
 
 func (o *brokerOptions) add(c *cobra.Command) {
-	c.Flags().BoolVar(&o.json, "json", false, "print the raw response")
+	c.Flags().BoolVar(&o.json, "json", false, "print the broker's response as JSON")
 }
 
 func newRunCmd() *cobra.Command {
@@ -41,10 +41,10 @@ func newRunCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "run [options] [--] program [args...]",
 		Short:   "Run a command with secrets injected",
-		GroupID: groupOperator,
+		GroupID: groupAgent,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return usagef("faramir run: no command given")
+				return usagef("faramir run requires a command")
 			}
 			return nil
 		},

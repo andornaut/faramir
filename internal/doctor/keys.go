@@ -59,7 +59,7 @@ func diagnoseOperatorKeys(report *Report, opts Options) {
 	// job, a timer -- rather than anything wrong with the install.
 	if opts.AgentUser == "" {
 		report.unaskedf("agent keys", 1, "no agent account to check. Run doctor "+
-			"through sudo (SUDO_USER names the account), or record it with `faramir init "+
+			"through sudo (SUDO_USER names the account), or record it with `sudo faramir init "+
 			"--agent-user`")
 		return
 	}
@@ -69,7 +69,7 @@ func diagnoseOperatorKeys(report *Report, opts Options) {
 	if err != nil || entry.HomeDir == "" {
 		report.addf("agent keys", StatusFailed, "%s does not resolve to an "+
 			"account with a home (%v), and every check here is about that account. Record "+
-			"it with `faramir init --agent-user`", opts.AgentUser, err)
+			"it with `sudo faramir init --agent-user`", opts.AgentUser, err)
 		return
 	}
 	home := filepath.Clean(entry.HomeDir)
@@ -82,7 +82,7 @@ func diagnoseOperatorKeys(report *Report, opts Options) {
 	}
 	if asaccount.CanRead(opts.ExecUser, home) {
 		report.addf("agent keys", StatusFailed, "%s can list %s: the home "+
-			"itself was enrolled instead of a project inside it, so every credential in "+
+			"itself was enrolled instead of a tree inside it, so every credential in "+
 			"it is shared with the group. Enrolment grants traversal, not read", opts.ExecUser, home)
 		return
 	}

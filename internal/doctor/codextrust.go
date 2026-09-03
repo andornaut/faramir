@@ -268,7 +268,7 @@ func diagnoseCodexTrust(report *Report, opts Options) {
 	if opts.AgentUser == "" {
 		report.unaskedf(label, 1, "the agent account is not named, so what "+
 			"Codex trusts was not checked. Run doctor through sudo (SUDO_USER names the "+
-			"account), or record it with `faramir init --agent-user`")
+			"account), or record it with `sudo faramir init --agent-user`")
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)

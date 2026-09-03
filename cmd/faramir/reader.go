@@ -39,7 +39,7 @@ func newReaderCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "reader",
 		Short:   "Manage which keys can decrypt the secret files",
-		GroupID: groupProvisioning,
+		GroupID: groupOperator,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
 	}
@@ -54,15 +54,18 @@ type readerFlags struct {
 	when   string
 }
 
-func (f *readerFlags) register(c *cobra.Command, writes bool) {
+func (f *readerFlags) register(c *cobra.Command, writes, reseals bool) {
 	fl := c.Flags()
 	if !writes {
 		fl.BoolVar(&f.json, "json", false, "print the recipients as JSON")
 		addColorFlag(c, &f.when)
 		return
 	}
-	fl.BoolVar(&f.dryRun, "dry-run", false,
-		"report the rule change and the files that would be re-encrypted, and write nothing")
+	usage := "report the rule change and the files that would be re-encrypted, and write nothing"
+	if reseals {
+		usage = "report the files that would be re-encrypted, and write nothing"
+	}
+	fl.BoolVar(&f.dryRun, "dry-run", false, usage)
 }
 
 func newReaderAddCmd() *cobra.Command {
@@ -74,13 +77,13 @@ func newReaderAddCmd() *cobra.Command {
 			"it, so the rule and the ciphertext always agree.\n\n" +
 			"KEY is a public key: age1... or an ssh public key. A private key is\n" +
 			"refused, because .sops.yaml is world-readable. Create one with\n" +
-			"'age-keygen -o FILE' on the machine that will hold it.",
+			"`age-keygen -o FILE` on the machine that will hold it.",
 		Args: exactlyArgs(1, "one age recipient"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runReaderChange(f, args[0], true))
 		},
 	}
-	f.register(c, true)
+	f.register(c, true, false)
 	return c
 }
 
@@ -99,7 +102,7 @@ func newReaderRemoveCmd() *cobra.Command {
 			return codeErr(runReaderChange(f, args[0], false))
 		},
 	}
-	f.register(c, true)
+	f.register(c, true, false)
 	return c
 }
 
@@ -112,7 +115,7 @@ func newReaderListCmd() *cobra.Command {
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runReaderList(f)) },
 	}
-	f.register(c, false)
+	f.register(c, false, false)
 	return c
 }
 
@@ -127,7 +130,7 @@ func newReaderResealCmd() *cobra.Command {
 			"encrypted to the current rule are skipped.",
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runReseal(f, args)) },
 	}
-	f.register(c, true)
+	f.register(c, true, true)
 	return c
 }
 

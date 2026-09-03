@@ -37,6 +37,11 @@ type blockRow struct {
 	// different question from what this host blocks, and a column answering it
 	// made the rows long enough to wrap.
 	State string `json:"state,omitempty"`
+	// DerivedFrom is the declared path a derived row was resolved out of, empty
+	// on every other row. Beside Source rather than only inside Detail, for the
+	// reason Strict is a field: which entry takes this one away is a question
+	// answered by a value, not by parsing a sentence.
+	DerivedFrom string `json:"derived_from,omitempty"`
 	// Detail is what a built-in protects or what a pattern matches, whichever
 	// the row is.
 	Detail string `json:"detail,omitempty"`
@@ -81,11 +86,21 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 			})
 			continue
 		}
+		// A derived entry is in the config like any other and is removed with the
+		// path it came from, so it is its own source rather than a declared row
+		// with a note: a converge filtering to what it declared would otherwise
+		// read one as an entry nobody asked for and take it out.
+		source, detail := sourceDeclared, ""
+		if entry.DerivedFrom != "" {
+			source = sourceDerived
+			detail = "what " + entry.DerivedFrom + " resolves to; removed with it"
+		}
 		rows = append(rows, blockRow{
-			Source: sourceDeclared, Kind: kindPath, Entry: entry.Path,
-			State:  blockedPathState(entry.Path),
-			Strict: entry.Strict,
-			Detail: strictDetail("", entry.Strict),
+			Source: source, Kind: kindPath, Entry: entry.Path,
+			State:       blockedPathState(entry.Path),
+			Strict:      entry.Strict,
+			DerivedFrom: entry.DerivedFrom,
+			Detail:      strictDetail(detail, entry.Strict),
 		})
 	}
 	// Sorted, so a listing is the same twice running and two hosts diff against
@@ -167,6 +182,10 @@ const (
 	sourceDeclared = "declared"
 	// sourceBuiltIn is a rule faramir carries or derives, as against one declared.
 	sourceBuiltIn = "built-in"
+	// sourceDerived is an entry `block add` resolved out of a declared symlink.
+	// Declared in the config and removable, unlike a built-in, but not something
+	// a configuration manager's own list names.
+	sourceDerived = "derived"
 )
 
 // printBuiltIn writes the built-in rules under the table, a section per kind

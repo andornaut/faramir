@@ -25,7 +25,7 @@ func newLinkCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "link",
 		Short:   "Manage secrets read from files another tool maintains",
-		GroupID: groupProvisioning,
+		GroupID: groupOperator,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
 	}
@@ -49,12 +49,16 @@ func newLinkAddCmd() *cobra.Command {
 		Use:   "add [options] REF FILE",
 		Short: "Add a secret read from a file another tool maintains",
 		Long: "Adds one [[secret.link]] entry and applies it: the broker is granted read\n" +
-			"access to the file, the file is refused to the agent's file tools, and\n" +
-			"the daemons are reloaded.\n\n" +
+			"access to the file, the file is refused to the agent's file tools, its\n" +
+			"shell and any brokered command that would print it, and the daemons are\n" +
+			"reloaded.\n\n" +
 			"REF is the name a caller asks for, with or without the faramir:// prefix\n" +
 			"that `faramir refs` prints.\n\n" +
 			"The file is read once, as the broker, before anything is written, so a\n" +
 			"--key that selects nothing fails here rather than later.\n\n" +
+			"A symlink is resolved: the entry names the target, which is the file the\n" +
+			"grant and the group are applied to, and the spelling you typed is\n" +
+			"blocked instead, so both names are refused. `link rm` takes both.\n\n" +
 			"Adding an entry that already exists re-applies it, which restores a\n" +
 			"grant or a rule that was removed, and reports changed=false. The same\n" +
 			"ref with a different file, type or key is an error. The same ref with a\n" +
@@ -122,7 +126,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 		return 0
 	}
 	if added {
-		fmt.Fprintf(os.Stderr, "added %s\n", ref)
+		fmt.Fprintf(os.Stderr, "faramir link add: added %s\n", ref)
 		printWarnings(report)
 		return 0
 	}
@@ -143,6 +147,9 @@ func newLinkRemoveCmd() *cobra.Command {
 			"for the same path is not in that record and stays.\n\n" +
 			"The read access granted to the broker is not undone, because the file's\n" +
 			"previous mode is unknown. The command that undoes it is printed.\n\n" +
+			"A blocked entry the add derived from this link, the spelling it was\n" +
+			"added under before the path was resolved, is removed with it and named\n" +
+			"in the report.\n\n" +
 			"Prints the ref it removed. --json prints the file-by-file report.\n\n" +
 			"A ref this install does not have reports changed=false.",
 		Args: exactlyOneArg("ref"),
@@ -189,7 +196,7 @@ func runLinkRemove(f linkFlags, ref string) int {
 		printWarnings(report)
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "removed %s\n", removed.Ref)
+	fmt.Fprintf(os.Stderr, "faramir link rm: removed %s\n", removed.Ref)
 	printWarnings(report)
 	// What was granted and is still granted, so the operator decides rather than
 	// discovering it later.

@@ -95,7 +95,7 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	if len(escalationProblems) > 0 {
 		log.Printf("this host cannot answer an escalation: %v", escalationProblems)
 		log.Printf("a brokered command that runs sudo will fail to authenticate. " +
-			"Re-run `faramir init --allow-sudo`, or re-run without it to remove " +
+			"Re-run `sudo faramir init --allow-sudo`, or re-run without it to remove " +
 			"the grant")
 		code = 1
 	}

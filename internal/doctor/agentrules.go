@@ -24,7 +24,7 @@ func diagnoseAgentRules(report *Report, opts Options) {
 	if opts.AgentUser == "" {
 		report.unaskedf("agent rules", 1, "the agent account is not named, so "+
 			"the agent files in its home were not checked. Run doctor through sudo "+
-			"(SUDO_USER names the account), or record it with `faramir init --agent-user`")
+			"(SUDO_USER names the account), or record it with `sudo faramir init --agent-user`")
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)

@@ -10,7 +10,7 @@ only the injected ones:
     faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
 
 `faramir refs` lists the refs that exist, never the values. Neither command
-needs an enrolled project: the binary reaches the broker from anywhere on this
+needs an enrolled tree: the binary reaches the broker from anywhere on this
 host.
 
 If you need a blocked path, ask the operator to unblock it. Give them the full
@@ -32,11 +32,15 @@ that a task needs root.
 
 - **Never background it, and allow a long timeout.** The command waits for the
   operator to answer. The approval applies to a command that is still running;
-  one that has already ended is refused as `not approved (run_ended)`.
+  one that has already ended is refused with `escalation run_ended`.
 - **Name the directory with `-C`.** Without it the command runs in the caller's
   working directory.
-- **Do not re-run a refusal.** `a password is required` can mean a refusal, an
-  expired question, or a question that never reached the operator.
-  `journalctl -u faramir-broker.service` says which, without showing command
-  output.
+- **Read the reason before re-running.** `sudo` reports every refusal as
+  `a password is required`. The line after it on stderr says why:
+  `faramir run: escalation <code>: <reason>`. `rejected` means no: do not run
+  the command again. `expired`, `run_ended` and `not_quiescent` mean the
+  question was not answered in time, the command ended first, or the host was
+  not quiet; running the command again asks again. `escalation_in_progress`
+  means another command's question is open; the command did not run, so run it
+  again once that question is answered.
 {{- end}}

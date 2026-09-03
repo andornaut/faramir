@@ -29,7 +29,7 @@ func newRedactCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "redact [options] [-- command [args...]]",
 		Short:   "Remove secrets from text, or from a command's output",
-		GroupID: groupOperator,
+		GroupID: groupAgent,
 		RunE: func(c *cobra.Command, child []string) error {
 			if len(child) > 0 {
 				return codeErr(redactChild(socketDefault(), child))

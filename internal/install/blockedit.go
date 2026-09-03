@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
@@ -97,6 +98,11 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
 	}
 	entries, added := foldBlocked(existing, refused)
+	// The targets of whichever of them are symlinks, folded after the entries
+	// that named them so that a target somebody also declared outright stays
+	// the entry they wrote.
+	derived, skipped := derivations(configDir, refused)
+	entries, _ = foldBlocked(entries, derived)
 	// A link over the same file is not refused, both rendering the same rule,
 	// but it is said: the link already refuses that path, and this entry adds
 	// nothing the operator does not have.
@@ -120,7 +126,85 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 	for _, entry := range refused {
 		blockedWarnings(&report, entry, links)
 	}
+	derivedWarnings(&report, derived, skipped)
 	return report, added, nil
+}
+
+// derivations is the target entry for each declared path that is a symlink, and
+// the ones a target inside an enrolled tree left underived.
+//
+// A rule matches the path a command names, and a link and its target are two
+// names for one file, so an entry for the link alone leaves the file readable
+// under the other. The target is recorded as an entry of its own rather than
+// resolved when a rule is rendered: the config is then what the rules are, which
+// is what `block ls` reads and what an operator diffing two hosts compares.
+//
+// Every path that is not a symlink yields nothing, EvalSymlinks returning the
+// path it was given. So does one that is not there, which is the case an entry
+// is allowed to name and the case a wildcard entry always is: a pattern names no
+// file to resolve, and the literal parent it is bounded by is already covered by
+// the rule the entry renders.
+func derivations(configDir string,
+	refused []config.BlockedPath) (derived []config.BlockedPath, skipped []config.BlockedPath) {
+	for _, entry := range refused {
+		if entry.Path == "" || strings.Contains(entry.Path, "*") {
+			continue
+		}
+		target, err := filepath.EvalSymlinks(entry.Path)
+		if err != nil || target == entry.Path {
+			continue
+		}
+		resolved := config.BlockedPath{
+			Path: target, Strict: entry.Strict, DerivedFrom: entry.Path,
+		}
+		if !derivable(configDir, resolved) {
+			skipped = append(skipped, resolved)
+			continue
+		}
+		derived = append(derived, resolved)
+	}
+	return derived, skipped
+}
+
+// derivable is whether an entry nobody typed may be written.
+//
+// Held to what an entry the operator writes is held to: a path that cannot be
+// declared cannot be derived either, and rendering one would write a rule the
+// next load refuses to read.
+//
+// And held to the tree rule for a reason the declared side does not have. The
+// operator meets a refusal when they name a tree; this path was reached without
+// anybody spelling it, and a dotfiles checkout is exactly the kind of directory
+// a config symlink points at, so a rule here would refuse the agent every file
+// in the directory it works in. A file inside a tree is the ordinary entry and
+// is derived like any other.
+func derivable(configDir string, entry config.BlockedPath) bool {
+	if err := config.ValidateBlocked(entry); err != nil {
+		return false
+	}
+	return refuseEnrolledTrees(configDir, []string{entry.Path}) == nil
+}
+
+// derivedWarnings says what an add wrote that nobody asked for by name, and what
+// it declined to write. Both are worth a line: the first is an entry the
+// operator will meet in `block ls` and in the config, and the second is a file
+// still readable under a name the declared entry does not cover.
+func derivedWarnings(report *Report, derived, skipped []config.BlockedPath) {
+	for _, entry := range derived {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"%s is a symlink to %s, which is blocked as well: a rule matches the path "+
+				"a command names, and either spelling opens the file. `faramir block rm "+
+				"--path %s` takes both",
+			config.Shown(entry.DerivedFrom), config.Shown(entry.Path),
+			config.Shown(entry.DerivedFrom)))
+	}
+	for _, entry := range skipped {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"%s is a symlink to %s, which is not blocked: it is an enrolled tree or a "+
+				"path no entry may name, and a rule for it would refuse the agent the "+
+				"directory it works in. A command naming the target reaches the file",
+			config.Shown(entry.DerivedFrom), config.Shown(entry.Path)))
+	}
 }
 
 // refuseEnrolledTrees stops a path entry that would refuse the agent the tree
@@ -230,11 +314,34 @@ func blockedWith(existing []config.BlockedPath,
 		// names every run is the state it wants, and a --strict dropped from
 		// the list means the operator stopped asking for it. Reported as changed,
 		// or an operator who tightened a rule is told nothing happened.
+		// A derivation is not an operator asking for anything, so it changes an
+		// entry only where it owns one. Over an entry that was declared it says
+		// nothing at all: a target declared strict under a link that is not would
+		// otherwise be loosened here and tightened again by the next converge,
+		// reported changed both times and never settling.
+		if refused.DerivedFrom != "" {
+			if other.DerivedFrom == "" {
+				return entries, false
+			}
+			if other.Strict != refused.Strict {
+				entries[i].Strict = refused.Strict
+				return entries, true
+			}
+			return entries, false
+		}
+		changed := false
 		if other.Strict != refused.Strict {
 			entries[i].Strict = refused.Strict
-			return entries, true
+			changed = true
 		}
-		return entries, false
+		// An operator declaring a path an earlier add derived takes it over: the
+		// entry stops being the link's, so a `block rm` of the link leaves it
+		// standing.
+		if other.DerivedFrom != "" {
+			entries[i].DerivedFrom = ""
+			changed = true
+		}
+		return entries, changed
 	}
 	return append(entries, refused), true
 }
@@ -298,18 +405,8 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 	if err != nil {
 		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
 	}
-	kept := existing
-	removed := make([]config.BlockedPath, len(refused))
+	kept, removed, cascaded := withoutBlocked(existing, refused)
 	for i, asked := range refused {
-		rest := make([]config.BlockedPath, 0, len(kept))
-		for _, entry := range kept {
-			if sameBlock(entry, asked) {
-				removed[i] = entry
-				continue
-			}
-			rest = append(rest, entry)
-		}
-		kept = rest
 		// Asked before anything is written, and only where no entry matched: an
 		// install that declared the same rule as well may take its own entry back,
 		// and what it is left with is the layout's, which the warning below says.
@@ -334,6 +431,12 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 	// after taking its entry back. Said here rather than left to be inferred from
 	// the entry going away, which reads as the file becoming readable.
 	if err == nil {
+		for _, entry := range cascaded {
+			report.Warnings = append(report.Warnings, fmt.Sprintf(
+				"%s is no longer blocked either: it is what %s resolves to, and the "+
+					"entry for it was written by the add that declared the symlink",
+				config.Shown(entry.Path), config.Shown(entry.DerivedFrom)))
+		}
 		for _, entry := range removed {
 			if entry.Blocks() == "" {
 				continue
@@ -348,6 +451,47 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 		}
 	}
 	return report, removed, err
+}
+
+// withoutBlocked is the set a removal leaves, the entry each ask matched, and
+// the derived entries that went with them.
+//
+// removed is one entry per ask, in the order they were given, and the zero value
+// where nothing matched: the caller tells "removed" from "was not there" by
+// that, and answers the second differently.
+//
+// A derived entry is not asked for by name. It was written because the declared
+// path resolved to it, so it goes when that path does, or the host is left with
+// a rule no entry explains and a converge reporting one nobody declared. An ask
+// naming the derived path directly still removes it, sameBlock matching on the
+// path: what comes back then is an entry the next add derives again.
+func withoutBlocked(existing,
+	refused []config.BlockedPath) (kept, removed, cascaded []config.BlockedPath) {
+	kept = existing
+	removed = make([]config.BlockedPath, len(refused))
+	for i, asked := range refused {
+		// Whether this ask takes a declaration away at all. An entry derived from
+		// a path no block entry declares belongs to something else -- a link
+		// resolves to its target, and the entry for the spelling the operator
+		// typed is that link's to remove -- so an ask matching nothing here leaves
+		// it alone rather than taking a rule out from under another entry.
+		declared := slices.ContainsFunc(kept, func(entry config.BlockedPath) bool {
+			return sameBlock(entry, asked)
+		})
+		rest := make([]config.BlockedPath, 0, len(kept))
+		for _, entry := range kept {
+			switch {
+			case sameBlock(entry, asked):
+				removed[i] = entry
+			case declared && asked.Path != "" && entry.DerivedFrom == asked.Path:
+				cascaded = append(cascaded, entry)
+			default:
+				rest = append(rest, entry)
+			}
+		}
+		kept = rest
+	}
+	return kept, removed, cascaded
 }
 
 // BuiltInRuleError is why a request to stop refusing something cannot be

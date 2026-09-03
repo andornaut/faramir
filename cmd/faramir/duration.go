@@ -30,7 +30,7 @@ func durationSeconds(flag, value string) (int, error) {
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil {
-		return 0, fmt.Errorf("%s takes a duration such as 90s, 5m or 1h30m, or a "+
+		return 0, fmt.Errorf("%s takes a duration such as 90s or 5m, or a "+
 			"bare number of seconds; %q is neither", flag, value)
 	}
 	if d%time.Second != 0 {

@@ -66,8 +66,8 @@ func requireRootToAnswer(command string) bool {
 func newSudoCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "sudo",
-		Short:   "Approve or refuse a brokered command's request to run sudo",
-		GroupID: groupProvisioning,
+		Short:   "Approve or refuse a brokered command's question: may it run sudo",
+		GroupID: groupOperator,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
 	}
@@ -84,11 +84,11 @@ func newSudoListCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   useLs,
-		Short: "List the sudo requests waiting for an answer",
-		Long: "Prints the waiting requests and exits. Exit status is 0 when something\n" +
+		Short: "List the escalations waiting for an answer",
+		Long: "Prints the waiting escalations and exits. Exit status is 0 when something\n" +
 			"is waiting, 1 when nothing is, and 69 when the broker cannot be reached,\n" +
 			"in which case nothing is printed.\n\n" +
-			"`faramir sudo watch` waits for requests and answers them from the\n" +
+			"`faramir sudo watch` waits for questions and answers them from the\n" +
 			"terminal.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -115,8 +115,8 @@ func newSudoWatchCmd() *cobra.Command {
 	var when string
 	c := &cobra.Command{
 		Use:   "watch",
-		Short: "Watch for sudo requests and answer them as they arrive",
-		Long: "Keeps the terminal: prints each request as it arrives, reads your\n" +
+		Short: "Watch for escalations and answer them as they arrive",
+		Long: "Keeps the terminal: prints each question as it arrives, reads your\n" +
 			"answer, and prints how each approved run ended.\n\n" +
 			"Run it as root, in a terminal the coding agent cannot type into. The\n" +
 			"broker checks that the answer comes from root; it cannot check who is\n" +
@@ -144,13 +144,13 @@ func newApproveCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:   "approve [options] ID",
-		Short: "Approve one sudo request, by id",
+		Short: "Approve one escalation, by id",
 		// The command line before the caller: a malformed one is worth saying
 		// whoever is asking, and the other two commands check in that order.
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) != 1 || args[0] == "" {
-				return usagef("faramir sudo approve: one id is required\nA yes names the command it is for. " +
-					"`faramir sudo ls` lists it; `faramir sudo reject` needs no id, one question " +
+				return usagef("faramir sudo approve requires one id: a yes names the command it is for, " +
+					"and `faramir sudo ls` lists it. `faramir sudo reject` needs no id, one question " +
 					"being outstanding at a time")
 			}
 			return nil
@@ -176,7 +176,7 @@ func newRejectCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   "reject [options] [ID]",
-		Short: "Refuse one sudo request by id, or the one that is waiting",
+		Short: "Refuse one escalation by id, or the one that is waiting",
 		Args:  atMostOneArg("id"),
 		RunE: func(c *cobra.Command, args []string) error {
 			if !requireRootToAnswer("sudo reject") {
@@ -201,7 +201,7 @@ func newRejectCmd() *cobra.Command {
 // named. It prints what it refused first, so the scrollback says which command
 // was turned down.
 func rejectWaiting(socketPath string, asJSON bool, paint termui.Palette) int {
-	questions, code := waiting(socketPath, "rejected")
+	questions, code := waiting("sudo reject", socketPath, "rejected")
 	if questions == nil {
 		return code
 	}
@@ -216,10 +216,10 @@ func rejectWaiting(socketPath string, asJSON bool, paint termui.Palette) int {
 // waiting is the question outstanding, or nil and the status to exit with: 69
 // for a broker that could not be reached, 1 for nothing waiting. One question,
 // never a queue, so the caller indexes rather than loops.
-func waiting(socketPath, verb string) ([]escalation.Question, int) {
+func waiting(prog, socketPath, verb string) ([]escalation.Question, int) {
 	questions, _, err := brokerclient.Escalations(socketPath, 0, "")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, err)
 		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
 	}
 	if len(questions) == 0 {
@@ -233,7 +233,7 @@ func waiting(socketPath, verb string) ([]escalation.Question, int) {
 // listEscalations reports what is waiting and returns, for a look rather than a
 // vigil. Non-zero on nothing waiting, so a script can tell the two apart.
 func listEscalations(socketPath string, asJSON bool, paint termui.Palette) int {
-	questions, code := waiting(socketPath, "approved")
+	questions, code := waiting("sudo ls", socketPath, "approved")
 	if asJSON {
 		return listAsJSON(questions, code)
 	}
@@ -244,8 +244,8 @@ func listEscalations(socketPath string, asJSON bool, paint termui.Palette) int {
 		sudoprompt.PrintQuestion(question, paint)
 		// The answer is a second command here, so the question says how to type
 		// it.
-		fmt.Printf("  approve with: faramir sudo approve %s\n", question.ID)
-		fmt.Printf("  reject with:  faramir sudo reject %s\n\n", question.ID)
+		fmt.Printf("  approve with: sudo faramir sudo approve %s\n", question.ID)
+		fmt.Printf("  reject with:  sudo faramir sudo reject %s\n\n", question.ID)
 	}
 	return 0
 }
@@ -274,7 +274,7 @@ func listAsJSON(questions []escalation.Question, code int) int {
 // type, so run it somewhere the agent does not reach.
 func watchEscalations(socketPath string, paint termui.Palette) int {
 	sudoprompt.WarnIfTypeable()
-	fmt.Fprintln(os.Stderr, "Waiting for escalation requests. Ctrl-c to stop.")
+	fmt.Fprintln(os.Stderr, "Waiting for escalations. Ctrl-c to stop.")
 	// No set of ids already answered: the broker drops a question the moment it
 	// is answered, refused or expired, and only one is ever outstanding. A set
 	// would be worse than unnecessary, an id being three random bytes, so a later
@@ -296,8 +296,8 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			//
 			// The cost is that `faramir init` restarts the broker, so an install ends
 			// a watcher and it has to be started again.
-			fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
-			fmt.Fprintln(os.Stderr, "faramir sudo approve: lost the broker; not "+
+			fmt.Fprintf(os.Stderr, "faramir sudo watch: %v\n", err)
+			fmt.Fprintln(os.Stderr, "faramir sudo watch: lost the broker; not "+
 				"reconnecting. Start this again once the broker is back")
 			return 69 // EX_UNAVAILABLE, as every other broker-facing command
 		}
@@ -316,7 +316,7 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			case sudoprompt.StdinClosed:
 				// Nothing further can be answered here, and leaving the loop spinning
 				// would refuse nothing and approve nothing.
-				fmt.Fprintln(os.Stderr, "faramir sudo approve: stdin closed; stopping")
+				fmt.Fprintln(os.Stderr, "faramir sudo watch: stdin closed; stopping")
 				return 0
 			case sudoprompt.Expired:
 				fmt.Printf("\n  %s %s\n", paint.Dim(question.LogID), paint.Bad("expired"))
@@ -330,7 +330,7 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			// 1 is the broker answering no to the answer -- the question expired while
 			// it was read, or the yes was refused for want of a quiet host -- so it is
 			// settled and gone and watching continues.
-			switch code := answer("sudo approve", socketPath, question.ID, approve, false); code {
+			switch code := answer("sudo watch", socketPath, question.ID, approve, false); code {
 			case 0:
 				// Named, like the ending that follows it: that one arrives after the
 				// terminal has moved on, so the two are read together only if both say
@@ -352,11 +352,11 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 				fmt.Printf("  %s %s %s\n", paint.Dim(question.LogID), paint.Bad("rejected:"),
 					strconv.Quote(strings.Trim(line, "\r\n")))
 			case 69:
-				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s is still open and "+
+				fmt.Fprintf(os.Stderr, "faramir sudo watch: %s is still open and "+
 					"unwatched; start this again once the broker is back\n", question.ID)
 				return 69
 			default:
-				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s closed without "+
+				fmt.Fprintf(os.Stderr, "faramir sudo watch: %s closed without "+
 					"approval; run the command again if it still needs sudo\n", question.ID)
 			}
 		}

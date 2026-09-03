@@ -1,6 +1,6 @@
 # Allowing sudo on the controller
 
-A brokered command runs as `faramir-exec`, which has no sudo. A playbook that also configures the controller has to skip it with `--limit '!controller'`. `faramir init --allow-sudo` removes that limitation without moving the uid boundary. The reasoning is in [design.md](design.md#allowing-sudo-on-the-controller). This page is about running it. The commands that answer a question are in [operating.md](operating.md#operator-commands).
+A brokered command runs as `faramir-exec`, which has no sudo. A playbook that also configures the controller has to skip it with `--limit '!controller'`. `sudo faramir init --allow-sudo` removes that limitation without moving the uid boundary. The reasoning is in [design.md](design.md#allowing-sudo-on-the-controller). This page is about running it. The commands that answer a question are in [operating.md](operating.md#operator-commands).
 
 ## The decision is made at `init`, per host
 
@@ -115,7 +115,7 @@ Approving from your own shell is the last resort: it leaves a warm sudo timestam
 `[sudo] notify_command` optionally announces a pending question. It carries no answer and nothing waits on it. Set it at install time, one argument per flag:
 
 ```sh
-faramir init --allow-sudo \
+sudo faramir init --allow-sudo \
     --notify-command /usr/bin/wall \
     --notify-command '{prompt}'
 ```

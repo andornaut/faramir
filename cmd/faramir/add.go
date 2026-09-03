@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -42,18 +41,13 @@ func newAddCmd() *cobra.Command {
 			"NAME is relative to the secrets directory. The `.sops.yml` suffix is\n" +
 			"added unless NAME already ends with it.\n\n" +
 			"The content is written in an editor, on a 0600 file in a tmpfs, so no\n" +
-			"plaintext reaches a disk. The editor runs as root over the decrypted\n" +
-			"value, so it must be a binary that only root can write or replace.\n" +
-			"--editor, $VISUAL and $EDITOR each name one by absolute path, and each\n" +
-			"is checked.\n\n" +
+			"plaintext reaches a disk.\n\n" +
 			"--from encrypts an existing file instead. That file is left where it is,\n" +
 			"still in cleartext.",
 		Args: exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runAdd(f, args[0])) },
 	}
-	c.Flags().StringVar(&f.editor, "editor", "", "absolute path of the editor, run with no arguments "+
-		"(default: $VISUAL, then $EDITOR, then the first of "+strings.Join(vault.Editors, ", ")+
-		" that only root can write; sudo's env_reset drops both variables unless sudoers keeps them)")
+	c.Flags().StringVar(&f.editor, "editor", "", editorUsage)
 	c.Flags().StringVar(&f.from, "from", "",
 		"encrypt this plaintext `FILE` instead of opening an editor; the file is left where it is")
 	return c

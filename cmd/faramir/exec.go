@@ -30,10 +30,9 @@ type execFlags struct {
 func newExecCmd() *cobra.Command {
 	var f execFlags
 	c := &cobra.Command{
-		Use:   "exec",
-		Short: "Run the executor daemon",
-		Long: "The executor daemon, started by faramir-exec.service. To run a\n" +
-			"command through the broker, use `faramir run`.",
+		Use:     "exec",
+		Short:   "Run the executor daemon",
+		Long:    "Runs the executor daemon, started by faramir-exec.service.",
 		GroupID: groupInternal,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runExec(f)) },

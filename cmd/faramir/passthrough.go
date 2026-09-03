@@ -12,7 +12,7 @@ import (
 func newPamEscalateRootCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:                "pam-escalate",
-		Short:              "Ask whether one sudo may proceed, inside a brokered command (run by PAM)",
+		Short:              "Ask whether one sudo may proceed, inside a brokered command",
 		GroupID:            groupInternal,
 		DisableFlagParsing: true,
 		RunE: func(c *cobra.Command, args []string) error {

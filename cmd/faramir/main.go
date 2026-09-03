@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"strings"
 
 	"github.com/andornaut/faramir/internal/hostunit"
 	"github.com/andornaut/faramir/internal/protocol"
@@ -42,9 +43,20 @@ func requireRoot(command string) bool {
 	if os.Geteuid() == 0 {
 		return true
 	}
-	fmt.Fprintf(os.Stderr, "faramir %s must run as root: try 'sudo faramir %s'\n",
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root: try `sudo faramir %s`\n",
 		command, command)
 	return false
+}
+
+// reportErr prints err on stderr under the command's label. A message that
+// already begins with the label, as the preflight errors do, is printed as is.
+func reportErr(command string, err error) {
+	msg := err.Error()
+	if strings.HasPrefix(msg, "faramir "+command+" ") {
+		fmt.Fprintln(os.Stderr, msg)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "faramir %s: %s\n", command, msg)
 }
 
 // operatorName resolves the account that works in the tree: --agent-user, then

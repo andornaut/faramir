@@ -20,7 +20,7 @@ func newVaultCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "vault",
 		Short:   "Add, edit, list and remove the encrypted secret files",
-		GroupID: groupProvisioning,
+		GroupID: groupOperator,
 		Args:    requiresSubcommand,
 		// Never reached, the arguments never validating; a command cobra does not
 		// consider runnable has its arguments ignored altogether.

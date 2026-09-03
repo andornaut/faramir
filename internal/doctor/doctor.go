@@ -95,7 +95,7 @@ func Diagnose(opts Options) Report {
 		if _, err := hostfs.LookupUser(opts.AgentUser); err != nil {
 			report.addf("identities", StatusFailed, "there is no account %q on "+
 				"this host, so what the agent can reach was not examined. Name the account "+
-				"the coding agent runs as with `faramir init --agent-user`", opts.AgentUser)
+				"the coding agent runs as with `sudo faramir init --agent-user`", opts.AgentUser)
 			abandoned(&report, "the agent account does not resolve")
 			return report
 		}

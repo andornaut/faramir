@@ -32,11 +32,11 @@ func newAccessCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:     "access [options] PATH",
-		Short:   "Report whether this account can access a path (run by doctor)",
+		Short:   "Report whether this account can access a path",
 		GroupID: groupInternal,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) != 1 {
-				return usagef("faramir access: one path is required")
+				return usagef("faramir access requires one path")
 			}
 			return nil
 		},

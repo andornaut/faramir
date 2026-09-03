@@ -28,7 +28,7 @@ func newEnrolCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "enrol [options] [DIR]",
 		Short:   "Set up one working tree and configure its agents",
-		GroupID: groupProvisioning,
+		GroupID: groupOperator,
 		Args:    atMostOneArg("directory"),
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runEnrol(f, args)) },
 	}
@@ -40,7 +40,8 @@ func newEnrolCmd() *cobra.Command {
 			"the config must still load")
 	fl.StringArrayVar(&f.agents, "agent", nil,
 		"coding agent to enrol; repeatable. \""+agentcfg.Auto+"\" (the default) means "+
-			"every agent this tree already has configuration for. A name enrols that "+
+			"every agent this tree already has configuration for, and Codex when your "+
+			"home has it. A name enrols that "+
 			"agent whether or not it is there, and can be combined with auto. "+
 			"Known: "+strings.Join(agentcfg.Known(), ", "))
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
@@ -76,7 +77,7 @@ func runEnrol(f enrolFlags, args []string) int {
 	report, projectErr := enrol.Tree(opts)
 	// The failure before the document; see runInit.
 	if projectErr != nil {
-		fmt.Fprintf(os.Stderr, "faramir enrol: %v\n", projectErr)
+		reportErr("enrol", projectErr)
 	}
 	if f.asJSON {
 		if code := printJSON("enrol", report); code != 0 {

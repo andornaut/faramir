@@ -13,9 +13,9 @@ import (
 // without a group is listed under "Additional Commands", which is how a new one
 // announces that nobody decided who runs it.
 const (
-	groupOperator     = "operator"
-	groupProvisioning = "provisioning"
-	groupInternal     = "internal"
+	groupAgent    = "agent"
+	groupOperator = "operator"
+	groupInternal = "internal"
 )
 
 // usageError marks a wrong invocation: an unknown command, an unknown flag, or
@@ -110,9 +110,9 @@ func newRootCmd() *cobra.Command {
 	}
 
 	root.AddGroup(
-		&cobra.Group{ID: groupOperator, Title: "Commands:"},
-		&cobra.Group{ID: groupProvisioning, Title: "Operator commands (need root; they change files, and ask a running broker where the install is):"},
-		&cobra.Group{ID: groupInternal, Title: "Internal commands (run by systemd, PAM and the coding agent):"},
+		&cobra.Group{ID: groupAgent, Title: "Commands:"},
+		&cobra.Group{ID: groupOperator, Title: "Operator commands (need root, except doctor, block ls, link ls and reader ls):"},
+		&cobra.Group{ID: groupInternal, Title: "Internal commands (run by systemd, PAM, doctor and the coding agent):"},
 	)
 
 	root.SetVersionTemplate("faramir {{.Version}}\n")
@@ -130,7 +130,7 @@ func newRootCmd() *cobra.Command {
 		&cobra.Command{
 			Use:     "version",
 			Short:   "Print the version and exit",
-			GroupID: groupOperator,
+			GroupID: groupAgent,
 			Args:    noArgs,
 			RunE: func(c *cobra.Command, args []string) error {
 				fmt.Println("faramir " + version.Version)
@@ -163,11 +163,21 @@ func newRootCmd() *cobra.Command {
 
 	// Registered here so that cobra does not add it with a "-v" shorthand of its
 	// own.
-	root.Flags().Bool("version", false, "version for faramir")
+	root.Flags().Bool("version", false, "print the version and exit")
 	// help and completion are cobra's, and land under "Additional Commands"
-	// unless they are told which group they belong to.
-	root.SetHelpCommandGroupID(groupOperator)
-	root.SetCompletionCommandGroupID(groupOperator)
+	// unless they are told which group they belong to. The group is set before
+	// the help command exists, because cobra reads it at creation.
+	root.SetHelpCommandGroupID(groupAgent)
+	root.SetCompletionCommandGroupID(groupAgent)
+	// cobra's help command is kept, for its completion of command names, and
+	// only its wording is replaced.
+	root.InitDefaultHelpCmd()
+	for _, c := range root.Commands() {
+		if c.Name() == "help" {
+			c.Short = "Show help for a command"
+			c.Long = "Shows the help for a command. Without a command, shows this listing."
+		}
+	}
 	// A flag cobra could not parse is a wrong invocation, and exits 2 like one.
 	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error { return usageError{err} })
 	// The generated completion command is in none of the three groups, and still

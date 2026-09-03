@@ -737,7 +737,7 @@ grep -qF "path = \"$NAME\"" $CFG \
 QUIET=/srv/e2e-quiet-rm
 block add --path "$QUIET" >/dev/null 2>&1
 out=$(block rm --path "$QUIET")
-[ "$(head -1 <<<"$out")" = "stopped blocking $QUIET" ] \
+[ "$(head -1 <<<"$out")" = "faramir block rm: stopped blocking $QUIET" ] \
   && ok "block rm leads with the outcome" \
   || bad "the first line is not the outcome: ${out:0:200}"
 grep -qE '^(changed|ok) ' <<<"$out" \

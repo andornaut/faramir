@@ -1,7 +1,7 @@
 - **Never decrypt, and never read key material.** `sops -d`, `ansible-vault
   view`, `age -d` and their equivalents are the operator's commands, not yours.
   Private keys, `age` identities, `~/.config/sops/`, vault files, dotenv files
-  and the managed secret store are off limits. To change a stored value, ask
+  and the managed store are off limits. To change a stored value, ask
   the operator.
 - **Never route around a refusal.** Reaching the same value through another
   tool, an interpreter, a container, another host, or a copy of the file

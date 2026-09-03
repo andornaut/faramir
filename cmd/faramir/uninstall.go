@@ -18,7 +18,7 @@ func newUninstallCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "uninstall [options]",
 		Short:   "Remove the install, keeping the age key, the secrets directory and the log",
-		GroupID: groupProvisioning,
+		GroupID: groupOperator,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runUninstall(f)) },
 	}
@@ -60,8 +60,8 @@ func runUninstall(f uninstallFlags) int {
 func newReloadCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "reload",
-		Short:   "Restart the daemons so they load the current configuration",
-		GroupID: groupProvisioning,
+		Short:   "Stop the daemons so the next command starts them on the current configuration",
+		GroupID: groupOperator,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runReload()) },
 	}

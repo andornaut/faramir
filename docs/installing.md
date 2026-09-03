@@ -25,7 +25,7 @@ Flag left out | Read from
 
 Flag | Default | Sets
 --- | --- | ---
-`--agent-user NAME` | `$FARAMIR_OPERATOR`, then `$SUDO_USER`, then you | The account the coding agent runs as. It owns the checkouts brokered commands run in, so root and faramir's service accounts are refused. Only `init` takes this flag; every other command reads what `init` recorded
+`--agent-user NAME` | `$FARAMIR_OPERATOR`, then `$SUDO_USER`, then you | The account the coding agent runs as (the agent account, `agent_user` in the config). It owns the checkouts brokered commands run in, so root and faramir's service accounts are refused. Only `init` takes this flag; every other command reads what `init` recorded
 `--client-group NAME` | the install's, then `faramir-client` | The group admitted to the broker socket, and the group owning an enrolled tree. Membership is permission to ask the broker for any managed value, so choose the group for that. An existing group is adopted, and all its current members get that permission
 `--secrets-group NAME` | the install's, then the keeper's own group | The group owning the ciphertext. `doctor` fails if the operator is in it
 `--config-dir DIR` | the install's, [found the usual way](operating.md#checking-an-install), then `/etc/faramir` | Where `config.toml`, the age key and the managed sops files live. Only `init` takes this flag; every other command finds the install. Must be absolute, its parent must exist, and it may not be under `/tmp` or `/var/tmp`. A *different* directory than the install's needs `--repoint-config`

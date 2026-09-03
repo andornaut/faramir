@@ -5,7 +5,7 @@ Every program gets its credentials the same way: the caller names refs, the brok
 Two rules apply to every tool:
 
 - **Only the keeper decrypts sops.** Decrypting needs the age private key, and no process the broker starts receives it. A brokered command runs arbitrary code, so a command that held the master key could decrypt every managed file. A vars plugin, a `lookup('pipe', 'sops -d …')` or a tool's own sops support fails for this reason.
-- **A brokered command inherits nothing from the broker's environment.** A variable the program needs, such as `ANSIBLE_CONFIG`, must be set with `faramir init --command-env NAME=VALUE`. Otherwise it is absent.
+- **A brokered command inherits nothing from the broker's environment.** A variable the program needs, such as `ANSIBLE_CONFIG`, must be set with `sudo faramir init --command-env NAME=VALUE`. Otherwise it is absent.
 
 ## Where the value lives
 
@@ -51,7 +51,7 @@ A deploy or release script | Already reads `$TOKEN`. Nothing to change
 A cloud or infra CLI (`aws`, `terraform`, `flyctl`) | Use its documented environment variables and drop the credentials file
 A database task | `PGPASSWORD`, `MYSQL_PWD`. The connection string goes in `argv`; the password never does
 A registry push | `bash -lc 'printf %s "$TOKEN" \| docker login -u me --password-stdin'`
-An HTTP call | `curl -H "Authorization: Bearer $TOKEN"` inside `bash -lc`, so the shell expands it
+An HTTP call | `bash -lc 'printf "header = \"Authorization: Bearer $TOKEN\"" \| curl -K - https://…'`. The header goes to curl on stdin: on the command line it would be in the process list
 A tool that needs a credentials *file* | Have the command write the file, use it, and remove it. Injection is environment-only
 Ansible | `lookup('env', 'NAME')` in a committed vars file, or a vars plugin that reads `faramir.env`. [Worked example below](#worked-example-ansible)
 Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the child gets `SSH_AUTH_SOCK`. [Below](#ssh-keys-and-host-verification)
@@ -59,13 +59,15 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 - Request a pipeline explicitly as `["bash", "-lc", "…"]`. The broker never hands a string to a shell.
 - A bare command name is looked up on `[command.env] PATH`. Add venv, pipx and shim directories there.
 - A tool that decrypts sops itself cannot be onboarded. Give it named values instead.
-- Finish with `cd <project> && sudo faramir enrol`. It shares the tree so a brokered command can run in it, and configures whichever agents the tree already carries.
+- Finish with `cd <tree> && sudo faramir enrol`. It shares the tree so a brokered command can run in it, and configures the agents it detects (Codex from your home).
 
 ## Linking a credential another tool owns
 
 `link add` checks everything before it writes anything, and changes nothing about the file to make a check pass: [the order of checks](configuration.md#link-add-asks-everything-before-it-writes). It leaves behind the entry, the value in the redactor, and a rule refusing the path to the agent's file tools.
 
 Adding an entry the install already carries applies it again rather than refusing it, so a converge can name every link on every run: [what a re-add re-applies](configuration.md#linked-secrets).
+
+**A dotfile that is a symlink is covered at both names.** Several of the files below are commonly symlinks into a dotfiles checkout. The entry has to name the target, that being the file whose group is changed and the file the broker is granted, so `link add` resolves the path and blocks the spelling you typed instead of refusing it. Both names are then refused, and `link rm` takes both.
 
 The file is read twice, and the order matters. The first read runs as root and confirms the content can be parsed: a wrong `--type` or a `--key` that names nothing fails here, before anyone is asked to change a file mode. The second read runs as the broker's own account and confirms that account can reach the value. A selector that names nothing fails the command and lists the selectors the file does offer, names only.
 
@@ -131,8 +133,8 @@ Two settings that are off by default:
 
 Setting | Why
 --- | ---
-`faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True` | Host key checking for Ansible. Not in the shipped `[command.env]`. With it off, a broker holding credentials offers them to whatever answers on that address
-`faramir init --known-hosts ~/.ssh/known_hosts` | `faramir-exec` has its own `known_hosts`, and it starts empty. A play whose hosts are trusted only in the operator's file fails verification before the key is offered
+`sudo faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True` | Host key checking for Ansible. Not in the shipped `[command.env]`. With it off, a broker holding credentials offers them to whatever answers on that address
+`sudo faramir init --known-hosts ~/.ssh/known_hosts` | `faramir-exec` has its own `known_hosts`, and it starts empty. A play whose hosts are trusted only in the operator's file fails verification before the key is offered
 
 `faramir doctor` reports how many host keys the executor can verify against. Both flags: [installing.md](installing.md#what-each-flag-sets). Which login a bare `ssh host` uses, which files it verifies against, and how to pin host keys across a fleet: [operating.md](operating.md#rules-a-command-does-not-state).
 

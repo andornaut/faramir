@@ -12,7 +12,7 @@ func newStatusCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     brokerclient.OpStatus,
 		Short:   "Show what the broker loaded and what it can reach",
-		GroupID: groupOperator,
+		GroupID: groupAgent,
 		Args:    noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			// Only run has --quiet.

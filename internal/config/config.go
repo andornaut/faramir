@@ -33,6 +33,9 @@ const (
 	keyCommand = "command"
 	// keyStrict is the TOML key both entry kinds tighten a rule with.
 	keyStrict = "strict"
+	// keyDerivedFrom is the TOML key a [[secret.block]] entry names the declared
+	// path it was resolved out of with. Written by `block add` and not by hand.
+	keyDerivedFrom = "derived_from"
 	// keyAllowedUser is the key the two internal sockets name their one client
 	// with, and keyKey is [ssh] key as well as the selector a link reads with.
 	keyAllowedUser = "allowed_user"

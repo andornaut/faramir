@@ -66,6 +66,12 @@ func TestBlockedPathValidation(t *testing.T) {
 		"two of one path": {"[[secret.block]]\npath = \"/a/b\"\n\n[[secret.block]]\npath = \"/a/b\"",
 			"more than one entry"},
 		"not a table": {"[secret]\nblock = \"/a/b\"", "expected [[secret.block]] tables"},
+		"derived_from on a command": {"[[secret.block]]\ncommand = \"op read\"\n" +
+			"derived_from = \"/home/op/.app.json\"", "applies to a path entry only"},
+		"derived_from naming its own path": {"[[secret.block]]\npath = \"/a/b\"\n" +
+			"derived_from = \"/a/b\"", "names the entry's own path"},
+		"a relative derived_from": {"[[secret.block]]\npath = \"/a/b\"\n" +
+			"derived_from = \"op/.app.json\"", "derived_from"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := load(t, minimal+"\n"+tc.body+"\n")
@@ -238,6 +244,9 @@ func TestEveryBlockedFormRoundTrips(t *testing.T) {
 		{"directory path", `path = "/home/op/.ssh"`, BlockedPath{Path: "/home/op/.ssh"}},
 		{"command", `command = "op read"`, BlockedPath{Command: "op read"}},
 		{"command with a flag", `command = "sops -d"`, BlockedPath{Command: "sops -d"}},
+		{"a derived path", "path = \"/home/op/dotfiles/app.json\"\n" +
+			"derived_from = \"/home/op/.app.json\"",
+			BlockedPath{Path: "/home/op/dotfiles/app.json", DerivedFrom: "/home/op/.app.json"}},
 	} {
 		t.Run(tc.form, func(t *testing.T) {
 			cfg, err := load(t, minimal+"\n[[secret.block]]\n"+tc.entry+"\n")

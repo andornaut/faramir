@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -45,7 +46,7 @@ func newReadLinkCmd() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&path, "path", "", "the file to read")
-	c.Flags().StringVar(&kind, "type", "", "how to read the file: text, base64, json, yaml, toml or ini")
+	c.Flags().StringVar(&kind, "type", "", "how to read the file: "+strings.Join(secretlink.Kinds(), ", "))
 	c.Flags().StringVar(&key, "key", "", "the entry to select from the file")
 	return c
 }

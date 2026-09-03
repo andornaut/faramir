@@ -31,7 +31,7 @@ func diagnoseAgentRuleDrift(report *Report, opts Options) {
 	if opts.AgentUser == "" {
 		report.unaskedf("agent rule drift", 1, "the agent account is not named, "+
 			"so the agent rule files were not read. Run doctor through sudo (SUDO_USER "+
-			"names the account), or record it with `faramir init --agent-user`")
+			"names the account), or record it with `sudo faramir init --agent-user`")
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)
@@ -133,7 +133,7 @@ func diagnoseAgentCode(report *Report, opts Options) {
 	if opts.AgentUser == "" {
 		report.unaskedf(name, 1, "the agent account is not named, so its plugin "+
 			"and hook files were not compared with what `faramir init` writes. Run doctor "+
-			"through sudo (SUDO_USER names the account), or record it with `faramir init "+
+			"through sudo (SUDO_USER names the account), or record it with `sudo faramir init "+
 			"--agent-user`")
 		return
 	}
@@ -253,7 +253,7 @@ func denyRuleCoverage(report *Report, opts Options, name string,
 	if opts.AgentUser == "" {
 		report.unaskedf(name, len(paths), "the agent account is not named, so "+
 			"the deny rules were not compared with the %s. Run doctor through sudo "+
-			"(SUDO_USER names the account), or record it with `faramir init --agent-user`", counted)
+			"(SUDO_USER names the account), or record it with `sudo faramir init --agent-user`", counted)
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)

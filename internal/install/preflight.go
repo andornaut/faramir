@@ -34,7 +34,7 @@ func (r *runner) preflight() error {
 		// they read what the config records, and `init` is what records it.
 		return errors.New("name the account the coding agent runs as: run this through " +
 			"sudo so SUDO_USER names it, or record it with " +
-			"`faramir init --agent-user`. It must not be root")
+			"`sudo faramir init --agent-user`. It must not be root")
 	}
 	if !hostfs.UserExists(r.opts.AgentUser) {
 		return fmt.Errorf("no such user: %s", r.opts.AgentUser)

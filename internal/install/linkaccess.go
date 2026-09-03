@@ -32,9 +32,15 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// A symlink reaching here is one nothing resolved: an add resolves the path
+	// it is given, so an entry naming a link was written by hand, or the link was
+	// made after the entry. Refused either way, the grant and the regroup below
+	// landing on the target while the mode read here is the link's.
 	if info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Sprintf("%s is a symlink. A link must name the file that holds "+
-			"the value: name the symlink's target instead", link.Path), nil
+			"the value, the group and the mode being set on that file: name %s "+
+			"instead. Re-adding the entry does this for you, and blocks the "+
+			"spelling you typed", link.Path, linkTarget(link.Path)), nil
 	}
 	// A directory above it answers for the file whatever the file's own bits say,
 	// so it is asked first.
@@ -199,6 +205,21 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		return Report{}, false, err
 	}
 	configDir := configDirOr(opts.ConfigDir)
+	// The spelling the operator typed, kept before it is resolved. The entry has
+	// to name the file that holds the value, the grant and the regroup landing
+	// there whatever name reached it, so a symlink is resolved rather than
+	// refused. What was typed does not go to waste: the rules match the path a
+	// command names, and the name the agent has is the one that was typed.
+	typed := link.Path
+	if target, err := filepath.EvalSymlinks(link.Path); err == nil {
+		link.Path = target
+	}
+	if link.Path != typed {
+		if err := config.ValidateLink(link); err != nil {
+			return Report{}, false, fmt.Errorf("%s resolves to %s, which cannot be an "+
+				"entry: %w", typed, link.Path, err)
+		}
+	}
 	// A linked path renders the same subject a blocked one does, covering the
 	// path and everything under it, so the tree rule is the same rule: an entry
 	// naming an enrolled tree refuses the agent every file in the directory it
@@ -208,6 +229,10 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	}
 	configFile := filepath.Join(configDir, "config.toml")
 	if err := recordConfigDigest(&opts, configFile); err != nil {
+		return Report{}, false, err
+	}
+	opts, derived, err := withLinkDerivation(opts, configDir, typed, link)
+	if err != nil {
 		return Report{}, false, err
 	}
 	existing, err := config.BaseLinks(configFile)
@@ -232,10 +257,12 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 				}
 			}
 			report, err := reassertLink(opts, updated, link)
+			derived.say(&report, typed, link)
 			// Changed: the rules this renders are not the ones the host had.
 			return report, err == nil, err
 		}
 		report, err := reassertLink(opts, existing, link)
+		derived.say(&report, typed, link)
 		return report, false, err
 	}
 	// Blocked rather than recorded: a link nothing could verify may refuse every
@@ -287,7 +314,82 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	if err != nil {
 		return report, false, err
 	}
+	derived.say(&report, typed, link)
 	return report, true, nil
+}
+
+// linkDerivation is the blocked entry a symlinked link path yields: the
+// spelling the operator typed, kept as a rule of its own because the entry
+// itself had to be moved to the target.
+//
+// Three states, which the report says differently. Nothing was derived, the
+// path having been the file itself. One was written, so both names are refused.
+// Or one was declined, and the file is still reachable under the name that was
+// typed, which is the case an operator must not be left assuming was closed.
+type linkDerivation struct {
+	entry   config.BlockedPath
+	written bool
+}
+
+// withLinkDerivation folds the derived entry into the options an add is about
+// to render, leaving them alone where a link's path named the file directly.
+//
+// Set on the options rather than written separately: the entries and the rules
+// are rendered from one layout, so this lands in the same config write as the
+// link and there is no half-applied state to put back.
+func withLinkDerivation(opts Options, configDir, typed string,
+	link config.Link) (Options, linkDerivation, error) {
+	if typed == link.Path {
+		return opts, linkDerivation{}, nil
+	}
+	// The strictness of the entry it stands in for: one flag, one meaning, on
+	// whichever entry names the file.
+	entry := config.BlockedPath{Path: typed, Strict: link.Strict, DerivedFrom: link.Path}
+	if !derivable(configDir, entry) {
+		return opts, linkDerivation{entry: entry}, nil
+	}
+	existing, err := config.BaseBlocked(filepath.Join(configDir, "config.toml"))
+	if err != nil {
+		return opts, linkDerivation{}, fmt.Errorf("%s: %w", configDir, err)
+	}
+	entries, _ := foldBlocked(existing, []config.BlockedPath{entry})
+	opts.blocked, opts.blockedSet = entries, true
+	return opts, linkDerivation{entry: entry, written: true}, nil
+}
+
+// say is what the report tells an operator who typed a symlink. Both outcomes
+// are worth a line, and so is the resolution itself: the entry names a file
+// they did not type, and the grant and the group went to that file.
+func (d linkDerivation) say(report *Report, typed string, link config.Link) {
+	if d.entry.Path == "" {
+		return
+	}
+	said := fmt.Sprintf("%s is a symlink, so %s names %s, which is the file the "+
+		"broker was granted and the file whose group was changed",
+		config.Shown(typed), config.Shown(link.Ref), config.Shown(link.Path))
+	if d.written {
+		report.Warnings = append(report.Warnings, said+fmt.Sprintf(
+			". %s is blocked as well, a rule matching the path a command names, so "+
+				"either spelling is refused. `faramir link rm %s` takes both",
+			config.Shown(typed), config.Shown(link.Ref)))
+		return
+	}
+	report.Warnings = append(report.Warnings, said+fmt.Sprintf(
+		". %s is not blocked: it is an enrolled tree or a path no entry may name, "+
+			"so a command naming it reaches the file. The value is still replaced "+
+			"in any output, the link having put it in the redactor",
+		config.Shown(typed)))
+}
+
+// linkTarget is what a path resolves to, or the path itself where nothing
+// resolves it. For a message about a link that was not resolved: an entry
+// written by hand, or a file that became a symlink after it was added.
+func linkTarget(path string) string {
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path
+	}
+	return target
 }
 
 // refuseShadowedRef refuses an entry naming a ref the managed store already
@@ -433,6 +535,10 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	// kept is existing where nothing matched, so the steps below re-render what
 	// is already there and report no change.
 	opts.links, opts.linksSet = kept, true
+	opts, cascaded, err := withoutLinkDerivation(opts, configFile, removed)
+	if err != nil {
+		return Report{}, config.Link{}, err
+	}
 	if err := keepInstalledGrant(&opts, configDirOr(opts.ConfigDir)); err != nil {
 		return Report{}, config.Link{}, err
 	}
@@ -441,7 +547,46 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 		return Report{}, config.Link{}, err
 	}
 	report, err := run.apply(run.linkSteps())
+	if err == nil && cascaded.Path != "" {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"%s is no longer blocked either: it is the spelling %s was added under, "+
+				"and the entry for it was written by that add",
+			config.Shown(cascaded.Path), config.Shown(removed.Ref)))
+	}
 	return report, removed, err
+}
+
+// withoutLinkDerivation drops the blocked entry an add derived from this link,
+// the counterpart of withLinkDerivation. The entry was written because the link
+// reached the file under that name, so it goes when the link does: left behind
+// it would be a rule no entry explains, and a converge would report it as one
+// nobody declared.
+//
+// A ref this install does not carry removes nothing, which is the zero Link
+// this is given and the zero entry it answers with.
+func withoutLinkDerivation(opts Options, configFile string,
+	removed config.Link) (Options, config.BlockedPath, error) {
+	if removed.Path == "" {
+		return opts, config.BlockedPath{}, nil
+	}
+	existing, err := config.BaseBlocked(configFile)
+	if err != nil {
+		return opts, config.BlockedPath{}, fmt.Errorf("%s: %w", configFile, err)
+	}
+	var cascaded config.BlockedPath
+	kept := make([]config.BlockedPath, 0, len(existing))
+	for _, entry := range existing {
+		if entry.DerivedFrom == removed.Path {
+			cascaded = entry
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	if cascaded.Path == "" {
+		return opts, config.BlockedPath{}, nil
+	}
+	opts.blocked, opts.blockedSet = kept, true
+	return opts, cascaded, nil
 }
 
 // Links is what the install declares, for `faramir link ls`.

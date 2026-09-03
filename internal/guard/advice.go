@@ -106,8 +106,8 @@ const adviceLinkedStrictPath = "Blocked: a link reads this file on this host" + 
 const adviceOwnPath = "Blocked: this is one of faramir's own directories" + adviceNamed + "\n\n" + adviceRefs +
 	" A brokered command cannot reach the directory either: `faramir run` holds the same rules and " +
 	"runs as an account with less access than yours.\n\nThere is no entry to remove. These rules " +
-	"are rendered from the install's layout on every run and appear in neither `faramir block ls` " +
-	"nor `faramir link ls`. If this is deliberate, ask the operator."
+	"are rendered from the install's layout on every run: `faramir block ls` shows them under " +
+	"the built-in rules, and `faramir block rm` refuses them. If this is deliberate, ask the operator."
 
 // adviceDeclared is the safe default, for a rule no marker classified. It says
 // what is true of any declared path and leaves the reader to find which kind
@@ -120,8 +120,8 @@ const adviceDeclared = "Blocked: this path is in the blocks or the links on this
 	"\n\nOtherwise ask the operator, who can unblock it: `sudo faramir block rm --path <path>` " +
 	"for a blocked path, `faramir link rm` for a file a link reads. Both write the config and " +
 	"need root. `faramir block ls` and `faramir link ls` show which it is, and you may run both. " +
-	"The install's own directories are on neither list and cannot be removed: their rules are " +
-	"rendered from the layout on every run."
+	"The install's own directories are listed by `faramir block ls` under the built-in rules and " +
+	"cannot be removed: their rules are rendered from the layout on every run."
 
 // adviceCommand is for a `[[secret.block]]` entry naming a command rather than a
 // path. The remedy is the same shape and the subject is not: telling somebody

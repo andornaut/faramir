@@ -191,11 +191,18 @@ type = {{quote .Type}}
 # changes nothing for the agent's own shell, which refuses a declared path named
 # at all either way. Off unless the operator asked for it: a file nothing may
 # touch is a file nothing may rotate either.
+#
+# derived_from names the declared path a symlink was resolved out of. `block
+# add` on a link writes the target as a second entry carrying it, both spellings
+# reaching the same file and a rule matching the one a command names. It is
+# written here rather than resolved on the fly so that `block rm` on the link
+# takes the target with it, and so a converge can tell the two apart.
 {{range .Blocked}}
 [[secret.block]]
 {{if .Command}}command = {{quote .Command}}
 {{else}}path = {{quote .Path}}
 {{end}}{{if .Strict}}strict = true
+{{end}}{{if .DerivedFrom}}derived_from = {{quote .DerivedFrom}}
 {{end}}{{end}}{{end}}
 [audit]
 log_path = "{{.LogDir}}/audit.log"

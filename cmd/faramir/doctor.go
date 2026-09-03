@@ -36,7 +36,7 @@ func newDoctorCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "doctor [options]",
 		Short:   "Check the install and report what is wrong",
-		GroupID: groupProvisioning,
+		GroupID: groupOperator,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runDoctor(f)) },
 	}
@@ -253,7 +253,7 @@ func printNotAsked(w io.Writer, paint termui.Palette, count int) {
 		// "Most", not "each": want of systemd, of sops on the PATH, or of a broker
 		// holding values is counted here too, and root changes none of those.
 		note += " Most of them have to read a file or run a command as an account " +
-			"that is not yours: the operator can re-run doctor as root, and what " +
+			"that is not yours: the operator can run `sudo faramir doctor`, and what " +
 			"root does not answer stays listed with its own reason."
 	}
 	_, _ = fmt.Fprintln(w)

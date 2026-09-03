@@ -218,11 +218,13 @@ func (t *Target) FamilyName() string {
 var Targets = map[string]*Target{
 	"claude": {
 		Name: "claude",
-		// The only tree file any agent still gets, and for the only thing that
-		// costs a permission: the hook that rewrites a command has to approve it,
-		// and that approval covers every command the deny list does not name. An
-		// operator takes that trade one tree at a time. Everything else Claude Code
-		// gets is account-wide, including a deny-only copy of this hook.
+		// A tree-level settings file, which only Claude Code and Codex get, for
+		// the only thing that costs a permission: the hook that rewrites a command
+		// has to approve it, and that approval covers every command the deny list
+		// does not name. An operator takes that trade one tree at a time. The
+		// tree instructions file below is the other thing a tree gets. Everything
+		// else Claude Code gets is account-wide, including a deny-only copy of
+		// this hook.
 		Files: []File{
 			{Path: ".claude/settings.local.json", Asset: "agent/claude/settings.local.json.tmpl", Mode: 0o640, Merge: true, Local: true},
 		},

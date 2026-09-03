@@ -29,7 +29,7 @@ import (
 func (p *project) preflight() error {
 	if p.opts.AgentUser == "" || p.opts.AgentUser == "root" {
 		return fmt.Errorf("no agent account is named for %s. Run this through sudo so "+
-			"SUDO_USER names it, or record it with `faramir init --agent-user`. Running "+
+			"SUDO_USER names it, or record it with `sudo faramir init --agent-user`. Running "+
 			"as root without one would chown the tree away from its owner", p.opts.Dir)
 	}
 	if os.Geteuid() != 0 && !p.opts.DryRun {
@@ -341,7 +341,7 @@ func (p *project) resolveGroup() error {
 	}
 	if cfg.Server.AllowedGroup == "" {
 		return fmt.Errorf("%s names no allowed group, so no account could reach a shared tree. "+
-			"Run `faramir init --client-group NAME`", configFile)
+			"Run `sudo faramir init --client-group NAME`", configFile)
 	}
 	p.report.ClientGroup = cfg.Server.AllowedGroup
 	return nil

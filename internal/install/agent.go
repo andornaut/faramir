@@ -51,7 +51,7 @@ func (r *runner) stepAgentConfig() error {
 		// is a home with no agent in it.
 		r.step(steps.LabelAgentConfig, false, fmt.Sprintf(
 			"no coding agent found in %s, so no deny rules were written. "+
-				"`faramir init --agent NAME` writes them anyway (%s)",
+				"`sudo faramir init --agent NAME` writes them anyway (%s)",
 			r.operatorHome, strings.Join(agentcfg.Known(), ", ")))
 		r.step("agent instructions", false, "no coding agent found, so no credentials "+
 			"section was written")

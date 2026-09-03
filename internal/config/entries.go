@@ -90,6 +90,20 @@ type BlockedPath struct {
 	// Not for a command entry, which is already about what a command does: an
 	// entry may not carry both.
 	Strict bool `json:"strict,omitempty"`
+
+	// DerivedFrom is the declared path this entry was resolved out of, empty on
+	// an entry an operator wrote. `block add` on a symlink records the target as
+	// a second entry carrying this, because a rule matches the path a command
+	// names and both spellings reach the same file: an entry for the link alone
+	// leaves the target readable under its own name.
+	//
+	// It is what tells the two apart afterwards. `block rm` on the declared path
+	// takes the derived entry with it, and `block ls` reports it as derived, so a
+	// configuration manager converging its own list does not read one as an entry
+	// nobody declared and remove it. An operator who declares the target on its
+	// own account clears the field, and the entry stops being the link's to
+	// remove.
+	DerivedFrom string `json:"derived_from,omitempty"`
 }
 
 // Blocks is what an entry names, whichever form it took, for a message or a
@@ -142,7 +156,7 @@ func ValidateLink(link Link) error { return validateLink(link, "[[secret.link]]"
 // The entry tables inside [secret], which are not sections of their own.
 var (
 	linkKeys  = []string{"ref", keyPath, "type", keyKey, keyStrict}
-	blockKeys = []string{keyPath, keyCommand, keyStrict}
+	blockKeys = []string{keyPath, keyCommand, keyStrict, keyDerivedFrom}
 )
 
 // loadLinks validates every [[secret.link]] entry. Checked at load rather than
@@ -241,6 +255,9 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		if refused.Strict, err = boolean(entry[keyStrict], at, keyStrict, false); err != nil {
 			return nil, err
 		}
+		if refused.DerivedFrom, err = str(entry[keyDerivedFrom], at, ""); err != nil {
+			return nil, err
+		}
 		if err := validateBlocked(refused, at); err != nil {
 			return nil, err
 		}
@@ -302,6 +319,15 @@ func validateBlocked(blocked BlockedPath, at string) error {
 				"refused to the agent's shell and to brokered commands. Remove the key",
 				at, keyStrict)
 		}
+		// Refused for the reason strict is: a command entry names no file, so
+		// there is no symlink for one to have been resolved out of, and an entry
+		// carrying it would be taken back by a `block rm` of a path it has
+		// nothing to do with.
+		if blocked.DerivedFrom != "" {
+			return fmt.Errorf("%s: %s applies to a path entry only: it names the "+
+				"declared path a symlink was resolved out of, and a command entry "+
+				"names no file. Remove the key", at, keyDerivedFrom)
+		}
 		return validateBlockedCommand(blocked.Command, at)
 	}
 	return validateBlockedPath(blocked, at)
@@ -335,21 +361,54 @@ func validateBlockedPath(refused BlockedPath, at string) error {
 	if refused.Path == "" {
 		return fmt.Errorf("%s: path or command is required", at)
 	}
-	return validateRulePath(refused.Path, at)
+	if err := validateRulePath(keyPath, refused.Path, at); err != nil {
+		return err
+	}
+	return validateDerivedFrom(refused, at)
 }
 
-// validateRulePath holds a path to what a deny rule can carry. Both forms that
-// render one are held to it: a blocked path and a linked path reach the same
-// subject and the same rules, so a spelling that renders a rule matching nothing
-// is the same fault whichever wrote it.
-func validateRulePath(path, at string) error {
+// validateDerivedFrom holds the back-reference a derived entry carries. Written
+// by `block add` rather than by hand, and checked all the same: the config is a
+// file an operator edits, and a back-reference naming nothing would leave the
+// entry unremovable by the path that put it there.
+//
+// Held to what a declared path is held to, because that is what it names: the
+// entry it points at is one `block rm` takes, and a spelling that no declared
+// entry could carry matches none of them.
+func validateDerivedFrom(refused BlockedPath, at string) error {
+	if refused.DerivedFrom == "" {
+		return nil
+	}
+	if err := refuseControl(keyDerivedFrom, refused.DerivedFrom, at); err != nil {
+		return err
+	}
+	// A path resolves to itself when it is not a symlink, so an entry saying so
+	// is one nothing derived. It would also make `block rm` on the path remove
+	// the entry twice over, once as itself and once as its own derivation.
+	if refused.DerivedFrom == refused.Path {
+		return fmt.Errorf("%s: %s names the entry's own path. It names the declared "+
+			"path a symlink was resolved out of, which is a different file. Remove "+
+			"the key", at, keyDerivedFrom)
+	}
+	return validateRulePath(keyDerivedFrom, refused.DerivedFrom, at)
+}
+
+// validateRulePath holds a path to what a deny rule can carry. Every form that
+// renders one is held to it: a blocked path, a linked path and the target a
+// blocked symlink derived reach the same subject and the same rules, so a
+// spelling that renders a rule matching nothing is the same fault whichever
+// wrote it.
+//
+// key is the TOML key the path was read from, so a refusal names the one the
+// operator would go and edit rather than the word "path" three keys share.
+func validateRulePath(key, path, at string) error {
 	if strings.HasPrefix(path, "~") {
-		return fmt.Errorf("%s: path %q starts with ~, and nothing expands here. "+
-			"Write the path in full", at, Shown(path))
+		return fmt.Errorf("%s: %s %q starts with ~, and nothing expands here. "+
+			"Write the path in full", at, key, Shown(path))
 	}
 	if !filepath.IsAbs(path) {
-		return fmt.Errorf("%s: path %q is relative. A deny rule matches the full "+
-			"path the agent names, so write it in full", at, Shown(path))
+		return fmt.Errorf("%s: %s %q is relative. A deny rule matches the full "+
+			"path the agent names, so write it in full", at, key, Shown(path))
 	}
 	// A rule is a literal string in someone else's config, so the path that
 	// reaches it has to be the one an agent would name. "/etc/./k" and "/etc/k"
@@ -357,14 +416,14 @@ func validateRulePath(path, at string) error {
 	// file still opens either way, so a link written this way works while the
 	// rule rendered from it protects nothing.
 	if clean := filepath.Clean(path); clean != path {
-		return fmt.Errorf("%s: path %q is not in its shortest form, and a deny rule "+
-			"matches the path as written. Use %q", at, Shown(path), Shown(clean))
+		return fmt.Errorf("%s: %s %q is not in its shortest form, and a deny rule "+
+			"matches the path as written. Use %q", at, key, Shown(path), Shown(clean))
 	}
 	// "/" would render a rule refusing the whole filesystem, which fails closed
 	// and leaves the agent unable to read anything at all.
 	if path == "/" {
-		return fmt.Errorf("%s: path is /, which would refuse the agent every file "+
-			"on the host. Name the file or the directory that holds it", at)
+		return fmt.Errorf("%s: %s is /, which would refuse the agent every file "+
+			"on the host. Name the file or the directory that holds it", at, key)
 	}
 	// One wildcard is accepted and only in one place: a trailing "*" on the last
 	// component, after at least one literal character. That form names a file
@@ -395,20 +454,20 @@ func validateRulePath(path, at string) error {
 	if literal, isPrefix := strings.CutSuffix(path, "*"); isPrefix &&
 		!strings.HasSuffix(literal, "/") && !strings.ContainsAny(literal, globChars) {
 		if filepath.Dir(literal) == "/" {
-			return fmt.Errorf("%s: path %q puts a wildcard in a top-level name, so the "+
+			return fmt.Errorf("%s: %s %q puts a wildcard in a top-level name, so the "+
 				"rule would match every directory under / whose name begins that way. "+
-				"Put the wildcard inside a named directory", at, Shown(path))
+				"Put the wildcard inside a named directory", at, key, Shown(path))
 		}
 		return nil
 	}
 	if i := strings.IndexAny(path, globChars); i >= 0 {
-		return fmt.Errorf("%s: path %q contains %q. A path is matched as written, not "+
+		return fmt.Errorf("%s: %s %q contains %q. A path is matched as written, not "+
 			"expanded, so the rule would refuse only a command typing that pattern "+
 			"and leave the files readable. The only wildcard allowed is a trailing "+
 			"%q after at least one literal character in the last component. "+
 			"Otherwise name the directory that holds the files, which covers "+
 			"everything under it",
-			at, Shown(path), string(path[i]), "*")
+			at, key, Shown(path), string(path[i]), "*")
 	}
 	return nil
 }
@@ -458,7 +517,7 @@ func validateLink(link Link, at string) error {
 			"[[secret.block]] entry may end in a wildcard", at,
 			Shown(link.Path))
 	}
-	if err := validateRulePath(link.Path, at); err != nil {
+	if err := validateRulePath(keyPath, link.Path, at); err != nil {
 		return err
 	}
 	if link.Type == "" {

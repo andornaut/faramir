@@ -22,7 +22,7 @@ Agent | Registered in | Enrolment cost
 --- | --- | ---
 [Antigravity CLI](https://antigravity.google/docs/cli/) (`agy`) | `PreToolUse` hook in `~/.gemini/config/hooks.json`; deny rules in `~/.gemini/antigravity-cli/settings.json`; credentials section in `.agents/rules/faramir.md`, the tree's own `AGENTS.md` and `~/.gemini/GEMINI.md` | None. The permission check runs before the hook, so the hook's allow approves nothing that would have prompted
 [Antigravity IDE](https://antigravity.google/) | The same hook and the same prose. No account-wide rule file: the hook refuses its file tools instead | None
-[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook and a credentials section in `CLAUDE.md` in the tree | Bash runs without asking, except what the deny list refuses. That list names credential disclosure only, nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
+[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; the routing hook in `.claude/settings.local.json` and a credentials section in `CLAUDE.md`, both in the tree | Bash runs without asking, except what the deny list refuses. That list names credential disclosure only, nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
 [Codex](https://developers.openai.com/codex/cli/) | A deny-only `PreToolUse` hook in `~/.codex/hooks.json`; the routing hook in `.codex/hooks.json` and a credentials section in `AGENTS.md` in the tree | Same as Claude Code, and only when Codex runs with approvals on. Codex has no rule file an install can write, so the hook is what refuses its file tools, `apply_patch` included
 [Kilo Code](https://kilo.ai/) | [`tool.execute.before` plugin](https://kilo.ai/docs/automate/extending/plugins) in `~/.config/kilo/plugin/`, loaded by the CLI and the VS Code extension; deny patterns in `~/.config/kilo/kilo.json` | None. A plugin has no allow to return, so one that has not denied has not approved
 [opencode](https://open-code.ai/) | [The same plugin API](https://open-code.ai/en/docs/plugins) in `~/.config/opencode/plugin/`; deny patterns in `~/.config/opencode/opencode.json` | Same as Kilo Code
@@ -75,7 +75,7 @@ Failure | Why
 **Every managed value, not only the injected ones.** `env_refs` scopes one command's environment, not what a brokered command can reach | The executor is in the client group, so a brokered command is itself a broker client and can ask for a second command with any ref injected. Redaction still covers what comes back through the broker
 **Network egress** | Out of scope. No iptables, namespaces or proxy allowlist
 **Anything at rest** | The uid boundaries hold only while the machine runs. Full-disk encryption is the measure. `--allow-sudo` mints no credential, so a stolen disk carries nothing that can sudo here
-**Unenrolled projects.** The value set is global | A command in a project you never enrolled can print a managed value uncaught
+**Unenrolled trees.** The value set is global | A command in a tree you never enrolled can print a managed value uncaught
 **Credentials faramir does not manage.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials` | The deny rules cover this install's own paths. Declare anything else with [`faramir block`](docs/configuration.md#blocked-paths). An install that declares nothing refuses nothing
 
 ## How it works
@@ -107,7 +107,7 @@ One call, end to end:
 - Children run on a PTY, so programs behave normally. They get no controlling terminal, so `/dev/tty` cannot be opened: a prompt that would have gone there falls back to stderr, which the redactor reads. The cost is that stdout and stderr arrive merged.
 - ANSI escapes are stripped before matching. base64, base32, hex, URL, JSON and shell quoting are matched as encodings. A streaming overlap buffer catches a value split across reads.
 - Tokens are stable, so the model can reason about a secret across turns.
-- Two things are outside the value set: a value shorter than `[secret] min_length`, refused at load because it would match inside ordinary words, and the age key, which no child can obtain. `--allow-sudo` adds nothing: escalation mints no credential.
+- Outside the value set: a value shorter than `[secret] min_length`, refused at load because it would match inside ordinary words; a value of 16 KiB or more, refused at load because of what matching it would cost; and the age key, which no child can obtain. `--allow-sudo` adds nothing: escalation mints no credential.
 
 Details in [docs/redaction.md](docs/redaction.md).
 
@@ -161,7 +161,7 @@ From a bare host to a redacted command in six steps.
 2. **Provision the host** with `sudo faramir init`. It creates the accounts, mints the age key, renders the config and the units, and starts the sockets. [What it does](#what-init-does), and [every flag](docs/installing.md).
 3. **Check it** with `sudo faramir doctor`. It reports whether the install works and, as root, what each account can reach. Without root it still runs, and reports what it could not check as unasked rather than as passing. [What it checks](docs/operating.md#checking-an-install).
 4. **Name what this machine should block.** A fresh install refuses its own files and nothing else, so your SSH key is readable by your agent until you say otherwise. [Below](#naming-what-this-machine-should-block).
-5. **Enrol a project** with `cd <project> && sudo faramir enrol`, in the trees where managed credentials are used. [What an enrolment writes, and the three steps before it](#onboarding-a-project).
+5. **Enrol a tree** with `cd <tree> && sudo faramir enrol`, in each tree where managed credentials are used. [What an enrolment writes, and the three steps before it](#onboarding-a-project).
 6. **Run something.** `faramir refs` lists what the broker serves, and `faramir run` gives a command one:
 
 ```bash
@@ -187,6 +187,8 @@ Two forms, each with its own flag, and they mix in one command. Neither is the d
 
 **Name the directory, not the files in it.** `--path ~/.ssh` refuses every key under it, including one named `identity` and whatever an `IdentityFile` line points at. A list of file names covers only the ones you thought of.
 
+**A symlink is recorded at both names.** A rule matches the path a command names, so a dotfiles-managed config blocked under `~/.config/app/config.json` alone stays readable under the checkout path it points at. `block add` resolves the path and writes the target as a second entry; `block rm` on the one you declared takes both away.
+
 Your agent's shell is refused any command that names a declared path. `--strict` extends that to **brokered** commands, which are otherwise still allowed to change the file in place:
 
 ```bash
@@ -204,7 +206,7 @@ A path rule reaches the agent's file tools and its shell. A command rule reaches
 
 The two sides answer differently. Your agent's shell is refused any command that names a declared path, whatever the command would do with it. A brokered command is refused only the commands that would print the file; moving it or writing over it is allowed. A brokered command has to be able to *use* a credential, and the programs that read one without printing it are not a list anybody could finish. [How that line is drawn](docs/configuration.md#the-brokered-route).
 
-`faramir block ls` lists everything in force, including the rules faramir carries itself. It is one of three operator commands that answer in full without root, with `reader ls` and `link ls`.
+`faramir block ls` lists everything in force, including the rules faramir carries itself. It is one of three operator commands that answer in full without root, with `reader ls` and `link ls`; `doctor` also runs without root, and reports less.
 
 Every `block` command is idempotent and reports what changed with `--json`, so a configuration manager can declare the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
 
@@ -215,9 +217,9 @@ Every `block` command is idempotent and reports what changed with `--json`, so a
 1. **Write the values**, one file per thing that consumes them. `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory. The content comes from an editor faramir picks, on a `0600` file in a tmpfs, so no plaintext reaches a disk. The editor runs as root over the decrypted value, so it must be a program only root can change: `--editor`, `$VISUAL` and `$EDITOR` each name one by absolute path with no arguments, and each is held to that check ([how the editor is chosen](docs/operating.md#choosing-the-editor)). Nothing restarts: the next refresh picks the file up. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
 2. **Have the project read each credential from an environment variable** rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
 3. **Write the refs beside the project**, one per line, in a file that holds refs and never values: [the two line forms](docs/integrations.md#onboarding-in-three-steps).
-4. **`cd <project> && sudo faramir enrol`.** Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
+4. **`cd <tree> && sudo faramir enrol`.** Shares the tree so a brokered command can run in it, and configures the agents it detects (Codex from your home).
 
-`faramir init` installs the guard into the agent's home, where it applies in every directory: a command the deny list names is refused wherever the agent is working. That is what a `[[secret.block]]` entry is for. An enrolment adds the credentials section to the tree's own instructions file, and to a file of its own for the two agents that read a different name ([which name](docs/layout.md)), and shares the tree so the broker's account can reach it. For Claude Code it also registers the routing hook, since that is the one agent where routing costs a permission.
+`faramir init` installs the guard into the agent's home, where it applies in every directory: a command the deny list names is refused wherever the agent is working. That is what a `[[secret.block]]` entry is for. An enrolment adds the credentials section to the tree's own instructions file, and to a file of its own for the three agents that read a different name ([which name](docs/layout.md)), and shares the tree so the broker's account can reach it. For Claude Code and Codex it also registers the routing hook in the tree, since those are the two agents whose hook approves as well as rewrites.
 
 What to run in an enrolled tree: [below](#running-commands).
 
@@ -282,7 +284,7 @@ Command | What it is for
 `faramir run --env NAME=faramir://ref -- program args` | Runs the command with the value injected, and returns its output with each value replaced by `«SECRET:ref»`
 `faramir refs` | The names that exist, never the values. Where `run`'s `--env` refs come from
 
-These two are how a value reaches a command. `redact`, `status`, `version`, `help` and `completion` are open to the agent as well. Every other subcommand acts on the install and is the operator's. There is nothing to register: the binary is installed for the account, so the route is the same in every directory on the host, enrolled or not. Wire protocol: [docs/protocol.md](docs/protocol.md).
+These two are how a value reaches a command. `redact`, `status`, `version`, `help` and `completion` are open to the agent as well, and so are the four that only describe the install: `doctor`, `block ls`, `link ls` and `reader ls`. Every other subcommand changes the install or needs root, and is the operator's. There is nothing to register: the binary is installed for the account, so the route is the same in every directory on the host, enrolled or not. Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 ## Configuration
 

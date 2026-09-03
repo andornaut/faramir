@@ -50,7 +50,7 @@ func noGrant(report *Report, cfg *config.Config) bool {
 		return false
 	}
 	report.addf("sudo grant", StatusNA, "no [sudo] section, so brokered "+
-		"commands cannot sudo. This is the default; `faramir init --allow-sudo` "+
+		"commands cannot sudo. This is the default; `sudo faramir init --allow-sudo` "+
 		"enables it")
 	return true
 }
@@ -174,7 +174,7 @@ func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
 		report.addf("sudo grant", StatusFailed, "a faramir block is still in "+
 			"%s, but this host's sudo is the original, which selects %s instead. The "+
 			"block is left from an install made when the `sudo` alternatives group "+
-			"pointed elsewhere. Re-run `faramir init --allow-sudo`", strings.Join(hostlayout.SudoPamStacks(), " or "), pamFile)
+			"pointed elsewhere. Re-run `sudo faramir init --allow-sudo`", strings.Join(hostlayout.SudoPamStacks(), " or "), pamFile)
 		return
 	}
 	// The helper the stack execs, as root. It is named on a requisite line, so a
@@ -185,7 +185,7 @@ func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
 	if _, err := os.Stat(cfg.Sudo.Helper); err != nil {
 		report.addf("sudo grant", StatusFailed, "%s execs %s, which cannot be "+
 			"read (%v). That line is requisite, so no escalation can be approved on this "+
-			"host. Re-run `faramir init --allow-sudo`",
+			"host. Re-run `sudo faramir init --allow-sudo`",
 			pamFile, cfg.Sudo.Helper, err)
 		return
 	}
@@ -212,14 +212,14 @@ func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
 	if !strings.Contains(string(body), "pam_env.so") {
 		report.addf("sudo grant", StatusFailed, "%s has no pam_env line, so %s does not reach a brokered "+
 			"command's sudo: FARAMIR_OPERATOR and [command] env do not survive it. "+
-			"Re-run `faramir init --allow-sudo`",
+			"Re-run `sudo faramir init --allow-sudo`",
 			pamFile, sudoEnv)
 		return
 	}
 	if _, err := os.Stat(sudoEnv); err != nil {
 		report.addf("sudo grant", StatusFailed, "%s, and it cannot be read (%v): the "+
 			"variables a command is given do not survive its sudo. Re-run "+
-			"`faramir init --allow-sudo`", names, err)
+			"`sudo faramir init --allow-sudo`", names, err)
 		return
 	}
 	for _, account := range accounts {
@@ -250,7 +250,7 @@ func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
 		report.addf("sudo grant", StatusWarn, "%s may ask to sudo and %s asks "+
 			"the broker, so escalation works. The arrangement was written for sudo-rs, "+
 			"but this host's sudo is the original, which reads that file as its default "+
-			"service. Re-run `faramir init --allow-sudo` for the arrangement this sudo "+
+			"service. Re-run `sudo faramir init --allow-sudo` for the arrangement this sudo "+
 			"expects",
 			opts.ExecUser, pamFile)
 		return
@@ -278,7 +278,7 @@ func originalSudoOnRsStack(execUser, pamFile string, readErr error, cfg *config.
 	if blockErr != nil || !present {
 		return nil, pamFile, false, fmt.Sprintf("%s is configured to "+
 			"authenticate through %s, which cannot be read (%v), so sudo falls back to "+
-			"%s/other for that account. Re-run `faramir init --allow-sudo`",
+			"%s/other for that account. Re-run `sudo faramir init --allow-sudo`",
 			execUser, pamFile, readErr, hostlayout.PamDir)
 	}
 	if branch := hostsudo.BranchProblem(execUser, cfg.Sudo.Helper); branch != "" {
@@ -302,7 +302,7 @@ func readSudoStack(cfg *config.Config) (body []byte, stack, problem string) {
 	}
 	body, err := hostsudo.Block(stack)
 	if err != nil {
-		return nil, stack, fmt.Sprintf("%s: %v. Re-run `faramir init "+
+		return nil, stack, fmt.Sprintf("%s: %v. Re-run `sudo faramir init "+
 			"--allow-sudo`", stack, err)
 	}
 	return body, stack, ""
