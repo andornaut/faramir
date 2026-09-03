@@ -201,7 +201,7 @@ func (s *Server) refuseForNoise(id, detail string) error {
 		// Answered or expired while the check ran. Nothing to refuse.
 		return err
 	}
-	log.Printf("escalation: %s refused rather than approved: %s", id, detail)
+	log.Printf("escalation: %s refused, not approved: %s", id, detail)
 	s.finish(pending, false, CodeNotQuiescent, "the host was not quiet ("+detail+")")
 	return fmt.Errorf("%w: %s. %s is closed; run the command again once the host "+
 		"is quiet", ErrNotQuiescent, detail, id)

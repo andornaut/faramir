@@ -146,7 +146,7 @@ func resolveCwd(cwd string) (string, error) {
 	if err != nil {
 		if cwd == "" {
 			return "", fmt.Errorf(
-				"the directory to run in cannot be read (%w); name one with -C", err)
+				"the current directory cannot be read (%w); name one with -C", err)
 		}
 		return "", fmt.Errorf("--cwd %s cannot be resolved: %w", cwd, err)
 	}
@@ -186,9 +186,9 @@ func pipedStdin(asked bool) ([]byte, error) {
 		return nil, fmt.Errorf("reading stdin: %w", err)
 	}
 	if len(piped) > config.MaxStdinBytes {
-		return nil, fmt.Errorf("stdin is larger than the %d bytes a brokered "+
-			"command takes: it travels inside one request. Write it to a file the "+
-			"command opens itself", config.MaxStdinBytes)
+		return nil, fmt.Errorf("stdin is larger than %d bytes, the most one "+
+			"request carries. Write it to a file the command opens itself",
+			config.MaxStdinBytes)
 	}
 	return piped, nil
 }
@@ -214,9 +214,9 @@ func refusePipeWithoutTheFlag() error {
 	if !piped || spentPipe() {
 		return nil
 	}
-	return errors.New("something is piped in and -i was not given, so it would " +
-		"reach nothing: pass -i to send it to the command, or redirect from " +
-		"/dev/null to say it is not meant for one")
+	return errors.New("stdin is a pipe but -i was not given, so the input would " +
+		"go nowhere. Pass -i to send it to the command, or redirect stdin from " +
+		"/dev/null")
 }
 
 // spentPipe reports whether standard input is an anonymous pipe that will never
@@ -275,10 +275,10 @@ func fitsOneRequest(request map[string]any, piped int) error {
 		return nil
 	}
 	if piped > 0 {
-		return fmt.Errorf("the command and its %d bytes of input come to %d, and a "+
+		return fmt.Errorf("the command plus its %d bytes of input is %d bytes, and a "+
 			"request is at most %d: shorten the command, or write the input to a "+
 			"file the command opens itself", piped, len(encoded), config.MaxRequestBytes)
 	}
-	return fmt.Errorf("the command comes to %d bytes and a request is at most %d",
+	return fmt.Errorf("the command is %d bytes and a request is at most %d",
 		len(encoded), config.MaxRequestBytes)
 }

@@ -262,7 +262,7 @@ func (r *runner) warnLongSudoTimeout() {
 		return
 	}
 	r.warnf("--sudo-timeout %ds is longer than the %ds a brokered command may run, "+
-		"so a question is held to %ds. Raise --command-max-timeout to allow longer",
+		"so an escalation question waits at most %ds. Raise --command-max-timeout to allow longer",
 		r.opts.SudoTimeoutSec, r.opts.CommandMaxTimeoutSec, r.opts.CommandMaxTimeoutSec)
 }
 

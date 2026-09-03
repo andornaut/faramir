@@ -186,7 +186,7 @@ asop refs 2>/dev/null | grep -q 'faramir://db/password' \
   || bad "the refused add left the broker refusing: $(asop refs 2>&1 | tr '\n' ' ')"
 
 out=$(addlink gone/token $GHDIR/nosuchfile --type text)
-grep -q 'mount it first' <<<"$out" \
+grep -q 'mount the home first' <<<"$out" \
   && ok "a file that is not there is refused, naming the case that explains it" \
   || bad "an absent file was not refused as one: $out"
 
@@ -374,7 +374,7 @@ if grep -q 'npm/token' $CFG; then ok "an ini link is added, key and all"
 else bad "the ini link was refused: $out"; fi
 
 out=$(addlink gh/token $NPMRC --type text)
-grep -q 'already names gh/token' <<<"$out" \
+grep -q 'already defines gh/token' <<<"$out" \
   && ok "a ref defined differently is refused: a ref has one definition" \
   || bad "a duplicate ref was accepted: $out"
 
@@ -423,7 +423,7 @@ grep -q 'not there' <<<"$out" \
   && ok "link ls reports a file that is no longer there" \
   || bad "link ls does not report the missing file: $out"
 snap
-[ "$(st 'linked file access')" = failed ] && grep -q 'not there' <<<"$(dt 'linked file access')" \
+[ "$(st 'linked file access')" = failed ] && grep -q 'missing' <<<"$(dt 'linked file access')" \
   && ok "doctor fails: an entry naming a file that is not there produces no value" \
   || bad "linked file access is $(st 'linked file access'): $(dt 'linked file access')"
 

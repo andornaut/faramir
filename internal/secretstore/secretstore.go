@@ -133,9 +133,8 @@ func (s *Store) Reload() {
 		s.unconfirmed = true
 		s.checkedAt = time.Now()
 		s.mu.Unlock()
-		log.Printf("keeper unreachable, keeping the previous value set "+
-			"unconfirmed and loading again on the next request past the "+
-			"refresh interval: %v", err)
+		log.Printf("keeper unreachable: keeping the previous value set and "+
+			"loading again on the next request after the refresh interval: %v", err)
 		return
 	}
 	// The links, read here rather than asked of the keeper. Merged before the
@@ -150,11 +149,9 @@ func (s *Store) Reload() {
 			// value is on disk and not in the redactor, so a fault of the managed
 			// store's kind and refused the same way.
 			errors = append(errors, fmt.Sprintf("%s: a [[secret.link]] entry claims a "+
-				"ref the managed store already defines. The managed value is what "+
-				"callers get, and the linked file holds a second value for that name "+
-				"which nothing reads and nothing redacts; one of the two is then "+
-				"rotated with nothing reading it, so rename the link or remove the "+
-				"managed value", ref))
+				"ref the managed store already defines. Callers get the managed "+
+				"value, and the linked value is never read or redacted. Rename the "+
+				"link or remove the managed value", ref))
 			continue
 		}
 		values[ref] = linkValues[ref]
@@ -170,8 +167,8 @@ func (s *Store) Reload() {
 	refused := map[string]string{}
 	for ref, value := range values {
 		if !secretref.Valid(ref) {
-			refused[ref] = "is not a name a faramir:// reference can carry, " +
-				"which is letters, digits, and then any of . _ - /"
+			refused[ref] = "is not valid in a faramir:// reference; " +
+				"letters, digits, and then any of . _ - /"
 			continue
 		}
 		if reason := s.Policy.Check(value); reason == "" {
@@ -216,7 +213,7 @@ func (s *Store) Reload() {
 			entries = append(entries, ref+" ("+refused[ref]+")")
 		}
 		log.Printf("%d of %d secrets refused as not redactable, so they are never "+
-			"injected; the reason beside each says what to fix: %s",
+			"injected: %s",
 			len(refused), len(redactable)+len(refused), strings.Join(entries, ", "))
 	}
 	log.Printf("loaded %d vault refs from %d file(s)", len(redactable), len(state))
@@ -389,15 +386,15 @@ func (s *Store) Value(ref string) (string, error) {
 	// was advice for one of them given to both.
 	if reason, ok := s.refused[ref]; ok {
 		return "", fmt.Errorf("secret %s was refused at load: %s. It is neither "+
-			"injected nor redacted; `sudo faramir vault edit` is where it is fixed",
+			"injected nor redacted. Fix it with `sudo faramir vault edit`",
 			ref, reason)
 	}
 	// Nor does a link that did not load. The path is left out deliberately: it is
 	// the location of a credential, and this answer reaches the caller.
 	if reason, ok := s.degradedLinks[ref]; ok {
-		return "", fmt.Errorf("secret %s is linked and did not load: %s. Every "+
-			"other ref is unaffected; `faramir status` names it and `sudo faramir "+
-			"doctor` says what to do about it", ref, reason)
+		return "", fmt.Errorf("secret %s is linked and did not load: %s. Other refs "+
+			"are unaffected. `faramir status` names it, and `sudo faramir "+
+			"doctor` says what to do", ref, reason)
 	}
 	// The remedy, which the two refusals above carry and this one did not: a
 	// well-formed ref that names nothing is a name the caller has to look up,

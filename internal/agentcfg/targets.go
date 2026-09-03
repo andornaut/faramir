@@ -200,11 +200,11 @@ const (
 // quietly, so neither is safe to leave to be discovered. Trust is reported
 // afterwards as well, `doctor` failing on a hook Codex will not run; how Codex
 // was started is not something a later run can know, and is said here alone.
-const codexNote = "Codex does not run a hook it has not been told to trust, and says nothing when " +
-	"it skips one, so until you start Codex once and trust this hook nothing here is " +
-	"routed or refused. Codex must also run without its own sandbox " +
-	"(`codex --dangerously-bypass-approvals-and-sandbox`): sandboxed, it is refused the " +
-	"broker socket, and every command's output is withheld rather than redacted"
+const codexNote = "Codex skips a hook it has not been told to trust, silently, so nothing here is " +
+	"routed or refused until you start Codex once and trust this hook. Codex must also " +
+	"run without its own sandbox (`codex --dangerously-bypass-approvals-and-sandbox`): " +
+	"sandboxed, it cannot reach the broker socket, and every command's output is " +
+	"withheld instead of redacted"
 
 // FamilyName is the tree enrolment this target belongs to, which is the target
 // itself where it shares one with nobody.

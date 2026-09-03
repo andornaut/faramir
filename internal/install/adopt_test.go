@@ -312,7 +312,7 @@ func TestAnAdoptedNotifierIsRefusedInItsOwnName(t *testing.T) {
 	if err == nil {
 		t.Fatal("wrote a config naming a notifier that is not installed")
 	}
-	for _, want := range []string{"notify_command", gone, "is not there", "--notify-command"} {
+	for _, want := range []string{"notify_command", gone, "does not exist", "--notify-command"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal does not say %q: %v", want, err)
 		}

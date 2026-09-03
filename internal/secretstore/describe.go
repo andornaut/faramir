@@ -120,8 +120,8 @@ func (s *Store) Degraded() string {
 	// define it, which is what --check adds for the operator.
 	if len(s.shadowedRefs) > 0 {
 		why = append(why, fmt.Sprintf("%d ref(s) are defined with different "+
-			"values by more than one managed file, so one value is in no "+
-			"redactor: %s", len(s.shadowedRefs), strings.Join(sortedKeys(s.shadowedRefs), ", ")))
+			"values in more than one managed file, so one value is never "+
+			"redacted: %s", len(s.shadowedRefs), strings.Join(sortedKeys(s.shadowedRefs), ", ")))
 	}
 	if len(s.loadErrors) > 0 {
 		// Counted, not quoted: a load error carries the path of a managed file.
@@ -157,7 +157,7 @@ func (s *Store) DegradedCounts() string {
 	}
 	if len(s.shadowedRefs) > 0 {
 		why = append(why, fmt.Sprintf("%d ref(s) are defined with different values "+
-			"by more than one managed file, so one value is in no redactor",
+			"in more than one managed file, so one value is never redacted",
 			len(s.shadowedRefs)))
 	}
 	if len(s.loadErrors) > 0 {

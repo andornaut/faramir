@@ -151,14 +151,14 @@ func resolveProgram(argv0, cwd string, execCfg config.CommandConfig) (string, er
 		}
 	}
 	if found == "" && unrunnable != "" {
-		return "", notExecutablef("%s: %s carries no execute bit, so nothing can "+
-			"run it", argv0, unrunnable)
+		return "", notExecutablef("%s: %s is not executable by any account",
+			argv0, unrunnable)
 	}
 	if found == "" {
-		return "", notFoundf("%s: not found on the broker's PATH (%s). A program "+
-			"installed elsewhere -- a venv, pipx, a version-manager shim -- "+
-			"needs its directory on [command.env] PATH, or an absolute "+
-			"path in cmd[0]", argv0, path)
+		return "", notFoundf("%s: not found on the broker's PATH (%s). For a "+
+			"program installed elsewhere (a venv, pipx, a version-manager shim), "+
+			"add its directory to [command.env] PATH or use an absolute path "+
+			"in cmd[0]", argv0, path)
 	}
 	return realpath(found), nil
 }

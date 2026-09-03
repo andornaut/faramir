@@ -40,12 +40,12 @@ func (s *Server) refuseUnreadable(op, phrase, logID string, peer *sockutil.Peer)
 	// advice for a condition this message cannot carry.
 	out := protocol.ErrorResponse("no_secrets", fmt.Sprintf(
 		"the broker does not hold every managed value, so %s would run with "+
-			"redaction covering less than the config asks for: %s. What did not load "+
-			"is named above and `sudo faramir doctor` says what to do about each; a "+
-			"file the keeper cannot decrypt is usually its age key or its "+
-			"recipients. Where the reason names a [[secret.link]] ref, that entry "+
-			"claims a name the managed store already defines and `sudo faramir link "+
-			"rm REF` is what clears it", phrase, reason), logID)
+			"less redaction than the config asks for: %s. `sudo faramir doctor` "+
+			"says what to do about each file named above; a file the keeper "+
+			"cannot decrypt usually has the wrong age key or recipients. If the "+
+			"reason names a [[secret.link]] ref, that link claims a name the managed "+
+			"store already defines; `sudo faramir link rm REF` removes it",
+		phrase, reason), logID)
 	return &out
 }
 
@@ -112,9 +112,9 @@ func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
 	}
 	log.Printf("%s refusing %s: the audit log cannot be written: %s", logID, phrase, reason)
 	out := protocol.ErrorResponse("no_audit",
-		"the audit log cannot be written, so "+phrase+" was refused rather than "+
-			"run unrecorded: "+reason+". Free space on that filesystem, or point "+
-			"[audit] log_path somewhere with room, and retry", logID)
+		"the audit log cannot be written ("+reason+"), so "+phrase+" was refused: "+
+			"a command that cannot be recorded does not run. Free space on that "+
+			"filesystem, or point [audit] log_path at one with room, and retry", logID)
 	return &out
 }
 

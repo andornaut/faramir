@@ -140,7 +140,7 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 		state, errs, unresolved := StatAll(k.config.Secret)
 		values, decryptErrs, shadowed := DecryptAll(k.config.Secret, k.Keys)
 		errs = append(errs, decryptErrs...)
-		log.Printf("served %d value(s), %d error(s), %d entry(ies) naming nothing",
+		log.Printf("served %d value(s), %d error(s), %d entry(ies) matching no file",
 			len(values), len(errs), len(unresolved))
 		return map[string]any{"values": values, "state": state, "errors": errs,
 			"unresolved_patterns": unresolved, "shadowed_refs": shadowed}

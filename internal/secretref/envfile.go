@@ -84,9 +84,9 @@ func checkEnv(name, uri string) error {
 		// somebody reaching for the shortcut wanted.
 		if uri == "faramir://"+name {
 			if _, err := Parse(uri); err == nil {
-				return fmt.Errorf("%q is a ref, not a name a variable may have. The "+
-					"short form uses one word for both, so a ref spelled like this one "+
-					"needs a variable of its own: --env NAME=%s", name, uri)
+				return fmt.Errorf("%q is a ref, not a valid variable name. The short "+
+					"form uses one word for both, so this ref needs a variable name "+
+					"of its own: --env NAME=%s", name, uri)
 			}
 		}
 		return fmt.Errorf("%q is not a usable environment variable name", name)
@@ -96,9 +96,8 @@ func checkEnv(name, uri string) error {
 		// arrived is either a bare ref, which the example already shows how to
 		// spell, or a pasted value, and quoting that back would put it in the
 		// output this exists to keep it out of.
-		return fmt.Errorf("%s must be a faramir:// reference; "+
-			"secrets are named here, never pasted. The shape is "+
-			"--env %s=faramir://<ref>, and `faramir refs` lists the refs", name, name)
+		return fmt.Errorf("%s must be a faramir:// reference, never a value: "+
+			"--env %s=faramir://<ref>. `faramir refs` lists the refs", name, name)
 	}
 	// The ref itself, not only the scheme. The two namespaces are not the same
 	// shape: an environment variable may open with an underscore and a ref may
@@ -106,7 +105,7 @@ func checkEnv(name, uri string) error {
 	// can hold. Blocked here, with the file and the line, rather than at the
 	// broker with the line long gone.
 	if _, err := Parse(uri); err != nil {
-		return fmt.Errorf("%s names %s, which is not a ref a store can hold: "+
+		return fmt.Errorf("%s names %s, which is not a valid ref: "+
 			"letters, digits, and then any of . _ - /", name, uri)
 	}
 	return nil

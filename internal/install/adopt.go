@@ -104,10 +104,9 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 		if _, statErr := os.Stat(configFile); errors.Is(statErr, os.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("%s is what this install named, and it does not load: %w\n"+
-			"No daemon can load it either, so this host is serving nothing, and "+
-			"re-provisioning over it would replace what says why. Fix the file, or "+
-			"remove it to install fresh", configFile, err)
+		return fmt.Errorf("%s is this install's config and it does not load: %w\n"+
+			"The daemons cannot load it either, so this host is serving nothing. "+
+			"Fix the file, or remove it to install fresh", configFile, err)
 	}
 	if o.ClientGroup == "" && cfg.Server.AllowedGroup != "" {
 		o.ClientGroup = cfg.Server.AllowedGroup

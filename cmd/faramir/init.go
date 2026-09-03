@@ -206,8 +206,8 @@ func runInit(f initFlags) int {
 	// verification: a converge that changed nothing and reports failure, with
 	// nothing in the ending to point at the cause.
 	if why := protocol.NestedRun(); why != "" {
-		fmt.Fprintf(os.Stderr, "faramir init: %s, and its last step would be refused. "+
-			"Run it from a shell of your own\n", why)
+		fmt.Fprintf(os.Stderr, "faramir init: %s, so its last step would be refused. "+
+			"Run it from your own shell\n", why)
 		return 1
 	}
 

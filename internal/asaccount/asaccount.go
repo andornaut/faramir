@@ -34,7 +34,7 @@ import (
 // boundary that does not hold.
 func Output(account string, args ...string) (string, error) {
 	if account == "" {
-		return "", errors.New("no account named, so there is nobody to ask")
+		return "", errors.New("no account named to run the command as")
 	}
 	// Bounded: a probe is a question, and one that hangs holds the whole
 	// examination on the host being diagnosed. Generous, a brokered probe

@@ -119,8 +119,8 @@ func Edit(keyPath, rulePath, editorPath, target string) (bool, error) {
 	if err != nil {
 		// Said plainly: the plaintext goes with the tmpfs directory, and keeping it
 		// would leave a decrypted store on the machine after a failed command.
-		return false, fmt.Errorf("encrypt: %w. The edit was not saved and the "+
-			"decrypted copy has been removed, so make it again once this is fixed", err)
+		return false, fmt.Errorf("encrypt: %w. The edit was not saved, and the "+
+			"decrypted copy was removed. Make it again once this is fixed", err)
 	}
 	if err := unchangedSince(target, before); err != nil {
 		return false, err
@@ -148,8 +148,8 @@ func unchangedSince(path string, before []byte) error {
 	}
 	if !bytes.Equal(now, before) {
 		return fmt.Errorf("%s changed while this was working on it, so nothing was "+
-			"written: another `faramir vault edit`, `reader` or `reseal`, or something "+
-			"writing the file directly, got there first. Run this again", path)
+			"written. Another `faramir vault edit`, `reader` or `reseal`, or a "+
+			"direct write to the file, changed it first. Run this again", path)
 	}
 	return nil
 }

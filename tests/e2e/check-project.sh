@@ -318,7 +318,7 @@ runuser -u $OP -- tee "$B/.claude/settings.local.json" >/dev/null <<'JSON'
 { not json
 JSON
 out=$(enrol "$B" --agent claude 2>&1)
-grep -q 'parsing the file already there' <<<"$out" \
+grep -q 'the existing file does not parse' <<<"$out" \
   && ok "an agent config that does not parse is refused" \
   || bad "an unparseable agent config was not named: ${out:0:120}"
 mode=$(stat -c '%U:%G' "$B")

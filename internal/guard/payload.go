@@ -88,7 +88,7 @@ func decodeToolCall(data []byte) (*payload, error) {
 	// host reads as a call to let through. Refused instead, the way an
 	// unparseable payload is.
 	if doc.ToolCall.Name == "" {
-		return nil, errors.New("no toolCall.name: not this host's payload shape")
+		return nil, errors.New("no toolCall.name: not the payload shape this host sends")
 	}
 	p := &payload{ToolName: doc.ToolCall.Name, RawInput: doc.ToolCall.Args}
 	if command, ok := doc.ToolCall.Args["CommandLine"].(string); ok {

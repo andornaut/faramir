@@ -297,7 +297,7 @@ func appendLine(fh *os.File, line []byte, path string) {
 	// onto it, so one failure would cost two records. Truncating back costs this
 	// one alone.
 	if err := fh.Truncate(end); err != nil {
-		log.Printf("audit could not take back a short write, so the next record "+
-			"appends to a torn line and neither reads back: %v", err)
+		log.Printf("audit could not undo a short write; the next record will "+
+			"append to the torn line and neither will parse: %v", err)
 	}
 }

@@ -244,8 +244,8 @@ func (e *Executor) quiescence() map[string]any {
 	strays, err := e.strays()
 	if err != nil {
 		return map[string]any{"quiescent": false, "detail": fmt.Sprintf(
-			"this host's process table could not be read (%v), so nothing can say "+
-				"whether anything is running as the executor", err)}
+			"this host's process table could not be read (%v), so whether anything "+
+				"is running as the executor is unknown", err)}
 	}
 	if len(strays) == 0 {
 		return map[string]any{"quiescent": true, "detail": "nothing is running as the executor"}

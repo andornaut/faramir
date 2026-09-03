@@ -762,7 +762,7 @@ rules_now() { grep -cvE '^\s*(#|$)' $RULES; }
 before_rules=$(rules_now)
 
 out=$(block add --command "$(printf 'aa\nbb')"); code=$?
-[ $code -ne 0 ] && grep -q 'control\|carries' <<<"$out" \
+[ $code -ne 0 ] && grep -q 'control\|contains' <<<"$out" \
   && ok "block add --command refuses an entry carrying a newline" \
   || bad "block add --command took a newline: exit $code [${out:0:200}]"
 out=$(block add --path "$(printf '/tmp/aa\nbb')"); code=$?

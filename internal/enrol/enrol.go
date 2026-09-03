@@ -131,10 +131,10 @@ func Tree(opts Options) (Report, error) {
 		if err := agentcfg.RecordEnrolment(opts.ConfigDir, agentcfg.EnrolledTree{
 			Dir: dir, AgentUser: opts.AgentUser, Agents: names,
 		}); err != nil {
-			return run.report, fmt.Errorf("%s is enrolled, and recording it in %s "+
-				"failed, so `faramir init` will not maintain it and `faramir doctor` "+
-				"will not check it: %w\nRun this again once whatever else is writing "+
-				"that file has finished", dir, agentcfg.EnrolledPath(opts.ConfigDir), err)
+			return run.report, fmt.Errorf("%s is enrolled, but recording it in %s "+
+				"failed: %w\n`faramir init` will not maintain this tree and `faramir doctor` "+
+				"will not check it until it is recorded. Run this again once nothing "+
+				"else is writing that file", dir, agentcfg.EnrolledPath(opts.ConfigDir), err)
 		}
 	}
 	return run.report, nil

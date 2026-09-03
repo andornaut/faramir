@@ -46,8 +46,8 @@ func SealedTo(path string) ([]string, error) {
 		}
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("%s names no age recipient, so there is nothing to "+
-			"re-encrypt it to; faramir manages age-encrypted files only: %w",
+		return nil, fmt.Errorf("%s has no age recipient, so there is nothing to "+
+			"re-encrypt to; faramir manages age-encrypted files only: %w",
 			path, ErrNoRecipients)
 	}
 	return out, nil

@@ -119,9 +119,9 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 		if sharedStackTarget(path) {
 			return false, nil
 		}
-		return false, fmt.Errorf("%s is a symlink, and a block written through it "+
-			"would land on whatever it points at: replace it with a real file, or "+
-			"install without --allow-sudo", path)
+		return false, fmt.Errorf("%s is a symlink, and a block written through "+
+			"it would land on its target. Replace it with a real file, or install without "+
+			"--allow-sudo", path)
 	}
 	current, err := os.ReadFile(path)
 	if err != nil {
@@ -164,11 +164,11 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 	// looking, and by putting the file back when the answer is no.
 	if problem := spliceProblem(path, current, block); problem != "" {
 		if _, undo := fs.WriteFile(path, current, info.Mode().Perm(), hostfs.Keep, hostfs.Keep); undo != nil {
-			return false, fmt.Errorf("%s: %s, and putting the file back failed too "+
-				"(%w). Restore it by hand before anything else: until it says what it "+
-				"said, this host's sudo is not what its operators expect", path, problem, undo)
+			return false, fmt.Errorf("%s: %s, and restoring the file failed too "+
+				"(%w). Restore it by hand before anything else: until it is back as it was, "+
+				"this host's sudo is not what its operators expect", path, problem, undo)
 		}
-		return false, fmt.Errorf("%s: %s. The file was put back as it was, and "+
+		return false, fmt.Errorf("%s: %s. The file was restored as it was, and "+
 			"nothing was granted", path, problem)
 	}
 	return changed, nil
@@ -184,7 +184,8 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 func spliceProblem(path string, before, block []byte) string {
 	landed, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Sprintf("it cannot be read back (%v), so what landed is unknown", err)
+		return fmt.Sprintf("it cannot be read back (%v), so what was written is "+
+			"unknown", err)
 	}
 	start, end, found, err := placeBlock(landed)
 	switch {

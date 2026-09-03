@@ -50,7 +50,7 @@ func (r *runner) stepValidate() error {
 			// What it does is refuse, not run bare. Said that way round: a warning
 			// that reads as an exposure teaches the wrong reflex for the day a value
 			// set really does fail to load.
-			r.warnf("the broker is configured for %s, which %s named no file yet, so "+
+			r.warnf("the broker is configured for %s, which %s not been written yet, so "+
 				"it serves nothing and refuses every brokered command. Write the "+
 				"secrets directory with sops and re-run",
 				strings.Join(absent, ", "),
@@ -72,11 +72,11 @@ func (r *runner) stepValidate() error {
 		// anything calls healthy, and the remedies are named here rather than
 		// attempted.
 		if report.OnlyDegradedLinks() {
-			r.warnf("%s did not load, so those refs answer nothing: %s. Restore what "+
-				"each names, fix its selector, or take the entry out with "+
-				"`sudo faramir link rm REF`, then `sudo systemctl restart "+
-				"faramir-broker`: a repair that leaves mtime and size alone does not "+
-				"change the broker's view on its own",
+			r.warnf("%s did not load, so those refs return nothing: %s. Restore the "+
+				"file each names, fix its selector, or remove the entry with "+
+				"`sudo faramir link rm REF`, then run `sudo systemctl restart "+
+				"faramir-broker`: the broker does not notice a repair that leaves "+
+				"mtime and size unchanged",
 				brokercheck.LinkEntries(len(report.Secrets.DegradedLinks)), report.DegradedRefs())
 			r.step("validate", false, "installed; linked refs to fix")
 			return nil
@@ -100,9 +100,9 @@ func (r *runner) stepValidate() error {
 			r.step("validate", false, "installed; refs to fix")
 			return nil
 		}
-		return fmt.Errorf("the installed config does not work for %s: %w\nA [secret] file named there is one "+
-			"the broker could not load. A ref under not_redactable needs fixing instead, and a "+
-			"[[secret.link]] entry there claims a ref the managed store defines: remove it "+
+		return fmt.Errorf("the installed config does not work for %s: %w\nA [secret] file named above "+
+			"could not be loaded. A ref under not_redactable needs fixing. A [[secret.link]] "+
+			"entry named above claims a ref the managed store already defines: remove it "+
 			"with `sudo faramir link rm REF`",
 			r.layout.BrokerUser, checkErr)
 	}
@@ -124,8 +124,8 @@ func (r *runner) stepValidate() error {
 	for _, file := range report.Secrets.Files {
 		if strings.Contains(file, "/group_vars/") || strings.Contains(file, "/host_vars/") {
 			return fmt.Errorf("%s is under group_vars/ or host_vars/, which Ansible "+
-				"auto-loads. Every var would resolve to its ENC[...] ciphertext "+
-				"instead of the injected value, silently. Move it to %s",
+				"auto-loads. Every var would silently resolve to its ENC[...] ciphertext "+
+				"instead of the injected value. Move it to %s",
 				file, r.layout.SecretsDir())
 		}
 	}
@@ -165,9 +165,9 @@ func (r *runner) stepValidate() error {
 				agentErr)
 		}
 		if !strings.Contains(out, "SHA256") {
-			return fmt.Errorf("the broker's ssh-agent holds no usable key (%s), though [ssh] key names %s: "+
-				"brokered commands reach no managed host. Check %s can read it and it is not "+
-				"passphrase-protected, then restart faramir-broker",
+			return fmt.Errorf("the broker's ssh-agent holds no usable key (%s), although [ssh] key names %s, "+
+				"so brokered commands cannot reach any managed host. Check that %s can read the key "+
+				"and that it has no passphrase, then restart faramir-broker",
 				strings.TrimSpace(out), r.sshKey, r.layout.BrokerUser)
 		}
 		r.step("broker ssh agent", false, "holds a usable key")

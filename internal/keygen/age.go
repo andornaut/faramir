@@ -118,9 +118,9 @@ func validateRecipient(s string) error {
 			return fmt.Errorf("not an ssh public key: %w", err)
 		}
 	default:
-		return fmt.Errorf("unknown recipient type: %q. sops takes an age recipient "+
+		return fmt.Errorf("unknown recipient type: %q. Give an age recipient "+
 			"(age1...) or an ssh public key (ssh-ed25519 ..., ssh-rsa ...), not a path "+
-			"to one and not an identity file", s)
+			"and not an identity file", s)
 	}
 	return nil
 }

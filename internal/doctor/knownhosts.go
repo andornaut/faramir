@@ -28,7 +28,7 @@ func diagnoseKnownHosts(report *Report, opts Options, cfg *config.Config) {
 	path := layout.ExecKnownHosts()
 	if os.Geteuid() != 0 {
 		report.unaskedf("known hosts", 1, "not asked: reading %s needs root, "+
-			"the executor's home being 0700", path)
+			"because the executor's home is 0700", path)
 		return
 	}
 	// Counted as root and read as the executor, which are different questions:
@@ -52,7 +52,7 @@ func diagnoseKnownHosts(report *Report, opts Options, cfg *config.Config) {
 	// whole fleet.
 	ignored := ""
 	if len(unreadable) > 0 {
-		ignored = fmt.Sprintf(". %s cannot read %s, so nothing in it verifies anything; "+
+		ignored = fmt.Sprintf(". %s cannot read %s, so it verifies nothing; "+
 			"sudo chmod a+r %s", opts.ExecUser, strings.Join(unreadable, " or "),
 			strings.Join(unreadable, " "))
 	}

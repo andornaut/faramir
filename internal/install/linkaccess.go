@@ -33,8 +33,8 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 		return "", err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Sprintf("%s is a symlink, and a link names the file that holds "+
-			"the value: name what it points at instead", link.Path), nil
+		return fmt.Sprintf("%s is a symlink. A link must name the file that holds "+
+			"the value: name the symlink's target instead", link.Path), nil
 	}
 	// A directory above it answers for the file whatever the file's own bits say,
 	// so it is asked first.
@@ -77,8 +77,8 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	if len(fix) == 0 {
 		return "", nil
 	}
-	return fmt.Sprintf("%s (%s) is %s %04o, and a linked file has to be group %s and group-readable, and "+
-		"readable by nobody else:\n%s",
+	return fmt.Sprintf("%s (%s) is %s %04o. A linked file must be group %s, group-readable, and "+
+		"not world-readable:\n%s",
 		config.Shown(link.Path), config.Shown(link.Ref), asaccount.GroupName(info), mode, r.brokerGroupName(),
 		strings.Join(fix, " && ")), nil
 }
@@ -122,8 +122,8 @@ func (r *runner) stepLinkAccess() error {
 		}
 	}
 	if len(faults) > 0 {
-		return fmt.Errorf("%d linked file(s) are not usable as they are, and "+
-			"faramir does not alter a file it does not own:\n\n%s",
+		return fmt.Errorf("%d linked file(s) are not usable as they are. "+
+			"faramir does not change a file it does not own; fix them by hand:\n\n%s",
 			len(faults), strings.Join(faults, "\n\n"))
 	}
 
@@ -132,7 +132,7 @@ func (r *runner) stepLinkAccess() error {
 	if len(absent) > 0 {
 		// Named rather than counted: which file is missing says whether this is a
 		// credential that has gone or a home that is not mounted.
-		detail += fmt.Sprintf("; %d not there: %s",
+		detail += fmt.Sprintf("; %d missing: %s",
 			len(absent), strings.Join(absent, ", "))
 	}
 	// Never changed: this step asks questions and alters nothing.
@@ -241,8 +241,8 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	// Blocked rather than recorded: a link nothing could verify may refuse every
 	// brokered command later, at a moment nobody chose.
 	if _, err := os.Stat(link.Path); err != nil {
-		return Report{}, false, fmt.Errorf("%w\nA link is checked when it is added, so "+
-			"the file has to be there. If this is an encrypted home, mount it first",
+		return Report{}, false, fmt.Errorf("%w\nThe file must exist when the link is "+
+			"added. If it is in an encrypted home, mount the home first",
 			fserr.At(link.Path, err))
 	}
 	// What the file itself answers, asked before anything is altered: the wrong
@@ -326,16 +326,16 @@ func (r *runner) refuseShadowedRef(configFile, ref string) error {
 	out, err := asaccount.Output(r.opts.AgentUser, "env",
 		"FARAMIR_SOCKET="+cfg.Server.SocketPath, asaccount.SelfPath(), "refs")
 	if err != nil {
-		return fmt.Errorf("the broker did not answer, so whether it already serves %s could not be asked, "+
-			"and an entry claiming a name it serves refuses every brokered command. Start it "+
+		return fmt.Errorf("the broker did not answer, so it could not be asked whether it already serves %s. "+
+			"A link that claims a ref the broker serves would refuse every brokered command. Start the broker "+
 			"and run this again (`systemctl start faramir-broker.socket`): %w", ref, err)
 	}
 	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
 		if strings.TrimSpace(line) != "faramir://"+ref {
 			continue
 		}
-		return fmt.Errorf("the broker already serves %s, so a [[secret.link]] entry cannot claim that name: "+
-			"a ref has one definition. Choose another, or take the value out of the managed "+
+		return fmt.Errorf("the broker already serves %s, and a ref has one definition, so a [[secret.link]] "+
+			"entry cannot claim that name. Choose another name, or remove the value from the managed "+
 			"store with `sudo faramir vault edit` first", ref)
 	}
 	return nil
@@ -355,8 +355,8 @@ func linkNamed(existing []config.Link, ref string) (config.Link, bool) {
 // names both sides: which credential a caller of that name receives is the
 // whole of what differs between them, and neither side is visible from the ref.
 func redefinedRef(configFile string, other, link config.Link) error {
-	return fmt.Errorf("%s already names %s, as %s (%s%s), and this asks for %s (%s%s). A ref has one "+
-		"definition: remove that one with `faramir link rm %s`, or choose another name", configFile, link.Ref, other.Path, other.Type, keySuffix(other.Key),
+	return fmt.Errorf("%s already defines %s as %s (%s%s), and this run asks for %s (%s%s). A ref has one "+
+		"definition: remove the existing one with `faramir link rm %s`, or choose another name", configFile, link.Ref, other.Path, other.Type, keySuffix(other.Key),
 		link.Path, link.Type, keySuffix(link.Key), link.Ref)
 }
 
@@ -474,8 +474,8 @@ func (r *runner) probeLink(link config.Link) error {
 		detail = err.Error()
 	}
 	if dir := asaccount.BlockingDir(r.layout.BrokerUser, link.Path); dir != "" {
-		return fmt.Errorf("%s cannot reach %s at %s: it cannot enter %s, so the mode "+
-			"on the file decides nothing. Open that directory to the broker, or keep "+
+		return fmt.Errorf("%s cannot reach %s at %s: it cannot enter %s, so the "+
+			"file's own mode does not matter. Open that directory to the broker, or move "+
 			"the file somewhere it can already reach:\n"+
 			"sudo chgrp %s %s && sudo chmod g+x %s",
 			r.layout.BrokerUser, link.Ref, link.Path, dir,

@@ -46,7 +46,7 @@ func NewPalette(when string) (Palette, error) {
 		}
 		return Palette{on: IsTerminal(os.Stdout)}, nil
 	}
-	return Palette{}, fmt.Errorf("--color=%s: want auto, always or never", when)
+	return Palette{}, fmt.Errorf("--color=%s: must be auto, always or never", when)
 }
 
 func IsTerminal(file *os.File) bool {

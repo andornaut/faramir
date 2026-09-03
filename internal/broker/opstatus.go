@@ -87,8 +87,8 @@ func (s *Server) opRefresh(peer *sockutil.Peer) protocol.Response {
 		// than answered, so the caller reports the interval it is now waiting on
 		// instead of telling an operator the store has been re-read.
 		return protocol.ErrorResponse("busy", fmt.Sprintf(
-			"a reload was already running and did not finish within %s, so this "+
-				"did not re-read the store; the refresh interval covers it", refreshWait), "")
+			"a reload was already running and did not finish within %s, so the "+
+				"store was not re-read now; the periodic refresh will", refreshWait), "")
 	}
 	refs := s.Store.Refs()
 	response := okResponse(0, "")

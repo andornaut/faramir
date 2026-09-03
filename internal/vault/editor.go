@@ -91,8 +91,7 @@ func checkedEditor(named string) (string, error) {
 	// choose what root does while every ownership check still passed. A path
 	// holding a space is refused with it, which is the safe direction.
 	if len(strings.Fields(named)) > 1 {
-		return "", fmt.Errorf("%q names arguments, and faramir runs the program "+
-			"alone: give the path by itself", named)
+		return "", fmt.Errorf("%q includes arguments; give the program path alone", named)
 	}
 	// Absolute, so what runs as root does not depend on an inherited PATH.
 	if !filepath.IsAbs(named) {
@@ -131,16 +130,15 @@ func unsafeToRunAsRoot(path string, info os.FileInfo) string {
 			return "cannot read the owner of " + at
 		}
 		if stat.Uid != 0 {
-			return fmt.Sprintf("%s belongs to uid %d rather than root, which is the "+
-				"account that would then choose what runs as root", at, stat.Uid)
+			return fmt.Sprintf("%s is owned by uid %d, not root, so that account "+
+				"could replace what runs as root", at, stat.Uid)
 		}
 		// Group and other: root owning it is the point, so its own write bit is
 		// not a finding. A sticky directory lets only an entry's owner remove it
 		// and would be safe, but no editor lives in one and refusing costs
 		// nothing.
 		if mode := os.FileMode(stat.Mode).Perm(); mode&0o022 != 0 {
-			return fmt.Sprintf("%s is %04o: an account that is not root can replace "+
-				"what runs here", at, mode)
+			return fmt.Sprintf("%s is %04o, so an account other than root can replace it", at, mode)
 		}
 		if parent := filepath.Dir(at); parent == at {
 			return ""

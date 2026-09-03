@@ -23,7 +23,7 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 		return nil
 	}
 	out := protocol.ErrorResponse("forbidden", fmt.Sprintf(
-		"%s is root's: an escalation must be answered by an account the coding "+
+		"%s needs root: an escalation must be answered by an account the coding "+
 			"agent cannot become. Run `sudo faramir sudo ls`", op), "")
 	return &out
 }

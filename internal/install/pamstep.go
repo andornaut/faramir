@@ -64,7 +64,7 @@ func (r *runner) warnForeignAuthModule(path string) {
 	if module == "" {
 		return
 	}
-	r.warnf("%s authenticates with a module of its own (%q) and faramir's branch "+
-		"goes above it, so %s reaches root without meeting it. Review this if that "+
-		"module is a second factor", path, module, r.layout.ExecUser)
+	r.warnf("%s authenticates with its own module (%q), and faramir's branch is "+
+		"inserted above it, so %s reaches root without passing that module. Review "+
+		"this if the module is a second factor", path, module, r.layout.ExecUser)
 }

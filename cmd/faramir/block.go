@@ -58,10 +58,9 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 	// means a command and types the argument gets a rule about a file, which is
 	// not what they asked for and looks like it worked.
 	if len(args) > 0 {
-		return nil, fmt.Errorf("faramir block %s: %q is not named as a form. Pass "+
-			"--path for a file or directory on this host, or --command for "+
-			"something the agent's shell may not run. The two block different "+
-			"things, so neither of them is the default", verb, args[0])
+		return nil, fmt.Errorf("faramir block %s: %q needs a flag: --path for a file or "+
+			"directory on this host, or --command for a command the agent's shell "+
+			"may not run. Neither is the default", verb, args[0])
 	}
 	out := make([]config.BlockedPath, 0, len(f.paths)+len(f.commands))
 	// --strict rides on every path the command names, and on no command entry:
@@ -74,10 +73,9 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 		out = append(out, config.BlockedPath{Command: command})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("faramir block %s: name a path with --path or a "+
-			"command with --command. A path blocks that file or directory on this "+
-			"host; a command blocks the agent's shell from running it. Each may be "+
-			"given more than once, and they mix", verb)
+		return nil, fmt.Errorf("faramir block %s: nothing to block. Pass --path for a "+
+			"file or directory on this host, or --command for a command the "+
+			"agent's shell may not run. Both are repeatable and can be combined", verb)
 	}
 	return out, nil
 }
@@ -322,7 +320,7 @@ func runBlockList(f blockFlags) int {
 	// meant one of them.
 	if f.declared && f.builtIn {
 		fmt.Fprintln(os.Stderr, "faramir block ls: pass --declared or --built-in, "+
-			"not both; neither lists both halves")
+			"not both; leave both out to list everything")
 		return 2
 	}
 	dir, err := installedConfigDir(socketDefault())
@@ -339,8 +337,8 @@ func runBlockList(f blockFlags) int {
 			fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "faramir block ls: %v; the built-in rules below are "+
-			"compiled in and hold regardless\n", err)
+		fmt.Fprintf(os.Stderr, "faramir block ls: %v; the built-in rules below "+
+			"apply regardless\n", err)
 	}
 	if f.builtIn {
 		declared = nil

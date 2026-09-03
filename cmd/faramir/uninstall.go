@@ -39,8 +39,8 @@ func runUninstall(f uninstallFlags) int {
 	// what gets deleted.
 	dir, err := resolveConfigDir(socketDefault())
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "faramir uninstall: no install answers; removing "+
-			"from the usual paths, against "+hostlayout.DefaultConfigDir)
+		fmt.Fprintln(os.Stderr, "faramir uninstall: no install answered; removing "+
+			"from the default paths under "+hostlayout.DefaultConfigDir)
 		dir = ""
 	}
 	left, err := install.Uninstall(dir)
@@ -52,8 +52,8 @@ func runUninstall(f uninstallFlags) int {
 	for _, item := range left {
 		fmt.Fprintf(os.Stderr, "  %s\n", item)
 	}
-	fmt.Fprintln(os.Stderr, "\nRemove them by hand if you mean to. Deleting the age key "+
-		"makes every managed sops file unreadable, retroactively.")
+	fmt.Fprintln(os.Stderr, "\nRemove them by hand if you want to. Without the age key, "+
+		"every managed sops file becomes unreadable.")
 	return 0
 }
 

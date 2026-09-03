@@ -84,6 +84,5 @@ func Reencrypt(keyPath, rulePath string, recipients []string, target string) err
 
 // ErrNoFilesToReseal is errNoManagedFiles said for this command: nothing to
 // re-encrypt rather than nothing to open.
-var ErrNoFilesToReseal = errors.New("no managed sops files: the managed store " +
-	"named none, so there is nothing to re-encrypt. Write the first one with " +
-	"`faramir vault add NAME`")
+var ErrNoFilesToReseal = errors.New("no managed sops files, so there is nothing to " +
+	"re-encrypt. Create one with `faramir vault add NAME`")

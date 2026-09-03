@@ -40,9 +40,9 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 	// than as a failure advising a repair.
 	switch {
 	case errors.Is(err, os.ErrPermission):
-		report.unaskedf("tree config", 1, "the record of enrolled trees is the "+
-			"operator's to read, so which trees are enrolled was not asked and "+
-			"none were examined: the operator can re-run doctor as root")
+		report.unaskedf("tree config", 1, "the record of enrolled trees is "+
+			"readable only by the operator, so which trees are enrolled was not checked "+
+			"and none were examined. Run doctor as root")
 		return
 	case err != nil:
 		report.addf("tree config", StatusFailed, "%s, so which trees are enrolled "+
@@ -116,10 +116,10 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 	sort.Strings(unguarded)
 
 	if len(unguarded) > 0 {
-		report.addf("tree config", StatusWarn, "%d enrolled tree(s) registered no "+
-			"agent, so they are shared with the client group and nothing they run "+
-			"is redacted: %s. Enrol one with `sudo faramir enrol --agent "+
-			"NAME` in the tree, or take the enrolment back",
+		report.addf("tree config", StatusWarn, "%d enrolled tree(s) registered "+
+			"no agent, so they are shared with the client group and nothing they run is "+
+			"redacted: %s. Enrol one with `sudo faramir enrol --agent NAME` in the tree, "+
+			"or undo the enrolment",
 			len(unguarded), strings.Join(unguarded, ", "))
 	}
 
@@ -133,14 +133,14 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 	}
 	if len(prose) > 0 {
 		report.addf("tree config", StatusWarn, "%d instructions file(s) an "+
-			"enrolment wrote no longer carry the credentials section or the "+
-			"frontmatter that loads them, so an agent refused a path is not told "+
-			"the route: %s. Re-run `sudo faramir enrol` in the tree",
+			"enrolment wrote no longer carry the credentials section or the frontmatter "+
+			"that loads it, so an agent refused a path is not told the route: %s. Re-run "+
+			"`sudo faramir enrol` in the tree",
 			len(prose), strings.Join(prose, ", "))
 	}
 	if len(unread) > 0 {
-		report.unaskedf("tree config", len(unread), "could not read %s, so what "+
-			"they carry was not compared with what `faramir enrol` writes",
+		report.unaskedf("tree config", len(unread), "could not read %s, so they "+
+			"were not compared with what `faramir enrol` writes",
 			strings.Join(unread, ", "))
 	}
 	if len(drifted) > 0 {
@@ -149,11 +149,10 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 		// everything an enrolment writes and not which part. Saying "nothing is
 		// redacted" was wrong whenever the hook was intact and only the deny rules
 		// had gone, which is what declaring a blocked path leaves behind.
-		report.addf("tree config", StatusWarn, "%d file(s) an enrolment wrote no "+
-			"longer carry all of it, so the hook that redacts, the rules that refuse "+
-			"a path, or the registration that reaches the broker is missing from "+
-			"them: %s. Re-run `sudo faramir enrol` in the tree, which writes "+
-			"all three again",
+		report.addf("tree config", StatusWarn, "%d file(s) an enrolment wrote "+
+			"no longer carry all of it, so the hook that redacts, the rules that refuse a "+
+			"path, or the registration that reaches the broker is missing: %s. Re-run "+
+			"`sudo faramir enrol` in the tree, which writes all three again",
 			len(drifted), strings.Join(drifted, ", "))
 	}
 }
@@ -306,15 +305,15 @@ func treeInstructionsRel(dir string) []string {
 func diagnoseEditableFiles(report *Report, opts Options) {
 	if opts.AgentUser == "" {
 		report.unaskedf("agent file ownership", 1, "the agent account is not "+
-			"named, so who owns the files an install edits was not asked: run "+
-			"through sudo so SUDO_USER carries it, or record the account with "+
-			"`faramir init --agent-user`")
+			"named, so who owns the files an install edits was not checked. Run doctor "+
+			"through sudo (SUDO_USER names the account), or record it with `faramir init "+
+			"--agent-user`")
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)
 	if err != nil || home == "" {
-		report.unaskedf("agent file ownership", 1, "could not read %s's home, so "+
-			"who owns the files an install edits was not asked", opts.AgentUser)
+		report.unaskedf("agent file ownership", 1, "could not read %s's home, "+
+			"so who owns the files an install edits was not checked", opts.AgentUser)
 		return
 	}
 	uid, err := hostfs.LookupUser(opts.AgentUser)
@@ -352,8 +351,8 @@ func reportEditableFiles(report *Report, home string, uid int, opts Options) {
 			// files to judge.
 			other, err := hostfs.LookupUser(tree.AgentUser)
 			if err != nil {
-				report.unaskedf("agent file ownership", 1, "%s is enrolled for %q, "+
-					"which does not resolve, so who owns its files was not asked",
+				report.unaskedf("agent file ownership", 1, "%s is enrolled for "+
+					"%q, which does not resolve, so who owns its files was not checked",
 					tree.Dir, tree.AgentUser)
 				continue
 			}
@@ -393,8 +392,8 @@ func reportEditableFiles(report *Report, home string, uid int, opts Options) {
 			"is the operator's, or is not there yet")
 		return
 	}
-	report.addf("agent file ownership", StatusWarn, "%d file(s) `faramir init` or "+
-		"`faramir enrol` would refuse to write, so the next run stops rather "+
-		"than taking one over or writing one of them twice: %s",
+	report.addf("agent file ownership", StatusWarn, "%d file(s) `faramir init` "+
+		"or `faramir enrol` would refuse to write, so the next run stops instead of "+
+		"taking one over or writing one of them twice: %s",
 		len(refused), strings.Join(refused, "; "))
 }

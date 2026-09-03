@@ -125,7 +125,7 @@ func (r *runner) stepSudoGrant() error {
 	// a usable hash would be a second way in that the broker is not asked about.
 	// Re-asserted every run.
 	if _, err := runcmd.Output("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warnf("could not lock %s's password (%v); it should hold none of its own: "+
+		r.warnf("could not lock %s's password (%v). Lock it by hand: "+
 			"usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
@@ -215,15 +215,15 @@ func (r *runner) revokeSudoGrant() error {
 		// Reported rather than fatal, and named: the grant's own files are gone by
 		// now, so nothing can sudo either way, but a branch left in a shared stack
 		// is a line pointing at a helper this run deleted.
-		r.warnf("the faramir block could not be taken out of a shared PAM stack "+
-			"(%v). The grant is gone, but remove the lines between %q and %q by hand",
+		r.warnf("could not remove the faramir block from a shared PAM stack "+
+			"(%v). The grant is gone; remove the lines between %q and %q by hand",
 			err, hostsudo.PamBlockBegin, hostsudo.PamBlockEnd)
 	}
 	// Locking rather than clearing: an account with an empty password field is one
 	// some PAM stacks let in without asking.
 	if _, err := runcmd.Output("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warnf("could not lock %s's password (%v); the grant is gone, so nothing "+
-			"can sudo, but lock it by hand: usermod -L %s",
+		r.warnf("could not lock %s's password (%v). The grant is gone, so nothing "+
+			"can sudo; lock it by hand anyway: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
 	r.restartFor("sudo grant")
@@ -241,8 +241,8 @@ func (r *runner) validateSudoers() error {
 		// Reported rather than failed: the file is generated from a template with no
 		// operator input in it, so the risk this covers is a sudo too old for a
 		// directive rather than a typo.
-		r.warnf("visudo is not installed, so %s went unchecked; verify it with "+
-			"`visudo -cf %s` on a host that has it", hostlayout.SudoersFile, hostlayout.SudoersFile)
+		r.warnf("visudo is not installed, so %s was not checked. Verify it with "+
+			"`visudo -cf %s` on a host that has visudo", hostlayout.SudoersFile, hostlayout.SudoersFile)
 		return nil //nolint:nilerr // no visudo is a warning, not a failed install
 	}
 	if out, err := exec.CommandContext(context.Background(), path, "-cf", hostlayout.SudoersFile).
@@ -305,8 +305,8 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 		// does not help: the value still truncates, and the opening quote survives
 		// into it (measured on sudo 1.9.15p5).
 		if strings.ContainsAny(value, "\n\r#") {
-			r.warnf("[command] env %s is left out of %s: a value carrying a newline "+
-				"or a '#' does not survive that file whole", name,
+			r.warnf("[command] env %s is left out of %s: a value containing a newline "+
+				"or '#' cannot be written to that file intact", name,
 				r.layout.SudoEnvFile())
 			continue
 		}
@@ -322,8 +322,8 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 			// name. sudo sets these over whatever PAM handed back, so leaving them out
 			// changes nothing either way.
 			if !sudoSetsItself[name] {
-				r.warnf("[command] env %s is left out of %s: it is one of the names an "+
-					"injected value may not carry either", name, r.layout.SudoEnvFile())
+				r.warnf("[command] env %s is left out of %s: that name is refused for "+
+					"injected values too", name, r.layout.SudoEnvFile())
 			}
 			continue
 		}

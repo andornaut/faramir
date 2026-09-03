@@ -57,7 +57,7 @@ func TestAddLinkRefusesBeforeItChangesAnything(t *testing.T) {
 			name:    "a ref another entry defines differently",
 			entries: taken,
 			link:    config.Link{Ref: "gh/token", Path: present, Type: secretlink.KindText},
-			wantErr: "already names gh/token",
+			wantErr: "already defines gh/token",
 		},
 		{
 			// The file itself answers this one, and it is asked as root, before the
@@ -73,7 +73,7 @@ func TestAddLinkRefusesBeforeItChangesAnything(t *testing.T) {
 			// every brokered command later, at a moment nobody chose.
 			name:    "a file that is not there",
 			link:    config.Link{Ref: "a/ref", Path: filepath.Join(t.TempDir(), "gone"), Type: secretlink.KindText},
-			wantErr: "mount it first",
+			wantErr: "mount the home first",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -155,7 +155,7 @@ func TestAddLinkTakesTheSameEntryTwice(t *testing.T) {
 	// What follows needs the service accounts, so an unprivileged run stops
 	// somewhere in the steps. What it must not do is refuse the entry as a
 	// redefinition of itself.
-	if err != nil && strings.Contains(err.Error(), "already names") {
+	if err != nil && strings.Contains(err.Error(), "already defines") {
 		t.Errorf("the same entry twice was refused as a redefinition: %v", err)
 	}
 }

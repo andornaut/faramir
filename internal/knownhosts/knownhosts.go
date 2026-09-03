@@ -32,13 +32,14 @@ func Read(path string) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	if bytes.Contains(data, []byte("PRIVATE KEY")) {
-		return nil, 0, fmt.Errorf("%s holds a private key. This takes the public "+
-			"host keys ssh verifies a host against, which is ~/.ssh/known_hosts", path)
+		return nil, 0, fmt.Errorf("%s holds a private key. This takes a known_hosts "+
+			"file, the public host keys ssh verifies a host against, usually "+
+			"~/.ssh/known_hosts", path)
 	}
 	entries, bad := parse(data)
 	if bad != 0 {
-		return nil, 0, fmt.Errorf("%s line %d is not a known_hosts entry, which is "+
-			"a host name, a key type and a key. Check the path names the right file", path, bad)
+		return nil, 0, fmt.Errorf("%s line %d is not a known_hosts entry (a host name, "+
+			"a key type and a key). Check that the path names the right file", path, bad)
 	}
 	return data, entries, nil
 }

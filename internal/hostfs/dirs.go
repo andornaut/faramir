@@ -65,8 +65,8 @@ func (f FS) EnsureDir(path string, mode os.FileMode, uid, gid int, own bool) (bo
 		return false, err
 	}
 	if link.Mode()&os.ModeSymlink != 0 {
-		return false, fmt.Errorf("%s is a symlink, and the mode and owner asserted "+
-			"here would land on whatever it points at: replace it with a real directory",
+		return false, fmt.Errorf("%s is a symlink, and the mode and owner set here "+
+			"would apply to its target: replace it with a real directory",
 			path)
 	}
 	changed := info.Mode().Perm() != mode.Perm() || info.Mode()&os.ModeSetgid != mode&os.ModeSetgid
@@ -166,7 +166,7 @@ func (f FS) EnsureDirsIn(root, path string, mode, leafMode os.FileMode, uid, gid
 		switch {
 		case err == nil && info.Mode()&os.ModeSymlink != 0:
 			return fmt.Errorf("%s is a symlink, and a directory created inside it "+
-				"would land wherever it points rather than in %s: replace it with a "+
+				"would be created at its target, not in %s: replace it with a "+
 				"real directory", here, root)
 		case err == nil && info.IsDir():
 			// The project's own, and not this command's to re-own: the share settles
@@ -212,7 +212,7 @@ func (f FS) EnsureOwnership(path string, mode os.FileMode, uid, gid int) (bool, 
 		// Blocked rather than skipped: the mode and owner asserted here are what
 		// keep the file out of the agent's reach.
 		return false, fmt.Errorf("%s is a symlink, and its mode and owner would be "+
-			"applied to whatever it points at: replace it with a regular file", path)
+			"applied to its target: replace it with a regular file", path)
 	}
 	wrong, err := WrongOwner(info, uid, gid)
 	if err != nil {

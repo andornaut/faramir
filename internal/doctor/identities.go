@@ -40,8 +40,8 @@ func diagnoseGroup(report *Report, opts Options) {
 	// out of the broker socket.
 	if opts.AgentUser == "" {
 		report.unaskedf("client group", len(groups), "the agent account is not "+
-			"named, so a member of %s cannot be told from an account left behind: "+
-			"run through sudo so SUDO_USER carries it, or record the account with "+
+			"named, so a member of %s cannot be told from an account left behind. Run "+
+			"doctor through sudo (SUDO_USER names the account), or record it with "+
 			"`faramir init --agent-user`", opts.ClientGroup)
 		return
 	}
@@ -72,8 +72,8 @@ func diagnoseGroupOutsiders(report *Report, label, name string, known []string, 
 	}
 	primary, err := primaryMembers(gid)
 	if err != nil {
-		report.addf(label, StatusFailed, "could not read who holds %s as a primary "+
-			"group (%v), so who can %s went unverified", name, err, grants)
+		report.addf(label, StatusFailed, "could not read which accounts have %s "+
+			"as their primary group (%v), so who can %s went unverified", name, err, grants)
 		return
 	}
 	var outsiders []string
@@ -87,9 +87,9 @@ func diagnoseGroupOutsiders(report *Report, label, name string, known []string, 
 		report.addf(label, StatusOK, "%s has no unexpected members", name)
 		return
 	}
-	report.addf(label, StatusWarn, "%s has members this install does not use: %s. "+
-		"Membership is what lets them %s. Drop one with: gpasswd -d <account> %s, "+
-		"or usermod -g <other> <account> where it is the primary group",
+	report.addf(label, StatusWarn, "%s has members this install does not use: "+
+		"%s. Membership lets them %s. Drop one with: gpasswd -d <account> %s, or "+
+		"usermod -g <other> <account> where it is the primary group",
 		name, strings.Join(outsiders, ", "), grants, name)
 }
 
@@ -166,8 +166,8 @@ func resolveIdentities(report *Report, opts Options, cfg *config.Config) (Option
 		}
 		account, err := hostunit.User(role.unit)
 		if err != nil {
-			report.addf("identities", StatusFailed, "cannot tell which account runs "+
-				"%s (%v), so nothing below could be asked about the right one. Reinstall, "+
+			report.addf("identities", StatusFailed, "cannot tell which account "+
+				"runs %s (%v), so the checks below have no account to ask about. Reinstall, "+
 				"or pass %s", role.unit, err, role.flag)
 			return opts, false
 		}
@@ -187,8 +187,8 @@ func resolveIdentities(report *Report, opts Options, cfg *config.Config) (Option
 		dir := filepath.Join(opts.ConfigDir, "secrets")
 		group, err := asaccount.GroupOf(dir)
 		if err != nil {
-			report.addf("identities", StatusFailed, "cannot read the group owning %s "+
-				"(%v), which is what keeps every account but the keeper out of the "+
+			report.addf("identities", StatusFailed, "cannot read the group "+
+				"owning %s (%v). That group keeps every account but the keeper out of the "+
 				"ciphertext. Reinstall, or pass --secrets-group", dir, err)
 			return opts, false
 		}

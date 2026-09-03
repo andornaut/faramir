@@ -259,41 +259,39 @@ func refusalFor(rule declaredRule) refusal {
 	switch rule.Kind {
 	case denyrules.KindOwn:
 		return refusal{
-			body: "this is " + rule.Entry + ", which is faramir's own, so a brokered " +
-				"command may not name it whatever it would do with it. There is no entry " +
-				"to remove: these are rendered from the install's layout on every run, " +
-				"and this side runs as an account of its own, or as root where an " +
-				"escalation was approved, so a mode is no answer here.",
-			remedy: "If this is deliberate, it is the operator's to do, outside faramir.",
+			body: "this is " + rule.Entry + ", which is faramir's own, so no brokered " +
+				"command may name it, whatever it would do with it. There is no entry " +
+				"to remove: these rules come from the install's layout, and a file " +
+				"mode does not help because a brokered command runs as its own " +
+				"account, or as root after an approved escalation.",
+			remedy: "If this is deliberate, the operator must do it outside faramir.",
 		}
 	case denyrules.KindOperator:
 		return refusal{
-			body: "this command acts on the faramir install rather than through it, so " +
-				"it is the operator's to run and this route is no way round that: a " +
-				"brokered command runs as an account with less reach than you, not " +
-				"more.",
-			remedy: "Ask the operator. Where `faramir doctor` says to run it as " +
-				"root for the rest of an answer, that line is addressed to them.",
+			body: "this command changes the faramir install, so only the operator " +
+				"may run it. A brokered command runs as an account with less access " +
+				"than you, not more.",
+			remedy: "Ask the operator. Where `faramir doctor` says to run something " +
+				"as root, that line is addressed to them.",
 		}
 	case denyrules.KindOwnAction:
 		return refusal{
 			body: "this is faramir's own binary, one of the files an enrolment " +
-				"installs, or one of its units. Refused not because it would disclose " +
-				"anything but because it would change or stop what keeps credentials out " +
-				"of this conversation, and a brokered command has less reach than you " +
-				"rather than more.",
-			remedy: "If this is deliberate, it is the operator's to do.",
+				"installs, or one of its units. It is refused because it would change " +
+				"or stop what keeps credentials out of this conversation, and a " +
+				"brokered command has less access than you, not more.",
+			remedy: "If this is deliberate, the operator must do it.",
 		}
 	case denyrules.KindCommand:
 		// No tail: it is about what a reader may still do to a file, and names
 		// nothing somebody who ran `op read` typed.
 		return refusal{
 			body: rule.Kind.List() + " on this host name the command " + rule.Entry +
-				", so no brokered command may run it. The words are matched where a " +
-				"command starts, so the same words inside an argument or a path are " +
-				"left alone; a line of a heredoc is read as a command and is not.",
-			remedy: "If the work needs it, that is the operator's, either " +
-				"outside faramir or after " + rule.Remedy + ".",
+				", so no brokered command may run it. The words are matched at the " +
+				"start of a command, so the same words inside an argument or a path " +
+				"are allowed; each line of a heredoc is read as a command and is not.",
+			remedy: "If the work needs it, the operator can run it outside " +
+				"faramir, or remove the entry with " + rule.Remedy + ".",
 		}
 	case denyrules.KindBlocked, denyrules.KindBlockedStrict,
 		denyrules.KindLinked, denyrules.KindLinkedStrict:
@@ -305,25 +303,25 @@ func refusalFor(rule declaredRule) refusal {
 	// What the entry leaves alone, which is the sentence that tells a reader
 	// whether another spelling is worth trying. A strict entry leaves nothing
 	// alone, and saying otherwise sends a model back for the same `ls`.
-	tail := "What is refused is a vocabulary rather than a direction: the " +
-		"readers, wherever the path appears in the line, so `cp`, `tee` and " +
-		"`sed` are refused even where that path is what they write to. " +
+	tail := "The entry refuses a fixed set of reading commands wherever the " +
+		"path appears in the line, so `cp`, `tee` and `sed` are refused even " +
+		"when the path is only what they write to. " +
 		"A command outside it is not refused, whatever it does to the file: " +
 		"`chmod`, `rm` and `mv` among them."
 	if rule.Strict {
-		tail = "Changing it where it stands is refused with the rest, which is " +
-			"what this entry asks for: no command may name it."
+		tail = "This entry is strict: no command may name it, including one " +
+			"that only changes the file in place."
 	}
 	// Only the two path kinds reach here, and both are an entry: they have a
 	// listing to name and a removal to offer, so neither is asked for.
 	return refusal{
 		body: rule.Kind.List() + " on this host name " + declaredSubject(rule) +
-			", and a brokered command may not print what they name. " +
-			"Its contents are covered by nothing on the way back: a file named there " +
-			"is one faramir either never reads or reads a single ref out of, so there " +
-			"is no value to replace in this command's output.",
-		remedy: "Reading it is the operator's, either outside faramir or after " +
-			rule.Remedy + ".",
+			", so a brokered command may not print it. " +
+			"Its contents are not redacted: faramir either never reads that file or " +
+			"reads a single ref from it, so it has no value to replace in this " +
+			"command's output.",
+		remedy: "Only the operator may read it, outside faramir or after " +
+			"removing the entry with " + rule.Remedy + ".",
 		tail: tail,
 	}
 }

@@ -97,7 +97,7 @@ func (h *host) commandField() string {
 	return h.commandKey
 }
 
-const rewriteReason = "faramir: output redacted; the deny list is what refuses a command"
+const rewriteReason = "faramir: output redacted; commands are refused by the deny list only"
 
 // denyDecision is the word every host spells a refusal with. One constant, so a
 // host added later cannot spell it differently and fail open.

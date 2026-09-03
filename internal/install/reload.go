@@ -77,9 +77,9 @@ func (r *runner) stepSystemd() error {
 			}
 			if strings.Contains(line, "Unknown key name") {
 				return fmt.Errorf("systemd does not recognise a directive in %s and "+
-					"ignores it rather than failing: %s. A hardening or credential "+
-					"setting that is silently dropped leaves the daemon running and "+
-					"holding nothing", service, strings.TrimSpace(line))
+					"silently ignores it: %s. A dropped hardening or credential "+
+					"setting would leave the daemon running without it",
+					service, strings.TrimSpace(line))
 			}
 		}
 	}

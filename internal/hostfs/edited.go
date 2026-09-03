@@ -13,12 +13,12 @@ import (
 // the account it is being edited for, or a link that lands on one. The message
 // carries what to do and names no command, surfacing both through
 // sectionProblem and wrapped with its path for an agent's settings.
-var ErrNotOperators = errors.New("this is a file faramir edits rather than owns, " +
-	"and it is not the operator's, so nothing was written: editing it would be root " +
-	"writing a file it was never asked to, and chowning it to make that true would " +
-	"take it from whoever has it. A symlink here is followed, so this also names one " +
-	"landing on a file the operator does not own, on nothing, or outside the tree " +
-	"being enrolled. Give it to the operator, or point the link at their own file")
+var ErrNotOperators = errors.New("faramir edits this file but does not own it, " +
+	"and it is not the operator's, so nothing was written: root will not write a " +
+	"file the owner did not ask it to, and changing the owner would take the file " +
+	"from them. A symlink here is followed, so this also covers a link to a file the " +
+	"operator does not own, to nothing, or to a file outside the tree being enrolled. " +
+	"Give the file to the operator, or point the link at a file they own")
 
 // Edited is where a file faramir edits rather than owns is to be written.
 //

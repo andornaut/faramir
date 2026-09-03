@@ -39,8 +39,8 @@ func excerpt(output string, budget int) (text string, dropped int) {
 func halfBudget(budget int) int { return max((budget-markerReserve)/2, 1) }
 
 func marker(dropped int) string {
-	return fmt.Sprintf("\n[faramir: %d bytes of output dropped; the record cap "+
-		"is what a record keeps]\n", dropped)
+	return fmt.Sprintf("\n[faramir: %d bytes of output dropped to fit the "+
+		"record cap]\n", dropped)
 }
 
 // invalidByteLen is what the encoder linked into this binary spends on one

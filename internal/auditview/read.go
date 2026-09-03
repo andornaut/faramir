@@ -59,7 +59,7 @@ func openAuditLog(path string) (*os.File, error) {
 // open.
 func missingLog(path string) error {
 	return fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
-		"this host, or [audit] log_path names somewhere else", path)
+		"this host yet, or [audit] log_path points elsewhere", path)
 }
 
 // ParseLine is one line as a record, and whether losing it means a record was
@@ -200,9 +200,8 @@ func ReportSkipped(path string, skipped int) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "faramir logs: %s: %d line(s) do not parse and are not shown. "+
-		"The broker writes one record per line and takes back a write that lands "+
-		"short, so a line like this was written by something else or damaged "+
-		"afterwards\n", path, skipped)
+		"The broker writes one complete record per line, so these lines were "+
+		"written by something else or damaged afterwards\n", path, skipped)
 }
 
 // EmptyReason is why the listing is empty. A count that asked for nothing and

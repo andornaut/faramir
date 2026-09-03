@@ -188,27 +188,25 @@ func SectionFile(f hostfs.FS, path, section, head string, uid, gid int, within s
 func SectionProblem(err error, path, command string) string {
 	switch {
 	case errors.Is(err, errHalfMarked):
-		return path + " carries faramir's section markers incompletely: " +
-			SectionBegin + " and " + SectionEnd + ", in that order, are what delimit " +
-			"the credentials section, and this file does not have both. Where the " +
-			"section starts or stops cannot be read off it, so nothing was written. " +
+		return path + " has only one of faramir's section markers, so nothing was " +
+			"written. " + SectionBegin + " and " + SectionEnd + ", in that order, delimit " +
+			"the credentials section, and without both the section cannot be found. " +
 			"Restore the markers around the section, or delete the one that is there, " +
 			"and run " + command + " again"
 	case errors.Is(err, errStaleSection):
 		return path + " already carries a credentials section that is not between " +
-			"markers and is not what is written now, so nothing was written: two sets " +
+			"markers and differs from the current one, so nothing was written: two sets " +
 			"of credentials instructions in one file contradict each other. It may be " +
 			"what an earlier version wrote, or your own notes. Delete it and run " +
 			command + " again, which writes the current section between " +
 			SectionBegin + " and " + SectionEnd + " so later runs can keep it current"
 	case errors.Is(err, hostfs.ErrNotOperators):
-		return path + " is not the operator's, so nothing was written. This file is " +
-			"one faramir edits rather than owns, and " + command + " runs as root: " +
-			"editing somebody else's would be root writing a file it was never asked " +
-			"to, and chowning it to make that true would take it from its owner. A " +
-			"symlink here is followed, so this also names one landing on a file the " +
-			"operator does not own, or on nothing at all. Give it to the operator, or " +
-			"point the link at their own file, and run " + command + " again"
+		return path + " is not the operator's, so nothing was written. Faramir edits " +
+			"this file but does not own it, and " + command + " runs as root: it will " +
+			"not write a file the owner did not ask it to, and changing the owner would " +
+			"take the file from them. A symlink here is followed, so this also covers a " +
+			"link to a file the operator does not own, or to nothing. Give the file to " +
+			"the operator, or point the link at a file they own, and run " + command + " again"
 	}
 	return err.Error()
 }

@@ -132,7 +132,7 @@ name = "*.htpasswd"
 	// Naming the form is the whole point: rejectUnknownKeys would answer this
 	// with "unknown key", which does not say that a path entry is the
 	// replacement or that the rule it used to render is gone.
-	for _, want := range []string{"*.htpasswd", "removed", "path entry"} {
+	for _, want := range []string{"*.htpasswd", "no longer supported", "path entry"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal is %q, want it to say %q", err, want)
 		}

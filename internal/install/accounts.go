@@ -440,24 +440,23 @@ func (r *runner) refuseOpenBoundaries() error {
 			continue
 		}
 		if in, err := hostfs.InGroup(who, r.layout.SecretsGroup); err == nil && in {
-			add(who, r.layout.SecretsGroup, "so it can read and replace the managed "+
-				"sops files directly, and the secrets directory is only as protected "+
-				"as whatever runs as that account")
+			add(who, r.layout.SecretsGroup, "which lets it read and replace the "+
+				"managed sops files directly")
 		}
 	}
 	// A command that could read the broker's or the keeper's group holds the
 	// audit log or the age key.
 	for _, forbidden := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
 		if in, err := hostfs.InGroup(r.layout.ExecUser, forbidden); err == nil && in {
-			add(r.layout.ExecUser, forbidden, "which is the boundary between a "+
-				"brokered command and the age key or the audit log")
+			add(r.layout.ExecUser, forbidden, "which would let a brokered command "+
+				"reach the age key or the audit log")
 		}
 	}
 	if len(open) == 0 {
 		return nil
 	}
-	return fmt.Errorf("this host's group memberships defeat the split this "+
-		"install draws, and clearing them is not faramir's to do:\n  %s",
+	return fmt.Errorf("these group memberships break the account separation "+
+		"this install relies on. Remove them, then run this again:\n  %s",
 		strings.Join(open, "\n  "))
 }
 

@@ -28,9 +28,9 @@ import (
 // tree.
 func (p *project) preflight() error {
 	if p.opts.AgentUser == "" || p.opts.AgentUser == "root" {
-		return fmt.Errorf("no account is named for %s: run through sudo so SUDO_USER "+
-			"carries it, or record the account with `faramir init --agent-user`. Root "+
-			"here would chown a checkout away from its owner", p.opts.Dir)
+		return fmt.Errorf("no agent account is named for %s. Run this through sudo so "+
+			"SUDO_USER names it, or record it with `faramir init --agent-user`. Running "+
+			"as root without one would chown the tree away from its owner", p.opts.Dir)
 	}
 	if os.Geteuid() != 0 && !p.opts.DryRun {
 		return errors.New("faramir enrol must run as root: it " +
@@ -102,9 +102,9 @@ func (p *project) refuseUnparsableAgentConfig() error {
 			var into any
 			if err := json.Unmarshal(data, &into); err != nil {
 				refused = append(refused, fmt.Sprintf(
-					"%s: parsing the file already there: %v. faramir merges its keys "+
-						"into this file rather than replacing it, so nothing was written "+
-						"and the tree was not shared", path, err))
+					"%s: the existing file does not parse: %v. faramir merges its keys "+
+						"into this file, so nothing was written and the tree was not "+
+						"shared", path, err))
 			}
 		}
 	}
@@ -135,9 +135,9 @@ func (p *project) refuseUnreachable() error {
 	if len(blocked) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%s cannot enter %s, so %s would be shared and unreachable. "+
-		"faramir changes ownership and modes on the tree it enrols and nowhere "+
-		"else; open them and run this again:\n%s",
+	return fmt.Errorf("%s cannot enter %s, so %s would be shared but unreachable. "+
+		"faramir only changes ownership and modes inside the tree it enrols. Open "+
+		"these directories and run this again:\n%s",
 		p.report.ClientGroup, sharetree.Describe(blocked), p.opts.Dir,
 		sharetree.Fix(blocked, p.report.ClientGroup))
 }
@@ -196,8 +196,8 @@ func (p *project) warnMissingBinary(binary string) {
 	if hostfs.Exists(binary) {
 		return
 	}
-	p.warnf("%s is not installed, and every hook and plugin written here execs it. "+
-		"They fail closed, so the agents would refuse every command in %s. Run "+
+	p.warnf("%s is not installed. Every hook and plugin written here runs it and "+
+		"fails closed without it, so the agents would refuse every command in %s. Run "+
 		"`sudo faramir init` on the host that runs this tree", binary, p.opts.Dir)
 }
 
@@ -325,8 +325,8 @@ func (p *project) resolveGroup() error {
 			p.report.ClientGroup = p.opts.ClientGroup
 			return nil
 		}
-		return fmt.Errorf("cannot read %s: %w\nAn enrolment writes this install's deny rules into the tree, "+
-			"and the linked and blocked paths are in that file. Run `faramir init` first, or "+
+		return fmt.Errorf("cannot read %s: %w\nEnrolling writes this install's deny rules into the tree, "+
+			"and that file holds the linked and blocked paths. Run `faramir init` first, or "+
 			"set FARAMIR_CONFIG if the config is elsewhere", configFile, err)
 	}
 	// The grant is this host's, and says nothing about a tree shared with a group
@@ -340,7 +340,7 @@ func (p *project) resolveGroup() error {
 		return nil
 	}
 	if cfg.Server.AllowedGroup == "" {
-		return fmt.Errorf("%s admits no group, so a shared tree would reach nothing. "+
+		return fmt.Errorf("%s names no allowed group, so no account could reach a shared tree. "+
 			"Run `faramir init --client-group NAME`", configFile)
 	}
 	p.report.ClientGroup = cfg.Server.AllowedGroup

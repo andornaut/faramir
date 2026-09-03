@@ -545,7 +545,7 @@ func TestAnUnusableNotifyCommandIsRefusedByInit(t *testing.T) {
 			// there instead: one mistake must not have a spelling that gets through.
 			name: "an absolute path that is not there",
 			argv: []string{"/usr/bin/no-such-notifier", "{prompt}"},
-			sudo: true, wants: "is not there",
+			sudo: true, wants: "does not exist",
 		},
 		{
 			name: "a directory", argv: []string{"/tmp", "{prompt}"},

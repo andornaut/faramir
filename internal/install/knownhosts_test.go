@@ -168,7 +168,7 @@ func TestStepKnownHostsWarnsWhenTheFilePinsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	warnings := strings.Join(run.report.Warnings, "\n")
-	if !strings.Contains(warnings, "unpins") {
+	if !strings.Contains(warnings, "pins nothing") {
 		t.Errorf("warned about an empty file without saying it removes what was "+
 			"pinned: %v", run.report.Warnings)
 	}

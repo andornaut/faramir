@@ -46,11 +46,11 @@ func diagnoseSSHAgent(report *Report, opts Options, cfg *config.Config, serves b
 		if where == "" {
 			where = "the config"
 		}
-		report.addf("ssh agent", StatusFailed, "no [ssh] key is configured, so the "+
-			"broker lends no identity and a brokered command that reaches a managed "+
-			"host fails at the point of use, with ssh's own error. `faramir init` "+
-			"writes one on every run, so this is an edit to %s. Re-run `sudo faramir "+
-			"init`, with --ssh-key to name one of your own", where)
+		report.addf("ssh agent", StatusFailed, "no [ssh] key is configured, so "+
+			"the broker lends no identity and a brokered command that reaches a managed "+
+			"host fails with ssh's own error. `faramir init` writes one on every run, so "+
+			"this is an edit to %s. Re-run `sudo faramir init`, with --ssh-key to name a "+
+			"key of your own", where)
 		return
 	}
 	if reason := skipSSHProbe(serves, opts.BrokerVersion); reason != "" {
@@ -62,8 +62,8 @@ func diagnoseSSHAgent(report *Report, opts Options, cfg *config.Config, serves b
 	// already it; anybody else's answer would be reported as the operator's.
 	if os.Geteuid() != 0 {
 		if current, err := user.Current(); err != nil || current.Username != opts.AgentUser {
-			report.unaskedf("ssh agent", 1, "the probe has to run as %s and this is "+
-				"not that account: run as it, or as root", opts.AgentUser)
+			report.unaskedf("ssh agent", 1, "the probe has to run as %s. Run "+
+				"doctor as that account, or as root", opts.AgentUser)
 			return
 		}
 	}
@@ -103,10 +103,10 @@ func reportSSHProbe(report *Report, cfg *config.Config, serves brokerServes, out
 		report.addf("ssh agent", StatusOK, "holds a usable key")
 	case sshProbeRefused:
 		if serves == servesValues {
-			report.addf("ssh agent", StatusFailed, "the broker refuses brokered commands "+
-				"though --check read every managed file as the broker: the running daemon "+
-				"came up before the values were there and has not read them since. "+
-				"Restart faramir-broker")
+			report.addf("ssh agent", StatusFailed, "the broker refuses brokered "+
+				"commands even though --check read every managed file as the broker: the "+
+				"running daemon started before the values were there and has not read them "+
+				"since. Restart faramir-broker")
 			return
 		}
 		report.unaskedf("ssh agent", 1, "%s", sshAgentRefused)

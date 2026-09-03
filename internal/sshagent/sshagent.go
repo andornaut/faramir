@@ -251,7 +251,7 @@ func (a *Agent) relay(client net.Conn, private string) {
 
 		if kind := request[4]; kind != agentRequestIdentities && kind != agentSignRequest {
 			log.Printf("ssh-agent proxy: refusing agent request type %d; "+
-				"brokered commands may list and sign only", kind)
+				"brokered commands may only list keys and sign", kind)
 			// The protocol's own refusal rather than a dropped connection: ssh sends
 			// session-bind@openssh.com under agent forwarding, and a client that sees
 			// one request fail carries on.

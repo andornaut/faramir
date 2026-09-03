@@ -168,7 +168,7 @@ func parseCmd(payload map[string]any, req *Request) error {
 	}
 	if _, isStr := rawCmd.(string); isStr {
 		return errors.New("'cmd' must be an array, not a string; the broker never " +
-			"invokes a shell for you -- send ['bash', '-lc', '…']")
+			"invokes a shell for you, so send ['bash', '-lc', '…']")
 	}
 	list, isList := rawCmd.([]any)
 	if !hasCmd || !isList || len(list) == 0 {
@@ -205,9 +205,9 @@ func parseStdin(payload map[string]any, req *Request) error {
 		return errors.New("'stdin' must be base64: " + err.Error())
 	}
 	if len(decoded) > config.MaxStdinBytes {
-		return fmt.Errorf("'stdin' is %d bytes and the limit is %d; a brokered "+
-			"command takes what fits in one request, so feed a larger input from a "+
-			"file the command opens itself", len(decoded), config.MaxStdinBytes)
+		return fmt.Errorf("'stdin' is %d bytes and the limit is %d; write a "+
+			"larger input to a file and have the command read it",
+			len(decoded), config.MaxStdinBytes)
 	}
 	req.Stdin = decoded
 	return nil
@@ -350,8 +350,8 @@ func parseWaits(payload map[string]any, req *Request) error {
 			// arrive indistinguishable once decoded, and either correction is a
 			// number the clamp below max_timeout_sec makes moot anyway.
 			return errors.New("'timeout_sec' must be a positive whole number of " +
-				"seconds, and every value is clamped to '[command] max_timeout_sec', " +
-				"so one too large to hold buys nothing")
+				"seconds and not too large to hold; every value is clamped to " +
+				"'[command] max_timeout_sec'")
 		}
 		req.TimeoutSec = n
 	}

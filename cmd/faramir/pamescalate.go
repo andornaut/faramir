@@ -83,8 +83,8 @@ func runPamEscalate(f pamEscalateFlags, granted *bool) int {
 	// pointed at another account, or at the account stage rather than auth,
 	// cannot authenticate anything.
 	if kind := os.Getenv("PAM_TYPE"); kind != "auth" {
-		fmt.Fprintf(os.Stderr, "faramir pam-escalate: PAM_TYPE is %q; this decides "+
-			"authentication and nothing else\n", kind)
+		fmt.Fprintf(os.Stderr, "faramir pam-escalate: PAM_TYPE is %q; this service "+
+			"handles authentication only\n", kind)
 		return 1
 	}
 	if f.account != "" && os.Getenv("PAM_USER") != f.account {
@@ -100,8 +100,8 @@ func runPamEscalate(f pamEscalateFlags, granted *bool) int {
 	if len(ancestors) == 0 {
 		// Nothing above this call, which is what a `sudo` typed by hand as the
 		// executor's account looks like once its shell is gone.
-		fmt.Fprintln(os.Stderr, "faramir pam-escalate: nothing above this sudo "+
-			"could be read, so it cannot be attributed")
+		fmt.Fprintln(os.Stderr, "faramir pam-escalate: no process above this sudo "+
+			"could be read, so the request cannot be attributed to a brokered command")
 		return 1
 	}
 	approved, reason, err := brokerclient.Escalate(pamSocket(), ancestors)

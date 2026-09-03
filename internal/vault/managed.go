@@ -20,9 +20,8 @@ import (
 
 // errNoManagedFiles is what `edit` reports when the secrets directory is empty.
 // `reseal` has its own, saying what it in particular had nothing to do.
-var errNoManagedFiles = errors.New("no managed sops files: the managed store named " +
-	"none, so there is nothing to open. Write the first one with `faramir vault " +
-	"add NAME`")
+var errNoManagedFiles = errors.New("no managed sops files, so there is nothing to open. " +
+	"Create one with `faramir vault add NAME`")
 
 // managedSuffix is what a managed file ends in. One spelling: the suffix
 // decides the store format sops writes and is what the [secret] pattern
@@ -95,8 +94,7 @@ func NewManagedPath(cfg *config.Config, name string) (string, error) {
 	// ".", so both would be answered about the secrets directory with a suffix
 	// glued on, which is a path the operator never typed and cannot correct.
 	if strings.TrimSpace(name) == "" || filepath.Clean(name) == "." {
-		return "", fmt.Errorf("name the file to create: a name relative to %s, "+
-			"which is where a managed file lives", dir)
+		return "", fmt.Errorf("name the file to create, relative to %s", dir)
 	}
 	if err := refuseUnprintable(name); err != nil {
 		return "", err
@@ -120,18 +118,17 @@ func NewManagedPath(cfg *config.Config, name string) (string, error) {
 		// "*.sops.yml" is one /tmp/outside.sops.yml plainly matches, and what it
 		// misses is the directory the glob names.
 		return "", fmt.Errorf("%s matches none of the [secret] patterns (%s), so the "+
-			"broker would never read it and nothing in it could be named as a ref",
+			"broker would never read it",
 			target, joinPatterns(cfg.Secret.Patterns))
 	}
 	if hostfs.Exists(target) {
-		return "", fmt.Errorf("%s is already there; `faramir vault edit %s` opens it",
+		return "", fmt.Errorf("%s already exists; edit it with `faramir vault edit %s`",
 			target, filepath.Base(target))
 	}
 	// Named rather than left to the write to fail on: a missing directory here
 	// means an install that has not been run.
 	if !hostfs.Exists(dir) {
-		return "", fmt.Errorf("%s is not there, so there is nowhere to put a managed "+
-			"file: `sudo faramir init` creates it", dir)
+		return "", fmt.Errorf("%s does not exist; `sudo faramir init` creates it", dir)
 	}
 	return target, nil
 }
@@ -150,13 +147,12 @@ func refuseUnprintable(name string) error {
 	for i := 0; i < len(name); {
 		r, size := utf8.DecodeRuneInString(name[i:])
 		if r == utf8.RuneError && size == 1 {
-			return fmt.Errorf("name %q carries a byte at offset %d that is not "+
-				"valid UTF-8, so nothing can print the file's name back to you",
+			return fmt.Errorf("name %q has a byte at offset %d that is not valid UTF-8",
 				config.Shown(name), i)
 		}
 		if termsafe.Actionable(r) {
-			return fmt.Errorf("name %q carries %q at offset %d, which a terminal "+
-				"acts on rather than draws", config.Shown(name), r, i)
+			return fmt.Errorf("name %q has %q at offset %d, which a terminal acts on "+
+				"instead of printing", config.Shown(name), r, i)
 		}
 		i += size
 	}

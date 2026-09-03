@@ -229,8 +229,8 @@ func Run(args []string) int {
 	if pattern, denied := decide(command); denied {
 		note := "\n\n(matched: " + matchedNote(command, pattern) + ")"
 		if segment := matchingSegment(command, pattern); segment != "" {
-			note = "\n\nOne command in the line matched, and the whole call is refused" +
-				" because a hook answers for all of it. This is the command to change:" +
+			note = "\n\nOne command in the line matched. The whole call is refused" +
+				" because a hook answers for the whole line. The command to change:" +
 				"\n\n    " + shortSegment(segment) +
 				"\n\n(matched: " + matchedNote(command, pattern) + ")"
 		}
@@ -285,14 +285,14 @@ func Run(args []string) int {
 const (
 	unreadablePayload = "Blocked: faramir's guard could not read this tool call, so it could not decide " +
 		"whether the command discloses a credential.\n\nTell the operator that `faramir " +
-		"guard` did not understand its input: until that is fixed nothing this tree runs is " +
+		"guard` did not understand its input. Until that is fixed, nothing this tree runs is " +
 		"redacted."
-	noCommandString = "Blocked: faramir's guard was handed a shell tool call carrying no command, so " +
+	noCommandString = "Blocked: faramir's guard received a shell tool call with no command, so " +
 		"there was nothing to check.\n\nTell the operator: the tool's input is not the " +
 		"shape `faramir guard` reads."
-	unreadablePatch = "Blocked: faramir's guard was handed a patch it could not read, so it could not " +
+	unreadablePatch = "Blocked: faramir's guard could not read this patch, so it could not " +
 		"tell which files the patch writes.\n\nTell the operator: the patch tool's input is " +
-		"not the shape `faramir guard` reads, and until that is fixed this tool could write " +
+		"not the shape `faramir guard` reads. Until that is fixed, this tool could write " +
 		"any file on the host."
 )
 

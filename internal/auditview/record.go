@@ -115,7 +115,7 @@ func PrintRecord(record map[string]any, paint termui.Palette) {
 	if waited, ok := num(record, "waited_sec"); ok && waited > 0 {
 		total, _ := num(record, "duration_sec")
 		printField(paint, "waited", fmt.Sprintf(
-			"%.2fs to be approved, of %.2fs between registering and exiting",
+			"%.2fs for approval, of %.2fs in total",
 			waited, total))
 	}
 	printField(paint, "refs", paint.Ref(envRefs(record)))

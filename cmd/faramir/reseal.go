@@ -76,7 +76,7 @@ func loadStore(label, socket string, named []string,
 		// Said once, and the per-pattern reasons dropped with it: each is "this glob
 		// matched nothing", which reads as three problems on a host whose first
 		// secret has not been written.
-		fmt.Fprintf(os.Stderr, "faramir %s: the managed store names no file yet, so "+
+		fmt.Fprintf(os.Stderr, "faramir %s: the managed store has no files, so "+
 			"there is nothing to re-encrypt\n", label)
 		return &storeContext{
 			cfg:      cfg,
@@ -173,8 +173,8 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 	// Named rather than left implicit: a reseal that reached only some of the
 	// files leaves the rest sealed to the old recipients.
 	if failed > 0 {
-		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) could not be re-encrypted; "+
-			"those still open to the recipients they had\n", label, failed, len(targets))
+		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) could not be re-encrypted "+
+			"and keep their previous recipients\n", label, failed, len(targets))
 		return 1
 	}
 	if dryRun {

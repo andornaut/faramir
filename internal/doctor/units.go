@@ -38,8 +38,8 @@ func SampleSockets() map[string]string {
 // activated, so an inactive service is ordinary.
 func diagnoseUnits(report *Report, opts Options) {
 	if !hostunit.Running() {
-		report.unaskedf("sockets", len(hostunit.Sockets), "systemd is not running here, so whether "+
-			"%d socket unit(s) are listening was not asked", len(hostunit.Sockets))
+		report.unaskedf("sockets", len(hostunit.Sockets), "systemd is not "+
+			"running here, so whether %d socket unit(s) are listening was not checked", len(hostunit.Sockets))
 		return
 	}
 	// What the caller saw before it opened the broker socket. Reading the state
@@ -59,7 +59,7 @@ func diagnoseUnits(report *Report, opts Options) {
 		// journalctl that fails the same way.
 		if state == unitUnreportable {
 			report.unaskedf("sockets", 1, "systemctl could not report %s, so its "+
-				"state was not asked", socket)
+				"state was not checked", socket)
 			continue
 		}
 		if state != hostunit.Active {
@@ -87,7 +87,7 @@ func diagnoseSocketEnablement(report *Report) {
 		if state == "" {
 			if err != nil {
 				report.unaskedf("sockets", 1, "systemctl could not report whether "+
-					"%s is enabled, so what happens at the next boot was not asked", socket)
+					"%s is enabled, so what happens at the next boot was not checked", socket)
 			}
 			continue
 		}
@@ -118,9 +118,9 @@ func diagnoseDropIns(report *Report) {
 		report.addf("unit drop-ins", StatusOK, "no drop-in overrides a faramir unit")
 		return
 	}
-	report.addf("unit drop-ins", StatusWarn, "%d faramir unit(s) carry a drop-in, "+
-		"so what runs is not what the installed unit says: %s. The values the "+
-		"other checks read are the resolved ones", len(dropIns), strings.Join(dropIns, "; "))
+	report.addf("unit drop-ins", StatusWarn, "%d faramir unit(s) carry a "+
+		"drop-in, so what runs is not what the installed unit says: %s. The other "+
+		"checks read the resolved values", len(dropIns), strings.Join(dropIns, "; "))
 }
 
 // gib renders a byte count the way an operator sizes one of these: the config
@@ -147,7 +147,7 @@ func diagnoseMemoryBounds(report *Report) {
 	const check = "memory bounds"
 	if !hostunit.Running() {
 		report.unaskedf(check, 1, "systemd is not running here, so what the "+
-			"executor's memory limits resolve to was not asked")
+			"executor's memory limits resolve to was not checked")
 		return
 	}
 	maxMemory, haveMax := hostunit.Int(hostunit.ExecUnit, "MemoryMax")
@@ -163,12 +163,12 @@ func reportMemoryBounds(report *Report, perProcess int64, havePer bool,
 	switch {
 	case !haveMax && !havePer:
 		report.addf(check, StatusWarn, "%s bounds neither the executor's memory "+
-			"nor one process's, so a brokered command that runs away is bounded by "+
-			"the machine. `sudo faramir init` writes both", hostunit.ExecUnit)
+			"nor one process's, so a runaway brokered command is bounded by the machine. "+
+			"`sudo faramir init` writes both", hostunit.ExecUnit)
 	case !havePer:
 		report.addf(check, StatusWarn, "%s bounds the executor at %s and one "+
-			"process not at all, so a runaway is stopped by the OOM killer rather "+
-			"than by an allocation failure it can report", hostunit.ExecUnit, gib(maxMemory))
+			"process not at all, so a runaway is stopped by the OOM killer instead of by "+
+			"an allocation failure it can report", hostunit.ExecUnit, gib(maxMemory))
 	case !haveMax:
 		// The cgroup total is the half that catches fan-out, which no per-process
 		// bound sees, so its absence is the condition this check exists for.
@@ -202,7 +202,7 @@ func diagnoseBrokerMemory(report *Report) {
 	const check = "broker memory"
 	if !hostunit.Running() {
 		report.unaskedf(check, 1, "systemd is not running here, so what the "+
-			"broker's memory limit resolves to was not asked")
+			"broker's memory limit resolves to was not checked")
 		return
 	}
 	limit, haveLimit := hostunit.Int(hostunit.BrokerUnit, "MemoryMax")
@@ -223,23 +223,23 @@ func reportBrokerMemory(report *Report, used int64, haveUsed bool,
 	// that may hold nothing. Answered before the share below, which would
 	// divide by it.
 	case haveLimit && limit == 0:
-		report.addf(check, StatusFailed, "%s holds the broker to nothing, so it is "+
-			"killed as soon as it loads the value set. Remove the MemoryMax=0 "+
-			"drop-in, or `sudo faramir init` to write the bound faramir renders",
+		report.addf(check, StatusFailed, "%s holds the broker to nothing, so it "+
+			"is killed as soon as it loads the value set. Remove the MemoryMax=0 drop-in, "+
+			"or run `sudo faramir init` to write the bound faramir renders",
 			hostunit.BrokerUnit)
 	case !haveLimit:
-		report.addf(check, StatusWarn, "%s bounds the broker's memory not at all, "+
-			"so a value set that outgrows the machine is answered by the host's OOM "+
-			"killer, which need not choose the broker. `sudo faramir init` writes "+
-			"the bound", hostunit.BrokerUnit)
+		report.addf(check, StatusWarn, "%s puts no bound on the broker's "+
+			"memory, so a value set that outgrows the machine is answered by the host's "+
+			"OOM killer, which may kill something else. `sudo faramir init` writes the "+
+			"bound", hostunit.BrokerUnit)
 	case !haveUsed:
 		report.addf(check, StatusOK, "the broker is held to %s", gib(limit))
 	case used*100/limit >= crowded:
-		report.addf(check, StatusWarn, "the broker holds %s of the %s it is allowed, "+
-			"and its memory is the size of the value set: roughly 15 KB per byte of "+
-			"secret. Past the bound it is killed and restarted, and nothing is "+
-			"redacted while it is down. Take secrets out of the store, or raise the "+
-			"machine's memory", gib(used), gib(limit))
+		report.addf(check, StatusWarn, "the broker holds %s of the %s it is "+
+			"allowed, and its memory is the size of the value set: roughly 15 KB per byte "+
+			"of secret. Past the bound it is killed and restarted, and nothing is "+
+			"redacted while it is down. Take secrets out of the store, or add memory to "+
+			"the machine", gib(used), gib(limit))
 	default:
 		report.addf(check, StatusOK, "the broker holds %s of the %s it is allowed",
 			gib(used), gib(limit))

@@ -46,8 +46,8 @@ func (f FS) writeInto(root *os.Root, name string, data []byte, mode os.FileMode,
 		// whose directory is the one thing an operator cannot guess.
 		return false, fmt.Errorf("%s is already there, so nothing was written: it is "+
 			"the temporary file a write goes through, so another faramir command is "+
-			"writing this file, or one was interrupted while it did. Run them one at "+
-			"a time; delete it if none is running: %w",
+			"writing this file, or one was interrupted. Run them one at a time; "+
+			"delete it if none is running: %w",
 			filepath.Join(root.Name(), tmp), err)
 	}
 	if err != nil {

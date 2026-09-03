@@ -93,18 +93,17 @@ func Diagnose(opts Options) Report {
 	// examination of a host rather than of a name nothing on it has.
 	if opts.AgentUser != "" {
 		if _, err := hostfs.LookupUser(opts.AgentUser); err != nil {
-			report.addf("identities", StatusFailed, "there is no account %q on this "+
-				"host, so what the agent can reach was not examined. Name the account "+
-				"the coding agent runs as; `faramir init --agent-user` is what records "+
-				"one", opts.AgentUser)
+			report.addf("identities", StatusFailed, "there is no account %q on "+
+				"this host, so what the agent can reach was not examined. Name the account "+
+				"the coding agent runs as with `faramir init --agent-user`", opts.AgentUser)
 			abandoned(&report, "the agent account does not resolve")
 			return report
 		}
 	}
 
 	if !hostfs.Exists(configFile) {
-		report.addf(checkConfig, StatusFailed, "%s is missing; the daemons read it at "+
-			"startup and exit without one", configFile)
+		report.addf(checkConfig, StatusFailed, "%s is missing; the daemons read "+
+			"it at startup and exit without it", configFile)
 		abandoned(&report, "there is no config to examine against")
 		return report
 	}
@@ -230,9 +229,10 @@ func diagnoseVersion(report *Report, opts Options) {
 		report.unaskedf("version", 1, "the broker did not answer, so which build "+
 			"is running is unknown; this binary is %s", version.Version)
 	case opts.BrokerVersion != version.Version:
-		report.addf("version", StatusFailed, "the broker is running %s and this binary "+
-			"is %s, so the daemons were never restarted onto what is installed and "+
-			"every check made against it describes the wrong build. Run `sudo faramir init`",
+		report.addf("version", StatusFailed, "the broker is running %s and this "+
+			"binary is %s, so the daemons were never restarted after the install, and "+
+			"every check against the broker describes the wrong build. Run `sudo faramir "+
+			"init`",
 			opts.BrokerVersion, version.Version)
 	// Same version, different build. Every unstamped binary reports "dev", so
 	// the comparison above passes between two of them and this is what catches
@@ -241,10 +241,10 @@ func diagnoseVersion(report *Report, opts Options) {
 	// neither does a broker older than the field.
 	case version.Build != "" && opts.BrokerBuild != "" &&
 		opts.BrokerBuild != version.Build:
-		report.addf("version", StatusFailed, "the broker and this binary are both %s "+
-			"but they are different builds, %s against %s, so the daemons were never "+
-			"restarted onto what is installed and every check made against it "+
-			"describes the wrong build. Run `sudo faramir init`",
+		report.addf("version", StatusFailed, "the broker and this binary are "+
+			"both %s but are different builds, %s against %s, so the daemons were never "+
+			"restarted after the install, and every check against the broker describes "+
+			"the wrong build. Run `sudo faramir init`",
 			version.Version, opts.BrokerBuild, version.Build)
 	case version.Build != "":
 		report.addf("version", StatusOK, "broker and binary are both %s (%s)",
@@ -262,9 +262,9 @@ func diagnoseVersion(report *Report, opts Options) {
 // keeper socket, the SSH keys and the secrets files itself.
 func diagnoseBroker(report *Report, configFile, brokerUser string) brokerServes {
 	if os.Geteuid() != 0 {
-		report.unaskedf("broker", 1, "the operator can run doctor as root to ask this: --check "+
-			"has to run as %s, and any other account gets an answer that is not "+
-			"the broker's", brokerUser)
+		report.unaskedf("broker", 1, "--check was not run: it has to run as %s, "+
+			"and any other account gets an answer that is not the broker's. Run doctor as "+
+			"root", brokerUser)
 		return servesUnknown
 	}
 	// Read the report before the exit code is judged. --check exits non-zero on
@@ -310,9 +310,9 @@ func judgeBrokerCheck(report *Report, brokerUser string, check brokercheck.Check
 	// over, and doctor saying warn where status says fail would leave the two
 	// describing different hosts.
 	if len(check.Secrets.NotRedactable) > 0 {
-		report.addf("refused refs", StatusFailed, "%d ref(s) cannot be redacted, so "+
-			"they are never injected and never redacted: %s. Fix each with `sudo "+
-			"faramir vault edit`; the reason beside it says how",
+		report.addf("refused refs", StatusFailed, "%d ref(s) cannot be "+
+			"redacted, so they are never injected and never redacted: %s. Fix each with "+
+			"`sudo faramir vault edit`; the reason beside each says what to change",
 			len(check.Secrets.NotRedactable), check.RefusedRefs())
 		explained = true
 	}
@@ -323,9 +323,9 @@ func judgeBrokerCheck(report *Report, brokerUser string, check brokercheck.Check
 	// one is not, which is why it is named rather than left to a daemon log line.
 	if len(check.Secrets.ShadowedRefs) > 0 {
 		report.addf("shadowed refs", StatusFailed, "%d ref(s) are defined with "+
-			"different values by more than one managed file, so one value is in no "+
-			"redactor and a command that prints it prints it in the clear: %s. Take "+
-			"the ref out of one file with `sudo faramir vault edit`",
+			"different values in more than one managed file, so one of the values is in "+
+			"no redactor and a command that prints it prints it in the clear: %s. Remove "+
+			"the ref from one file with `sudo faramir vault edit`",
 			len(check.Secrets.ShadowedRefs), brokercheck.RefsWithReasons(check.Secrets.ShadowedRefs))
 		explained = true
 	}
@@ -342,11 +342,10 @@ func judgeBrokerCheck(report *Report, brokerUser string, check brokercheck.Check
 	// A failure: the ref answers nothing, and nothing else surfaces that until a
 	// command asks for it.
 	if len(check.Secrets.DegradedLinks) > 0 {
-		report.addf("linked refs", StatusFailed, "%s did not load, so those refs "+
-			"answer nothing while every other ref is served: %s. Fix what each one "+
-			"needs, then `sudo systemctl restart faramir-broker`: the broker "+
-			"fingerprints a linked file by mtime and size, so a repair that changes "+
-			"neither leaves its view as it was",
+		report.addf("linked refs", StatusFailed, "%s did not load, so those "+
+			"refs answer nothing while every other ref is served: %s. Fix each file, then "+
+			"`sudo systemctl restart faramir-broker`: the broker fingerprints a linked "+
+			"file by mtime and size, so a repair that changes neither is not noticed",
 			brokercheck.LinkEntries(len(check.Secrets.DegradedLinks)), check.DegradedRefs())
 		explained = true
 	}

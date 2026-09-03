@@ -29,9 +29,9 @@ import (
 // for rather than less.
 func diagnoseAgentRuleDrift(report *Report, opts Options) {
 	if opts.AgentUser == "" {
-		report.unaskedf("agent rule drift", 1, "the agent account is not named, so "+
-			"the agent rule files were not read: run through sudo so SUDO_USER "+
-			"carries it, or record the account with `faramir init --agent-user`")
+		report.unaskedf("agent rule drift", 1, "the agent account is not named, "+
+			"so the agent rule files were not read. Run doctor through sudo (SUDO_USER "+
+			"names the account), or record it with `faramir init --agent-user`")
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)
@@ -87,8 +87,8 @@ func reportRuleDrift(report *Report, home, configDir string) {
 	}
 
 	if len(unread) > 0 {
-		report.unaskedf("agent rule drift", len(unread), "could not read %s, so what "+
-			"they carry was not compared with what faramir writes now",
+		report.unaskedf("agent rule drift", len(unread), "could not read %s, so "+
+			"they were not compared with what faramir writes now",
 			strings.Join(unread, ", "))
 		return
 	}
@@ -97,9 +97,10 @@ func reportRuleDrift(report *Report, home, configDir string) {
 			"faramir has stopped writing", read)
 		return
 	}
-	report.addf("agent rule drift", StatusWarn, "%d rule(s) faramir no longer writes are still in place, left rather than deleted "+
-		"because yours would look the same. Remove them from the file, not the file itself, "+
-		"and only where they are not yours: %s", ruleCount, strings.Join(stale, "; "))
+	report.addf("agent rule drift", StatusWarn, "%d rule(s) faramir no longer "+
+		"writes are still in place. They were left because yours would look the same. "+
+		"Remove them from the file, not the file itself, and only where they are not "+
+		"yours: %s", ruleCount, strings.Join(stale, "; "))
 }
 
 // diagnoseLinkedFiles asks whether the account-wide deny rules refuse every
@@ -130,10 +131,10 @@ func diagnoseLinkedFiles(report *Report, opts Options, cfg *config.Config) {
 func diagnoseAgentCode(report *Report, opts Options) {
 	const name = "agent code"
 	if opts.AgentUser == "" {
-		report.unaskedf(name, 1, "the agent account is not named, so whether its "+
-			"plugin and hook files carry what `faramir init` writes was not asked: "+
-			"run through sudo so SUDO_USER carries it, or record the account with "+
-			"`faramir init --agent-user`")
+		report.unaskedf(name, 1, "the agent account is not named, so its plugin "+
+			"and hook files were not compared with what `faramir init` writes. Run doctor "+
+			"through sudo (SUDO_USER names the account), or record it with `faramir init "+
+			"--agent-user`")
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)
@@ -202,9 +203,9 @@ func reportAgentCode(report *Report, home, configDir string) {
 			"whether it still carries what `faramir init` writes is unknown",
 			strings.Join(unread, ", "))
 	case len(drifted) > 0:
-		report.addf(name, StatusFailed, "%d file(s) no longer carry what `faramir "+
-			"init` writes, and each is the whole of what routes or refuses for its "+
-			"agent: %s. Re-run `sudo faramir init`", len(drifted), strings.Join(drifted, ", "))
+		report.addf(name, StatusFailed, "%d file(s) no longer carry what "+
+			"`faramir init` writes, and each is all that routes or refuses for its agent: "+
+			"%s. Re-run `sudo faramir init`", len(drifted), strings.Join(drifted, ", "))
 	case checked > 0:
 		report.addf(name, StatusOK, "%d plugin and hook file(s) carry what "+
 			"`faramir init` writes", checked)
@@ -250,10 +251,9 @@ func denyRuleCoverage(report *Report, opts Options, name string,
 	check coverageCheck, paths []string) {
 	counted := fmt.Sprintf(check.noun, len(paths))
 	if opts.AgentUser == "" {
-		report.unaskedf(name, len(paths), "the agent account is not named, so the "+
-			"deny rules were not compared with the %s: run through "+
-			"sudo so SUDO_USER carries it, or record the account with "+
-			"`faramir init --agent-user`", counted)
+		report.unaskedf(name, len(paths), "the agent account is not named, so "+
+			"the deny rules were not compared with the %s. Run doctor through sudo "+
+			"(SUDO_USER names the account), or record it with `faramir init --agent-user`", counted)
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)
@@ -274,16 +274,16 @@ func (c coverageCheck) report(report *Report, name, home string,
 	// Before the coverage verdict: a rule file that could not be read is not
 	// one anything vouched for, and a pass beside it would claim it.
 	if len(unread) > 0 {
-		report.addf(name, StatusFailed, "%s could not be read or parsed, so what "+
-			"it refuses is unknown and the %s were not established there. Fix the "+
-			"file, or re-run `sudo faramir init`", strings.Join(unread, ", "), counted)
+		report.addf(name, StatusFailed, "%s could not be read or parsed, so "+
+			"what it refuses is unknown and the %s were not checked there. Fix the file, "+
+			"or re-run `sudo faramir init`", strings.Join(unread, ", "), counted)
 		return
 	}
 	switch {
 	case files == 0:
-		report.unaskedf(name, len(paths), "no agent under %s keeps rules of its own, so "+
-			"the %s were not looked for in one. What refuses them there is "+
-			"the guard, from the rendered deny list, which `deny patterns` checks",
+		report.unaskedf(name, len(paths), "no agent under %s keeps rules of its "+
+			"own, so the %s were not looked for in one. The guard refuses them there, "+
+			"from the rendered deny list, which `deny patterns` checks",
 			home, counted)
 	case len(uncovered) == 0:
 		report.addf(name, StatusOK, "%s%s are refused to the agent's "+

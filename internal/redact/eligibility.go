@@ -54,9 +54,9 @@ func (p EligibilityPolicy) Check(value string) string {
 		return fmt.Sprintf("shorter than %d characters", p.MinLength)
 	}
 	if len(value) >= MaxValueBytes {
-		return fmt.Sprintf("%d bytes, and the broker holds at most %d: a value costs "+
-			"about 15 KB of the broker's memory per byte, so one this size is a "+
-			"broker the host kills. Refuse the file to the agent with `sudo faramir "+
+		return fmt.Sprintf("%d bytes, and the broker holds at most %d: a value "+
+			"costs about 15 KB of the broker's memory per byte, so one this size "+
+			"would exhaust it. Block the file from the agent with `sudo faramir "+
 			"block --path` and let a brokered command read it instead",
 			len(value), MaxValueBytes)
 	}

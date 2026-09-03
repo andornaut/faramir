@@ -291,7 +291,7 @@ func TestABareNameThatCannotBeARefIsRefusedHere(t *testing.T) {
 	if err == nil {
 		t.Fatal("a bare name that is not a usable ref was accepted")
 	}
-	for _, want := range []string{"_DEPLOY_TOKEN", "not a ref"} {
+	for _, want := range []string{"_DEPLOY_TOKEN", "not a valid ref"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error is %q, want it to name %q", err, want)
 		}

@@ -45,8 +45,8 @@ func Add(keyPath, rulePath, editorPath, from, target string) error {
 
 	sealed, err := sealTo(keyPath, rulePath, target, recipients, plain)
 	if err != nil {
-		return fmt.Errorf("encrypt: %w. Nothing was written and the decrypted copy "+
-			"has been removed, so make it again once this is fixed", err)
+		return fmt.Errorf("encrypt: %w. Nothing was written, and the decrypted copy "+
+			"was removed. Enter it again once this is fixed", err)
 	}
 	return createManaged(target, sealed)
 }
@@ -59,8 +59,7 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 			return fserr.At(from, err)
 		}
 		if len(bytes.TrimSpace(body)) == 0 {
-			return fmt.Errorf("%s holds nothing, and an encrypted file with nothing in "+
-				"it names no ref", from)
+			return fmt.Errorf("%s is empty, and an empty file defines no ref", from)
 		}
 		return os.WriteFile(plain, body, 0o600)
 	}

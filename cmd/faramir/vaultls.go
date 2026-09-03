@@ -215,7 +215,7 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	case len(refs) == 0:
 		fmt.Fprintf(os.Stderr, "  it names no ref\n")
 	default:
-		fmt.Fprintf(os.Stderr, "  %d ref(s) go with it: %s\n", len(refs), termui.Safe(strings.Join(refs, ", ")))
+		fmt.Fprintf(os.Stderr, "  %d ref(s) will be deleted with it: %s\n", len(refs), termui.Safe(strings.Join(refs, ", ")))
 	}
 	// One keystroke answers this, so what was typed before the question was put
 	// must not be able to spell the answer to it. The same flush an escalation

@@ -119,11 +119,10 @@ func Uninstall(configDir string) ([]string, error) {
 			hostlayout.DefaultExecUser, hostlayout.DefaultExecUser),
 		"a shared tree's group and setgid bits, and the traversal granted to reach it",
 		"an enrolled tree's own agent configuration: for Claude Code, the settings "+
-			"naming the hook that routes what it runs",
+			"that name the hook",
 		"each agent's account-wide configuration in the agent account's home: the deny "+
 			"rules, and the credentials section between "+agentcfg.SectionBegin+" and "+
 			agentcfg.SectionEnd+" in the file that agent reads for every project. Both are "+
-			"in files the operator owns and edits, so removing the section is "+
-			"deleting those lines",
+			"in files the operator owns, so remove those lines by hand",
 	), nil
 }

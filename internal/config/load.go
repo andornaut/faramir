@@ -191,9 +191,10 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 		if shown == "" {
 			shown = "an empty component"
 		}
-		return fmt.Errorf("%s: [command] env PATH contains %s, which means the working directory. The broker "+
-			"resolves a bare name from its own and the command runs in the request's, so the "+
-			"file checked is not the file run. Name every directory absolutely", path, shown)
+		return fmt.Errorf("%s: [command] env PATH contains %s, which is resolved against "+
+			"the working directory. The broker resolves a bare program name in its own "+
+			"directory and the command runs in the request's, so the file checked would "+
+			"not be the file run. Use absolute directories only", path, shown)
 	}
 	// Every request is clamped to max_timeout_sec, so a smaller one here would
 	// replace timeout_sec rather than cap it.
@@ -293,9 +294,8 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 	// for, are separate questions and this is only the first.
 	if out.TimeoutSec, err = intInRange(sec, "timeout_sec", where, out.TimeoutSec,
 		1, MaxSudoTimeoutSec); err != nil {
-		return fmt.Errorf("%w. A question is a human at a terminal and a host held "+
-			"still while sudo waits on it, so this is bounded; past that, a refusal "+
-			"and a second run is the better answer", err)
+		return fmt.Errorf("%w. Other brokered commands are refused while a question "+
+			"is open, so the wait is bounded; past that, refuse and run the command again", err)
 	}
 	return nil
 }

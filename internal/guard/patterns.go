@@ -259,7 +259,7 @@ func loadPatterns() []compiled {
 		// A bad line must not be dropped in silence: report it so the operator
 		// knows a rule they wrote is not in force. The lines around it still stand.
 		fmt.Fprintln(os.Stderr,
-			"faramir guard: the deny-patterns file has an uncompilable line; skipping it")
+			"faramir guard: a line in the deny-patterns file does not compile; skipping it")
 	}
 	if usingFile && len(out) == 0 {
 		// Nothing in the file compiled, so running with an empty list would refuse

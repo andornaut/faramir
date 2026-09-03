@@ -88,9 +88,9 @@ func selectINI(data []byte, key string) (string, error) {
 		}
 	}
 	if len(origins) > 1 {
-		return "", fmt.Errorf("names %d entries at once (%s), and choosing between "+
-			"them would be choosing which credential to inject: a slash in a section "+
-			"or a key makes them read alike. Rename one, or link the file with "+
+		return "", fmt.Errorf("matches %d entries (%s): a slash in a section or key "+
+			"name makes them read alike, and faramir will not choose which "+
+			"credential to inject. Rename one, or link the file with "+
 			"type = \"text\"", len(origins), strings.Join(origins, ", "))
 	}
 	// The same entry more than once. Not resolved here: the readers of these
@@ -99,8 +99,8 @@ func selectINI(data []byte, key string) (string, error) {
 	// this package deciding what the file left open. A value that differs between
 	// faramir and the tool beside it is worse than one that is absent.
 	if matched > 1 {
-		return "", fmt.Errorf("gives %s %d times, and which one wins is the file's "+
-			"to say rather than this: remove the ones that are not wanted", key, matched)
+		return "", fmt.Errorf("sets %s %d times, and faramir will not choose which "+
+			"one wins. Remove the duplicates", key, matched)
 	}
 	if !found {
 		return "", fmt.Errorf("has no %s", key)

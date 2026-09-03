@@ -291,7 +291,7 @@ func TestLayoutValidation(t *testing.T) {
 		{
 			name: "two service accounts sharing a uid",
 			opts: Options{ConfigDir: "/etc/faramir", ExecUser: "faramir-broker"},
-			want: "boundary",
+			want: "its own account",
 		},
 	}
 	for _, test := range tests {

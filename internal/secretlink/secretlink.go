@@ -95,16 +95,15 @@ func readBounded(path string) ([]byte, error) {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("is a %s rather than a regular file, and a link names "+
-			"the file a credential is written in", kindOf(info.Mode()))
+		return nil, fmt.Errorf("is a %s, not a regular file", kindOf(info.Mode()))
 	}
 	data, err := io.ReadAll(io.LimitReader(fh, maxBytes+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(data) > maxBytes {
-		return nil, fmt.Errorf("larger than %d bytes, so it is not the credential "+
-			"file this link meant to name", maxBytes)
+		return nil, fmt.Errorf("is larger than %d bytes, which is too large for a "+
+			"credential file", maxBytes)
 	}
 	return data, nil
 }
@@ -131,8 +130,8 @@ func extract(kind, key string, data []byte) (string, error) {
 	switch kind {
 	case KindText:
 		if !utf8.Valid(data) {
-			return "", errors.New("not valid UTF-8, so it cannot be matched in output " +
-				"or held in an environment variable; use type = \"base64\"")
+			return "", errors.New("is not valid UTF-8, so it cannot be redacted from " +
+				"output or held in an environment variable; use type = \"base64\"")
 		}
 		value := strings.TrimSpace(string(data))
 		if value == "" {

@@ -179,9 +179,9 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	// remove it, that reads as an instruction to undo what they typed.
 	if !adding {
 		if keeper, err := keygen.AgeRecipient(store.keyPath); err == nil && keeper == recipient {
-			fmt.Fprintf(os.Stderr, "faramir %s: %s is the key %s decrypts with, and is "+
-				"the one recipient this will not remove: without it nothing on this host "+
-				"can open the store\n", label, recipient, store.keyPath)
+			fmt.Fprintf(os.Stderr, "faramir %s: %s is the keeper's own key (%s) and "+
+				"cannot be removed: without it nothing on this host can open the "+
+				"store\n", label, recipient, store.keyPath)
 			return 1
 		}
 	}
@@ -193,8 +193,8 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 		// and cannot create one, having no way to know who else should read the
 		// store.
 		if os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "faramir %s: `sudo faramir init` writes one naming "+
-				"the keeper's own key, and this adds to it\n", label)
+			fmt.Fprintf(os.Stderr, "faramir %s: `sudo faramir init` writes a creation rule "+
+				"naming the keeper's own key; run it first\n", label)
 		}
 		return 1
 	}

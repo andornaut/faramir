@@ -37,9 +37,9 @@ func diagnoseLogRotation(report *Report, cfg *config.Config) {
 		return
 	}
 	if _, err := exec.LookPath("logrotate"); err != nil {
-		report.addf("log rotation", StatusFailed, "%s exists and logrotate does not, "+
-			"so it is inert and %s grows without a ceiling. Install logrotate, or "+
-			"bound that file some other way", hostlayout.LogrotateConfig, logPath)
+		report.addf("log rotation", StatusFailed, "%s exists but logrotate is "+
+			"not installed, so %s grows without a ceiling. Install logrotate, or bound "+
+			"that file some other way", hostlayout.LogrotateConfig, logPath)
 		return
 	}
 
@@ -49,17 +49,18 @@ func diagnoseLogRotation(report *Report, cfg *config.Config) {
 	named, err := logrotateLogs(hostlayout.LogrotateConfig)
 	switch {
 	case err != nil:
-		report.addf("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
-			"anything bounds %s cannot be established", hostlayout.LogrotateConfig, err, logPath)
+		report.addf("log rotation", StatusFailed, "%s cannot be read (%v), so "+
+			"whether anything bounds %s is unknown", hostlayout.LogrotateConfig, err, logPath)
 		return
 	case len(named) == 0:
-		report.addf("log rotation", StatusWarn, "%s names no log file, so it is empty "+
-			"or written in a form this check cannot read. Confirm it covers %s with "+
+		report.addf("log rotation", StatusWarn, "%s names no log file, so it is "+
+			"empty or in a form this check cannot read. Confirm it covers %s with "+
 			"`logrotate -d %s`", hostlayout.LogrotateConfig, logPath, hostlayout.LogrotateConfig)
 		return
 	case !logrotateCovers(named, logPath):
-		report.addf("log rotation", StatusFailed, "%s bounds %s and the broker appends to %s, so nothing bounds the log this host "+
-			"writes. Point [audit] log_path back at the rotated file, or re-run `faramir init`", hostlayout.LogrotateConfig, strings.Join(named, ", "), logPath)
+		report.addf("log rotation", StatusFailed, "%s bounds %s but the broker "+
+			"appends to %s, so nothing bounds the log this host writes. Point [audit] "+
+			"log_path back at the rotated file, or re-run `faramir init`", hostlayout.LogrotateConfig, strings.Join(named, ", "), logPath)
 		return
 	}
 
@@ -68,28 +69,30 @@ func diagnoseLogRotation(report *Report, cfg *config.Config) {
 	// error earlier in the set abandons, is skipped every run.
 	statePath := firstExisting(hostlayout.LogrotateStatePaths)
 	if statePath == "" {
-		report.addf("log rotation", StatusWarn, "logrotate keeps no state at %s, so it "+
-			"has not run on this host and %s is bounded by a rule nothing has applied. "+
-			"Check the logrotate timer or cron job",
+		report.addf("log rotation", StatusWarn, "logrotate keeps no state at "+
+			"%s, so it has not run on this host and the rule bounding %s has never been "+
+			"applied. Check the logrotate timer or cron job",
 			strings.Join(hostlayout.LogrotateStatePaths, " or "), logPath)
 		return
 	}
 	rotated, err := logrotateStateLogs(statePath)
 	switch {
 	case os.IsPermission(err):
-		report.unaskedf("log rotation", 1, "the operator can run doctor as root to ask the rest: %s says which logs logrotate has processed "+
-			"and %s is the broker's, both root's to read. %s does name %s",
+		report.unaskedf("log rotation", 1, "the rest was not checked: %s says "+
+			"which logs logrotate has processed and %s is the broker's, and only root can "+
+			"read them. %s does name %s. Run doctor as root",
 			statePath, logPath, hostlayout.LogrotateConfig, logPath)
 		return
 	case err != nil:
-		report.addf("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
-			"logrotate has ever applied %s cannot be established",
+		report.addf("log rotation", StatusFailed, "%s cannot be read (%v), so "+
+			"whether logrotate has ever applied %s is unknown",
 			statePath, err, hostlayout.LogrotateConfig)
 		return
 	case !slices.Contains(rotated, logPath):
-		report.addf("log rotation", StatusWarn, "%s names %d logs and not %s, so logrotate has not applied the rule to it. A first "+
-			"run that has not come round yet is the ordinary reason; past that, check the "+
-			"logrotate timer or cron job",
+		report.addf("log rotation", StatusWarn, "%s names %d logs and not %s, "+
+			"so logrotate has not applied the rule to it. A first run that has not "+
+			"happened yet is the usual reason; otherwise check the logrotate timer or "+
+			"cron job",
 			statePath, len(rotated), logPath)
 		return
 	}
@@ -101,16 +104,16 @@ func diagnoseLogRotation(report *Report, cfg *config.Config) {
 	info, err := os.Stat(logPath)
 	switch {
 	case os.IsPermission(err):
-		report.unaskedf("log rotation", 1, "the operator can run doctor as root to ask the last of "+
-			"this: %s is the broker's, so its size is root's to read. %s does name "+
-			"it, and %s records that logrotate has applied the rule",
+		report.unaskedf("log rotation", 1, "the last check needs root: %s is "+
+			"the broker's, so only root can read its size. %s does name it, and %s "+
+			"records that logrotate has applied the rule. Run doctor as root",
 			logPath, hostlayout.LogrotateConfig, statePath)
 		return
 	// Absent is not a fault: the rule is missingok and the broker opens the file
 	// with O_CREATE, so the next record makes it again.
 	case err == nil && info.Size() > 4*rotateSize:
-		report.addf("log rotation", StatusWarn, "%s is %d bytes, well past the %d "+
-			"the rule rotates at, so logrotate is installed and is not being run on "+
+		report.addf("log rotation", StatusWarn, "%s is %d bytes, well past the "+
+			"%d the rule rotates at, so logrotate is installed but is not being run on "+
 			"it. Check the logrotate timer or cron job",
 			logPath, info.Size(), rotateSize)
 		return

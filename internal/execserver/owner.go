@@ -109,7 +109,7 @@ func (e *Executor) ownerOf(ancestors []int) map[string]any {
 	}
 	return map[string]any{"run_id": "", "detail": fmt.Sprintf(
 		"none of the %d process(es) named is a brokered command this executor "+
-			"forked and still has in flight", len(ancestors))}
+			"is still running", len(ancestors))}
 }
 
 // Owner asks the executor which of its runs forked one of these processes. The

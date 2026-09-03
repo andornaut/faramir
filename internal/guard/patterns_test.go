@@ -305,7 +305,7 @@ func TestTheListedActionPatternsCarryNoKindMarker(t *testing.T) {
 // reader to the broker: the brokered refusal is the second turn this exists to
 // save. The loose pair keeps the route, which is what makes it worth naming.
 func TestOnlyALooseEntryOffersTheBrokeredRoute(t *testing.T) {
-	const promise = "may go through there"
+	const promise = "may run there"
 	for _, tc := range []struct {
 		kind    denyrules.Kind
 		offered bool

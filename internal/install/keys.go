@@ -114,8 +114,8 @@ func (r *runner) stepSopsConfig() error {
 	// The one run that creates this file, so the one place to say how a second
 	// key gets in: sealed to this host alone, a backup of the ciphertext opens
 	// with nothing but the key beside it.
-	r.step("sops config", changed, fmt.Sprintf("%s, sealed to %s alone; "+
-		"`faramir reader add KEY` grants a key that opens it without this host's",
+	r.step("sops config", changed, fmt.Sprintf("%s, sealed to %s only; "+
+		"`faramir reader add KEY` adds a recipient that can decrypt it without this host's key",
 		path, r.layout.KeeperUser))
 	return nil
 }
@@ -140,10 +140,10 @@ func (r *runner) keepSopsConfig(path string) {
 	r.report.AgeRecipients = listed
 
 	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
-		r.warnf("%s does not list the keeper's own recipient (%s), so every new "+
-			"value is one %s cannot decrypt. Put it back with:\n"+
+		r.warnf("%s does not list the keeper's own recipient (%s), so %s cannot "+
+			"decrypt any new value. Put it back with:\n"+
 			"  sudo faramir reader add %s\n"+
-			"which works while the managed files still open with %s",
+			"This works while the managed files can still be opened with %s",
 			path, r.keeperRecipient, r.layout.KeeperUser,
 			r.keeperRecipient, r.layout.AgeKeyPath)
 	}
@@ -213,8 +213,8 @@ func (r *runner) checkSSHKey(path string, uid, gid int) error {
 		// Both halves in the remedy, and the group in the chown: this compares uid
 		// and gid, so a remedy naming the owner alone would leave the same refusal
 		// standing.
-		return fmt.Errorf("%s is %s, and [ssh] key names it, so %s cannot load it and brokered commands "+
-			"reach no managed host. Hand both halves over:\n    chown %s:%s %s %s\n    chmod "+
+		return fmt.Errorf("%s is %s, so %s cannot load the key [ssh] key names, and brokered commands "+
+			"cannot reach any managed host. Give both halves to the broker:\n    chown %s:%s %s %s\n    chmod "+
 			"0600 %s && chmod 0644 %s\nOr unset [ssh] key",
 			half.path, asaccount.OwnsWithGroup(half.path), r.layout.BrokerUser,
 			r.layout.BrokerUser, r.brokerGroupName(), path, path+".pub",

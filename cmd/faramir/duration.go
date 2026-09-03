@@ -34,8 +34,8 @@ func durationSeconds(flag, value string) (int, error) {
 			"bare number of seconds; %q is neither", flag, value)
 	}
 	if d%time.Second != 0 {
-		return 0, fmt.Errorf("%s is kept in whole seconds, so %q cannot be sent as "+
-			"given; use %s or the next second up", flag, value, d.Truncate(time.Second))
+		return 0, fmt.Errorf("%s takes whole seconds, so %q cannot be used as "+
+			"given; use %s or round up", flag, value, d.Truncate(time.Second))
 	}
 	seconds := int(d / time.Second)
 	return seconds, checkSeconds(flag, seconds)

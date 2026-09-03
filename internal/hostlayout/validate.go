@@ -30,10 +30,9 @@ func (l Layout) Validate() error {
 	}
 	if under := privateTmpDir(dir); under != "" {
 		return fmt.Errorf("config dir must not be under %s: %s\n"+
-			"Every unit runs with PrivateTmp=true, so each daemon gets a %s of its "+
-			"own and none of them would find what this run wrote. The install would "+
-			"finish and the host would serve nothing. Name a directory outside it, "+
-			"%s being the default", under, dir, under, DefaultConfigDir)
+			"Every unit runs with PrivateTmp=true, so each daemon sees its own %s "+
+			"and none of them would find the files this run wrote. Name a directory "+
+			"outside it (the default is %s)", under, dir, under, DefaultConfigDir)
 	}
 	// Blocked here rather than left to whatever renders it: these paths are
 	// interpolated into the agents' JSON settings, into config.toml and into the
@@ -88,9 +87,9 @@ func (l Layout) Validate() error {
 		"exec user":   l.ExecUser,
 	} {
 		if other, dup := seen[account]; dup {
-			return fmt.Errorf("%s and %s are both %q: the three uids are the "+
-				"boundary between the age key, the audit log and the commands "+
-				"the broker runs, and sharing one removes it", other, name, account)
+			return fmt.Errorf("%s and %s are both %q. Each daemon needs its own "+
+				"account: separate uids are what keep the age key, the audit log "+
+				"and brokered commands apart", other, name, account)
 		}
 		seen[account] = name
 	}
@@ -111,10 +110,10 @@ func (l Layout) Validate() error {
 			{"executor", ExecUserFlag, l.ExecUser},
 		} {
 			if l.AgentUser == daemon.account {
-				return fmt.Errorf("--agent-user %s is the account the %s runs as, so the "+
-					"operator and that daemon would be one uid and nothing a brokered "+
-					"command holds would be out of the agent's reach. Name a different "+
-					"account, or move the daemon with %s",
+				return fmt.Errorf("--agent-user %s is the account the %s runs as. The "+
+					"agent and that daemon would share a uid, so the agent could read "+
+					"everything a brokered command holds. Name a different account, "+
+					"or move the daemon with %s",
 					l.AgentUser, daemon.role, daemon.flag)
 			}
 		}
@@ -191,9 +190,9 @@ func (l Layout) validateNotifyCommand() error {
 		return nil
 	}
 	if !l.AllowSudo {
-		return fmt.Errorf("--notify-command announces a pending escalation, and this "+
-			"install grants none: pass --allow-sudo as well, or drop it. Without the "+
-			"grant no [sudo] section is written and there is nothing to announce (%s)",
+		return fmt.Errorf("--notify-command announces a pending escalation, but this "+
+			"install grants no sudo, so there is nothing to announce. Pass --allow-sudo "+
+			"as well, or drop --notify-command (%s)",
 			strings.Join(l.NotifyCommand, " "))
 	}
 	if !slices.ContainsFunc(l.NotifyCommand, func(arg string) bool {
@@ -207,9 +206,9 @@ func (l Layout) validateNotifyCommand() error {
 	// Checked rather than assumed: a name that resolved to nothing would reach
 	// the config as itself and be looked up again by the broker's PATH.
 	if !filepath.IsAbs(l.NotifyCommand[0]) {
-		return fmt.Errorf("%s %q is not on PATH and is not an absolute "+
-			"path: it is run as the account holding every decrypted value, so which "+
-			"file it reaches is the install's to decide rather than the broker's PATH's",
+		return fmt.Errorf("%s %q is not on PATH and is not an absolute path. "+
+			"It runs as the account that holds every decrypted value, so name the "+
+			"program by its absolute path",
 			l.notifySource(), l.NotifyCommand[0])
 	}
 	// And it has to be there: a path written out by hand is taken as given, so a
@@ -217,14 +216,13 @@ func (l Layout) validateNotifyCommand() error {
 	// every file was written.
 	info, err := os.Stat(l.NotifyCommand[0])
 	if err != nil {
-		return fmt.Errorf("%s %q is not there (%v): install it, or name "+
-			"a program that exists with --notify-command. It announces a pending "+
-			"escalation, so an install that wrote it would come up with nothing "+
-			"announcing anything", l.notifySource(), l.NotifyCommand[0], err)
+		return fmt.Errorf("%s %q does not exist (%v). Install it, or name "+
+			"a program that exists with --notify-command. Without it no pending "+
+			"escalation would be announced", l.notifySource(), l.NotifyCommand[0], err)
 	}
 	if info.IsDir() || info.Mode().Perm()&0o111 == 0 {
 		return fmt.Errorf("%s %q is not an executable file: the broker "+
-			"execs it directly rather than through a shell",
+			"runs it directly, not through a shell",
 			l.notifySource(), l.NotifyCommand[0])
 	}
 	return nil

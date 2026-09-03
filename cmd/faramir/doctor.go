@@ -247,8 +247,8 @@ func printNotAsked(w io.Writer, paint termui.Palette, count int) {
 	if count == 0 {
 		return
 	}
-	note := fmt.Sprintf("%d more check(s) were not made, so the totals above are not "+
-		"the whole examination.", count)
+	note := fmt.Sprintf("%d more check(s) were not made; the totals above do not "+
+		"include them.", count)
 	if os.Geteuid() != 0 {
 		// "Most", not "each": want of systemd, of sops on the PATH, or of a broker
 		// holding values is counted here too, and root changes none of those.

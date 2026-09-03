@@ -32,8 +32,8 @@ func (r *runner) preflight() error {
 	if r.opts.AgentUser == "" || r.opts.AgentUser == "root" {
 		// Reached by `block` and `link` as well, which have no flag of their own:
 		// they read what the config records, and `init` is what records it.
-		return errors.New("name the account the coding agent runs as: run through " +
-			"sudo so SUDO_USER carries it, or record it with " +
+		return errors.New("name the account the coding agent runs as: run this through " +
+			"sudo so SUDO_USER names it, or record it with " +
 			"`faramir init --agent-user`. It must not be root")
 	}
 	if !hostfs.UserExists(r.opts.AgentUser) {
@@ -43,8 +43,8 @@ func (r *runner) preflight() error {
 	// alone: a value above it renders a config.toml the daemons then refuse,
 	// which is a host with no broker where the answer is one number.
 	if r.opts.CommandConcurrency > config.MaxConcurrentRuns {
-		return fmt.Errorf("--command-concurrency %d is above the %d the executor forks at once, so the "+
-			"surplus is refused by the executor after the run is recorded as started. Name %d "+
+		return fmt.Errorf("--command-concurrency %d is above the %d commands the executor runs at once. "+
+			"The executor would refuse the surplus after each run is recorded as started. Name %d "+
 			"or fewer",
 			r.opts.CommandConcurrency, config.MaxConcurrentRuns, config.MaxConcurrentRuns)
 	}
@@ -58,8 +58,7 @@ func (r *runner) preflight() error {
 	// error about a file the operator did not type, after preflight has already
 	// passed; named here it is the flag that is wrong.
 	if r.opts.CommandConcurrency < 0 {
-		return fmt.Errorf("--command-concurrency %d is negative, and a broker cannot "+
-			"size itself to run fewer than no commands at all. Name 1 or more",
+		return fmt.Errorf("--command-concurrency %d is negative. Name 1 or more",
 			r.opts.CommandConcurrency)
 	}
 	r.warnLongSudoTimeout()
@@ -74,8 +73,8 @@ func (r *runner) preflight() error {
 	// write lands in the backing directory and is shadowed the moment it mounts.
 	// The config directory answers for the secrets directory and the key too.
 	if home := hostlayout.HomeOf(r.layout.ConfigDir); home != "" && hostfs.LooksEncrypted(home) && !hostfs.HomeIsMounted(home) {
-		return fmt.Errorf("%s is an encrypted home and is not mounted, and %s is inside it: installing now "+
-			"writes plaintext to the backing directory. Log in as its owner first",
+		return fmt.Errorf("%s is an encrypted home that is not mounted, and %s is inside it. Installing now "+
+			"would write plaintext to the backing directory. Log in as the home's owner first",
 			home, r.layout.ConfigDir)
 	}
 	// The config directory is the one faramir creates whose parent can belong to
@@ -84,7 +83,7 @@ func (r *runner) preflight() error {
 	// there.
 	if parent := filepath.Dir(r.layout.ConfigDir); !hostfs.Exists(parent) {
 		return fmt.Errorf("%s does not exist, and %s is inside it. Create it with "+
-			"the ownership you want first: creating it here would hand it to root",
+			"the ownership you want first; this install would create it owned by root",
 			parent, r.layout.ConfigDir)
 	}
 	if err := r.refuseRepoint(); err != nil {
@@ -137,10 +136,10 @@ func (r *runner) refuseRepoint() error {
 			return nil
 		}
 		return fmt.Errorf("this host's daemons load %s, and this run names %s.\nThere is one set of units, "+
-			"so the daemons would move and %s would be left holding its age key and its "+
-			"ciphertext, no longer redacted.\nPass --repoint-config to point them at the new "+
-			"one, then retire %s "+
-			"yourself. To provision the install this host has, leave --config-dir out",
+			"so the daemons would move to the new directory, and the age key and ciphertext "+
+			"left in %s would no longer be redacted.\nPass --repoint-config to move them, "+
+			"then retire %s "+
+			"yourself. To provision the existing install, leave --config-dir out",
 			installed, r.layout.ConfigDir, installed, installed)
 	}
 	// Consented to, and still worth naming: nothing moved, and what is left
@@ -153,11 +152,11 @@ func (r *runner) refuseRepoint() error {
 	key := filepath.Join(installed, "age.key")
 	store := filepath.Join(installed, "secrets")
 	width := max(len(key), len(store))
-	r.warnf("the daemons now load %s; %s is no longer part of this install and "+
+	r.warnf("the daemons now load %s. %s is no longer part of this install, and "+
 		"nothing left in it is redacted:\n"+
-		"  %-*s  the key that opens what is beside it\n"+
+		"  %-*s  the age key for the files beside it\n"+
 		"  %-*s  %d managed file(s)\n"+
-		"Re-encrypt what you still need where the daemons now look, check it with "+
+		"Re-encrypt what you still need under the new directory, check it with "+
 		"`faramir refs`, then remove the old directory:\n"+
 		"  sudo rm -rf %s",
 		r.layout.ConfigDir, installed,
@@ -296,8 +295,8 @@ func (r *runner) refuseSymlinks() error {
 			continue
 		}
 		target, _ := os.Readlink(path)
-		return fmt.Errorf("%s is a symlink to %s, and faramir asserts the mode and owner of that path, which "+
-			"through a link would land on the target: nothing has been installed. Replace it "+
+		return fmt.Errorf("%s is a symlink to %s. faramir sets the mode and owner of that path, which "+
+			"would change the target instead. Nothing has been installed. Replace the symlink "+
 			"with a real file or directory, or move the install with --config-dir",
 			path, target)
 	}

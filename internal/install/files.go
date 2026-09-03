@@ -353,8 +353,8 @@ func (r *runner) stepLogrotate() error {
 	// "changed" either way, so a host with no logrotate looks installed and has
 	// no ceiling on the log. `faramir doctor` checks it again.
 	if _, err := exec.LookPath("logrotate"); err != nil {
-		r.warnf("logrotate is not installed, so %s is inert and %s grows without a "+
-			"ceiling. Install logrotate, or manage that file some other way",
+		r.warnf("logrotate is not installed, so %s does nothing and %s grows without "+
+			"limit. Install logrotate, or rotate that file some other way",
 			hostlayout.LogrotateConfig, r.layout.AuditLogPath())
 	}
 	r.step("logrotate", made, hostlayout.LogrotateConfig)
@@ -387,8 +387,8 @@ func (r *runner) stepReachable() error {
 	}
 	if len(blocked) > 0 {
 		return fmt.Errorf("%s is inside a home and %s cannot enter %s, so the "+
-			"daemons cannot read the config. faramir does not alter a directory it "+
-			"does not own; open them and run this again:\n%s",
+			"daemons cannot read the config. faramir does not change a directory it "+
+			"does not own. Open these directories and run this again:\n%s",
 			dir, r.layout.ClientGroup, sharetree.Describe(blocked),
 			sharetree.Fix(blocked, r.layout.ClientGroup))
 	}

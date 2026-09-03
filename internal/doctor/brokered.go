@@ -34,19 +34,19 @@ func diagnoseBrokered(report *Report, opts Options, cfg *config.Config, serves b
 	// back as a boundary that does not hold.
 	switch serves {
 	case servesNothing:
-		report.unaskedf("brokered command", 1, "not asked: a managed file did not "+
-			"load, so the broker refuses the command this would run")
+		report.unaskedf("brokered command", 1, "not asked: a managed file did "+
+			"not load, so the broker would refuse the command")
 		return
 	case servesUnknown:
-		report.unaskedf("brokered command", 1, "not asked: --check did not report, "+
-			"so whether the broker would refuse the command this runs is unknown")
+		report.unaskedf("brokered command", 1, "not asked: --check did not "+
+			"report, so whether the broker would refuse the command is unknown")
 		return
 	case servesValues:
 		// The command is sent, which is the rest of this function.
 	}
 	if opts.BrokerVersion == "" {
 		report.unaskedf("brokered command", 1, "not asked: the broker did not "+
-			"answer, so the command this runs cannot be sent")
+			"answer, so the command could not be sent")
 		return
 	}
 	faramir := filepath.Join(hostlayout.DefaultBinDir, "faramir")
@@ -93,7 +93,7 @@ func diagnoseBrokered(report *Report, opts Options, cfg *config.Config, serves b
 			// pass the boundary on a broken probe, and scoring it a leak would
 			// fail a healthy host over one.
 			report.unaskedf("brokered command", 1, "the %s probe could not run "+
-				"(%v), so whether the age key reaches a child there was not asked",
+				"(%v), so whether the age key reaches a child there was not checked",
 				leak.name, err)
 			return
 		case got == "readable":
@@ -155,8 +155,9 @@ func diagnoseRedaction(report *Report, opts Options, cfg *config.Config) {
 		"--config", filepath.Join(opts.ConfigDir, ".sops.yaml"),
 		"--encrypt", "--filename-override", target, plain)
 	if err != nil {
-		report.unaskedf(name, 1, "could not seal a probe value (%v), so redaction "+
-			"was not exercised; `sops config` and `rule coverage` say why sealing fails", err)
+		report.unaskedf(name, 1, "could not seal a probe value (%v), so "+
+			"redaction was not exercised. The `sops config` and `rule coverage` checks "+
+			"say why", err)
 		return
 	}
 	// 0640 into the setgid store, which hands the keeper's group over, exactly
@@ -186,12 +187,12 @@ func diagnoseRedaction(report *Report, opts Options, cfg *config.Config) {
 	// The whole output has to be the probe's own token: a substring match
 	// would pass a value redacted in part.
 	if strings.TrimSpace(probe) != redact.TokenFor("doctor/probe") {
-		report.addf(name, StatusFailed, "a command printing the sealed probe value "+
-			"returned something other than its token, so injected values reach "+
-			"output unredacted. The probe value is synthetic and already removed")
+		report.addf(name, StatusFailed, "a command that printed the sealed "+
+			"probe value did not return its token, so injected values reach output "+
+			"unredacted. The probe value was synthetic and has been removed")
 		return
 	}
-	report.addf(name, StatusOK, "a sealed probe value came back as exactly its token")
+	report.addf(name, StatusOK, "a sealed probe value came back as its token")
 }
 
 // refreshStore asks the running broker to re-read the managed store, the same

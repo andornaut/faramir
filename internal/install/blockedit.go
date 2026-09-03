@@ -146,9 +146,9 @@ func refuseEnrolledTrees(configDir string, paths []string) error {
 				continue
 			}
 			if path == tree.Dir {
-				return fmt.Errorf("path %s is an enrolled tree, and the rules hold "+
-					"wherever the agent works: it would be refused every file in the "+
-					"directory it works in. Name the file inside it, or "+
+				return fmt.Errorf("path %s is an enrolled tree. The rules apply "+
+					"wherever the agent works, so it would be refused every file in "+
+					"its own working directory. Name the file inside it, or "+
 					"`sudo faramir enrol` elsewhere first", path)
 			}
 			return fmt.Errorf("path %s holds the enrolled tree %s, so the rule would "+
@@ -393,11 +393,10 @@ func builtInRuleError(configDir string, refused config.BlockedPath) error {
 	if !ok {
 		return nil
 	}
-	return fmt.Errorf("%s is under %s, which this install occupies, so it is "+
-		"blocked by the layout rather than by a [[secret.block]] entry: there is "+
-		"nothing here to remove and the host goes on blocking it. Those rules are "+
-		"rendered on every run and change only with the install; `faramir block "+
-		"ls` shows which rules are which", config.Shown(refused.Blocks()), dir)
+	return fmt.Errorf("%s is under %s, faramir's own install directory. It is "+
+		"blocked by the install layout, not by a [[secret.block]] entry, so there "+
+		"is nothing to remove and it stays blocked. `faramir block ls` shows which "+
+		"rules come from the layout", config.Shown(refused.Blocks()), dir)
 }
 
 // BlockedPaths is what the install declares, for `faramir block ls`.

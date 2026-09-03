@@ -44,9 +44,9 @@ func requireRootToAnswer(command string) bool {
 	// Not "try sudo": reaching root that way from the account the agent runs as
 	// leaves a warm sudo timestamp in a shell the agent can use. The three places
 	// named here are the ones sudoprompt.WarnIfTypeable does not warn about.
-	fmt.Fprintf(os.Stderr, "faramir %s must run as root, but not by `sudo` from this "+
-		"shell: that warms a timestamp the coding agent can spend. Answer from a "+
-		"console, an ssh session on another machine, or a login as another account.\n",
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root, but not through `sudo` from this "+
+		"shell: that caches a sudo timestamp the coding agent could use. Answer from a "+
+		"console, an ssh session from another machine, or a login as another account.\n",
 		command)
 	return false
 }
@@ -297,8 +297,8 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			// The cost is that `faramir init` restarts the broker, so an install ends
 			// a watcher and it has to be started again.
 			fmt.Fprintf(os.Stderr, "faramir sudo ls: %v\n", err)
-			fmt.Fprintln(os.Stderr, "faramir sudo approve: stopping rather than "+
-				"reconnecting; start it again once the broker is back")
+			fmt.Fprintln(os.Stderr, "faramir sudo approve: lost the broker; not "+
+				"reconnecting. Start this again once the broker is back")
 			return 69 // EX_UNAVAILABLE, as every other broker-facing command
 		}
 		if finished != nil {
@@ -356,8 +356,8 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 					"unwatched; start this again once the broker is back\n", question.ID)
 				return 69
 			default:
-				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s was not approved "+
-					"and is closed; run the command again if it still needs to\n", question.ID)
+				fmt.Fprintf(os.Stderr, "faramir sudo approve: %s closed without "+
+					"approval; run the command again if it still needs sudo\n", question.ID)
 			}
 		}
 	}

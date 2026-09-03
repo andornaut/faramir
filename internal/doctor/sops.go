@@ -44,8 +44,8 @@ func diagnoseSopsRecipients(report *Report, opts Options, path string) {
 		// An unreadable file and one that does not parse are different faults
 		// with different remedies, and only the second is sops's concern too.
 		if errors.Is(err, fs.ErrPermission) {
-			report.unaskedf("sops config", 1, "%s could not be read (%v), so who can "+
-				"decrypt the secrets directory went unchecked here. The operator can re-run this as root", path, err)
+			report.unaskedf("sops config", 1, "%s could not be read (%v), so who "+
+				"can decrypt the secrets directory went unchecked. Run doctor as root", path, err)
 			return
 		}
 		report.addf("sops config", StatusFailed, "%s does not parse (%v), so who can "+
@@ -74,14 +74,14 @@ func diagnoseSopsRecipients(report *Report, opts Options, path string) {
 		// re-run as root would send the operator in a circle: the keeper can
 		// decrypt nothing until the key is restored.
 		if errors.Is(err, fs.ErrNotExist) {
-			report.addf("sops config", StatusFailed, "%s is missing, so %s can decrypt "+
-				"nothing and every managed value is unreadable. Restore the key from "+
-				"backup; there is no re-minting a key the store is sealed to",
+			report.addf("sops config", StatusFailed, "%s is missing, so %s can "+
+				"decrypt nothing and every managed value is unreadable. Restore the key from "+
+				"backup; a key the store is sealed to cannot be re-minted",
 				keyPath, opts.KeeperUser)
 			return
 		}
 		report.unaskedf("sops config", 1, "%s lists %s, and whether %s is among "+
-			"them went unchecked: %v. The operator can re-run this as root", path, strings.Join(listed, ", "),
+			"them went unchecked: %v. Run doctor as root", path, strings.Join(listed, ", "),
 			keyPath, err)
 		return
 	}
@@ -136,8 +136,8 @@ func diagnoseSopsRuleCoverage(report *Report, opts Options, rulePath string) {
 	unlistable := unlistableDirs(opts.SecretsPatterns)
 	if len(unlistable) > 0 {
 		report.unaskedf("rule coverage", 1, "the directories the managed store "+
-			"names cannot be listed by this account (%s), so any managed file under "+
-			"them went unchecked. The operator can re-run this as root",
+			"names cannot be listed by this account (%s), so the managed files under them "+
+			"went unchecked. Run doctor as root",
 			strings.Join(unlistable, ", "))
 	}
 	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
@@ -154,7 +154,7 @@ func diagnoseSopsRuleCoverage(report *Report, opts Options, rulePath string) {
 	}
 	sops, err := exec.LookPath("sops")
 	if err != nil {
-		report.unaskedf("rule coverage", 1, "sops is not on this PATH, and it is what "+
+		report.unaskedf("rule coverage", 1, "sops is not on this PATH, and it "+
 			"decides which rule governs a file: %v", err)
 		return
 	}
@@ -235,8 +235,8 @@ func diagnoseRecipientDrift(report *Report, opts Options, rulePath string) {
 			continue
 		}
 		drifted++
-		report.addf("recipient drift", StatusFailed, "%s is sealed to %s while %s "+
-			"names %s, so a key the rule grants may not open it and one it no longer "+
+		report.addf("recipient drift", StatusFailed, "%s is sealed to %s while "+
+			"%s names %s, so a key the rule grants may not open it and a key it no longer "+
 			"grants may. Run: sudo faramir reader reseal",
 			target, strings.Join(was, ", "), rulePath, strings.Join(wanted, ", "))
 	}

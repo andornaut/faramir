@@ -46,7 +46,7 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		// answered, which is a broker that did not come up rather than one that
 		// refused.
 		fmt.Fprintf(os.Stderr, "faramir %s: the broker did not answer within %s. "+
-			"The socket listens whether or not the daemon started: check "+
+			"The socket accepts connections even when the daemon failed to start: check "+
 			"`systemctl status faramir-broker` and `faramir broker --parse-only`\n",
 			prog, wait)
 		return 69
