@@ -34,11 +34,12 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	}
 	// A symlink reaching here is one nothing resolved: an add resolves the path
 	// it is given, so an entry naming a link was written by hand, or the link was
-	// made after the entry. Refused either way, the grant and the regroup below
+	// made after the entry. Refused either way, the chgrp and chmod reported below
 	// landing on the target while the mode read here is the link's.
 	if info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Sprintf("%s is a symlink. A link must name the file that holds "+
-			"the value, the group and the mode being set on that file: name %s "+
+			"the value, which is the file that has to carry the group and the mode: "+
+			"name %s "+
 			"instead. `faramir link rm %s` removes this entry, and `faramir link "+
 			"add` resolves a symlink for you and blocks the spelling you typed",
 			link.Path, linkTarget(link.Path), link.Ref), nil
@@ -148,11 +149,11 @@ func (r *runner) stepLinkAccess() error {
 }
 
 // linkSteps is what an install run does about a link and nothing else: write
-// the config that names it, grant the access it needs, and re-render the deny
-// rules that refuse its file. `faramir link` applies these rather than a whole
-// install. stepPreconditions is not optional here: it resolves the agents
-// whose files stepAgentConfig writes, so a list without it writes no deny
-// rule.
+// the config that names it, check the access its file has (refusing with the
+// commands that fix it), and re-render the deny rules that refuse its file.
+// `faramir link` applies these rather than a whole install. stepPreconditions
+// is not optional here: it resolves the agents whose files stepAgentConfig
+// writes, so a list without it writes no deny rule.
 func (r *runner) linkSteps() []steps.Named {
 	return []steps.Named{
 		{Name: steps.LabelResolveIDs, Run: r.resolveIDs},
@@ -207,7 +208,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	}
 	configDir := configDirOr(opts.ConfigDir)
 	// The spelling the operator typed, kept before it is resolved. The entry has
-	// to name the file that holds the value, the grant and the regroup landing
+	// to name the file that holds the value, the group and mode check landing
 	// there whatever name reached it, so a symlink is resolved rather than
 	// refused. What was typed is still blocked: the rules match the path a
 	// command names, and the name the agent has is the one that was typed.
@@ -275,8 +276,8 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	}
 	// What the file itself answers, asked before anything is altered: the wrong
 	// --type, or a --key naming nothing, is a link that was never going to work,
-	// and finding that out after the grant leaves a credential file regrouped and
-	// the directories above it opened up for it. Root reads what the broker
+	// and finding that out after the check has the operator regroup a credential
+	// file and open the directories above it for nothing. Root reads what the broker
 	// cannot, so this is not the probe below: this says the content yields a
 	// value, and probeLink says the broker can reach it.
 	if _, err := secretlink.Read(link.Path, link.Type, link.Key); err != nil {
@@ -366,13 +367,13 @@ func withLinkDerivation(opts Options, configDir, typed string,
 
 // say is what the report tells an operator who typed a symlink. Both outcomes
 // are worth a line, and so is the resolution itself: the entry names a file
-// they did not type, and the grant and the group went to that file.
+// they did not type, and that file is the one whose group and mode were checked.
 func (d linkDerivation) say(report *Report, typed string, link config.Link) {
 	if d.entry.Path == "" {
 		return
 	}
 	said := fmt.Sprintf("%s is a symlink, so %s names %s, which is the file the "+
-		"broker was granted and the file whose group was changed",
+		"broker reads and the file whose group and mode were checked",
 		config.Shown(typed), config.Shown(link.Ref), config.Shown(link.Path))
 	if d.declared {
 		report.Warnings = append(report.Warnings, said+fmt.Sprintf(
@@ -513,7 +514,7 @@ func reassertLink(opts Options, existing []config.Link, link config.Link) (Repor
 	// Refusing here would fail a converge run over a home that is not mounted,
 	// so it is said and the probe is skipped: there is nothing to read.
 	report.Warnings = append(report.Warnings, fmt.Sprintf(
-		"%s: %s is not there, so nothing was granted or read. The entry stands "+
+		"%s: %s is not there, so nothing was checked or read. The entry stands "+
 			"and the broker treats it as a ref naming nothing", link.Ref, link.Path))
 	return report, nil
 }

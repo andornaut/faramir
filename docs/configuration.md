@@ -82,13 +82,15 @@ Key | Derived from
 
 ## What is not a key at all
 
-Nine values are constants in the binary. No install sets them.
+Eleven values are constants in the binary. No install sets them.
 
 Value | Is
 --- | ---
 `max_output_bytes` | 256 KiB, roughly 64k tokens. It limits how much text reaches the model, which is a property of the conversation rather than of the host. Truncation is reported, never silent
 `max_request_bytes` | 256 KiB. The largest request line the broker socket reads. A guard against a malformed request, not a size anyone chooses
+`max_stdin_bytes` | 128 KiB. The most a caller may pipe into a brokered command. The bytes travel inside the request, base64 encoded, so this leaves room under `max_request_bytes` for the command, the cwd and the refs beside them. More is refused rather than truncated: a command that read half its input has done something nobody asked for
 `max_record_bytes` | 256 KiB. The largest one audit record's line may be, in encoded bytes. A record keeps the head and tail of the output and cuts every other field to fit, so a long command degrades its record rather than losing it
+`min_record_bytes` | 4 KiB. The smallest record limit the audit log is built to survive, not a value anybody sets. A record keeps its identity (the `log_id`, the op and the caller) when everything else has been cut away, and the reducer is held to producing one at this size, which is what makes it safe at any larger one
 `term_cols`, `term_rows` | 120x40. The PTY size every child gets, which decides where a program wraps its output
 `kill_grace_sec` | 5 seconds between SIGTERM and SIGKILL. This window opens only after a command has overrun its timeout
 `min_refresh_sec` | 1 second. The soonest the broker asks the keeper again whether a managed file changed. Checked when a command arrives, not on a timer, so an idle host makes no round trip. Not a setting because every larger value is worse: the check costs one stat per managed file, and a longer interval only widens the window in which a value rotated outside faramir is missing from the redactor. This interval does not apply to linked files: they are stat'ed on every request

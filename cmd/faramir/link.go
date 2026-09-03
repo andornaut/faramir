@@ -48,22 +48,25 @@ func newLinkAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add [options] REF FILE",
 		Short: "Add a secret read from a file another tool maintains",
-		Long: "Adds one [[secret.link]] entry and applies it: the broker is granted read\n" +
-			"access to the file, the file is refused to the agent's file tools, its\n" +
+		Long: "Adds one [[secret.link]] entry and applies it: the file is checked to be\n" +
+			"readable by the broker, the file is refused to the agent's file tools, its\n" +
 			"shell and any brokered command that would print it, and the daemons are\n" +
-			"reloaded.\n\n" +
+			"reloaded. Nothing is granted: a file that is not the broker's group,\n" +
+			"group-readable and not world-readable is refused, with the chgrp and\n" +
+			"chmod to run.\n\n" +
 			"REF is the name a caller asks for, with or without the faramir:// prefix\n" +
 			"that `faramir refs` prints.\n\n" +
-			"The file is read once, as the broker, before anything is written, so a\n" +
-			"--key that selects nothing fails here rather than later.\n\n" +
-			"A symlink is resolved: the entry names the target, which is the file the\n" +
-			"grant and the group are applied to, and the spelling you typed is\n" +
+			"The file is read twice before anything is written, as root and then as\n" +
+			"the broker, so a --key that selects nothing, or a file the broker cannot\n" +
+			"reach, fails here rather than later.\n\n" +
+			"A symlink is resolved: the entry names the target, which is the file\n" +
+			"whose group and mode are checked, and the spelling you typed is\n" +
 			"blocked instead, so both names are refused. `link rm` takes both, unless\n" +
 			"another entry still names the target.\n\n" +
-			"Adding an entry that already exists re-applies it, which restores a\n" +
-			"grant or a rule that was removed, and reports changed=false. The same\n" +
-			"ref with a different file, type or key is an error. The same ref with a\n" +
-			"different --strict updates the entry.\n\n" +
+			"Adding an entry that already exists re-applies it, which puts back the\n" +
+			"entry and any rule of it that was removed, reloads the daemons, and\n" +
+			"reports changed=false. The same ref with a different file, type or key\n" +
+			"is an error. The same ref with a different --strict updates the entry.\n\n" +
 			"Prints the ref it added. --json prints the file-by-file report.",
 		Args: exactlyArgs(2, "a ref and a file"),
 		RunE: func(c *cobra.Command, args []string) error {

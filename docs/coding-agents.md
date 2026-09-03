@@ -71,9 +71,9 @@ reaches the hook.
 For the same reason the hook is registered for every tool, not for the shell
 alone. An empty reply leaves a call unchanged, so answering for a tool that
 runs no command has no effect, and matching every tool is what makes the file
-tools reach the deny list. `faramir doctor` reports a registration that
-matches less than every tool: an enrolment written by an older version matches
-`Bash` only, so its file tools never reach the guard.
+tools reach the deny list. `faramir doctor` reports a Claude Code registration
+that matches less than every tool: an enrolment written by an older version
+matches `Bash` only, so its file tools never reach the guard.
 
 **Runs a hook only once told to trust it.** Codex only. It skips a hook it has
 not been told to trust and does not say so, so what faramir writes does
@@ -196,7 +196,7 @@ A file two agents both read is written once, and claims only what is true for
 both. Telling one agent that its file tools are refused everywhere would tell
 the other something false. Antigravity's two halves are the case:
 `~/.gemini/GEMINI.md` and `~/.gemini/config/hooks.json` are each written once
-for the family, whichever half the enrolment named.
+for the family, whichever half `--agent` named.
 
 A rules file faramir creates carries the frontmatter that makes it always-on.
 That frontmatter decides whether the model is shown the file at all.

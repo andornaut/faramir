@@ -239,10 +239,11 @@ func Run(args []string) int {
 
 	// The same question the patch branch above asks, of a command that runs the
 	// patch tool itself: the documented way to invoke it from a shell is with the
-	// envelope in a quoted heredoc, and a quoted heredoc body is data rather than
-	// commands, so the list above never sees the headers. Every other heredoc
-	// write names its file on the opening line, which the list does see; this is
-	// the one that does not.
+	// envelope in a heredoc, and the list above reads a heredoc body as commands,
+	// quoted delimiter or not, so it has already seen each header line as written
+	// and refused one that names a declared path. What it does not reach is a
+	// header path in another spelling, relative to cwd or under "~", which is
+	// resolved and asked about again here.
 	if path, pattern, denied := refusedPatchCommand(activeHost, cwd, command); denied {
 		return emit(activeHost.deny(fileAdviceFor(pattern, path)))
 	}

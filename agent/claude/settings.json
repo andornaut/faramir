@@ -1,12 +1,13 @@
 {{- /*
-The account-wide half of a Claude Code enrolment, and now the whole of it: the
-PreToolUse hook that routes a Bash command through the broker, and the deny
-rules that refuse a path to its file tools.
+The account-wide half of a Claude Code enrolment, written by `faramir init`: a
+deny-only copy of the PreToolUse hook, and the deny rules that refuse a path to
+its file tools.
 
 Both in a home rather than a tree. The wrapper, the redactor and the binary the
 hook execs are installed for the account, so nothing about routing needs a tree,
 and an operator's declared paths are the host's rather than any project's. A
-tree carries the prose and nothing else.
+tree carries the prose and the routing copy of this hook, in
+.claude/settings.local.json, which `faramir enrol` writes.
 
 Deny-only, and that is the whole of the difference from the tree's. A rewrite
 has to be approved to run, and the allow that approves it approves every command

@@ -16,6 +16,9 @@ Flag left out | Read from
 `--broker-user`, `--keeper-user`, `--exec-user` | each unit's `User=`
 `--client-group`, `--ssh-key` | the installed `config.toml`
 `--secrets-group` | the group owning `<config-dir>/secrets`
+`--command-timeout`, `--command-max-timeout`, `--command-concurrency`, `--command-max-memory-percent`, `--command-max-process-memory-mb`, `--sudo-timeout`, `--secret-min-length` | the installed `config.toml` ([which key](configuration.md#what-a-flag-sets)). Kept without being listed in the adopted report
+`--command-env` | the installed `config.toml`, merged: a variable you name is added, and the rest are kept
+`--notify-command` | the installed `config.toml`, only alongside `--allow-sudo`: without the grant, the notifier goes with it
 
 `init` reports what it adopted before it writes. A flag you pass overrides the adopted value. If `config.toml` exists and does not parse, the run stops, regardless of the flags given.
 
@@ -34,8 +37,16 @@ Flag | Default | Sets
 `--ssh-key PATH` | the install's, then `<config-dir>/id_ed25519` | The path of the keypair the broker lends. One is created either way: this flag sets where the key is, and does not enable it. An existing key is adopted and must be `0600`, owned by `faramir-broker`, with its `.pub` beside it at `0644`. The key is refused to the agent's tools and to brokered commands wherever it is, because the rule is rendered from the configured path
 `--known-hosts PATH` | none | A `known_hosts` file copied to `<exec-home>/.ssh/known_hosts` and replaced whole on each run. A file that is not a `known_hosts` file is refused
 `--agent NAME` | `auto` | Which agents get the deny rules and a credentials section in this home: a rule file, or the plugin, extension or hook the agent uses instead of one ([which file, per agent](layout.md)). If no agent is found, nothing is written and `init` reports it
-`--allow-sudo` | off | Lets a brokered command *ask* to become root, through a password-required sudoers entry and faramir's own PAM service. Re-running without the flag removes the grant. [What it writes](escalation.md#the-decision-is-made-at-init-per-host)
+`--allow-sudo` | off | Lets a brokered command *ask* to become root, through a password-required sudoers entry and a PAM stack of faramir's own, whose auth step asks the broker ([where the stack is, per sudo](escalation.md#the-two-sudos)). Re-running without the flag removes the grant. [What it writes](escalation.md#the-decision-is-made-at-init-per-host)
 `--notify-command ARG` | the install's, then none | Announces a waiting escalation. Needs `--allow-sudo`. Recorded in `config.toml`: [what it accepts](configuration.md#what-a-flag-sets)
+`--command-env NAME=VALUE` | the install's, then the built-in table | A variable added to every brokered command's environment. Repeatable, and added to the built-in table. Recorded in `config.toml`: [what it accepts](configuration.md#what-a-flag-sets)
+`--command-timeout DURATION` | the install's, then 600 seconds | The timeout for a brokered command that names none: a duration such as `90s` or `5m`, or a bare number of seconds. Recorded in `config.toml`: [its bounds](configuration.md#what-a-flag-sets)
+`--command-max-timeout DURATION` | the install's, then 3600 seconds | The longest timeout a caller may ask for, and the idle limit on a redact stream. Recorded in `config.toml`: [its bounds](configuration.md#what-a-flag-sets)
+`--command-concurrency N` | the install's, then 10 | How many brokered commands may run at once; further requests are refused as busy. Recorded in `config.toml`: [its bounds](configuration.md#what-a-flag-sets)
+`--command-max-memory-percent N` | the install's, then 25 | The share of this machine's memory all brokered commands together may use, as `MemoryMax=` on the executor unit. A cgroup total, so it counts every child process and page cache; 100 is no limit. Recorded in `config.toml`: [its bounds](configuration.md#what-a-flag-sets)
+`--command-max-process-memory-mb N` | the install's, then 4096 | How much one brokered process may allocate, as `LimitDATA=` on the executor unit. Anonymous memory only, not page cache; a process that reaches it gets an allocation failure rather than the OOM killer. Recorded in `config.toml`: [its bounds](configuration.md#what-a-flag-sets)
+`--sudo-timeout DURATION` | the install's, then 120 seconds | How long an escalation waits for an answer before it is refused. At most `--command-max-timeout`, since the command waits inside sudo the whole time. Recorded in `config.toml` only with `--allow-sudo`: [its bounds](configuration.md#what-a-flag-sets)
+`--secret-min-length N` | the install's, then 8 | Refuse a secret shorter than this, since a short value would match inside ordinary words. Recorded in `config.toml`: [its bounds](configuration.md#what-a-flag-sets)
 `--dry-run` | off | Report what would change and write nothing. The only invocation that does not need root
 `--json` | off | Print the report as JSON, one entry per step with a `changed` flag
 

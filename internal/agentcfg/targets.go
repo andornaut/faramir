@@ -159,8 +159,8 @@ type File struct {
 
 // antigravityFamily is the CLI and the IDE, which ship one hook contract and
 // one rule syntax between them. It is the dialect name the guard is registered
-// under in a tree, so the registration does not change with which half of the
-// family the enrolment named.
+// under in the account-wide hook `faramir init` writes, so the registration does
+// not change with which half of the family `--agent` named.
 const antigravityFamily = "antigravity"
 
 // agySettingsFile is the CLI's own deny-rules file, named here as well as in
@@ -378,10 +378,12 @@ var Targets = map[string]*Target{
 	// through the broker and comes back redacted the way every other agent's
 	// does. The rewrite lands on run_command; nothing else carries a command.
 	//
-	// The hook is per tree, so it reaches an agent only in a tree that was
-	// enrolled. Antigravity loads a tree's customizations once that tree is a
-	// project it has opened, and until then the files are there and inert. Said
-	// on enrolment, because nothing else reports it.
+	// The hook is account-wide, an account file `faramir init` writes, so it
+	// holds in every workspace whether or not the tree was enrolled. What an
+	// enrolment writes into a tree is the rules file, which Antigravity loads
+	// once that tree is a project it has opened, and until then the file is there
+	// and inert. Said on enrolment, because nothing else reports it.
+	//
 	// The CLI half. Its own deny-rules settings file on top of the family base,
 	// held against an operator's own allow by the documented deny-over-allow
 	// precedence.

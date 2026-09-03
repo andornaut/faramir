@@ -70,7 +70,7 @@ Failure | How
 **Accidental disclosure.** `printenv`, a vault read, `-vvv`, a `debug: var=` task | No account can read the key material, yours included. Output is redacted before the agent sees it, whichever command printed it
 **Passive discovery.** Reading an age key, an SSH key, or a daemon's `/proc/<pid>/environ` | Uid separation plus `ProtectProc=invisible`. This holds against the agent. Two brokered commands share one uid and can read each other
 **Casual prompt injection.** Instructions to print or exfiltrate credentials | The agent process never holds them
-**Master key loss.** The master key decrypts every managed file | It is held by a uid that executes nothing. No brokered command can read it, reach the keeper's socket, or receive it in its environment
+**Master key loss.** The master key decrypts every managed file | It is held by a uid that executes nothing but sops. No brokered command can read it, reach the keeper's socket, or receive it in its environment
 
 ### Not prevented
 
@@ -102,7 +102,7 @@ One call, end to end:
 2. The broker asks the keeper over a socket only it can open. The keeper execs sops and returns values. The key stays in the keeper's uid.
 3. The broker creates a PTY, hands the slave to the executor over `/run/faramir/exec.sock`, and the executor forks the command as `faramir-exec`, with the value in the environment and never in `argv`.
 4. Output returns through the broker's end of the PTY. Every managed secret becomes `«SECRET:ref»` before any of the output reaches the agent.
-5. The audit log records the run. Tokens only, readable by the operator only.
+5. The audit log records the run. Tokens only, readable by the broker and root only; the operator reads it through `sudo faramir logs`.
 
 **SSH keys** are held by the broker in an `ssh-agent` it owns. The child gets only `SSH_AUTH_SOCK`, so it can authenticate but cannot read a key. The broker relays only `REQUEST_IDENTITIES` and `SIGN_REQUEST`. A brokered command may forward the relay onward with `ssh -A`.
 

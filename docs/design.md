@@ -29,7 +29,7 @@ The boundaries are around the secrets, not around the agent:
 
 - The operator cannot reach the keeper's age key at all.
 - The operator reaches the broker's values, SSH keys and audit log only through the broker.
-- `faramir-exec` cannot read the operator's home.
+- `faramir-exec` cannot read the operator's home outside the enrolled tree, beyond what the home's own modes allow.
 
 ## The secrets live in a directory, not a tree
 

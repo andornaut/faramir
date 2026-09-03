@@ -383,7 +383,7 @@ func TestAValueTooLargeToHoldIsRefused(t *testing.T) {
 	// The reason says the size, the cost that decided the cap, and what to do
 	// instead, or an operator is told a number and no reason to care about it.
 	why := policy.Check(strings.Repeat("a", MaxValueBytes))
-	for _, want := range []string{"memory per byte", "block --path"} {
+	for _, want := range []string{"memory per byte", "block add --path"} {
 		if !strings.Contains(why, want) {
 			t.Errorf("the reason does not mention %q: %s", want, why)
 		}

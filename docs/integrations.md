@@ -67,9 +67,9 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 
 Adding an entry the install already carries applies it again rather than refusing it, so a converge can name every link on every run: [what a re-add re-applies](configuration.md#linked-secrets).
 
-**A dotfile that is a symlink is covered at both names.** Several of the files below are commonly symlinks into a dotfiles checkout. The entry has to name the target: that is the file whose group is changed and the file the broker is granted. So `link add` resolves the path and blocks the path you typed instead of refusing it. Both names are then refused, and `link rm` removes both unless another entry still names the target.
+**A dotfile that is a symlink is covered at both names.** Several of the files below are commonly symlinks into a dotfiles checkout. The entry has to name the target: that is the file whose group has to be the broker's and the file the broker reads. So `link add` resolves the path and blocks the path you typed instead of refusing it. Both names are then refused, and `link rm` removes both unless another entry still names the target.
 
-The file is read twice, and the order matters. The first read runs as root and confirms the content can be parsed: a wrong `--type` or a `--key` that names nothing fails here, before any file mode is changed. The second read runs as the broker's own account and confirms that account can reach the value.
+The file is read twice, and the order matters. The first read runs as root and confirms the content can be parsed: a wrong `--type` or a `--key` that names nothing fails here, before any file mode has to change. The second read runs as the broker's own account and confirms that account can reach the value.
 
 ```bash
 sudo faramir link add gh/token ~/.config/gh/hosts.yml --type yaml --key github.com/oauth_token
@@ -136,7 +136,7 @@ Setting | Why
 `sudo faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True` | Host key checking for Ansible. Not in the shipped `[command.env]`. With it off, the broker offers its credentials to whatever host answers at that address
 `sudo faramir init --known-hosts ~/.ssh/known_hosts` | `faramir-exec` has its own `known_hosts`, and it starts empty. A play whose hosts are trusted only in the operator's file fails verification before the key is offered
 
-`faramir doctor` reports how many host keys the executor can verify against. Both flags: [installing.md](installing.md#what-each-flag-sets). Which login a bare `ssh host` uses, which files it verifies against, and how to pin host keys across a fleet: [operating.md](operating.md#rules-a-command-does-not-state).
+`faramir doctor` reports how many host keys the executor can verify against. `--command-env`: [configuration.md](configuration.md#what-a-flag-sets); `--known-hosts`: [installing.md](installing.md#what-each-flag-sets). Which login a bare `ssh host` uses, which files it verifies against, and how to pin host keys across a fleet: [operating.md](operating.md#rules-a-command-does-not-state).
 
 ## Worked example: Ansible
 

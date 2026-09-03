@@ -33,7 +33,7 @@ The broker creates the PTY pair, passes the *slave* over `SCM_RIGHTS` and keeps 
 
 ## The pipeline, in order
 
-The first four stages run in this order, and each assumes the one before it has run. The last three are properties of the matcher the first four use.
+Stage 1 runs first, and stages 2 to 4 assume it has. Those three are passes of one matcher over three views of the stripped text, each taking only what its own view finds, so no order holds among them. The last three are properties of the matcher the first four use.
 
 **1. Strip ANSI escapes.** A colour code spliced into a value defeats matching while rendering identically (`hunte\x1b[32mr2-correct-horse`). The response carries the stripped text. An escape can split across two reads, so a bounded trailing partial sequence is held back.
 

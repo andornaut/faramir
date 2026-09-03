@@ -38,10 +38,11 @@ type EligibilityPolicy struct {
 // 16 KiB is above every credential this is for -- an SSH private key, a TLS
 // chain, a kubeconfig with its embedded CAs, any API token -- and costs about
 // 240 MB, which is a broker an operator can run. A credential larger than this
-// is a file rather than a value: `faramir block --path` refuses it to the
-// agent's file tools while a brokered command may still read it, which is the
-// arrangement for a credential faramir should not be holding. `faramir link`
-// is not the way around it, a linked value entering the same automaton.
+// is a file rather than a value: a blocked path (`faramir block add`) refuses
+// it to the agent's file tools while a brokered command may still read it,
+// which is the arrangement for a credential faramir should not be holding.
+// `faramir link` is not the way around it, a linked value entering the same
+// automaton.
 const MaxValueBytes = 16 << 10
 
 func DefaultPolicy() EligibilityPolicy {
@@ -57,7 +58,7 @@ func (p EligibilityPolicy) Check(value string) string {
 		return fmt.Sprintf("%d bytes, and the broker holds at most %d: a value "+
 			"costs about 15 KB of the broker's memory per byte, so one this size "+
 			"would exhaust it. Block the file from the agent with `sudo faramir "+
-			"block --path` and let a brokered command read it instead",
+			"block add --path` and let a brokered command read it instead",
 			len(value), MaxValueBytes)
 	}
 	// A value that is faramir's own token, guillemets and all. The redactor

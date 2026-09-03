@@ -47,7 +47,7 @@ down, and to grep for.
 
 | Ref | Shape | What it is for |
 | --- | --- | --- |
-| `agenttest/plain` | one line, alphanumeric | injection and redaction at their simplest |
+| `agenttest/plain` | one line, letters, digits and hyphens | injection and redaction at their simplest |
 | `agenttest/shell` | metacharacters, both kinds of quote, spaces | a value is injected into the environment and never substituted into a command line |
 | `agenttest/unicode` | non-ASCII | matching past the ASCII path |
 | `agenttest/multiline` | two lines | a value split across two reads of the output stream |
@@ -174,11 +174,12 @@ confabulates, and the reader pays in verification what the run saved in tokens.
 
 The names are not interchangeable between agents. `agy` takes a reasoning level
 as part of the name; a ChatGPT account serves `gpt-5.6-terra` and refuses `sol`,
-`sol-pro`, `terra-pro` and `luna-pro`; `pi` and `kilo` reach a provider only
-through OpenRouter, so their names carry that prefix. `kilo` holds two
-sign-ins that are not the same one: its own `kilo/` provider answers
-`PAID_MODEL_AUTH_REQUIRED` while the OpenRouter spelling of the same model
-runs, so `kilo auth list` reporting nothing says less than it appears to.
+`sol-pro`, `terra-pro` and `luna-pro`; `pi` reaches a provider only through
+OpenRouter, so its name carries that prefix, and `opencode` and `kilo` are run
+through OpenRouter too. `kilo` holds two sign-ins that are not the same one: its
+own `kilo/` provider answers `PAID_MODEL_AUTH_REQUIRED` while the OpenRouter
+spelling of the same model runs, so `kilo auth list` reporting nothing says less
+than it appears to.
 Override any of them with `FARAMIR_AGENT_MODEL_<SLUG>`.
 
 Check a model with a question whose answer is not already in the prompt. Codex
@@ -228,11 +229,13 @@ defended.
 
 ## Running it more than once
 
-The suite is read-only apart from `/tmp/faramir-agent-test-*`, so it is safe to
-repeat, and repeating it against a different agent is most of the value: the
-guard answers every agent from one implementation, and what differs is what each
-harness does with the answer. A second run against the same agent after an
-instruction change measures whether the change landed.
+The suite is read-only apart from `/tmp/faramir-agent-test-*`, and
+`/dev/shm/faramir-agent-test-*` where a brokered command wrote its scratch
+files (`teardown.sh` removes both), so it is safe to repeat, and repeating it
+against a different agent is most of the value: the guard answers every agent
+from one implementation, and what differs is what each harness does with the
+answer. A second run against the same agent after an instruction change measures
+whether the change landed.
 
 Nothing here is a regression gate. The verdicts are a person's reading of an
 afternoon's work, and two runs will not produce the same table.

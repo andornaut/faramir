@@ -35,7 +35,7 @@ sudo-rs has neither `pam_service` nor `env_file`, and its service names `sudo` a
 
 **Version floor.** The grant sets `noninteractive_auth`, which needs sudo 1.9.11 or sudo-rs 0.2.9. `init` validates with `visudo` before writing anything and names the floor if the host is older.
 
-**No mail on a refusal.** Every answer but `y` fails the auth step, and so does a question that expires. The stock `mail_badpass` in `/etc/sudoers` would mail the `mailto` address on each one. The grant sets `!mail_badpass` for the executor, so a refusal is silent. Failed authentications by every other account still mail.
+**No mail on a refusal.** Every answer but `y` or `Y` fails the auth step, and so does a question that expires. The stock `mail_badpass` in `/etc/sudoers` would mail the `mailto` address on each one. The grant sets `!mail_badpass` for the executor, so a refusal is silent. Failed authentications by every other account still mail.
 
 ## What happens when a command runs `sudo`
 
@@ -76,7 +76,7 @@ sudo faramir sudo watch
 
    The question is per run, not per `sudo`: a yes covers every `sudo` that command makes until it exits. `[sudo] notify_command` gets the sentence with the command after it in backquotes, because it has no second line for the command.
 
-4. Anything but `y` is a refusal, `yes` included. So is silence: the question expires after `[sudo] timeout_sec`, counted from when it was raised. The default is 120s and the maximum 3600, and it is never more than `[command] max_timeout_sec`: the command waits inside `sudo` for the whole question, so a longer timeout could answer a run the broker had already killed. A blank line repeats the prompt rather than counting as a no. The prompt expires on the same clock as the broker:
+4. Anything but `y` or `Y` is a refusal, `yes` included. So is silence: the question expires after `[sudo] timeout_sec`, counted from when it was raised. The default is 120s and the maximum 3600, and it is never more than `[command] max_timeout_sec`: the command waits inside `sudo` for the whole question, so a longer timeout could answer a run the broker had already killed. A blank line repeats the prompt rather than counting as a no. The prompt expires on the same clock as the broker:
 
    ```text
      Approve? [y/n]

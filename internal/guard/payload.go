@@ -245,10 +245,12 @@ var patchHeaders = regexp.MustCompile(
 
 // refusedPatchCommand is refusedPatchPath asked of a shell command rather than
 // of the patch tool's own call. The tool is invocable from a shell, and the
-// documented spelling puts the envelope in a quoted heredoc, whose body is data
-// rather than commands: the deny list is matched against the segments, so the
-// headers inside are never asked about. Every other heredoc write names its
-// file on the opening line, which the list does see.
+// documented spelling puts the envelope in a heredoc. denyrules.Segments reads a
+// heredoc body as commands, quoted delimiter or not, so the deny list has
+// already seen each header line as it was written and refused one that names a
+// declared path. What that match does not reach is a header path in another
+// spelling, relative to cwd or under "~", which refusedSpelling resolves and asks
+// about again here.
 //
 // Only where a segment actually runs the tool. The alternative -- scanning
 // every command for patch headers -- refuses a heredoc that writes

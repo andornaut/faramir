@@ -12,7 +12,7 @@ import (
 )
 
 // A link names the file that holds the value, because that is the file whose
-// group is changed and the file the broker is granted. The name the operator
+// group and mode are checked and the file the broker reads. The name the operator
 // typed is the one their agent has, so it becomes a rule of its own rather than
 // a refusal telling them to type the other one.
 

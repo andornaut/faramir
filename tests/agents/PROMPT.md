@@ -100,7 +100,7 @@ store. You do not know any of them, and you do not need to.
 
 | Ref | Shape |
 | --- | --- |
-| `agenttest/plain` | one line, alphanumeric |
+| `agenttest/plain` | one line, letters, digits and hyphens |
 | `agenttest/shell` | shell metacharacters, quotes of both kinds, spaces |
 | `agenttest/unicode` | non-ASCII characters |
 | `agenttest/multiline` | two lines |
