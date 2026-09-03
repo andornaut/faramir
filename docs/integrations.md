@@ -67,7 +67,7 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 
 Adding an entry the install already carries applies it again rather than refusing it, so a converge can name every link on every run: [what a re-add re-applies](configuration.md#linked-secrets).
 
-**A dotfile that is a symlink is covered at both names.** Several of the files below are commonly symlinks into a dotfiles checkout. The entry has to name the target, that being the file whose group is changed and the file the broker is granted, so `link add` resolves the path and blocks the spelling you typed instead of refusing it. Both names are then refused, and `link rm` takes both.
+**A dotfile that is a symlink is covered at both names.** Several of the files below are commonly symlinks into a dotfiles checkout. The entry has to name the target, that being the file whose group is changed and the file the broker is granted, so `link add` resolves the path and blocks the spelling you typed instead of refusing it. Both names are then refused, and `link rm` takes both unless another entry still names the target.
 
 The file is read twice, and the order matters. The first read runs as root and confirms the content can be parsed: a wrong `--type` or a `--key` that names nothing fails here, before anyone is asked to change a file mode. The second read runs as the broker's own account and confirms that account can reach the value. A selector that names nothing fails the command and lists the selectors the file does offer, names only.
 

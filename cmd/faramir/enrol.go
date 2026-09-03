@@ -89,7 +89,7 @@ func runEnrol(f enrolFlags, args []string) int {
 	}
 	if !f.asJSON {
 		for _, warning := range report.Warnings {
-			fmt.Fprintf(os.Stderr, "\nWARNING: %s\n", warning)
+			fmt.Fprintf(os.Stderr, "\nwarning: %s\n", warning)
 		}
 		if report.DryRun {
 			fmt.Fprintf(os.Stderr, "\nDry run: nothing was written. %s would be "+

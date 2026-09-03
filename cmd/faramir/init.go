@@ -305,7 +305,7 @@ func runInit(f initFlags) int {
 // authorize.
 func reportToOperator(report install.Report) {
 	for _, warning := range report.Warnings {
-		fmt.Fprintf(os.Stderr, "\nWARNING: %s\n", warning)
+		fmt.Fprintf(os.Stderr, "\nwarning: %s\n", warning)
 	}
 	if report.BrokerPublicKey != "" {
 		fmt.Fprintf(os.Stderr, "\nThe broker's public key:\n  %s\n", report.BrokerPublicKey)

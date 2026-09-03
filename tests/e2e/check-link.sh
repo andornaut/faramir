@@ -223,7 +223,8 @@ else bad "link add did not write the entry: $out"; fi
 
 # Added through a symlink, the entry names the file it points at, and the name
 # that was typed becomes a block entry of its own: a rule matches the path a
-# command names, and either spelling opens the file. `link rm` takes both.
+# command names, and either spelling opens the file. `link rm` takes both once
+# nothing else names the file, and gh/token still does here.
 ln -sf $GH $GHDIR/hosts-link.yml
 out=$(addlink sym/token $GHDIR/hosts-link.yml --type yaml --key github.com/oauth_token)
 asop link ls --json 2>/dev/null \
@@ -236,10 +237,14 @@ grep -q "path = \"$GHDIR/hosts-link.yml\"" $CFG && grep -q "derived_from = \"$GH
 grep -q 'symlink' <<<"$out" \
   && ok "and the add says so" \
   || bad "the add does not say the path was resolved: $out"
-"$faramir" link rm sym/token >/dev/null 2>&1
+out=$("$faramir" link rm sym/token 2>&1)
+grep -q 'hosts-link.yml' $CFG && grep -q 'is still blocked' <<<"$out" \
+  && ok "and link rm keeps the derived entry while gh/token still names the file" \
+  || bad "link rm did not keep the derived entry for the other link: $out"
+"$faramir" block rm --path $GHDIR/hosts-link.yml >/dev/null 2>&1
 grep -q 'hosts-link.yml' $CFG \
-  && bad "link rm left the derived block entry behind" \
-  || ok "and link rm removes the derived entry with the link"
+  && bad "block rm left the derived entry behind" \
+  || ok "and block rm on the spelling removes it"
 rm -f $GHDIR/hosts-link.yml
 
 # --------------------------------------------------------------------------

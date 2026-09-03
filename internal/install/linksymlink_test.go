@@ -119,13 +119,13 @@ func TestRemovingALinkTakesTheSpellingItDerived(t *testing.T) {
 		"derived_from = \""+target+"\"\n\n[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
 	configFile := filepath.Join(dir, "config.toml")
 
-	opts, cascaded, err := withoutLinkDerivation(Options{ConfigDir: dir}, configFile,
+	opts, cascaded, _, err := withoutLinkDerivation(Options{ConfigDir: dir}, configFile,
 		config.Link{Ref: "npm/token", Path: target, Type: "text"})
 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cascaded.Path != typed {
+	if len(cascaded) != 1 || cascaded[0].Path != typed {
 		t.Errorf("cascaded = %+v, want the derived entry", cascaded)
 	}
 	if !opts.blockedSet {
@@ -146,11 +146,11 @@ func TestRemovingALinkThatDerivedNothingRewritesNothing(t *testing.T) {
 		{},
 		{Ref: "npm/token", Path: "/home/op/dotfiles/npmrc", Type: "text"},
 	} {
-		opts, cascaded, err := withoutLinkDerivation(Options{ConfigDir: dir}, configFile, removed)
+		opts, cascaded, _, err := withoutLinkDerivation(Options{ConfigDir: dir}, configFile, removed)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cascaded.Path != "" {
+		if len(cascaded) != 0 {
 			t.Errorf("cascaded = %+v for %+v, want nothing", cascaded, removed)
 		}
 		if opts.blockedSet {
@@ -166,7 +166,7 @@ func TestABlockRemovalOfTheTargetLeavesALinksDerivation(t *testing.T) {
 	target := "/home/op/dotfiles/npmrc"
 	existing := []config.BlockedPath{{Path: "/home/op/.npmrc", DerivedFrom: target}}
 
-	kept, removed, cascaded := withoutBlocked(existing, []config.BlockedPath{{Path: target}})
+	kept, removed, cascaded, _ := withoutBlocked(existing, []config.BlockedPath{{Path: target}}, nil)
 
 	if removed[0].Path != "" {
 		t.Errorf("removed = %+v, want nothing: the target is no blocked entry", removed)

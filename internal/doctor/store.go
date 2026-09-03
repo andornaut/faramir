@@ -9,7 +9,7 @@ import (
 	"github.com/andornaut/faramir/internal/keeper"
 )
 
-// storeFinding is what the `secrets store` check reports: what the store holds,
+// storeFinding is what the `managed store` check reports: what the store holds,
 // and whether anything about it is wrong.
 //
 // An empty value set is a warning rather than a failure, in every shape it

@@ -110,7 +110,9 @@ func newBlockAddCmd() *cobra.Command {
 			"reports changed=false.\n\n" +
 			"A path that is a symlink is recorded at both names: the target becomes a\n" +
 			"second entry, since a rule matches the path a command names and either\n" +
-			"spelling opens the file. `block rm` on the path you declared takes both.\n\n" +
+			"spelling opens the file. `block rm` on the path you declared takes both,\n" +
+			"unless another entry still names the target. Declaring the symlink again\n" +
+			"after it was repointed replaces the target entry.\n\n" +
 			"Prints the path it blocked. --json prints the file-by-file report.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {

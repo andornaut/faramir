@@ -393,7 +393,7 @@ head_ "5. a value the redactor refused"
 # what its config describes.
 
 snap
-short=$(grep -c 'short/pin' <<<"$(dt 'refused refs') $(dt broker) $(dt 'secrets store')")
+short=$(grep -c 'short/pin' <<<"$(dt 'refused refs') $(dt broker) $(dt 'managed store')")
 if [ "$short" -gt 0 ]; then
   ok "doctor surfaces the ref the redactor refused"
 else

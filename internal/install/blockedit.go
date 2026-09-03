@@ -11,6 +11,7 @@ import (
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
+	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/steps"
 )
 
@@ -97,23 +98,23 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 	if err != nil {
 		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
 	}
+	links, err := config.BaseLinks(configFile)
+	if err != nil {
+		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
+	}
 	entries, added := foldBlocked(existing, refused)
 	// The targets of whichever of them are symlinks, folded after the entries
 	// that named them so that a target somebody also declared outright stays
-	// the entry they wrote.
+	// the entry they wrote. What an earlier add derived from a symlink that has
+	// since been repointed goes first, or the old target stays blocked beside
+	// the new one.
 	derived, skipped := derivations(configDir, refused)
+	entries, stale, retained := replaceDerived(entries, refused, derived, links)
 	entries, _ = foldBlocked(entries, derived)
 	// A target the operator declared outright keeps its own entry, and the
 	// warning says so rather than promising a cascade that will not happen.
 	var declared []config.BlockedPath
 	derived, declared = splitDeclared(entries, derived)
-	// A link over the same file is not refused, both rendering the same rule,
-	// but it is said: the link already refuses that path, and this entry adds
-	// nothing the operator does not have.
-	links, err := config.BaseLinks(configFile)
-	if err != nil {
-		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
-	}
 
 	opts.blocked, opts.blockedSet = entries, true
 	if err := keepInstalledGrant(&opts, configDir); err != nil {
@@ -131,7 +132,73 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 		blockedWarnings(&report, entry, links)
 	}
 	derivedWarnings(&report, derived, declared, skipped)
+	for _, entry := range stale {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"%s no longer resolves to %s, so the entry an earlier add derived for "+
+				"that path is removed", config.Shown(entry.DerivedFrom), config.Shown(entry.Path)))
+	}
+	derivedRemovalWarnings(&report, nil, retained, links)
 	return report, added, nil
+}
+
+// replaceDerived takes out what an earlier add derived from a path that now
+// resolves elsewhere, and answers with the entries that went and the ones that
+// stayed because another entry still reaches their file. A symlink repointed
+// since it was declared has an entry for its old target, and an add naming the
+// link again is the operator asking for the file it names now: an entry for
+// the file it named then is a rule for the wrong file, and a converge naming
+// the link every run would otherwise carry it for good.
+//
+// Only a path that is there is judged. One that is absent may be a link on an
+// unmounted volume, whose entry is right and waiting, and the derivation it
+// stands for cannot be told from here.
+func replaceDerived(entries, refused, derived []config.BlockedPath,
+	links []config.Link) (kept, stale, retained []config.BlockedPath) {
+	kept = entries
+	for _, asked := range refused {
+		if asked.Path == "" || strings.Contains(asked.Path, "*") {
+			continue
+		}
+		if _, err := os.Lstat(asked.Path); err != nil {
+			continue
+		}
+		// The symlink's own entry no longer explains the old target, so it is
+		// left out of what may still reach it.
+		others := slices.DeleteFunc(slices.Clone(kept), func(entry config.BlockedPath) bool {
+			return entry.Path == asked.Path
+		})
+		rest := make([]config.BlockedPath, 0, len(kept))
+		for _, entry := range kept {
+			if entry.DerivedFrom != asked.Path || stillDerived(entry, derived) {
+				rest = append(rest, entry)
+				continue
+			}
+			if by, ok := reachedBy(entry, others, links); ok {
+				entry.DerivedFrom = by
+				rest = append(rest, entry)
+				retained = append(retained, entry)
+				continue
+			}
+			stale = append(stale, entry)
+		}
+		kept = rest
+	}
+	return kept, stale, retained
+}
+
+// stillDerived is whether an entry derived from the path an add names is what
+// that add derives now. Either direction holds it: the add resolving the path
+// to the entry's, which is a block entry's derivation, or the entry's path
+// resolving to the add's, which is a link's, written for the spelling the link
+// was typed under and explained by the target the add is declaring.
+func stillDerived(entry config.BlockedPath, derived []config.BlockedPath) bool {
+	if slices.ContainsFunc(derived, func(now config.BlockedPath) bool {
+		return now.DerivedFrom == entry.DerivedFrom && now.Path == entry.Path
+	}) {
+		return true
+	}
+	target, ok := hostfs.SymlinkTarget(entry.Path)
+	return ok && target == entry.DerivedFrom
 }
 
 // derivations is the target entry for each declared path that is a symlink, and
@@ -153,7 +220,7 @@ func derivations(configDir string,
 		if entry.Path == "" || strings.Contains(entry.Path, "*") {
 			continue
 		}
-		target, ok := symlinkTarget(entry.Path)
+		target, ok := hostfs.SymlinkTarget(entry.Path)
 		if !ok {
 			continue
 		}
@@ -167,35 +234,6 @@ func derivations(configDir string,
 		derived = append(derived, resolved)
 	}
 	return derived, skipped
-}
-
-// symlinkTarget is the file a symlink points at, and false for a path that is
-// not one. Only the last component is read, through as many links as it takes
-// to reach a file: a symlinked ancestor (/home to /data/home) is part of the
-// spelling every path on the host shares, and resolving it would make a second
-// entry out of a path that names its file directly.
-func symlinkTarget(path string) (string, bool) {
-	target := path
-	// The kernel's own limit on a chain of links, past which a path does not
-	// open at all.
-	for range 40 {
-		info, err := os.Lstat(target)
-		if err != nil || info.Mode()&os.ModeSymlink == 0 {
-			if target == path {
-				return "", false
-			}
-			return target, true
-		}
-		next, err := os.Readlink(target)
-		if err != nil {
-			return "", false
-		}
-		if !filepath.IsAbs(next) {
-			next = filepath.Join(filepath.Dir(target), next)
-		}
-		target = filepath.Clean(next)
-	}
-	return "", false
 }
 
 // splitDeclared parts the derived entries an add wrote from the ones that met
@@ -244,7 +282,7 @@ func derivedWarnings(report *Report, derived, declared, skipped []config.Blocked
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
 			"%s is a symlink to %s, which is blocked as well: a rule matches the path "+
 				"a command names, and either spelling opens the file. `faramir block rm "+
-				"--path %s` takes both",
+				"--path %s` takes both while nothing else names the file",
 			config.Shown(entry.DerivedFrom), config.Shown(entry.Path),
 			config.Shown(entry.DerivedFrom)))
 	}
@@ -461,7 +499,11 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 	if err != nil {
 		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
 	}
-	kept, removed, cascaded := withoutBlocked(existing, refused)
+	links, err := config.BaseLinks(configFile)
+	if err != nil {
+		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
+	}
+	kept, removed, cascaded, retained := withoutBlocked(existing, refused, links)
 	for i, asked := range refused {
 		// Asked before anything is written, and only where no entry matched: an
 		// install that declared the same rule as well may take its own entry back,
@@ -487,12 +529,7 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 	// after taking its entry back. Said here rather than left to be inferred from
 	// the entry going away, which reads as the file becoming readable.
 	if err == nil {
-		for _, entry := range cascaded {
-			report.Warnings = append(report.Warnings, fmt.Sprintf(
-				"%s is no longer blocked either: it is what %s resolves to, and the "+
-					"entry for it was written by the add that declared the symlink",
-				config.Shown(entry.Path), config.Shown(entry.DerivedFrom)))
-		}
+		derivedRemovalWarnings(&report, cascaded, retained, links)
 		for _, entry := range removed {
 			if entry.Blocks() == "" {
 				continue
@@ -509,8 +546,9 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 	return report, removed, err
 }
 
-// withoutBlocked is the set a removal leaves, the entry each ask matched, and
-// the derived entries that went with them.
+// withoutBlocked is the set a removal leaves, the entry each ask matched, the
+// derived entries that went with them, and the derived entries that stayed
+// because something else still reaches their file.
 //
 // removed is one entry per ask, in the order they were given, and the zero value
 // where nothing matched: the caller tells "removed" from "was not there" by
@@ -520,43 +558,144 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 // path resolved to it, so it goes when that path does, or the host is left with
 // a rule no entry explains and a converge reporting one nobody declared. An ask
 // naming the derived path directly still removes it, sameBlock matching on the
-// path: what comes back then is an entry the next add derives again. One that
-// an earlier ask in the same removal already cascaded is answered as removed
-// rather than as absent, the ask having been met.
-func withoutBlocked(existing,
-	refused []config.BlockedPath) (kept, removed, cascaded []config.BlockedPath) {
-	kept = existing
+// path: what comes back then is an entry the next add derives again. An entry
+// derived from a path no block entry declares belongs to a link, and is that
+// link's to remove.
+func withoutBlocked(existing, refused []config.BlockedPath,
+	links []config.Link) (kept, removed, cascaded, retained []config.BlockedPath) {
 	removed = make([]config.BlockedPath, len(refused))
-	for i, asked := range refused {
-		if j := slices.IndexFunc(cascaded, func(entry config.BlockedPath) bool {
-			return sameBlock(entry, asked)
-		}); j >= 0 {
-			removed[i] = cascaded[j]
-			cascaded = slices.Delete(cascaded, j, j+1)
-			continue
-		}
-		// Whether this ask takes a declaration away at all. An entry derived from
-		// a path no block entry declares belongs to something else -- a link
-		// resolves to its target, and the entry for the spelling the operator
-		// typed is that link's to remove -- so an ask matching nothing here leaves
-		// it alone rather than taking a rule out from under another entry.
-		declared := slices.ContainsFunc(kept, func(entry config.BlockedPath) bool {
+	kept = make([]config.BlockedPath, 0, len(existing))
+	var orphaned []string
+	for _, entry := range existing {
+		i := slices.IndexFunc(refused, func(asked config.BlockedPath) bool {
 			return sameBlock(entry, asked)
 		})
+		if i < 0 {
+			kept = append(kept, entry)
+			continue
+		}
+		removed[i] = entry
+		if entry.Path != "" {
+			orphaned = append(orphaned, entry.Path)
+		}
+	}
+	kept, cascaded, retained = reclaimDerived(kept, links, orphaned)
+	return kept, removed, cascaded, retained
+}
+
+// reclaimDerived settles the derived entries whose source was taken away: each
+// one derived from a path in orphaned is dropped, unless a kept entry still
+// reaches its file, in which case it stays and derived_from names that entry
+// instead. Only those are looked at, so a removal takes nothing but what the ask
+// names and what was written for it. An entry that goes is a source taken away
+// in turn, so what was derived from it is settled the same way.
+//
+// Two symlinks to one file derive one entry, and removing the entry for one of
+// them must leave the file blocked under the other's name. Two links through
+// one symlink share the entry for the typed spelling the same way.
+func reclaimDerived(entries []config.BlockedPath, links []config.Link,
+	orphaned []string) (kept, cascaded, retained []config.BlockedPath) {
+	kept = entries
+	for len(orphaned) > 0 {
+		var next []string
 		rest := make([]config.BlockedPath, 0, len(kept))
 		for _, entry := range kept {
-			switch {
-			case sameBlock(entry, asked):
-				removed[i] = entry
-			case declared && asked.Path != "" && entry.DerivedFrom == asked.Path:
-				cascaded = append(cascaded, entry)
-			default:
+			if entry.DerivedFrom == "" || !slices.Contains(orphaned, entry.DerivedFrom) {
 				rest = append(rest, entry)
+				continue
 			}
+			by, ok := reachedBy(entry, kept, links)
+			if !ok {
+				cascaded = append(cascaded, entry)
+				next = append(next, entry.Path)
+				continue
+			}
+			entry.DerivedFrom = by
+			rest = append(rest, entry)
+			retained = append(retained, entry)
 		}
-		kept = rest
+		kept, orphaned = rest, next
 	}
-	return kept, removed, cascaded
+	return kept, cascaded, retained
+}
+
+// reachedBy is the path of an entry that still reaches a derived entry's file,
+// which is when the derived entry stays through a removal: a block entry naming
+// the path it was derived from, a link at that path, or a declared block entry
+// that is a symlink resolving to it. A link at the derived path itself is not
+// one: it renders the same rule, and a block entry beside it says nothing the
+// link does not. Nor is a derived entry that is a symlink, which is the
+// spelling such a link was typed under: two derived entries reaching each other
+// would outlive everything that was declared.
+//
+// A declared block entry that cannot be read counts as reaching. Nothing here
+// can tell where it points, and a rule kept for a file nobody names costs a row
+// in `block ls`, where a rule dropped from under an entry costs the file being
+// readable under its other name.
+func reachedBy(derived config.BlockedPath, entries []config.BlockedPath,
+	links []config.Link) (string, bool) {
+	for _, link := range links {
+		if link.Path == derived.DerivedFrom {
+			return link.Path, true
+		}
+	}
+	for _, entry := range entries {
+		if entry.Path == "" || sameBlock(entry, derived) {
+			continue
+		}
+		if entry.Path == derived.DerivedFrom {
+			return entry.Path, true
+		}
+		if entry.DerivedFrom != "" || strings.Contains(entry.Path, "*") {
+			continue
+		}
+		if info, err := os.Lstat(entry.Path); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return entry.Path, true
+			}
+			continue
+		} else if info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		if target, ok := hostfs.SymlinkTarget(entry.Path); ok && target == derived.Path {
+			return entry.Path, true
+		}
+	}
+	return "", false
+}
+
+// derivedRemovalWarnings says what a removal did with the entries nobody asked
+// for by name: which went with the entry they were written for, and which
+// stayed because another entry still reaches their file. Both are worth a line.
+// The first is a rule the operator may have been counting on, and the second is
+// an entry the add promised would go with its symlink and did not.
+//
+// A file a link still names is not reported as unblocked: the link renders the
+// same rule, so what went was an entry saying what the link already says.
+func derivedRemovalWarnings(report *Report, cascaded, retained []config.BlockedPath,
+	links []config.Link) {
+	for _, entry := range cascaded {
+		if i := slices.IndexFunc(links, func(link config.Link) bool {
+			return link.Path == entry.Path
+		}); i >= 0 {
+			report.Warnings = append(report.Warnings, fmt.Sprintf(
+				"the entry for %s went with %s, which resolved to it. The file is still "+
+					"refused by the [[secret.link]] entry for %s",
+				config.Shown(entry.Path), config.Shown(entry.DerivedFrom),
+				config.Shown(links[i].Ref)))
+			continue
+		}
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"%s is no longer blocked either: it is what %s resolved to, and the "+
+				"entry for it was written for that one",
+			config.Shown(entry.Path), config.Shown(entry.DerivedFrom)))
+	}
+	for _, entry := range retained {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"%s is still blocked: %s still names the same file, and the entry for it "+
+				"goes with that one",
+			config.Shown(entry.Path), config.Shown(entry.DerivedFrom)))
+	}
 }
 
 // BuiltInRuleError is why a request to stop refusing something cannot be

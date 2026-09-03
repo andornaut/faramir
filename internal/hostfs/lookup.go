@@ -38,6 +38,35 @@ func Exists(path string) bool {
 	return err == nil
 }
 
+// SymlinkTarget is the file a symlink points at, and false for a path that is
+// not one. Only the last component is read, through as many links as it takes
+// to reach a file: a symlinked ancestor (/home to /data/home) is part of the
+// spelling every path on the host shares, and resolving it would make a second
+// entry out of a path that names its file directly.
+func SymlinkTarget(path string) (string, bool) {
+	target := path
+	// The kernel's own limit on a chain of links, past which a path does not
+	// open at all.
+	for range 40 {
+		info, err := os.Lstat(target)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			if target == path {
+				return "", false
+			}
+			return target, true
+		}
+		next, err := os.Readlink(target)
+		if err != nil {
+			return "", false
+		}
+		if !filepath.IsAbs(next) {
+			next = filepath.Join(filepath.Dir(target), next)
+		}
+		target = filepath.Clean(next)
+	}
+	return "", false
+}
+
 // Probe is exists with a third answer: known is false when the question needs
 // more privilege than the caller has, which only happens under a dry run. "not
 // there" for a key behind a 0700 directory would read as a key about to be

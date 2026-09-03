@@ -207,6 +207,8 @@ var checks = []check{
 		run: func(r *Report, c checkCtx) { diagnoseInstallRules(r, c.opts) }},
 	{name: "blocked paths", needsRoot: true,
 		run: func(r *Report, c checkCtx) { diagnoseBlockedPaths(r, c.opts, c.cfg) }},
+	{name: "derived paths", needsRoot: true,
+		run: func(r *Report, c checkCtx) { diagnoseDerivedPaths(r, c.cfg) }},
 	{name: "linked access", needsRoot: true,
 		run: func(r *Report, c checkCtx) { diagnoseLinkedAccess(r, c.opts, c.cfg) }},
 	{name: "tree config", needsRoot: true, run: func(r *Report, c checkCtx) { diagnoseTreeConfig(r, c.opts) }},
@@ -292,7 +294,7 @@ func diagnoseBroker(report *Report, configFile, brokerUser string) brokerServes 
 // without a broker.
 func judgeBrokerCheck(report *Report, brokerUser string, check brokercheck.CheckReport,
 	checkErr error) brokerServes {
-	const store = "secrets store"
+	const store = "managed store"
 	status, detail := storeFinding(check)
 	report.addf(store, status, "%s", detail)
 	// Whether something in this report named a cause --check exits non-zero

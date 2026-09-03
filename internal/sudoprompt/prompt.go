@@ -112,7 +112,7 @@ func WarnIfTypeable() {
 	if len(reasons) == 0 {
 		return
 	}
-	fmt.Fprintln(os.Stderr, "\nWARNING: an escalation given here may not be yours.")
+	fmt.Fprintln(os.Stderr, "\nwarning: an escalation given here may not be yours.")
 	for _, reason := range reasons {
 		fmt.Fprintln(os.Stderr, "  - "+reason)
 	}

@@ -212,7 +212,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	// refused. What was typed is still blocked: the rules match the path a
 	// command names, and the name the agent has is the one that was typed.
 	typed := link.Path
-	if target, ok := symlinkTarget(link.Path); ok {
+	if target, ok := hostfs.SymlinkTarget(link.Path); ok {
 		link.Path = target
 	}
 	if link.Path != typed {
@@ -383,7 +383,8 @@ func (d linkDerivation) say(report *Report, typed string, link config.Link) {
 	if d.written {
 		report.Warnings = append(report.Warnings, said+fmt.Sprintf(
 			". %s is blocked as well, a rule matching the path a command names, so "+
-				"either spelling is refused. `faramir link rm %s` takes both",
+				"either spelling is refused. `faramir link rm %s` takes both while nothing "+
+				"else names the file",
 			config.Shown(typed), config.Shown(link.Ref)))
 		return
 	}
@@ -398,7 +399,7 @@ func (d linkDerivation) say(report *Report, typed string, link config.Link) {
 // resolves it. For a message about a link that was not resolved: an entry
 // written by hand, or a file that became a symlink after it was added.
 func linkTarget(path string) string {
-	if target, ok := symlinkTarget(path); ok {
+	if target, ok := hostfs.SymlinkTarget(path); ok {
 		return target
 	}
 	return path
@@ -547,7 +548,7 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	// kept is existing where nothing matched, so the steps below re-render what
 	// is already there and report no change.
 	opts.links, opts.linksSet = kept, true
-	opts, cascaded, err := withoutLinkDerivation(opts, configFile, removed)
+	opts, cascaded, retained, err := withoutLinkDerivation(opts, configFile, removed)
 	if err != nil {
 		return Report{}, config.Link{}, err
 	}
@@ -559,46 +560,47 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 		return Report{}, config.Link{}, err
 	}
 	report, err := run.apply(run.linkSteps())
-	if err == nil && cascaded.Path != "" {
-		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s is no longer blocked either: it is the spelling %s was added under, "+
-				"and the entry for it was written by that add",
-			config.Shown(cascaded.Path), config.Shown(removed.Ref)))
+	if err == nil {
+		for _, entry := range cascaded {
+			report.Warnings = append(report.Warnings, fmt.Sprintf(
+				"%s is no longer blocked either: it is the spelling %s was added under, "+
+					"and the entry for it was written by that add",
+				config.Shown(entry.Path), config.Shown(removed.Ref)))
+		}
+		for _, entry := range retained {
+			report.Warnings = append(report.Warnings, fmt.Sprintf(
+				"%s is still blocked: another entry still names %s, and the entry for "+
+					"the spelling %s was added under goes with that one",
+				config.Shown(entry.Path), config.Shown(entry.DerivedFrom),
+				config.Shown(removed.Ref)))
+		}
 	}
 	return report, removed, err
 }
 
-// withoutLinkDerivation drops the blocked entry an add derived from this link,
-// the counterpart of withLinkDerivation. The entry was written because the link
-// reached the file under that name, so it goes when the link does: left behind
-// it would be a rule no entry explains, and a converge would report it as one
-// nobody declared.
+// withoutLinkDerivation drops the blocked entries an add derived from this
+// link, the counterpart of withLinkDerivation. An entry was written because the
+// link reached the file under that name, so it goes when the link does, unless
+// another entry still names the file: left behind otherwise, it would be a rule
+// no entry explains, and a converge would report it as one nobody declared.
 //
 // A ref this install does not carry removes nothing, which is the zero Link
-// this is given and the zero entry it answers with.
+// this is given and the empty lists it answers with.
 func withoutLinkDerivation(opts Options, configFile string,
-	removed config.Link) (Options, config.BlockedPath, error) {
+	removed config.Link) (Options, []config.BlockedPath, []config.BlockedPath, error) {
 	if removed.Path == "" {
-		return opts, config.BlockedPath{}, nil
+		return opts, nil, nil, nil
 	}
 	existing, err := config.BaseBlocked(configFile)
 	if err != nil {
-		return opts, config.BlockedPath{}, fmt.Errorf("%s: %w", configFile, err)
+		return opts, nil, nil, fmt.Errorf("%s: %w", configFile, err)
 	}
-	var cascaded config.BlockedPath
-	kept := make([]config.BlockedPath, 0, len(existing))
-	for _, entry := range existing {
-		if entry.DerivedFrom == removed.Path {
-			cascaded = entry
-			continue
-		}
-		kept = append(kept, entry)
-	}
-	if cascaded.Path == "" {
-		return opts, config.BlockedPath{}, nil
+	kept, cascaded, retained := reclaimDerived(existing, opts.links, []string{removed.Path})
+	if len(cascaded) == 0 && len(retained) == 0 {
+		return opts, nil, nil, nil
 	}
 	opts.blocked, opts.blockedSet = kept, true
-	return opts, cascaded, nil
+	return opts, cascaded, retained, nil
 }
 
 // Links is what the install declares, for `faramir link ls`.

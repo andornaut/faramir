@@ -839,4 +839,54 @@ for spelling in "$TILDE/.luksier/x" "$TILDE/notes.md"; do
 done
 block rm --path "$KEY" >/dev/null 2>&1
 
+# --------------------------------------------------------------------------
+head_ "14. a symlink's target, and what keeps it"
+
+# A declared symlink writes the target as an entry of its own. That entry goes
+# with the symlink unless another declared symlink still resolves to the file,
+# and derived_from then names that one.
+FIRST=$KEYDIR/first.key
+SECOND=$KEYDIR/second.key
+ln -sf "$KEY" "$FIRST"
+ln -sf "$KEY" "$SECOND"
+block add --path "$FIRST" --path "$SECOND" >/dev/null 2>&1
+grep -q "derived_from = \"$FIRST\"" $CFG \
+  && ok "the target is derived from the first symlink" \
+  || bad "the target was not derived: $(grep -A2 'secret.block' $CFG | tr '\n' ' ')"
+out=$(block rm --path "$FIRST")
+grep -q "derived_from = \"$SECOND\"" $CFG && grep -q 'is still blocked' <<<"$out" \
+  && ok "removing the first keeps the target for the second, which now owns it" \
+  || bad "the target did not stay with the second symlink: $out"
+out=$(block rm --path "$SECOND")
+grep -q "path = \"$KEY\"" $CFG \
+  && bad "the target stayed once nothing resolved to it: $out" \
+  || ok "and removing the second takes the target with it"
+
+# A symlink repointed since it was declared keeps an entry for the file it
+# named then. doctor reports it, and declaring the symlink again replaces it.
+OTHER=$KEYDIR/other.key
+cp "$KEY" "$OTHER"
+block add --path "$FIRST" >/dev/null 2>&1
+ln -sf "$OTHER" "$FIRST"
+snap
+[ "$(st 'derived paths')" = failed ] \
+  && ok "doctor fails on a symlink that no longer resolves to its derived entry" \
+  || bad "derived paths is [$(st 'derived paths')]: $(dt 'derived paths')"
+dt 'derived paths' | grep -qF "$OTHER" \
+  && ok "and names the file it resolves to now" \
+  || bad "the finding does not name $OTHER: $(dt 'derived paths')"
+out=$(block add --path "$FIRST")
+grep -q "path = \"$OTHER\"" $CFG && ! grep -q "path = \"$KEY\"" $CFG \
+  && ok "declaring the symlink again blocks the new target and not the old" \
+  || bad "the re-add did not replace the old target: $out"
+grep -q 'no longer resolves to' <<<"$out" \
+  && ok "and says the old entry was replaced" \
+  || bad "the re-add does not say what it replaced: $out"
+snap
+[ "$(st 'derived paths')" = ok ] \
+  && ok "and doctor is OK again" \
+  || bad "derived paths stayed [$(st 'derived paths')]: $(dt 'derived paths')"
+block rm --path "$FIRST" >/dev/null 2>&1
+rm -f "$FIRST" "$SECOND" "$OTHER"
+
 summary

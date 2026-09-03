@@ -8,6 +8,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/layouttest"
 )
 
@@ -113,7 +114,7 @@ func TestRemovingAPathTakesWhatItDerived(t *testing.T) {
 		{Path: "/etc/luks/volume.key"},
 	}
 
-	kept, removed, cascaded := withoutBlocked(existing, []config.BlockedPath{{Path: link}})
+	kept, removed, cascaded, _ := withoutBlocked(existing, []config.BlockedPath{{Path: link}}, nil)
 
 	if len(kept) != 1 || kept[0].Path != "/etc/luks/volume.key" {
 		t.Errorf("kept = %+v, want the unrelated entry alone", kept)
@@ -137,7 +138,7 @@ func TestRemovingALinkAndItsTargetTogetherReportsBoth(t *testing.T) {
 		{{Path: link}, {Path: target}},
 		{{Path: target}, {Path: link}},
 	} {
-		kept, removed, cascaded := withoutBlocked(existing, asked)
+		kept, removed, cascaded, _ := withoutBlocked(existing, asked, nil)
 
 		if len(kept) != 0 {
 			t.Errorf("asked %v: kept = %+v, want nothing", asked, kept)
@@ -168,7 +169,7 @@ func TestASymlinkedAncestorDerivesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if target, ok := symlinkTarget(filepath.Join(alias, "key")); ok {
+	if target, ok := hostfs.SymlinkTarget(filepath.Join(alias, "key")); ok {
 		t.Errorf("a plain file under a symlinked directory resolved to %q", target)
 	}
 	// A chain is followed to the file, each hop read against its own directory.
@@ -176,7 +177,7 @@ func TestASymlinkedAncestorDerivesNothing(t *testing.T) {
 	if err := os.Symlink("key", hop); err != nil {
 		t.Fatal(err)
 	}
-	if target, ok := symlinkTarget(hop); !ok || target != filepath.Join(alias, "key") {
+	if target, ok := hostfs.SymlinkTarget(hop); !ok || target != filepath.Join(alias, "key") {
 		t.Errorf("target = %q, %v; want the file the chain ends at, under the spelling typed", target, ok)
 	}
 }
@@ -218,8 +219,8 @@ func TestDeclaringADerivedPathTakesItOver(t *testing.T) {
 	if entries[1].DerivedFrom != "" {
 		t.Errorf("derived_from = %q, want it cleared", entries[1].DerivedFrom)
 	}
-	if _, _, cascaded := withoutBlocked(entries,
-		[]config.BlockedPath{{Path: link}}); len(cascaded) != 0 {
+	if _, _, cascaded, _ := withoutBlocked(entries,
+		[]config.BlockedPath{{Path: link}}, nil); len(cascaded) != 0 {
 		t.Errorf("cascaded = %+v, want the operator's own entry left alone", cascaded)
 	}
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/andornaut/faramir/internal/keeper"
 )
 
-// What the `secrets store` check makes of each state --check can report. An
+// What the `managed store` check makes of each state --check can report. An
 // install keeping no managed file is valid: links fill the value set on their
 // own, and a host that has not written its first secret is every install on its
 // first day. What stays a failure is a file that is there and did not load.
@@ -120,7 +120,7 @@ func TestAStoreWaitingForItsSecretsDoesNotFailTheRun(t *testing.T) {
 
 	var report Report
 	status, detail := storeFinding(c)
-	report.addf("secrets store", status, "%s", detail)
+	report.addf("managed store", status, "%s", detail)
 	if report.Failed {
 		t.Errorf("a host serving its whole value set from links failed the run: %s", detail)
 	}

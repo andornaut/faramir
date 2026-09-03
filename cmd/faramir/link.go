@@ -58,7 +58,8 @@ func newLinkAddCmd() *cobra.Command {
 			"--key that selects nothing fails here rather than later.\n\n" +
 			"A symlink is resolved: the entry names the target, which is the file the\n" +
 			"grant and the group are applied to, and the spelling you typed is\n" +
-			"blocked instead, so both names are refused. `link rm` takes both.\n\n" +
+			"blocked instead, so both names are refused. `link rm` takes both, unless\n" +
+			"another entry still names the target.\n\n" +
 			"Adding an entry that already exists re-applies it, which restores a\n" +
 			"grant or a rule that was removed, and reports changed=false. The same\n" +
 			"ref with a different file, type or key is an error. The same ref with a\n" +
