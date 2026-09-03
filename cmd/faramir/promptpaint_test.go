@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/escalation"
+	"github.com/andornaut/faramir/internal/socktest"
 	"github.com/andornaut/faramir/internal/termuitest"
 	"github.com/andornaut/faramir/internal/testio"
 )
@@ -18,9 +19,9 @@ import (
 // --json is for a caller parsing stdout, and --color is about a human reading
 // it: the two never meet, whatever the flags say.
 func TestTheJSONListingIsNeverPainted(t *testing.T) {
-	socket := escalationsSocket(t, []escalation.Question{{
+	socket := socktest.AnsweringBroker(t, map[string]any{"questions": []escalation.Question{{
 		ID: "9f2a1c", Cmd: "ansible-playbook site.yml", ExpiresInSec: 118,
-	}})
+	}}})
 	out, _ := testio.CaptureStdout(t, func() int { return listEscalations(socket, true, termuitest.Always(t)) })
 	if strings.Contains(out, "\x1b") {
 		t.Errorf("the JSON listing carries an escape:\n%q", out)

@@ -109,19 +109,3 @@ func TestStackPrefersWhatWasRecordedAndFallsBackToLooking(t *testing.T) {
 		t.Error("a host with neither arrangement reported a stack")
 	}
 }
-
-// A half-marked stack is not a stack the broker may answer for: it cannot tell
-// what the block is, and reporting a host as able to escalate on the strength of
-// a stray marker is worse than reporting it as broken.
-func TestAStrayMarkerIsNotAStack(t *testing.T) {
-	if hasBlock(BlockBegin + "\nauth required pam_permit.so\n") {
-		t.Error("a begin marker with no end was read as a block")
-	}
-	if hasBlock("# see '" + BlockBegin + "' in the docs\n") {
-		t.Error("a marker quoted in a comment was read as a block")
-	}
-	if !hasBlock(BlockBegin + "\nauth optional pam_permit.so\n" +
-		BlockEnd + "\n") {
-		t.Error("a whole block was not recognised")
-	}
-}

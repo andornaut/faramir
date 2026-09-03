@@ -65,9 +65,7 @@ func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Whitespace-normalised, the prose being wrapped: a phrase that spans a
-		// line break is still the phrase, and rewrapping must not fail this.
-		flat := strings.Join(strings.Fields(body), " ")
+		flat := collapse(body)
 		hasRules := len(target.AccountFiles) > 0
 		seen[hasRules]++
 		switch claims := strings.Contains(flat, everywhere); {

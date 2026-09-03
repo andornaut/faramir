@@ -80,8 +80,7 @@ func SelfPath() string {
 	return exe
 }
 
-// missing is what Owns and OwnsWithGroup report for a path that is not there,
-// and what a test compares against.
+// missing is what Owns and OwnsWithGroup report for a path that is not there.
 const missing = "missing"
 
 // Owns reports a file's mode and owner as "%04o account", or "missing". The

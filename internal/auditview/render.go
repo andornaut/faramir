@@ -66,7 +66,7 @@ func detail(record map[string]any) string {
 	return ""
 }
 
-// paintOutcome pads before colouring: pad() counts escape bytes as width.
+// paintOutcome pads before colouring: termui.Pad counts escape bytes as width.
 func paintOutcome(record map[string]any, paint termui.Palette) string {
 	const width = 16
 	label, failed := outcome(record)

@@ -278,7 +278,7 @@ const stampLayout = "2006-01-02 15:04:05 MST"
 
 // promptLabelWidth is the widest label below, `received` at eight, plus the
 // separating space: every value on the question starts in the same column, and
-// pad() renders a label that fills the width with the one space after it.
+// termui.Pad renders a label that fills the width with the one space after it.
 const promptLabelWidth = 9
 
 // promptField is one line of the question: a label this program owns, then a
@@ -289,8 +289,8 @@ const promptLabelWidth = 9
 // straddles it is the confusion worth engineering. Chrome is coloured, content
 // is not, which is also what `faramir logs` does with its fields.
 func promptField(paint termui.Palette, label, value string) {
-	// Padded before it is painted, as the log's outcome column is: pad() counts
-	// escape bytes as width.
+	// Padded before it is painted, as the log's outcome column is: termui.Pad
+	// counts escape bytes as width.
 	fmt.Printf("  %s%s\n", paint.Key(termui.Pad(label, promptLabelWidth)), value)
 }
 

@@ -8,52 +8,21 @@ package main
 
 import (
 	"encoding/json"
-	"net"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/escalation"
-	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/socktest"
 	"github.com/andornaut/faramir/internal/termui"
 	"github.com/andornaut/faramir/internal/testio"
 )
-
-// escalationsSocket answers one escalations op with the questions given and closes.
-func escalationsSocket(t *testing.T, questions []escalation.Question) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "b.sock")
-	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = listener.Close(); _ = os.Remove(path) })
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer func() { _ = conn.Close() }()
-				lines := sockutil.NewLineReader(conn, 1<<20)
-				if line, err := lines.Next(); err != nil || len(line) == 0 {
-					return
-				}
-				_ = sockutil.Send(conn, map[string]any{"questions": questions})
-			}()
-		}
-	}()
-	return path
-}
 
 // A caller parsing stdout gets a value whether or not anything is waiting, and
 // reads which of the two it was off the status rather than off the array.
 func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	t.Run("nothing waiting", func(t *testing.T) {
 		out, code := testio.CaptureStdout(t, func() int {
-			return listEscalations(escalationsSocket(t, nil), true, termui.Palette{})
+			return listEscalations(socktest.AnsweringBroker(t, map[string]any{"questions": nil}), true, termui.Palette{})
 		})
 		if code != 1 {
 			t.Errorf("code = %d, want 1 with nothing waiting", code)
@@ -68,9 +37,9 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	})
 
 	t.Run("one waiting", func(t *testing.T) {
-		socket := escalationsSocket(t, []escalation.Question{{
+		socket := socktest.AnsweringBroker(t, map[string]any{"questions": []escalation.Question{{
 			ID: "9f2a1c", Cmd: "ansible-playbook site.yml", ExpiresInSec: 118,
-		}})
+		}}})
 		out, code := testio.CaptureStdout(t, func() int { return listEscalations(socket, true, termui.Palette{}) })
 		if code != 0 {
 			t.Errorf("code = %d, want 0 with one waiting", code)

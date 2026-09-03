@@ -64,9 +64,14 @@ func runKeeper(f keeperFlags) int {
 		if shadowed == nil {
 			shadowed = map[string]string{}
 		}
-		// Names only, even for the operator.
+		// Names only, even for the operator. A list even when there are none:
+		// null is not an empty list to a caller parsing this.
+		refs := slices.Sorted(maps.Keys(values))
+		if refs == nil {
+			refs = []string{}
+		}
 		if rc := printJSON("keeper", map[string]any{
-			"refs": slices.Sorted(maps.Keys(values)), "errors": errs,
+			"refs": refs, "errors": errs,
 			"shadowed_refs": shadowed,
 		}); rc != 0 {
 			return rc

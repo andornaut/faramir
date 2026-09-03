@@ -121,8 +121,8 @@ func newID() string {
 
 // prompt is what the human is asked: one line and the command, so the answer
 // means something. The host, the cwd and the resolved program are fields of the
-// Question, printed under it. Exported so a test, the CLI and the notifier
-// agree on it.
+// Question, printed under it. One function, so the answer channel, the
+// notifier and the tests agree on it.
 func prompt(run Run) string {
 	return fmt.Sprintf("%s `%s`", PromptPrefix, run.Command())
 }
