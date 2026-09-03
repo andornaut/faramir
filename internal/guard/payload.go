@@ -20,10 +20,10 @@ type payload struct {
 	// host promises nothing about. Empty where the host sends none.
 	Cwd       string `json:"cwd"`
 	ToolInput struct {
-		Command  string `json:"command"`
-		Args     []any  `json:"args"`
-		InBackgd bool   `json:"run_in_background"`
-	} `json:"tool_input"`
+		Command  string
+		Args     []any
+		InBackgd bool
+	}
 	// The same object undecoded: a rewrite replaces the whole tool input, so every
 	// field has to be handed back, not only the one it changed.
 	RawInput map[string]any `json:"-"`
@@ -49,20 +49,57 @@ func commandOf(p *payload) string {
 
 // decodeToolInput reads the shape Claude Code and faramir's own plugin send:
 // the tool named at the top level and its input flattened beside it.
+//
+// The input is read as the object it is and the three fields this cares about
+// are taken out of it by type, rather than being decoded into a struct that
+// declares what each one must be. Every tool on a host shares one input
+// namespace, so a field name means whatever the tool using it means: `args` is
+// an argv array on the tools that run a command and a single string on a tool
+// that takes one argument. A struct refuses the second at the decode, and a
+// payload that will not decode is answered by refusing the call and telling the
+// operator that nothing in the tree is redacted, which is a great deal to say
+// about a tool whose input was perfectly well formed.
+//
+// Malformed JSON, a tool_input that is not an object, and a tool_name that is
+// not a string still fail: those are the host's shape having changed, which is
+// what that refusal is for.
 func decodeToolInput(data []byte) (*payload, error) {
-	var p payload
-	if err := json.Unmarshal(data, &p); err != nil {
-		return nil, err
-	}
-	// The same object undecoded, so a rewrite that replaces the whole input can
-	// hand back the fields it did not change.
-	var raw struct {
+	var doc struct {
+		ToolName string `json:"tool_name"`
+		Cwd      string `json:"cwd"`
+		// The input undecoded, which is also what a rewrite hands back so the
+		// fields it did not change survive it.
 		ToolInput map[string]any `json:"tool_input"`
 	}
-	if err := json.Unmarshal(data, &raw); err == nil {
-		p.RawInput = raw.ToolInput
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, err
 	}
-	return &p, nil
+	p := &payload{ToolName: doc.ToolName, Cwd: doc.Cwd, RawInput: doc.ToolInput}
+	if command, ok := doc.ToolInput["command"].(string); ok {
+		p.ToolInput.Command = command
+	}
+	p.ToolInput.Args = argsOf(doc.ToolInput["args"])
+	if background, ok := doc.ToolInput["run_in_background"].(bool); ok {
+		p.ToolInput.InBackgd = background
+	}
+	return p, nil
+}
+
+// argsOf is the words an input's "args" holds, in either spelling.
+//
+// A single string is one word rather than nothing: commandOf quotes what it is
+// given, so the text still reaches the rules, and a tool argument naming a
+// declared path is refused the way the same path in an argv array is. Any other
+// shape holds no words to scan, and the paths inside it are still walked out of
+// RawInput, which is what refuses a path whatever tool named it.
+func argsOf(value any) []any {
+	switch v := value.(type) {
+	case []any:
+		return v
+	case string:
+		return []any{v}
+	}
+	return nil
 }
 
 // decodeToolCall reads Antigravity's shape, where the call is named rather than
