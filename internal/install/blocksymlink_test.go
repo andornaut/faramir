@@ -126,6 +126,81 @@ func TestRemovingAPathTakesWhatItDerived(t *testing.T) {
 	}
 }
 
+// One removal naming the link and its target, in either order, is answered as
+// two removals: the target went with the link, and an ask that was met is not
+// reported as naming nothing.
+func TestRemovingALinkAndItsTargetTogetherReportsBoth(t *testing.T) {
+	link := "/home/op/.config/app/config.json"
+	target := "/home/op/dotfiles/app/config.json"
+	existing := []config.BlockedPath{{Path: link}, {Path: target, DerivedFrom: link}}
+	for _, asked := range [][]config.BlockedPath{
+		{{Path: link}, {Path: target}},
+		{{Path: target}, {Path: link}},
+	} {
+		kept, removed, cascaded := withoutBlocked(existing, asked)
+
+		if len(kept) != 0 {
+			t.Errorf("asked %v: kept = %+v, want nothing", asked, kept)
+		}
+		if removed[0].Path != asked[0].Path || removed[1].Path != asked[1].Path {
+			t.Errorf("asked %v: removed = %+v, want both answered", asked, removed)
+		}
+		if len(cascaded) != 0 {
+			t.Errorf("asked %v: cascaded = %+v, want nothing left to say", asked, cascaded)
+		}
+	}
+}
+
+// Only the last component is resolved. A symlinked ancestor is part of every
+// path on the host, and an entry naming a plain file through one derives
+// nothing rather than a second spelling nobody types.
+func TestASymlinkedAncestorDerivesNothing(t *testing.T) {
+	base := t.TempDir()
+	actual := filepath.Join(base, "actual")
+	if err := os.Mkdir(actual, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(actual, "key"), []byte("k\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(actual, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	if target, ok := symlinkTarget(filepath.Join(alias, "key")); ok {
+		t.Errorf("a plain file under a symlinked directory resolved to %q", target)
+	}
+	// A chain is followed to the file, each hop read against its own directory.
+	hop := filepath.Join(alias, "hop")
+	if err := os.Symlink("key", hop); err != nil {
+		t.Fatal(err)
+	}
+	if target, ok := symlinkTarget(hop); !ok || target != filepath.Join(alias, "key") {
+		t.Errorf("target = %q, %v; want the file the chain ends at, under the spelling typed", target, ok)
+	}
+}
+
+// A target the operator declared outright is told apart from one the add wrote,
+// because the warning promises a cascade the first one will not get.
+func TestADeclaredTargetIsReportedAsItsOwnEntry(t *testing.T) {
+	link := "/home/op/.config/app/config.json"
+	target := "/home/op/dotfiles/app/config.json"
+	derived := []config.BlockedPath{{Path: target, DerivedFrom: link}}
+	entries, _ := foldBlocked([]config.BlockedPath{{Path: target}}, derived)
+
+	written, declared := splitDeclared(entries, derived)
+
+	if len(written) != 0 || len(declared) != 1 {
+		t.Fatalf("written = %+v, declared = %+v; want the target declared", written, declared)
+	}
+	var report Report
+	derivedWarnings(&report, written, declared, nil)
+	if len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "entry of its own") {
+		t.Errorf("warnings = %q, want the declared entry said to stay", report.Warnings)
+	}
+}
+
 // An operator who declares the target on its own account owns that entry: it
 // stops being the link's, so removing the link leaves it standing. What was
 // declared is not something another entry's removal may take away.
@@ -175,6 +250,7 @@ func TestTheReportSaysWhatWasDerivedAndWhatWasNot(t *testing.T) {
 	var report Report
 	derivedWarnings(&report,
 		[]config.BlockedPath{{Path: "/home/op/dotfiles/app.json", DerivedFrom: "/home/op/.app.json"}},
+		nil,
 		[]config.BlockedPath{{Path: "/home/op/src/tree/.env", DerivedFrom: "/home/op/.env"}})
 
 	if len(report.Warnings) != 2 {

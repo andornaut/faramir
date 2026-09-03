@@ -39,8 +39,9 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	if info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Sprintf("%s is a symlink. A link must name the file that holds "+
 			"the value, the group and the mode being set on that file: name %s "+
-			"instead. Re-adding the entry does this for you, and blocks the "+
-			"spelling you typed", link.Path, linkTarget(link.Path)), nil
+			"instead. `faramir link rm %s` removes this entry, and `faramir link "+
+			"add` resolves a symlink for you and blocks the spelling you typed",
+			link.Path, linkTarget(link.Path), link.Ref), nil
 	}
 	// A directory above it answers for the file whatever the file's own bits say,
 	// so it is asked first.
@@ -208,10 +209,10 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	// The spelling the operator typed, kept before it is resolved. The entry has
 	// to name the file that holds the value, the grant and the regroup landing
 	// there whatever name reached it, so a symlink is resolved rather than
-	// refused. What was typed does not go to waste: the rules match the path a
+	// refused. What was typed is still blocked: the rules match the path a
 	// command names, and the name the agent has is the one that was typed.
 	typed := link.Path
-	if target, err := filepath.EvalSymlinks(link.Path); err == nil {
+	if target, ok := symlinkTarget(link.Path); ok {
 		link.Path = target
 	}
 	if link.Path != typed {
@@ -327,8 +328,11 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 // Or one was declined, and the file is still reachable under the name that was
 // typed, which is the case an operator must not be left assuming was closed.
 type linkDerivation struct {
-	entry   config.BlockedPath
-	written bool
+	entry config.BlockedPath
+	// written is whether the entry is in the config, and declared whether it was
+	// there before this add as one the operator typed, which a link's removal
+	// leaves standing.
+	written, declared bool
 }
 
 // withLinkDerivation folds the derived entry into the options an add is about
@@ -353,8 +357,11 @@ func withLinkDerivation(opts Options, configDir, typed string,
 		return opts, linkDerivation{}, fmt.Errorf("%s: %w", configDir, err)
 	}
 	entries, _ := foldBlocked(existing, []config.BlockedPath{entry})
+	// An entry the operator declared for the typed spelling is left as it is,
+	// and is theirs to remove.
+	_, declared := splitDeclared(entries, []config.BlockedPath{entry})
 	opts.blocked, opts.blockedSet = entries, true
-	return opts, linkDerivation{entry: entry, written: true}, nil
+	return opts, linkDerivation{entry: entry, written: true, declared: len(declared) > 0}, nil
 }
 
 // say is what the report tells an operator who typed a symlink. Both outcomes
@@ -367,6 +374,12 @@ func (d linkDerivation) say(report *Report, typed string, link config.Link) {
 	said := fmt.Sprintf("%s is a symlink, so %s names %s, which is the file the "+
 		"broker was granted and the file whose group was changed",
 		config.Shown(typed), config.Shown(link.Ref), config.Shown(link.Path))
+	if d.declared {
+		report.Warnings = append(report.Warnings, said+fmt.Sprintf(
+			". %s has a block entry of its own, which stays when the link is removed",
+			config.Shown(typed)))
+		return
+	}
 	if d.written {
 		report.Warnings = append(report.Warnings, said+fmt.Sprintf(
 			". %s is blocked as well, a rule matching the path a command names, so "+
@@ -385,11 +398,10 @@ func (d linkDerivation) say(report *Report, typed string, link config.Link) {
 // resolves it. For a message about a link that was not resolved: an entry
 // written by hand, or a file that became a symlink after it was added.
 func linkTarget(path string) string {
-	target, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return path
+	if target, ok := symlinkTarget(path); ok {
+		return target
 	}
-	return target
+	return path
 }
 
 // refuseShadowedRef refuses an entry naming a ref the managed store already

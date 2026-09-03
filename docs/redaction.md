@@ -137,7 +137,7 @@ an ANSI escape sequence | removed, the text around it kept
 
 So a command whose output is not text does not come back as written: random bytes expand, and an archive piped through will not open. That is the price of stage 1, and stage 1 is what catches a value spliced with colour codes.
 
-A caller cannot see this from the output itself, so `run` reports it the way it reports truncation: on stderr, and not suppressed by `--quiet`:
+A caller cannot see this from the output itself, so `run` reports it the way it reports truncation: on stderr, and not suppressed by `--quiet` (only the `log_id` is):
 
 ```text
 faramir run: 1735 non-text byte(s) replaced; log_id=...

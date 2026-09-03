@@ -59,7 +59,7 @@ BACKUP=$(mktemp -d)
 cp -a $CFG "$BACKUP/config.toml"
 restore_baseline() {
   local rc=$?
-  for ref in gh/token npm/token; do
+  for ref in gh/token npm/token sym/token; do
     "$faramir" link rm "$ref" >/dev/null 2>&1 || true
   done
   cp -a "$BACKUP/config.toml" $CFG
@@ -190,11 +190,13 @@ grep -q 'mount the home first' <<<"$out" \
   && ok "a file that is not there is refused, naming the case that explains it" \
   || bad "an absent file was not refused as one: $out"
 
+# A symlink is resolved to the file it points at, that being the file the grant
+# and the group land on, so the refusal is the target's: it is still op 0600.
 ln -sf $GH $GHDIR/hosts-link.yml
 out=$(addlink sym/token $GHDIR/hosts-link.yml --type yaml --key github.com/oauth_token)
-grep -q 'symlink' <<<"$out" \
-  && ok "a symlink is refused: the grant would land on whatever it points at" \
-  || bad "a symlinked path was accepted: $out"
+grep -q "$GH (sym/token) is op" <<<"$out" \
+  && ok "a symlink to an unarranged file is refused, naming the file it points at" \
+  || bad "a symlink to an unarranged file was not refused as the target: $out"
 rm -f $GHDIR/hosts-link.yml
 
 [ "$(cat $CFG)" = "$before" ] \
@@ -218,6 +220,27 @@ else bad "link add did not write the entry: $out"; fi
 [ "$(stat -c '%U:%G %a' $GH)" = "op:$brokergroup 640" ] \
   && ok "the file is as it was arranged: op:$brokergroup 640" \
   || bad "link add altered the file to $(stat -c '%U:%G %a' $GH)"
+
+# Added through a symlink, the entry names the file it points at, and the name
+# that was typed becomes a block entry of its own: a rule matches the path a
+# command names, and either spelling opens the file. `link rm` takes both.
+ln -sf $GH $GHDIR/hosts-link.yml
+out=$(addlink sym/token $GHDIR/hosts-link.yml --type yaml --key github.com/oauth_token)
+asop link ls --json 2>/dev/null \
+  | jq -e --arg p "$GH" '.[] | select(.ref == "sym/token") | select(.path == $p)' >/dev/null \
+  && ok "a link added through a symlink names the file it points at" \
+  || bad "the link does not name the target: $out"
+grep -q "path = \"$GHDIR/hosts-link.yml\"" $CFG && grep -q "derived_from = \"$GH\"" $CFG \
+  && ok "and the spelling that was typed is a block entry derived from it" \
+  || bad "the typed spelling was not blocked: $out"
+grep -q 'symlink' <<<"$out" \
+  && ok "and the add says so" \
+  || bad "the add does not say the path was resolved: $out"
+"$faramir" link rm sym/token >/dev/null 2>&1
+grep -q 'hosts-link.yml' $CFG \
+  && bad "link rm left the derived block entry behind" \
+  || ok "and link rm removes the derived entry with the link"
+rm -f $GHDIR/hosts-link.yml
 
 # --------------------------------------------------------------------------
 head_ "3. the broker serves it"

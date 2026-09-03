@@ -195,7 +195,7 @@ type = {{quote .Type}}
 # derived_from names the declared path a symlink was resolved out of. `block
 # add` on a link writes the target as a second entry carrying it, both spellings
 # reaching the same file and a rule matching the one a command names. It is
-# written here rather than resolved on the fly so that `block rm` on the link
+# written here rather than resolved at render time so that `block rm` on the link
 # takes the target with it, and so a converge can tell the two apart.
 {{range .Blocked}}
 [[secret.block]]

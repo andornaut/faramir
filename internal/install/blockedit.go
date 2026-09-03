@@ -103,6 +103,10 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 	// the entry they wrote.
 	derived, skipped := derivations(configDir, refused)
 	entries, _ = foldBlocked(entries, derived)
+	// A target the operator declared outright keeps its own entry, and the
+	// warning says so rather than promising a cascade that will not happen.
+	var declared []config.BlockedPath
+	derived, declared = splitDeclared(entries, derived)
 	// A link over the same file is not refused, both rendering the same rule,
 	// but it is said: the link already refuses that path, and this entry adds
 	// nothing the operator does not have.
@@ -126,7 +130,7 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 	for _, entry := range refused {
 		blockedWarnings(&report, entry, links)
 	}
-	derivedWarnings(&report, derived, skipped)
+	derivedWarnings(&report, derived, declared, skipped)
 	return report, added, nil
 }
 
@@ -139,19 +143,18 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 // resolved when a rule is rendered: the config is then what the rules are, which
 // is what `block ls` reads and what an operator diffing two hosts compares.
 //
-// Every path that is not a symlink yields nothing, EvalSymlinks returning the
-// path it was given. So does one that is not there, which is the case an entry
-// is allowed to name and the case a wildcard entry always is: a pattern names no
-// file to resolve, and the literal parent it is bounded by is already covered by
-// the rule the entry renders.
+// Every path that is not a symlink yields nothing. So does one that is not
+// there, which is the case an entry is allowed to name and the case a wildcard
+// entry always is: a pattern names no file to resolve, and the literal parent
+// it is bounded by is already covered by the rule the entry renders.
 func derivations(configDir string,
 	refused []config.BlockedPath) (derived []config.BlockedPath, skipped []config.BlockedPath) {
 	for _, entry := range refused {
 		if entry.Path == "" || strings.Contains(entry.Path, "*") {
 			continue
 		}
-		target, err := filepath.EvalSymlinks(entry.Path)
-		if err != nil || target == entry.Path {
+		target, ok := symlinkTarget(entry.Path)
+		if !ok {
 			continue
 		}
 		resolved := config.BlockedPath{
@@ -164,6 +167,53 @@ func derivations(configDir string,
 		derived = append(derived, resolved)
 	}
 	return derived, skipped
+}
+
+// symlinkTarget is the file a symlink points at, and false for a path that is
+// not one. Only the last component is read, through as many links as it takes
+// to reach a file: a symlinked ancestor (/home to /data/home) is part of the
+// spelling every path on the host shares, and resolving it would make a second
+// entry out of a path that names its file directly.
+func symlinkTarget(path string) (string, bool) {
+	target := path
+	// The kernel's own limit on a chain of links, past which a path does not
+	// open at all.
+	for range 40 {
+		info, err := os.Lstat(target)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			if target == path {
+				return "", false
+			}
+			return target, true
+		}
+		next, err := os.Readlink(target)
+		if err != nil {
+			return "", false
+		}
+		if !filepath.IsAbs(next) {
+			next = filepath.Join(filepath.Dir(target), next)
+		}
+		target = filepath.Clean(next)
+	}
+	return "", false
+}
+
+// splitDeclared parts the derived entries an add wrote from the ones that met
+// an entry the operator declared outright, which foldBlocked leaves as it found
+// it. The two are told apart by the entry the fold left: a declared one has no
+// derived_from.
+func splitDeclared(entries, derived []config.BlockedPath) (written, declared []config.BlockedPath) {
+	for _, entry := range derived {
+		i := slices.IndexFunc(entries, func(other config.BlockedPath) bool {
+			return sameBlock(other, entry)
+		})
+		if i >= 0 && entries[i].DerivedFrom == "" {
+			declared = append(declared, entry)
+			continue
+		}
+		written = append(written, entry)
+	}
+	return written, declared
 }
 
 // derivable is whether an entry nobody typed may be written.
@@ -189,7 +239,7 @@ func derivable(configDir string, entry config.BlockedPath) bool {
 // it declined to write. Both are worth a line: the first is an entry the
 // operator will meet in `block ls` and in the config, and the second is a file
 // still readable under a name the declared entry does not cover.
-func derivedWarnings(report *Report, derived, skipped []config.BlockedPath) {
+func derivedWarnings(report *Report, derived, declared, skipped []config.BlockedPath) {
 	for _, entry := range derived {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
 			"%s is a symlink to %s, which is blocked as well: a rule matches the path "+
@@ -197,6 +247,12 @@ func derivedWarnings(report *Report, derived, skipped []config.BlockedPath) {
 				"--path %s` takes both",
 			config.Shown(entry.DerivedFrom), config.Shown(entry.Path),
 			config.Shown(entry.DerivedFrom)))
+	}
+	for _, entry := range declared {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"%s is a symlink to %s, which has an entry of its own. That entry stays "+
+				"when this one is removed",
+			config.Shown(entry.DerivedFrom), config.Shown(entry.Path)))
 	}
 	for _, entry := range skipped {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
@@ -464,12 +520,21 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 // path resolved to it, so it goes when that path does, or the host is left with
 // a rule no entry explains and a converge reporting one nobody declared. An ask
 // naming the derived path directly still removes it, sameBlock matching on the
-// path: what comes back then is an entry the next add derives again.
+// path: what comes back then is an entry the next add derives again. One that
+// an earlier ask in the same removal already cascaded is answered as removed
+// rather than as absent, the ask having been met.
 func withoutBlocked(existing,
 	refused []config.BlockedPath) (kept, removed, cascaded []config.BlockedPath) {
 	kept = existing
 	removed = make([]config.BlockedPath, len(refused))
 	for i, asked := range refused {
+		if j := slices.IndexFunc(cascaded, func(entry config.BlockedPath) bool {
+			return sameBlock(entry, asked)
+		}); j >= 0 {
+			removed[i] = cascaded[j]
+			cascaded = slices.Delete(cascaded, j, j+1)
+			continue
+		}
 		// Whether this ask takes a declaration away at all. An entry derived from
 		// a path no block entry declares belongs to something else -- a link
 		// resolves to its target, and the entry for the spelling the operator

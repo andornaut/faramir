@@ -93,7 +93,7 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 		source, detail := sourceDeclared, ""
 		if entry.DerivedFrom != "" {
 			source = sourceDerived
-			detail = "what " + entry.DerivedFrom + " resolves to; removed with it"
+			detail = "another name for " + entry.DerivedFrom + "; removed with the entry for it"
 		}
 		rows = append(rows, blockRow{
 			Source: source, Kind: kindPath, Entry: entry.Path,
