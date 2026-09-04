@@ -10,6 +10,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/guard"
 	"github.com/andornaut/faramir/internal/termui"
 )
@@ -70,6 +71,22 @@ func strictDetail(detail string, strict bool) string {
 // faramir's own rather than an entry.
 func (r blockRow) belowTable() bool {
 	return r.Source == sourceBuiltIn
+}
+
+// listing is what the text output shows for a row, which is the entry for
+// everything except a built-in command rule. Those entries are regular
+// expressions, one of them long enough to wrap twice, and an operator reading
+// the section is asking what faramir refuses rather than how it spells it. The
+// pattern is still what --json carries, that being the half a configuration
+// manager asserts on.
+//
+// The description and not both: a line holding the sentence and the pattern is
+// the unreadable line with a preamble in front of it.
+func (r blockRow) listing() string {
+	if r.Kind == kindCommand && r.Source == sourceBuiltIn && r.Detail != "" {
+		return r.Detail
+	}
+	return r.Entry
 }
 
 // blockRows is the listing, declared entries first: they are what the
@@ -133,6 +150,7 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 	for _, pattern := range guard.ActionPatterns() {
 		rows = append(rows, blockRow{
 			Source: sourceBuiltIn, Kind: kindCommand, Entry: pattern,
+			Detail: denyrules.DescribeAction(pattern),
 		})
 	}
 	sortRows(rows[builtInFrom:])
@@ -208,13 +226,30 @@ func printBuiltIn(paint termui.Palette, rows []blockRow, above bool) {
 		if len(of) == 0 {
 			continue
 		}
+		// By what the section shows rather than by what sortRows ordered. The
+		// rows are sorted by entry, which for a command rule is a regular
+		// expression the listing does not print, so the lines would come out in
+		// an order with nothing on screen to explain it. A path rule prints its
+		// entry, so this is the order it already had.
+		//
+		// The entry breaks a tie, and it is why this sorts on a pair rather than
+		// on the displayed line alone. Two descriptions are two sentences
+		// somebody wrote, so they can be equal where two patterns cannot, and a
+		// listing that ordered an equal pair by nothing would come out differently
+		// on two hosts an operator is diffing.
+		slices.SortFunc(of, func(a, b blockRow) int {
+			if c := strings.Compare(a.listing(), b.listing()); c != 0 {
+				return c
+			}
+			return strings.Compare(a.Entry, b.Entry)
+		})
 		if above {
 			fmt.Println()
 		}
 		above = true
 		fmt.Printf("%d built-in %s rule(s):\n", len(of), kind)
 		for _, row := range of {
-			fmt.Printf("  %s\n", paint.Dim(row.Entry))
+			fmt.Printf("  %s\n", paint.Dim(row.listing()))
 		}
 	}
 }

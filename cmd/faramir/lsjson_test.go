@@ -414,8 +414,8 @@ func TestNoBuiltInRuleIsDroppedFromTheTextListing(t *testing.T) {
 			continue
 		}
 		builtIn++
-		if !strings.Contains(text, row.Entry) {
-			t.Errorf("the %s rule %q is in --json and not in the listing", row.Kind, row.Entry)
+		if !strings.Contains(text, row.listing()) {
+			t.Errorf("the %s rule %q is in --json and not in the listing", row.Kind, row.listing())
 		}
 	}
 	if builtIn == 0 {
