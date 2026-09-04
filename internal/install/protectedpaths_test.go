@@ -58,9 +58,16 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	}
 }
 
-// Read and write take the same paths. A value the agent cannot read is one it
-// can still destroy, and an age key replaced is every managed file unreadable
-// retroactively, so a list that covers one and not the other is half a rule.
+// Read and write take the same paths, in one rule. A value the agent cannot
+// read is one it can still destroy, and an age key replaced is every managed
+// file unreadable retroactively, so a list that covered one and not the other
+// would be half a rule. Claude Code's file permission check answers for Edit,
+// Write and NotebookEdit off the Read rule, measured against the agent, so the
+// Edit rules that used to be rendered beside these refused nothing extra.
+//
+// Asserted as their absence rather than left unsaid: a rendered Edit rule means
+// either that this was re-widened without the comment above being revisited, or
+// that a renderer grew a second spelling nobody compared.
 func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 	body, err := agentcfg.RenderAccount("agent/claude/settings.json", testLayout())
 	if err != nil {
@@ -77,15 +84,8 @@ func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 	if len(reads) == 0 {
 		t.Fatal("no Read rules were rendered")
 	}
-	for pattern := range reads {
-		if !edits[pattern] {
-			t.Errorf("%s is refused on read and permitted on edit", pattern)
-		}
-	}
 	for pattern := range edits {
-		if !reads[pattern] {
-			t.Errorf("%s is refused on edit and permitted on read", pattern)
-		}
+		t.Errorf("%s is refused by an Edit rule, which the Read rule beside it already covers", pattern)
 	}
 }
 
@@ -123,8 +123,10 @@ func TestInitWritesTheDenyRulesIntoTheHome(t *testing.T) {
 		want  string
 	}{
 		// Two slashes: Claude Code anchors a one-slash pattern at the settings
-		// source, so only this spelling names the filesystem root.
-		{"claude", ".claude/settings.json", `"Read(//etc/faramir/**)"`},
+		// source, so only this spelling names the filesystem root. Bare, with no
+		// subtree twin: its matcher reaches under a directory from the rule that
+		// names it.
+		{"claude", ".claude/settings.json", `"Read(//etc/faramir)"`},
 		{"opencode", ".config/opencode/opencode.json", `"/etc/faramir/*": "deny"`},
 		{"kilocode", ".config/kilo/kilo.json", `"/etc/faramir/*": "deny"`},
 	} {

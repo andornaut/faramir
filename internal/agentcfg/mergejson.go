@@ -44,12 +44,24 @@ func MergeJSON(existing, ours []byte, wrote []string) ([]byte, error) {
 		return nil, err
 	}
 	// Two-space indent and a trailing newline, matching the assets, so an
-	// already-merged file compares equal next run. encoding/json sorts keys.
-	out, err := json.MarshalIndent(merged, "", "  ")
-	if err != nil {
+	// already-merged file compares equal next run. encoding/json sorts keys, and
+	// Encode writes the newline itself.
+	//
+	// An encoder rather than MarshalIndent, for SetEscapeHTML(false). This is the
+	// last writer over these files, so it is what decides their spelling: with
+	// the default escaping a path holding <, > or & lands as < whatever the
+	// asset that produced it rendered, and jsonString's own SetEscapeHTML(false)
+	// decides nothing. Two writers with two answers is one answer too many, and
+	// the one that wins is the one nobody chose. Both are off, so a re-render of
+	// an untouched file compares equal rather than alternating.
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(merged); err != nil {
 		return nil, err
 	}
-	return append(out, '\n'), nil
+	return out.Bytes(), nil
 }
 
 // argvKeys name a command line rather than a set. A list under one of these is

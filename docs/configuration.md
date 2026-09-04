@@ -238,11 +238,23 @@ Form | Rule
 
 `init` reads these entries back before rewriting `config.toml`, so every rule is re-asserted on each run. That restores a rule an agent's settings dropped.
 
+### Where an entry is enforced
+
+**On the host where the command is typed, not the host holding the file.** Both enforcement points are local to the machine the agent is working on: the guard is a hook in that agent's session, and the broker is the daemon that machine's `faramir run` talks to. Neither consults another host, and neither is consulted by one.
+
+So an entry for a path on another machine belongs on the machine the agent works from. Declaring `/home/other/.ssh/id_rsa` there is what refuses `ssh other-host sudo cat /home/other/.ssh/id_rsa`; the same entry on the host that holds the file refuses nothing, because nothing there is reading the command. Where an agent runs is the question, not where the credential lives, and an entry placed by the second reading is an entry with no evaluator.
+
+A strict entry arms both points on that host: the guard refuses the command the agent runs itself, and the broker refuses the same command under `faramir run`. An entry that is not strict is refused by the guard and read by the broker under [the looser vocabulary](#the-brokered-route).
+
+**Writing about a blocked path is refused too.** A rule is matched against the text of a command and cannot tell a name being written from one being used, so a path cannot appear in a shell command at all: not in an `echo`, not in a heredoc, not in a comment on the same line. Use an editing tool to write a file that quotes one. This is a consequence of the matching, not a separate rule, and it is what a person documenting an entry meets first.
+
 ### What a block does not cover
 
 **A rule matches the command as it was written.** The guard reads the text of a command and has no working directory to resolve a relative path against. So in the agent's own shell `cat /srv/keys/luks.key` is refused and `cd /srv/keys && cat luks.key` is not, and neither is a path the shell assembles from a variable. Where a file must be unreachable whatever is typed, the file mode is what holds: this rule refuses a name, not an `open(2)`.
 
 The broker is handed the working directory along with the command, so the same relative spelling is refused there. That is the one reading the guard cannot make.
+
+The same limit bounds what an entry can do about another host. It refuses a command that names the path, so a reach that never puts the path in the text typed locally is not covered: an interactive `ssh other-host` session, where what follows is typed on the far side, and a remote shell that assembles the path once it is running. What holds against those is the far side's own file modes and the scope of the credential the agent authenticates with, not an entry here.
 
 A managed or linked value is covered whichever route reads it, because the command is rewritten so its output is redacted on return. A blocked path holds no value faramir has read, so the refusal is all it adds.
 

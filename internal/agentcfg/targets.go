@@ -230,9 +230,10 @@ var Targets = map[string]*Target{
 		Files: []File{
 			{Path: ".claude/settings.local.json", Asset: "agent/claude/settings.local.json.tmpl", Mode: 0o640, Merge: true, Local: true},
 		},
-		// Read and Edit rules only: Claude Code matches file permission checks
-		// against Edit(path), which covers every file-editing tool, and a
-		// Write(path) rule matches nothing.
+		// Read rules only: Claude Code answers its file permission check for Edit,
+		// Write and NotebookEdit off the Read rule, so one rule per path covers
+		// the writing tools as well. A Write(path) rule matches nothing either
+		// way. See claudeRules.
 		AccountFiles: []File{
 			{Path: ".claude/settings.json", Asset: "agent/claude/settings.json", Mode: 0o640, Merge: true},
 		},

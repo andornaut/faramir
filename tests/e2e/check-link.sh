@@ -336,8 +336,8 @@ SETTINGS=/home/op/.claude/settings.json
 # Two slashes: Claude Code anchors a one-slash pattern at the settings source,
 # so a rule spelled with one asks about ~/.claude/<path> and refuses nothing.
 if [ -f "$SETTINGS" ]; then
-  grep -qF "Read(/$GH)" "$SETTINGS" && grep -qF "Edit(/$GH)" "$SETTINGS" \
-    && ok "the linked path is refused to the agent's file tools" \
+  grep -qF "Read(/$GH)" "$SETTINGS" \
+    && ok "the linked path is refused to the agent's file tools, reads and writes both" \
     || bad "$SETTINGS names no rule for $GH"
 else
   note "no $SETTINGS on this box, so the file-tool rules were not checked"

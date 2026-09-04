@@ -193,9 +193,18 @@ func PerInstallPaths(layout hostlayout.Layout) []string {
 // The spellings. One function per matcher rather than one parameterised over
 // them: the agents differ in what a wildcard crosses.
 
-// claudeRules is the deny list Claude Code reads: one Read and one Edit rule
-// per path, plus this install's own directories. Read and Edit take the same
-// list: a value the agent cannot read is one it can still destroy.
+// claudeRules is the deny list Claude Code reads: one Read rule per path this
+// install names, plus one per directory it occupies.
+//
+// One rule per path, where the other renderers write two. Claude Code's matcher
+// takes gitignore semantics, so `Read(//dir)` refuses everything under dir at
+// any depth without refusing the sibling `dir-notes.txt`, and a `dir/**` twin
+// beside it adds nothing. Its file permission check also answers for Edit,
+// Write and NotebookEdit off the Read rule alone, so an Edit rule adds nothing
+// either. Both are verified against the agent rather than taken from its
+// documentation, which says NotebookEdit is not covered; if that becomes true
+// the Edit rules come back, and TestOneRulePerPathCoversTheToolsAndTheSubtree
+// is where the assumption is written down.
 //
 // Every pattern is anchored at the filesystem root with a leading "//". One
 // slash is not an absolute path there: it anchors at the settings source, so
@@ -208,18 +217,18 @@ func PerInstallPaths(layout hostlayout.Layout) []string {
 func claudeRules(layout hostlayout.Layout) []string {
 	var out []string
 	add := func(pattern string) {
-		pattern = "//" + strings.TrimPrefix(pattern, "/")
-		out = append(out, "Read("+pattern+")", "Edit("+pattern+")")
+		out = append(out, "Read(//"+strings.TrimPrefix(pattern, "/")+")")
 	}
+	// The directories bare, like everything else: the subtree comes with them.
 	for _, dir := range Dirs(layout) {
-		add(dir + "/**")
+		add(dir)
 	}
+	// Every declared path, refused or linked. blockedRulePaths is not read here:
+	// a blocked path is a declared path, so the catalogue has already named it,
+	// and the twin that loop existed to add is what this renderer no longer
+	// writes.
 	for _, path := range PerInstallPaths(layout) {
 		add(path)
-	}
-	for _, path := range blockedRulePaths(layout) {
-		// Both forms, without asking the filesystem: see blockedRulePaths.
-		add(path + "/**")
 	}
 	return out
 }

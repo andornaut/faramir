@@ -1,11 +1,51 @@
 package agentcfg
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+// The one spelling these files have. jsonString renders a value into an asset
+// and MergeJSON writes that asset to disk, so a character the two escape
+// differently is one the file flips back and forth on: rendered one way,
+// written the other, and reported as changed on every run for as long as a rule
+// carries one. <, > and & are the three encoding/json escapes by default and
+// the three faramir does not.
+//
+// Asserted on the bytes rather than on the parsed value, which is the whole
+// point: both spellings parse to the same string, so nothing downstream
+// notices, and the file churns anyway.
+func TestTheRenderedAssetAndTheMergeAgreeOnEscaping(t *testing.T) {
+	const awkward = `Read(//home/op/R&D/<draft>.key)`
+
+	rendered := jsonString(awkward)
+	for _, escape := range []string{"\\u0026", "\\u003c", "\\u003e"} {
+		if strings.Contains(rendered, escape) {
+			t.Errorf("jsonString emitted %s: %s", escape, rendered)
+		}
+	}
+
+	document := []byte(`{"permissions":{"deny":[` + rendered + `]}}`)
+	merged, err := MergeJSON(document, document, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(merged), awkward) {
+		t.Errorf("the merge rewrote the rule the asset rendered:\nasset  %s\nmerged %s", rendered, merged)
+	}
+	// And the second pass changes nothing, which is what a host converging on an
+	// untouched file does.
+	again, err := MergeJSON(merged, merged, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(again, merged) {
+		t.Errorf("merging an already-merged file changed it:\nfirst  %s\nsecond %s", merged, again)
+	}
+}
 
 // decode compares parsed values rather than bytes.
 func decode(t *testing.T, data []byte) map[string]any {

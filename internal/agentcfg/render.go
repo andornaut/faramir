@@ -64,13 +64,14 @@ var renderFuncs = template.FuncMap{
 //
 // Not strconv.Quote: it emits Go's escape set, and \a, \v and \xNN are none of
 // them JSON. What that renders is an agent settings file the agent cannot
-// parse, so the enrolment reads as done and every rule in it is absent. A JSON
-// string is also a valid TypeScript string literal, so pi's extension template
-// takes the same function.
+// parse, so the enrolment reads as done and every rule in it is absent.
 //
-// SetEscapeHTML(false) so <, > and & stay literal, escaping them being valid
-// JSON that would rewrite every file containing one. Encode appends a newline,
-// hence the trim.
+// SetEscapeHTML(false) so <, > and & stay literal. It has to agree with
+// MergeJSON, which is the last writer over every file this renders into: a
+// disagreement between the two is a file that alternates between the spellings
+// on alternate runs, and neither of them is a spelling anyone chose.
+// TestTheRenderedAssetAndTheMergeAgreeOnEscaping holds them together. Encode
+// appends a newline, hence the trim.
 func jsonString(text string) string {
 	var out bytes.Buffer
 	encoder := json.NewEncoder(&out)

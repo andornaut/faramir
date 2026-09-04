@@ -138,9 +138,13 @@ if [ -f $RULES ]; then
   grep -qF "$(rule Read "$KEY")" $RULES \
     && ok "the agent's deny rules refuse reading it" \
     || bad "no Read rule for $KEY in $RULES"
+  # And writing it, off the same rule: Claude Code answers Edit, Write and
+  # NotebookEdit from the Read rule, so an Edit rule beside it refuses nothing
+  # extra. One rendered here would mean that decision was reversed in the
+  # renderer without this suite being told.
   grep -qF "$(rule Edit "$KEY")" $RULES \
-    && ok "and writing it: a file the agent cannot read it can still destroy" \
-    || bad "no Edit rule for $KEY in $RULES"
+    && bad "an Edit rule for $KEY is rendered, which the Read rule already covers" \
+    || ok "and writing it, from that one rule, with no Edit rule beside it"
 else
   bad "no rule file at $RULES, so the rule could not be checked"
 fi
@@ -330,11 +334,14 @@ grep -q "blocked $SSHDIR" <<<"$out" \
   || bad "block add on a directory: ${out:0:160}"
 if [ -f $RULES ]; then
   grep -qF "$(rule Read "$SSHDIR")" $RULES \
-    && ok "the directory itself is refused" \
-    || bad "no rule for the directory"
+    && ok "the directory itself is refused, and everything under it with it" \
+    || bad "no rule for the directory, so a key inside it is still readable"
+  # Claude Code's matcher takes gitignore semantics, so the rule above reaches
+  # under the directory on its own. A subtree twin here would be a second rule
+  # refusing what the first already does.
   grep -qF "$(rule Read "$SSHDIR/**")" $RULES \
-    && ok "and so is everything under it, which is where the keys are" \
-    || bad "no rule reaches under the directory: a key inside it is still readable"
+    && bad "a subtree twin for $SSHDIR is rendered, which the bare rule already covers" \
+    || ok "and no subtree twin beside it"
 else
   bad "no rule file at $RULES, so nothing here was checked"
 fi
@@ -526,9 +533,9 @@ grep -qF "blocked $NAME" <<<"$out" \
 grep -qF "path = \"$NAME\"" $CFG \
   && ok "and the entry is written as a path" \
   || bad "the path entry is not in config.toml"
-grep -qF "$(rule Read "$NAME/**")" $RULES \
-  && ok "and the agent's rules cover what is under it" \
-  || bad "the subtree rule was not rendered into $RULES"
+grep -qF "$(rule Read "$NAME")" $RULES \
+  && ok "and the agent's rules cover it and what is under it" \
+  || bad "no rule for the directory was rendered into $RULES"
 out=$(block add --path "$NAME")
 grep -q 'already blocked' <<<"$out" \
   && ok "adding the same path again is not an error" \

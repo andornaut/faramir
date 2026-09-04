@@ -39,6 +39,37 @@ func TestTheClaudeRulesAreAnchoredAtTheRoot(t *testing.T) {
 	}
 }
 
+// One rule per path, and what that rests on. Claude Code's matcher takes
+// gitignore semantics, so a bare rule refuses the subtree under it, and its file
+// permission check answers for Edit, Write and NotebookEdit off a Read rule. So
+// neither a `path/**` twin nor an `Edit(path)` beside it refuses anything the
+// Read rule does not, and this renderer writes one rule where the others write
+// two.
+//
+// Both halves were measured against the agent, not read off its documentation,
+// which says a Read rule does not cover NotebookEdit. Nothing in Go can assert
+// either: what this holds is the shape that follows from them, so a release that
+// takes one back is a change here rather than a rule file that silently refuses
+// half of what it names. Re-measure before widening this.
+func TestOneRulePerPathCoversTheToolsAndTheSubtree(t *testing.T) {
+	dir := t.TempDir()
+	layout := layouttest.Layout()
+	layout.Blocked = configtest.RefusedAt(dir, "/etc/luks/volume.key")
+
+	for _, rule := range claudeRules(layout) {
+		if !strings.HasPrefix(rule, "Read(") {
+			t.Errorf("%q is not a Read rule: a Read rule already answers for the writing tools", rule)
+		}
+		if strings.HasSuffix(rule, "/**)") {
+			t.Errorf("%q carries a subtree twin, which the bare rule beside it already covers", rule)
+		}
+	}
+	// And the bare rule is there to do that covering.
+	if want := claudeRule("Read", dir); !slices.Contains(claudeRules(layout), want) {
+		t.Errorf("the rules do not carry %q, so nothing refuses what is under it", want)
+	}
+}
+
 // The rule is the entire content of a [[secret.block]] entry, so an entry that
 // does not reach the rules does nothing whatsoever.
 func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
@@ -46,13 +77,8 @@ func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 	layout.Blocked = configtest.RefusedAt("/etc/luks/volume.key")
 
 	rules := claudeRules(layout)
-	for _, want := range []string{
-		claudeRule("Read", "/etc/luks/volume.key"),
-		claudeRule("Edit", "/etc/luks/volume.key"),
-	} {
-		if !slices.Contains(rules, want) {
-			t.Errorf("the Claude rules do not carry %q", want)
-		}
+	if want := claudeRule("Read", "/etc/luks/volume.key"); !slices.Contains(rules, want) {
+		t.Errorf("the Claude rules do not carry %q", want)
 	}
 	if !slices.Contains(pluginPatterns(layout), "/etc/luks/volume.key") {
 		t.Error("the plugin hosts' patterns do not carry the blocked path")
@@ -60,17 +86,17 @@ func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 }
 
 // A directory has to be refused along with what is under it, or naming ~/.ssh
-// would refuse the directory entry and leave every key in it readable.
+// would refuse the directory entry and leave every key in it readable. Claude
+// Code reaches the subtree from the bare rule, which is why only that renderer
+// writes one form; the plugin hosts need the wildcard spelled.
 func TestARefusedDirectoryCarriesWhatIsUnderIt(t *testing.T) {
 	dir := t.TempDir()
 	layout := layouttest.Layout()
 	layout.Blocked = configtest.RefusedAt(dir)
 
 	rules := claudeRules(layout)
-	for _, want := range []string{claudeRule("Read", dir), claudeRule("Read", dir+"/**")} {
-		if !slices.Contains(rules, want) {
-			t.Errorf("the Claude rules do not carry %q", want)
-		}
+	if want := claudeRule("Read", dir); !slices.Contains(rules, want) {
+		t.Errorf("the Claude rules do not carry %q", want)
 	}
 	if !slices.Contains(pluginPatterns(layout), dir+"/*") {
 		t.Error("the plugin hosts' patterns do not reach under the directory")
@@ -87,15 +113,9 @@ func TestAnAbsentRefusedPathStillCoversWhatAppearsUnderIt(t *testing.T) {
 	layout.Blocked = configtest.RefusedAt(absent)
 
 	rules := claudeRules(layout)
-	for _, want := range []string{
-		claudeRule("Read", absent),
-		claudeRule("Read", absent+"/**"),
-		claudeRule("Edit", absent+"/**"),
-	} {
-		if !slices.Contains(rules, want) {
-			t.Errorf("the rules do not carry %q, so a key inside it is readable "+
-				"once the volume mounts", want)
-		}
+	if want := claudeRule("Read", absent); !slices.Contains(rules, want) {
+		t.Errorf("the rules do not carry %q, so a key inside it is readable "+
+			"once the volume mounts", want)
 	}
 	if !slices.Contains(pluginPatterns(layout), absent+"/*") {
 		t.Error("the plugin hosts' patterns do not reach under an absent path")
@@ -170,13 +190,8 @@ func TestALinkedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 	layout.Links = configtest.LinksAt("/home/operator/.config/gh/hosts.yml")
 
 	rules := claudeRules(layout)
-	for _, want := range []string{
-		claudeRule("Read", "/home/operator/.config/gh/hosts.yml"),
-		claudeRule("Edit", "/home/operator/.config/gh/hosts.yml"),
-	} {
-		if !slices.Contains(rules, want) {
-			t.Errorf("the Claude rules do not carry %q", want)
-		}
+	if want := claudeRule("Read", "/home/operator/.config/gh/hosts.yml"); !slices.Contains(rules, want) {
+		t.Errorf("the Claude rules do not carry %q", want)
 	}
 	if !slices.Contains(pluginPatterns(layout), "/home/operator/.config/gh/hosts.yml") {
 		t.Error("the plugin hosts' patterns do not carry the linked path")
@@ -262,10 +277,10 @@ func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
 	}
 	rules := claudeRules(layout)
 	for _, want := range []string{
-		claudeRule("Read", "/opt/faramir/**"),         // the age key, the SSH key, config.toml
-		claudeRule("Read", "/opt/faramir/secrets/**"), // the managed sops files
-		claudeRule("Read", "/srv/log/faramir/**"),     // the audit log
-		claudeRule("Read", "/opt/faramir/libexec/**"), // wrap.sh and the guard
+		claudeRule("Read", "/opt/faramir"),         // the age key, the SSH key, config.toml
+		claudeRule("Read", "/opt/faramir/secrets"), // the managed sops files
+		claudeRule("Read", "/srv/log/faramir"),     // the audit log
+		claudeRule("Read", "/opt/faramir/libexec"), // wrap.sh and the guard
 	} {
 		if !slices.Contains(rules, want) {
 			t.Errorf("the rules do not carry %q", want)
@@ -274,9 +289,9 @@ func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
 	// And not the defaults beside them: a rule naming where the file would have
 	// been refuses a path on somebody else's host and leaves this one open.
 	for _, unwanted := range []string{
-		claudeRule("Read", hostlayout.DefaultConfigDir+"/**"),
-		claudeRule("Read", hostlayout.DefaultLogDir+"/**"),
-		claudeRule("Read", hostlayout.DefaultLibexecDir+"/**"),
+		claudeRule("Read", hostlayout.DefaultConfigDir),
+		claudeRule("Read", hostlayout.DefaultLogDir),
+		claudeRule("Read", hostlayout.DefaultLibexecDir),
 	} {
 		if slices.Contains(rules, unwanted) {
 			t.Errorf("the rules carry %q, which this layout moved", unwanted)

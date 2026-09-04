@@ -32,17 +32,21 @@ GENERATED. The paths come from internal/install/protectedpaths.go, written
 once and rendered into each agent's own spelling; nothing here is a path of its
 own. Add one there.
 
-Read and Edit rules only: Claude Code matches file permission checks against
-Edit(path), which covers every file-editing tool, and a Write(path) rule matches
-nothing.
-
 Two leading slashes on every path. One anchors the pattern at this file rather
 than at the filesystem root, so Read(/home/op/.age) here asks about
 ~/.claude/home/op/.age and refuses nothing at all.
 
-Read and Edit take the same list. A value the agent cannot read is one it can
-still destroy, and an age key replaced is every managed file unreadable
-retroactively.
+One Read rule per path, and nothing beside it. Claude Code refuses Edit, Write
+and NotebookEdit off the Read rule, and reaches everything under a directory
+from the rule that names the directory, so neither an Edit(path) nor a
+path/** twin refuses anything this does not. Both measured against the agent
+rather than read off its documentation, which says NotebookEdit is not covered;
+internal/agentcfg protectedpaths.go and rules_test.go carry the reasoning and
+the shape it produces.
+
+That the writing tools are covered is the whole of why one rule is enough: a
+value the agent cannot read is one it could otherwise still destroy, and an age
+key replaced is every managed file unreadable retroactively.
 */ -}}
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
