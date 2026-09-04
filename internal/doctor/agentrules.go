@@ -146,9 +146,8 @@ func hookMatchers(path string) (matchers []string, read bool) {
 //
 // A registration written before the guard refused paths matches "Bash" alone, so
 // the file tools never reach it. That leaves them to the deny rules in the same
-// file, which are applied in some of the agent's permission modes and not in
-// others: a session started in bypassPermissions applies none of them, and a
-// read of the age key is then refused by nothing but the file's own mode.
+// file: one enforcement where there should be two, and the surviving one is a
+// list in the operator's own file rather than a program that fails closed.
 //
 // Reported rather than repaired, an agent's settings being the operator's file:
 // re-running the enrolment rewrites the matcher.
@@ -196,7 +195,7 @@ func diagnoseHookReach(report *Report, opts Options) {
 	}
 	report.addf("hook reach", StatusFailed, "the guard is registered for only "+
 		"some tools in %s, so file tools reach it only through the deny rules in the "+
-		"same file, and a permission mode that ignores those rules refuses nothing. "+
+		"same file, leaving one enforcement where there should be two. "+
 		"Re-run `sudo faramir init` for the account-wide file and `faramir enrol` in "+
 		"each tree for the rest",
 		strings.Join(narrow, ", "))

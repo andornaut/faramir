@@ -135,18 +135,17 @@ func Named(entries map[string]bool, path string) bool {
 	return false
 }
 
-// anyDirectory reports whether what precedes a match is an "in any directory"
-// prefix: "**/" for Claude Code and "*/" for the plugin hosts. That separator is
-// the left edge of the subject, so the match is the whole of what the rule
-// names.
+// anyDirectory reports whether what precedes a match is a prefix that is the
+// subject's left edge rather than a directory above it. Two spellings are:
+// "**/" for Claude Code and "*/" for the plugin hosts, meaning "in any
+// directory"; and the second slash of Claude Code's "//", which anchors the
+// pattern at the filesystem root and is what claudeRules renders.
 //
-// Only that spelling. A separator reached by an actual directory -- the "/"
-// before ".env" in a rule naming /home/operator/proj/.env -- is a rule about one
-// file, and must not vouch for one that refuses ".env" everywhere. Nothing
-// faramir renders takes the wildcard form now that every subject is a path, so
-// this holds the line against a rule some other hand wrote into a merged file.
+// Only those. A separator reached by an actual directory -- the "/" before
+// ".env" in a rule naming /home/operator/proj/.env -- is a rule about one file,
+// and must not vouch for one that refuses ".env" everywhere.
 func anyDirectory(before string) bool {
-	return strings.HasSuffix(before, "*/")
+	return strings.HasSuffix(before, "*/") || strings.HasSuffix(before, "(/")
 }
 
 // isPathRune reports whether a byte could continue a path, which is what

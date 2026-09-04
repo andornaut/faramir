@@ -138,9 +138,14 @@ var hosts = map[string]*host{
 // hookSpecificOutput, and a rewrite is updatedInput, which replaces the call's
 // arguments with what it carries.
 //
-// The allow is load-bearing on both: a rewritten command matches no permission
-// rule, so without it every command would prompt with nothing able to
-// pre-approve. It is not a substitute for one.
+// The allow is load-bearing on both, a rewrite carrying no decision being a
+// call nothing approved. On Claude Code the point is sharper than a rule that
+// does not match: it refuses a sourced command outright, saying "'source'
+// evaluates arguments as shell code", and an allow rule naming the wrapper does
+// not change that. Only the hook's own allow runs it. A rewrite that execed
+// instead would be approvable by rule, but a child process loses every cd,
+// export and shell function the command sets, which is why the wrapper is
+// sourced. It is not a substitute for a permission rule.
 func hookDecision() *host {
 	return &host{
 		wrapTool: bashTool,
@@ -170,13 +175,15 @@ const bashTool = "Bash"
 // claudeCodeHost adds the second tool Claude Code names: BashOutput reads a
 // running command's buffer, recognised so it can be skipped deliberately.
 //
-// Its file tools are refused here rather than left to the Read() and Edit()
-// deny rules an install writes into its settings, because those rules are not
-// always in force: a session started in bypassPermissions does not apply them,
-// and that is a mode this is run in. A hook is applied in every mode, so what
-// the deny rules describe is enforced here instead of only being declared
-// there. The rules stay: they are what refuses a read in a session that never
-// reaches the hook, and they say in one place what the operator asked for.
+// Its file tools are refused here as well as by the Read() and Edit() deny
+// rules an install writes into its settings. Claude Code enforces those rules
+// in every permission mode, bypassPermissions included, so this is not standing
+// in for a mode they miss. The two are one enforcement each, failing
+// differently: a rule can be edited out of the file or spelled so the matcher
+// resolves it somewhere else, and a hook can be turned off wholesale with
+// disableAllHooks. The rules stay for the case this branch cannot cover, a
+// session that never reaches the hook, and because they say in one place what
+// the operator asked for.
 func claudeCodeHost() *host {
 	h := hookDecision()
 	h.shellTools = []string{bashTool, "BashOutput"}
@@ -215,10 +222,10 @@ const applyPatchTool = "apply_patch"
 // the rest of the arguments are already there, and Cwd among them is the
 // directory the wrapper has to run in.
 //
-// The allow is load-bearing for the same reason it is on Claude Code: a
-// rewritten command matches no permission rule. It is not a substitute for one.
-// The permission check runs before the hook, so a call with no allow rule is
-// refused and this is never asked.
+// The allow is load-bearing for the same reason it is on Claude Code: a rewrite
+// carrying no decision is a call nothing approved. It is not a substitute for a
+// permission rule. The permission check runs before the hook, so a call with no
+// allow rule is refused and this is never asked.
 func antigravityHost() *host {
 	return &host{
 		shellTools: []string{runCommandTool},

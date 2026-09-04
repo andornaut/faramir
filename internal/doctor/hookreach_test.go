@@ -9,8 +9,8 @@ import (
 
 // What the registration says about which tools reach the guard. A matcher
 // narrower than every tool leaves the file tools to the deny rules beside it,
-// and those are applied in some of the agent's permission modes and not others,
-// so a read refused on paper is a read nothing refuses.
+// which is one enforcement where there should be two, and the surviving one is
+// an entry in a file the operator edits.
 func TestHookMatchersReadsTheGuardsRegistration(t *testing.T) {
 	for _, tc := range []struct {
 		name string

@@ -16,6 +16,29 @@ import (
 	"github.com/andornaut/faramir/internal/layouttest"
 )
 
+// claudeRule is what claudeRules renders for one pattern: the verb around the
+// filesystem-root anchor. Written once so a test names the path it is about
+// and not the anchoring, which TestTheClaudeRulesAreAnchoredAtTheRoot covers.
+func claudeRule(verb, pattern string) string {
+	return verb + "(//" + strings.TrimPrefix(pattern, "/") + ")"
+}
+
+// Every Claude Code rule is anchored at the filesystem root. One leading slash
+// anchors at the settings source instead, and a bare `**/` pattern at the
+// working directory, so either spelling leaves a declared path readable from
+// anywhere else.
+func TestTheClaudeRulesAreAnchoredAtTheRoot(t *testing.T) {
+	layout := layouttest.Layout()
+	layout.Blocked = configtest.RefusedAt("/etc/luks/volume.key")
+
+	for _, rule := range claudeRules(layout) {
+		pattern := strings.TrimSuffix(strings.SplitN(rule, "(", 2)[1], ")")
+		if !strings.HasPrefix(pattern, "//") {
+			t.Errorf("%q is not anchored at the filesystem root", rule)
+		}
+	}
+}
+
 // The rule is the entire content of a [[secret.block]] entry, so an entry that
 // does not reach the rules does nothing whatsoever.
 func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
@@ -24,8 +47,8 @@ func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 
 	rules := claudeRules(layout)
 	for _, want := range []string{
-		"Read(/etc/luks/volume.key)",
-		"Edit(/etc/luks/volume.key)",
+		claudeRule("Read", "/etc/luks/volume.key"),
+		claudeRule("Edit", "/etc/luks/volume.key"),
 	} {
 		if !slices.Contains(rules, want) {
 			t.Errorf("the Claude rules do not carry %q", want)
@@ -44,7 +67,7 @@ func TestARefusedDirectoryCarriesWhatIsUnderIt(t *testing.T) {
 	layout.Blocked = configtest.RefusedAt(dir)
 
 	rules := claudeRules(layout)
-	for _, want := range []string{"Read(" + dir + ")", "Read(" + dir + "/**)"} {
+	for _, want := range []string{claudeRule("Read", dir), claudeRule("Read", dir+"/**")} {
 		if !slices.Contains(rules, want) {
 			t.Errorf("the Claude rules do not carry %q", want)
 		}
@@ -65,9 +88,9 @@ func TestAnAbsentRefusedPathStillCoversWhatAppearsUnderIt(t *testing.T) {
 
 	rules := claudeRules(layout)
 	for _, want := range []string{
-		"Read(" + absent + ")",
-		"Read(" + absent + "/**)",
-		"Edit(" + absent + "/**)",
+		claudeRule("Read", absent),
+		claudeRule("Read", absent+"/**"),
+		claudeRule("Edit", absent+"/**"),
 	} {
 		if !slices.Contains(rules, want) {
 			t.Errorf("the rules do not carry %q, so a key inside it is readable "+
@@ -107,14 +130,15 @@ func TestAPathBothLinkedAndRefusedRendersOneRule(t *testing.T) {
 	layout.Links = configtest.LinksAt("/etc/luks/volume.key")
 	layout.Blocked = configtest.RefusedAt("/etc/luks/volume.key")
 
+	want := claudeRule("Read", "/etc/luks/volume.key")
 	n := 0
 	for _, rule := range claudeRules(layout) {
-		if rule == "Read(/etc/luks/volume.key)" {
+		if rule == want {
 			n++
 		}
 	}
 	if n != 1 {
-		t.Errorf("Read(/etc/luks/volume.key) rendered %d times, want 1", n)
+		t.Errorf("%s rendered %d times, want 1", want, n)
 	}
 }
 
@@ -147,8 +171,8 @@ func TestALinkedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 
 	rules := claudeRules(layout)
 	for _, want := range []string{
-		"Read(/home/operator/.config/gh/hosts.yml)",
-		"Edit(/home/operator/.config/gh/hosts.yml)",
+		claudeRule("Read", "/home/operator/.config/gh/hosts.yml"),
+		claudeRule("Edit", "/home/operator/.config/gh/hosts.yml"),
 	} {
 		if !slices.Contains(rules, want) {
 			t.Errorf("the Claude rules do not carry %q", want)
@@ -238,10 +262,10 @@ func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
 	}
 	rules := claudeRules(layout)
 	for _, want := range []string{
-		"Read(/opt/faramir/**)",         // the age key, the SSH key, config.toml
-		"Read(/opt/faramir/secrets/**)", // the managed sops files
-		"Read(/srv/log/faramir/**)",     // the audit log
-		"Read(/opt/faramir/libexec/**)", // wrap.sh and the guard
+		claudeRule("Read", "/opt/faramir/**"),         // the age key, the SSH key, config.toml
+		claudeRule("Read", "/opt/faramir/secrets/**"), // the managed sops files
+		claudeRule("Read", "/srv/log/faramir/**"),     // the audit log
+		claudeRule("Read", "/opt/faramir/libexec/**"), // wrap.sh and the guard
 	} {
 		if !slices.Contains(rules, want) {
 			t.Errorf("the rules do not carry %q", want)
@@ -250,9 +274,9 @@ func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
 	// And not the defaults beside them: a rule naming where the file would have
 	// been refuses a path on somebody else's host and leaves this one open.
 	for _, unwanted := range []string{
-		"Read(" + hostlayout.DefaultConfigDir + "/**)",
-		"Read(" + hostlayout.DefaultLogDir + "/**)",
-		"Read(" + hostlayout.DefaultLibexecDir + "/**)",
+		claudeRule("Read", hostlayout.DefaultConfigDir+"/**"),
+		claudeRule("Read", hostlayout.DefaultLogDir+"/**"),
+		claudeRule("Read", hostlayout.DefaultLibexecDir+"/**"),
 	} {
 		if slices.Contains(rules, unwanted) {
 			t.Errorf("the rules carry %q, which this layout moved", unwanted)
@@ -351,7 +375,7 @@ func TestADeclaredCommandReachesTheGuardAlone(t *testing.T) {
 	// The file-tool spellings carry the name and not the commands.
 	for _, rule := range claudeRules(layout) {
 		for _, word := range []string{"op", "sops"} {
-			if rule == "Read(**/"+word+")" {
+			if rule == claudeRule("Read", "**/"+word) {
 				t.Errorf("a command reached Claude Code's rules as %q", rule)
 			}
 		}

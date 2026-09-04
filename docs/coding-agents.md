@@ -62,11 +62,15 @@ Codex | None. Its `.rules` files are an exec policy: they decide commands and ca
 opencode, Kilo Code | Yes, but a `deny` entry is a prompt to the operator, and an autonomous run approves it
 
 Where both a rule file and the hook exist, both apply. The duplication is
-deliberate. A rule file applies in some permission modes and not in others: a
-Claude Code session started in `bypassPermissions` applies none of its deny
-rules. A hook runs in every mode. The rule file still records in one place
-what the operator asked for, and it refuses a read in a session that never
-reaches the hook.
+deliberate. Claude Code enforces a deny rule in every permission mode,
+`bypassPermissions` included, and so does the hook, but the two fail in
+different ways: a hook that is turned off, unreadable or slow answers nothing,
+and a rule refuses a path the hook never saw. The rule file also records in one
+place what the operator asked for.
+
+A Claude Code path rule takes two leading slashes. One anchors the pattern at
+the settings source, so `Read(/home/op/.age)` in `~/.claude/settings.json` asks
+about `~/.claude/home/op/.age` and refuses nothing.
 
 For the same reason the hook is registered for every tool, not for the shell
 alone. An empty reply leaves a call unchanged, so answering for a tool that
@@ -229,11 +233,24 @@ applies a decision the guard made; none decides anything itself.
 ## Claude Code
 
 **The deny list replaces the Bash permission prompt.** Claude Code matches its
-permission rules against the rewritten command, so a rule keyed on the program
-name no longer fires, and the wrapper cannot be allow-listed. Returning `ask`
-instead is not an option: it would prompt on every command including `ls`,
-show the rewritten text rather than what was typed, and stop an unattended run
-at the first command.
+permission rules against the rewritten command, and the wrapper is sourced, so
+three things follow:
+
+- **A sourced command cannot be allow-listed.** Claude Code refuses one whatever
+  rules exist, saying `'source' evaluates arguments as shell code`. Only the
+  hook's own allow runs it.
+- **A rule keyed on the program name no longer fires.** The list of wrappers
+  Claude Code strips before matching (`timeout`, `nice`, `nohup` and a few
+  more) is built in and not configurable, so `Bash(npm test *)` does not match
+  a wrapped `npm test`. The one rule shape that could match a wrapper approves
+  every command inside it, which is the blanket approval written out longer.
+- **The built-in read-only set is lost with it.** A wrapped `ls` is not `ls`, so
+  it needs approval like anything else.
+
+Returning `ask` does reach a prompt, and an operator willing to answer one per
+command could have it. What it cannot have is a way to stop: "don't ask again"
+saves a rule that can never match, the prompt shows the rewritten text rather
+than what was typed, and an unattended run stops at the first command.
 
 Hooks fire in every Claude Code permission mode and a `deny` is enforced in
 each, `--dangerously-skip-permissions` included. What enrolment removes from
@@ -243,7 +260,18 @@ Mode | Cost
 --- | ---
 `default` | Bash would have prompted and now does not. This is what the warning is about.
 `acceptEdits` | Auto-accepts `Write` and `Edit`, leaves Bash prompting. Same cost as default.
+`auto` | Bash goes to a classifier rather than to a prompt, so no prompt is removed. See below.
+`plan` | Edits stay blocked either way. Commands go to the classifier where auto mode is available.
+`dontAsk` | Everything unlisted is denied, so the hook's allow is what runs a command at all.
 `bypassPermissions` | Bash never prompted, so approving it removes nothing. Enrolment is purely additive.
+
+`auto` is the mode a session starts in on most plans, and its cost is the one
+line here that is not established. A classifier reviews each command instead of
+prompting, and whether the hook's `allow` preempts that review is not
+documented and was not settled by testing: every probe was an action the
+operator had asked for, which the classifier permits with or without the hook.
+Until it is settled, assume enrolment may remove the classifier's review of a
+command as well as the prompt.
 
 ## Codex
 

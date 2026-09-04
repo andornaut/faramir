@@ -107,9 +107,9 @@ func Run(args []string) int {
 	// The account-wide half. It refuses a file tool naming key material and
 	// leaves a command alone: routing one would work in any tree, so what holds
 	// it to enrolled ones is the operator having said which those are.
-	// Claude Code is the one host where a rewrite has to be approved: a rewritten
-	// command matches no permission rule, and the rule that would match one is
-	// refused outright ("'source' evaluates arguments as shell code"). So the
+	// Claude Code is the one host where a rewrite has to be approved: it refuses
+	// a sourced command outright ("'source' evaluates arguments as shell code"),
+	// and an allow rule naming the wrapper does not change that. So the
 	// allow that makes routing work is also an allow for every command the list
 	// does not name, which is a trade an operator makes per tree rather than for
 	// a whole account.
@@ -271,11 +271,13 @@ func Run(args []string) int {
 	}
 	updated[activeHost.commandField()] = wrapped
 
-	// The rewrite approves as well as rewrites: a wrapper that redacts output
-	// cannot be allow-listed, the permission matcher refusing rules naming source,
-	// eval or a compound statement, so "ask" would prompt on every command with no
-	// rule able to pre-approve any of it. For Bash, the deny list above replaces
-	// the permission prompt.
+	// The rewrite approves as well as rewrites, because a sourced command cannot
+	// be allow-listed: Claude Code refuses one whatever rules exist, saying
+	// "'source' evaluates arguments as shell code". Returning "ask" instead would
+	// reach a prompt, but on every command, the wrapper having taken the inner
+	// command out of reach of a rule keyed on the program name and out of the
+	// built-in read-only set, and "don't ask again" saves a rule that can never
+	// match. For Bash, the deny list above replaces the permission prompt.
 	return emit(activeHost.rewrite(updated))
 }
 

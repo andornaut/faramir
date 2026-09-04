@@ -220,13 +220,13 @@ func TestThePathCheckLeavesCommandsToTheRewrite(t *testing.T) {
 // an exec policy, which decides commands and names no path. The Antigravity CLI
 // has real deny rules and is included anyway, sharing one dialect with the IDE.
 //
-// Claude Code was the exception until it was not. It does enforce the deny rules
-// `faramir init` writes, but only in the permission modes that apply them, and a
-// session started in bypassPermissions applies none: a rule there says what the
-// operator asked for without being what happens. A hook runs in every mode. So
-// the duplication this test once existed to avoid is the point of it now, and a
-// new host arriving with its own rule file does not get an exemption on that
-// ground.
+// Claude Code is included as well, although it does enforce the deny rules
+// `faramir init` writes, in every permission mode. The two are one enforcement
+// each rather than one written twice: a rule can be edited out of the settings
+// file or spelled so the matcher resolves it elsewhere, and a hook can be turned
+// off wholesale. So the duplication this test once existed to avoid is the point
+// of it now, and a new host arriving with its own rule file does not get an
+// exemption on that ground.
 func TestEveryHostRefusesPaths(t *testing.T) {
 	for name, h := range hosts {
 		if !h.refusesPaths {

@@ -84,9 +84,9 @@ func (p *project) agentConfig() error {
 		// Each warning is about this agent, so each asks whether this agent's files
 		// changed rather than whether any have.
 		if target.AutoApprovesBash && made {
-			p.warnf("Bash is now auto-approved in %s for %s: a command the hook has "+
-				"rewritten matches no permission rule, so only the deny list can "+
-				"refuse it",
+			p.warnf("Bash is now auto-approved in %s for %s: the hook rewrites each "+
+				"command into a sourced wrapper, which no permission rule can approve, "+
+				"so the hook approves it and only the deny list can refuse one",
 				p.opts.Dir, target.Name)
 		}
 		// The account-wide half is `faramir init --agent`'s, and without it the

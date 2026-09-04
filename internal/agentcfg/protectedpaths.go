@@ -196,9 +196,19 @@ func PerInstallPaths(layout hostlayout.Layout) []string {
 // claudeRules is the deny list Claude Code reads: one Read and one Edit rule
 // per path, plus this install's own directories. Read and Edit take the same
 // list: a value the agent cannot read is one it can still destroy.
+//
+// Every pattern is anchored at the filesystem root with a leading "//". One
+// slash is not an absolute path there: it anchors at the settings source, so
+// `Read(/home/op/.age)` written into ~/.claude/settings.json asks about
+// ~/.claude/home/op/.age and matches nothing. A bare `**/` pattern is anchored
+// at the working directory, which leaves the same rule refusing a file inside
+// the tree and allowing it everywhere else. These rules name paths the host
+// declared, not paths relative to wherever a session started, so both take the
+// root anchor.
 func claudeRules(layout hostlayout.Layout) []string {
 	var out []string
 	add := func(pattern string) {
+		pattern = "//" + strings.TrimPrefix(pattern, "/")
 		out = append(out, "Read("+pattern+")", "Edit("+pattern+")")
 	}
 	for _, dir := range Dirs(layout) {

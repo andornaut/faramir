@@ -22,11 +22,11 @@ The matcher is "*" rather than "Bash". An empty reply is a call left alone, so
 answering for a tool that runs nothing costs nothing, and matching every tool is
 what puts the file tools in front of the deny list at all.
 
-That matters because the deny rules below are not always applied. A session
-started in bypassPermissions does not apply them, and that is a mode this agent
-is run in, so a rule here is a statement of what the operator asked for rather
-than a thing that always happens. The hook runs in every mode. The rules stay
-because they are what refuses a read in a session that never reaches the hook.
+That matters because the rules below and the hook are one enforcement each
+rather than one enforcement written twice. Claude Code applies a deny rule in
+every permission mode, bypassPermissions included, and the hook runs in every
+mode too, but a rule can be edited out of this file and a hook can be turned
+off wholesale with disableAllHooks. Each covers the other's absence.
 
 GENERATED. The paths come from internal/install/protectedpaths.go, written
 once and rendered into each agent's own spelling; nothing here is a path of its
@@ -35,6 +35,10 @@ own. Add one there.
 Read and Edit rules only: Claude Code matches file permission checks against
 Edit(path), which covers every file-editing tool, and a Write(path) rule matches
 nothing.
+
+Two leading slashes on every path. One anchors the pattern at this file rather
+than at the filesystem root, so Read(/home/op/.age) here asks about
+~/.claude/home/op/.age and refuses nothing at all.
 
 Read and Edit take the same list. A value the agent cannot read is one it can
 still destroy, and an age key replaced is every managed file unreadable

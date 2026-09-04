@@ -35,6 +35,10 @@ MANAGED=/home/op/project/refused-managed.key
 CLAUDE_HOME=/home/op/.claude
 RULES=/home/op/.claude/settings.json
 MADE_CLAUDE_HOME=
+# The rule a path is written as. Claude Code anchors a one-slash pattern at the
+# settings source, so an absolute path takes two: a rule spelled with one asks
+# about ~/.claude/<path> and refuses nothing.
+rule() { printf '%s(/%s)' "$1" "$2"; }
 
 faramir=/usr/local/bin/faramir
 asop() { runuser -u op -- env HOME=/home/op "$faramir" "$@"; }
@@ -131,10 +135,10 @@ grep -q "$KEY" $CFG \
 # The rule is the whole of what the entry does, so this is the assertion the
 # feature stands on.
 if [ -f $RULES ]; then
-  grep -qF "Read($KEY)" $RULES \
+  grep -qF "$(rule Read "$KEY")" $RULES \
     && ok "the agent's deny rules refuse reading it" \
     || bad "no Read rule for $KEY in $RULES"
-  grep -qF "Edit($KEY)" $RULES \
+  grep -qF "$(rule Edit "$KEY")" $RULES \
     && ok "and writing it: a file the agent cannot read it can still destroy" \
     || bad "no Edit rule for $KEY in $RULES"
 else
@@ -314,7 +318,7 @@ grep -q 'not there' <<<"$out" \
 grep -q "$ABSENT" $CFG \
   && ok "and the entry is written anyway, the rule holding when the volume mounts" \
   || bad "the entry for an absent path was not written"
-[ -f $RULES ] && grep -qF "Read($ABSENT)" $RULES \
+[ -f $RULES ] && grep -qF "$(rule Read "$ABSENT")" $RULES \
   && ok "and the rule is rendered for it" \
   || bad "no rule was rendered for the absent path"
 
@@ -325,10 +329,10 @@ grep -q "blocked $SSHDIR" <<<"$out" \
   && ok "a directory is accepted" \
   || bad "block add on a directory: ${out:0:160}"
 if [ -f $RULES ]; then
-  grep -qF "Read($SSHDIR)" $RULES \
+  grep -qF "$(rule Read "$SSHDIR")" $RULES \
     && ok "the directory itself is refused" \
     || bad "no rule for the directory"
-  grep -qF "Read($SSHDIR/**)" $RULES \
+  grep -qF "$(rule Read "$SSHDIR/**")" $RULES \
     && ok "and so is everything under it, which is where the keys are" \
     || bad "no rule reaches under the directory: a key inside it is still readable"
 else
@@ -378,7 +382,7 @@ head_ "7. init re-asserts what refuse wrote"
 grep -q "$KEY" $CFG \
   && ok "a plain init keeps the entries" \
   || bad "init erased the blocked paths"
-[ -f $RULES ] && grep -qF "Read($KEY)" $RULES \
+[ -f $RULES ] && grep -qF "$(rule Read "$KEY")" $RULES \
   && ok "and renders their rules again" \
   || bad "init did not render the rule"
 
@@ -444,7 +448,7 @@ cp -a $RULES "$BACKUP/settings.json"
 printf '{}\n' > $RULES
 chown op:op $RULES
 block add --path "$KEY" >/dev/null 2>&1
-grep -qF "Read($KEY)" $RULES \
+grep -qF "$(rule Read "$KEY")" $RULES \
   && ok "and a rule that left the agent's settings comes back" \
   || bad "the rule was not restored to $RULES"
 
@@ -522,7 +526,7 @@ grep -qF "blocked $NAME" <<<"$out" \
 grep -qF "path = \"$NAME\"" $CFG \
   && ok "and the entry is written as a path" \
   || bad "the path entry is not in config.toml"
-grep -qF "Read($NAME/**)" $RULES \
+grep -qF "$(rule Read "$NAME/**")" $RULES \
   && ok "and the agent's rules cover what is under it" \
   || bad "the subtree rule was not rendered into $RULES"
 out=$(block add --path "$NAME")

@@ -85,9 +85,10 @@ type Target struct {
 	TreeInstructions treeRules
 
 	// AutoApprovesBash records what enrolling costs on this agent. Claude Code
-	// is the one that pays it: a rewritten command matches no permission rule and
-	// the hook must approve it, so every Bash prompt in the project is gone.
-	// Every other agent has no allow to return, so its prompts are untouched.
+	// is the one that pays it: it refuses the sourced command the rewrite
+	// produces whatever permission rules exist, so the hook has to approve what
+	// it rewrote, and every Bash prompt in the project goes with it. Every other
+	// agent has no allow to return, so its prompts are untouched.
 	AutoApprovesBash bool
 
 	// Note is warned about on enrolment, for anything that is not the Bash

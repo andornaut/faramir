@@ -95,7 +95,7 @@ func TestHostilePathsKeepTheAgentFilesParseable(t *testing.T) {
 func TestHostilePathsSurviveIntoTheClaudeRules(t *testing.T) {
 	for name, path := range hostilePaths {
 		rules := claudeRules(layoutWithPath(path))
-		want := "Read(" + path + ")"
+		want := claudeRule("Read", path)
 		if !slices.Contains(rules, want) {
 			t.Errorf("%s (%q): no rule reads exactly %q.\ngot rules mentioning it: %v",
 				name, path, want, mentioning(rules, "secrets"))

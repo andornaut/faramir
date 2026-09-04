@@ -36,7 +36,7 @@ Choose agents with `--agent`, repeatable on `init` and `enrol`:
 - The default is `auto`: whichever agents are already present. `init` looks in your home, `enrol` in the tree. Codex is detected from your home either way, since a tree holds no Codex files of its own.
 - A name configures that agent whether or not it is present, and composes with `auto`: `--agent auto --agent pi` means "whatever is installed, plus pi".
 
-Faramir refuses a declared path itself for all seven agents, from its hook, plugin or extension. Claude Code and the Antigravity CLI also refuse it from a rule file of their own, which applies in some permission modes where the hook applies in all. The other five have no rule file that can refuse a path:
+Faramir refuses a declared path itself for all seven agents, from its hook, plugin or extension. Claude Code and the Antigravity CLI also refuse it from a rule file of their own: two enforcements that fail differently, a rule being an entry in the operator's own file and the hook being a program that can be turned off. The other five have no rule file that can refuse a path:
 
 - Pi and the Antigravity IDE have none an install can write.
 - Codex's `.rules` files decide commands and cannot name a path.

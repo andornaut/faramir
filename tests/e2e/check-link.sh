@@ -333,8 +333,10 @@ fi
 # The file tools are what the deny rules cover, and the linked path is in them.
 # Written by `faramir init --agent`, which the project suite ran.
 SETTINGS=/home/op/.claude/settings.json
+# Two slashes: Claude Code anchors a one-slash pattern at the settings source,
+# so a rule spelled with one asks about ~/.claude/<path> and refuses nothing.
 if [ -f "$SETTINGS" ]; then
-  grep -q "Read($GH)" "$SETTINGS" && grep -q "Edit($GH)" "$SETTINGS" \
+  grep -qF "Read(/$GH)" "$SETTINGS" && grep -qF "Edit(/$GH)" "$SETTINGS" \
     && ok "the linked path is refused to the agent's file tools" \
     || bad "$SETTINGS names no rule for $GH"
 else

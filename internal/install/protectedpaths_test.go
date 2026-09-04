@@ -122,7 +122,9 @@ func TestInitWritesTheDenyRulesIntoTheHome(t *testing.T) {
 		file  string
 		want  string
 	}{
-		{"claude", ".claude/settings.json", `"Read(/etc/faramir/**)"`},
+		// Two slashes: Claude Code anchors a one-slash pattern at the settings
+		// source, so only this spelling names the filesystem root.
+		{"claude", ".claude/settings.json", `"Read(//etc/faramir/**)"`},
 		{"opencode", ".config/opencode/opencode.json", `"/etc/faramir/*": "deny"`},
 		{"kilocode", ".config/kilo/kilo.json", `"/etc/faramir/*": "deny"`},
 	} {

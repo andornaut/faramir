@@ -86,13 +86,26 @@ func TestALongerPathDoesNotCoverAShorterOne(t *testing.T) {
 	if !Named(entries, "/home/operator/.npmrc-work") {
 		t.Error("the path the rule actually names was not matched")
 	}
-	// Each agent wraps a path its own way, and all of those still match.
+	// Each agent wraps a path its own way, and all of those still match. The
+	// two-slash form is what claudeRules renders: without it every declared path
+	// reports as refused by nothing, the rule that refuses it being right there.
 	for _, entry := range []string{
+		"Read(//home/operator/.npmrc)", "Edit(//home/operator/.npmrc)",
 		"Read(/home/operator/.npmrc)", "Edit(/home/operator/.npmrc)",
 		"/home/operator/.npmrc",
 	} {
 		if !Named(map[string]bool{entry: true}, "/home/operator/.npmrc") {
 			t.Errorf("%q was not read as naming the path", entry)
 		}
+	}
+	// And the anchor does not widen what a rule vouches for.
+	if Named(map[string]bool{"Read(//home/operator/.npmrc-work)": true},
+		"/home/operator/.npmrc") {
+		t.Error("a root-anchored longer sibling was accepted as covering the shorter path")
+	}
+	// A directory rule reaches the directory itself in that spelling too.
+	if !Named(map[string]bool{"Read(//home/operator/.ssh/**)": true},
+		"/home/operator/.ssh") {
+		t.Error("a root-anchored subtree rule did not vouch for its own directory")
 	}
 }
