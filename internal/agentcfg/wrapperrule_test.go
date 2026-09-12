@@ -2,7 +2,6 @@ package agentcfg
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
 
@@ -11,17 +10,18 @@ import (
 	"github.com/andornaut/faramir/internal/layouttest"
 )
 
-// The rules an agent enforces itself must not refuse the rewrite the guard
-// emits. Claude Code scores a Bash `source <path>` as a read of that path and
-// answers it from the deny list before a hook runs, so a Read rule covering the
-// wrapper refuses every Bash call in an enrolled tree, the guard's own
-// exemption being on the far side of a refusal that already happened.
+// No rule an agent enforces itself may cover the wrapper the guard sources.
+// Claude Code checks the paths a Bash command names against its deny list
+// before it acts on the hook's decision: a Read rule refuses the rewrite, and an
+// Edit rule makes it ask, since whether a `source` writes the file it names
+// cannot be told from the text. Either is every Bash call in an enrolled tree,
+// with the guard's own exemption never reached.
 //
-// Asserted against both files Claude Code reads. The account settings and an
-// enrolled tree's settings.local carry the rendered set each, and the agent
-// enforces the union, so a check that asked only one of them would pass while
-// an enrolled tree stayed refused.
-func TestNoRenderedRuleRefusesReadingTheWrapper(t *testing.T) {
+// Asserted against both files Claude Code reads, and against every verb. The
+// account settings and an enrolled tree's settings.local carry the rendered set
+// each, and the agent enforces the union, so a check that asked only one of them
+// would pass while an enrolled tree stayed refused.
+func TestNoRenderedRuleCoversTheWrapper(t *testing.T) {
 	layout := layouttest.Layout()
 	layout.Blocked = []config.BlockedPath{{Path: "/srv/luks.key"}}
 	wrapper := layout.WrapScript()
@@ -46,24 +46,31 @@ func TestNoRenderedRuleRefusesReadingTheWrapper(t *testing.T) {
 			t.Fatalf("%s rendered no deny rules", asset)
 		}
 		for _, rule := range file.Permissions.Deny {
-			if verb, pattern, ok := strings.Cut(rule, "("); ok && verb == "Read" &&
+			if _, pattern, ok := strings.Cut(rule, "("); ok &&
 				covers(strings.TrimSuffix(pattern, ")"), wrapper) {
-				t.Errorf("%s: %q refuses reading %s, which is every Bash call in an "+
-					"enrolled tree", asset, rule, wrapper)
+				t.Errorf("%s: %q covers %s, which is every Bash call in an enrolled tree",
+					asset, rule, wrapper)
 			}
 		}
 	}
 }
 
-// What the Read rule gave up is not left ungiven: the directory is still
-// refused to a writer, which is what it needed. Rewriting the wrapper turns
-// redaction into whatever the replacement does, and replacing the pattern file
-// beside it decides what the guard refuses.
-func TestTheWrapperDirectoryIsStillRefusedToAWriter(t *testing.T) {
+// The gap is the renderer's decision, and the doctor is told so through the same
+// predicate, which is what keeps a coverage check from reporting it as drift.
+func TestTheWrapperDirectoryIsTheOmission(t *testing.T) {
 	layout := layouttest.Layout()
-	want := "Edit(//" + strings.TrimPrefix(layout.LibexecDir, "/") + ")"
-	if rules := claudeRules(layout); !slices.Contains(rules, want) {
-		t.Errorf("the rules do not carry %q, so nothing refuses writing the wrapper", want)
+	if !OmittedFrom("claude", layout, layout.LibexecDir) {
+		t.Errorf("%s is not omitted from Claude Code's rules, so the doctor reports "+
+			"the gap claudeRules leaves", layout.LibexecDir)
+	}
+	for _, path := range Dirs(layout) {
+		if path != layout.LibexecDir && OmittedFrom("claude", layout, path) {
+			t.Errorf("%s is omitted from Claude Code's rules, and only the wrapper's "+
+				"directory should be", path)
+		}
+	}
+	if OmittedFrom("agy", layout, layout.LibexecDir) {
+		t.Error("the omission applies to an agent whose rules do not collide with the rewrite")
 	}
 }
 

@@ -19,17 +19,20 @@ import (
 // what must not differ is which paths appear at all.
 func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	layout := testLayout()
-	type rendering struct{ asset, body string }
+	// agent is whose file it is, for the one omission a renderer makes on purpose:
+	// Claude Code's carries no rule for the wrapper's directory, and the guard's
+	// pattern file, which is nobody's rule file, omits nothing.
+	type rendering struct{ asset, agent, body string }
 	rendered := make([]rendering, 0, 3)
-	for _, asset := range []string{
-		"agent/claude/settings.json",
-		"agent/permissions.json.tmpl",
+	for _, file := range []struct{ asset, agent string }{
+		{"agent/claude/settings.json", "claude"},
+		{"agent/permissions.json.tmpl", "opencode"},
 	} {
-		body, err := agentcfg.RenderAccount(asset, layout)
+		body, err := agentcfg.RenderAccount(file.asset, layout)
 		if err != nil {
-			t.Fatalf("%s: %v", asset, err)
+			t.Fatalf("%s: %v", file.asset, err)
 		}
-		rendered = append(rendered, rendering{asset, string(body)})
+		rendered = append(rendered, rendering{file.asset, file.agent, string(body)})
 	}
 	// The agents with no rule file of their own are refused these by the guard
 	// instead, which reads the same list rendered into the pattern file it
@@ -39,7 +42,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered = append(rendered, rendering{"agent/hooks/deny-patterns.txt", string(patterns)})
+	rendered = append(rendered, rendering{"agent/hooks/deny-patterns.txt", "", string(patterns)})
 
 	if len(rendered) < 3 {
 		t.Fatalf("rendered %d file(s), want the two config assets and the pattern "+
@@ -51,7 +54,12 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 		// the path is in there at all, not how it had to be written.
 		flat := strings.ReplaceAll(r.body, `\`, "")
 		for _, dir := range agentcfg.Dirs(layout) {
-			if !strings.Contains(flat, dir) {
+			switch {
+			case r.agent != "" && agentcfg.OmittedFrom(r.agent, layout, dir):
+				if strings.Contains(flat, dir) {
+					t.Errorf("%s names %s, which its renderer omits on purpose", r.asset, dir)
+				}
+			case !strings.Contains(flat, dir):
 				t.Errorf("%s does not refuse %s", r.asset, dir)
 			}
 		}
@@ -69,10 +77,10 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 // either that this was re-widened without the comment above being revisited, or
 // that a renderer grew a second spelling nobody compared.
 //
-// One exception, and it is the reverse case: the libexec directory is refused
-// to a writer and not to a reader, because Claude Code scores the `source` in
-// the guard's own rewrite as a read of the wrapper installed there and refuses
-// it before the hook runs.
+// The libexec directory is named by neither verb: Claude Code checks the paths
+// a Bash command names against these rules before it acts on the hook's
+// decision, so a rule on the wrapper's directory refuses or questions the
+// guard's own rewrite.
 func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 	layout := testLayout()
 	body, err := agentcfg.RenderAccount("agent/claude/settings.json", layout)
@@ -91,14 +99,10 @@ func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 	if len(reads) == 0 {
 		t.Fatal("no Read rules were rendered")
 	}
-	if !edits[wrapperDir] {
-		t.Errorf("%s is refused by no Edit rule, so nothing refuses writing the wrapper", wrapperDir)
+	if reads[wrapperDir] || edits[wrapperDir] {
+		t.Errorf("%s is named by a rule, which refuses or questions the rewrite the "+
+			"guard sources from it and so every Bash call in an enrolled tree", wrapperDir)
 	}
-	if reads[wrapperDir] {
-		t.Errorf("%s is refused by a Read rule, which refuses the rewrite the guard "+
-			"sources from it and so every Bash call in an enrolled tree", wrapperDir)
-	}
-	delete(edits, wrapperDir)
 	for pattern := range edits {
 		t.Errorf("%s is refused by an Edit rule, which the Read rule beside it already covers", pattern)
 	}

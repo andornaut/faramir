@@ -243,9 +243,9 @@ func (l Layout) PamHelper() string { return filepath.Join(l.LibexecDir, "pam-esc
 
 // WrapScript is the shell fragment the guard's rewrite sources, installed
 // beside the helper above. Named here so the install that writes it, the rules
-// that must not refuse reading it and the guard that emits its path are one
-// spelling: a rule and a rewrite that disagree about where it is refuse every
-// command in an enrolled tree, which is what a second spelling costs.
+// that must not name it and the guard that emits its path are one spelling: a
+// rule and a rewrite that disagree about where it is refuse every command in an
+// enrolled tree, which is what a second spelling costs.
 func (l Layout) WrapScript() string { return filepath.Join(l.LibexecDir, "wrap.sh") }
 
 // PamService is the sudoers `pam_service` name, and so the file under

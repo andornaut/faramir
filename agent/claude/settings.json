@@ -44,12 +44,14 @@ rather than read off its documentation, which says NotebookEdit is not covered;
 internal/agentcfg protectedpaths.go and rules_test.go carry the reasoning and
 the shape it produces.
 
-The libexec directory is the exception, and carries an Edit rule rather than a
-Read. A Bash `source <path>` is scored as a read of that path and answered from
-this list before any hook runs, and an enrolled tree's guard rewrites every Bash
-call into a source of the wrapper installed there, so a Read rule on that
-directory refuses every command in the tree. What the directory holds needs
-integrity rather than secrecy, and the guard refuses reading it either way.
+The libexec directory is the exception, and carries no rule at all. An enrolled
+tree's guard rewrites every Bash call into a source of the wrapper installed
+there, and Claude Code checks the paths a Bash command names against this list
+before it acts on the hook's decision: a Read rule on that directory refuses
+every command in the tree, and an Edit rule makes every command ask, since
+whether a `source` writes the file it names cannot be told from the text. Root
+owns the directory and its files, so the agent's uid cannot write there whatever
+the rules say, and the guard refuses a command that names it either way.
 
 That the writing tools are covered is the whole of why one rule is enough: a
 value the agent cannot read is one it could otherwise still destroy, and an age

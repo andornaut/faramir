@@ -51,21 +51,12 @@ func TestTheClaudeRulesAreAnchoredAtTheRoot(t *testing.T) {
 // either: what this holds is the shape that follows from them, so a release that
 // takes one back is a change here rather than a rule file that silently refuses
 // half of what it names. Re-measure before widening this.
-//
-// The libexec directory is the one path that takes the Edit rule instead, a
-// Read rule there refusing the rewrite the guard sources from it. It is
-// exempted here by name so the shape is still asserted for everything else; see
-// claudeRules and TestNoRenderedRuleRefusesReadingTheWrapper.
 func TestOneRulePerPathCoversTheToolsAndTheSubtree(t *testing.T) {
 	dir := t.TempDir()
 	layout := layouttest.Layout()
 	layout.Blocked = configtest.RefusedAt(dir, "/etc/luks/volume.key")
-	wrapperDir := "Edit(//" + strings.TrimPrefix(layout.LibexecDir, "/") + ")"
 
 	for _, rule := range claudeRules(layout) {
-		if rule == wrapperDir {
-			continue
-		}
 		if !strings.HasPrefix(rule, "Read(") {
 			t.Errorf("%q is not a Read rule: a Read rule already answers for the writing tools", rule)
 		}
@@ -289,7 +280,6 @@ func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
 		claudeRule("Read", "/opt/faramir"),         // the age key, the SSH key, config.toml
 		claudeRule("Read", "/opt/faramir/secrets"), // the managed sops files
 		claudeRule("Read", "/srv/log/faramir"),     // the audit log
-		claudeRule("Edit", "/opt/faramir/libexec"), // wrap.sh and the guard
 	} {
 		if !slices.Contains(rules, want) {
 			t.Errorf("the rules do not carry %q", want)
@@ -300,10 +290,18 @@ func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
 	for _, unwanted := range []string{
 		claudeRule("Read", hostlayout.DefaultConfigDir),
 		claudeRule("Read", hostlayout.DefaultLogDir),
-		claudeRule("Edit", hostlayout.DefaultLibexecDir),
 	} {
 		if slices.Contains(rules, unwanted) {
 			t.Errorf("the rules carry %q, which this layout moved", unwanted)
+		}
+	}
+	// The libexec directory is named by no rule at either location: a rule on the
+	// wrapper's directory refuses or questions the rewrite the guard sources from
+	// it. See TestNoRenderedRuleCoversTheWrapper.
+	for _, rule := range rules {
+		if strings.Contains(rule, "/opt/faramir/libexec") ||
+			strings.Contains(rule, hostlayout.DefaultLibexecDir) {
+			t.Errorf("the rules carry %q, which names the wrapper's directory", rule)
 		}
 	}
 }

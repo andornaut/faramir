@@ -115,11 +115,19 @@ func Dirs(layout hostlayout.Layout) []string {
 }
 
 // libexecDir is the directory the wrapper, the guard's pattern file and the PAM
-// helper are installed in, defaulted the way Dirs defaults the rest. The
-// renderers ask for it by name because it is the one directory whose rules are
-// written in the write verbs alone; see claudeRules.
+// helper are installed in, defaulted the way Dirs defaults the rest. Named so
+// OmittedFrom can ask about it.
 func libexecDir(layout hostlayout.Layout) string {
 	return cmp.Or(layout.LibexecDir, hostlayout.DefaultLibexecDir)
+}
+
+// OmittedFrom reports whether agent's account rule file deliberately carries no
+// rule for path, so a coverage check reads the gap as the renderer's decision
+// rather than as drift. One case: Claude Code and the libexec directory, for
+// the reason on claudeRules. Asked by the renderer and by the doctor, so the two
+// cannot disagree about which path that is.
+func OmittedFrom(agent string, layout hostlayout.Layout, path string) bool {
+	return agent == "claude" && path == libexecDir(layout)
 }
 
 // stateDirRoot is where systemd puts a StateDirectory=. Not a layout field:
@@ -221,22 +229,25 @@ func PerInstallPaths(layout hostlayout.Layout) []string {
 // declared, not paths relative to wherever a session started, so both take the
 // root anchor.
 //
-// The libexec directory takes an Edit rule where every other path takes a Read,
-// and that is the one place the verbs are not interchangeable. Claude Code
-// scores a Bash `source <path>` as a read of that path and answers it from the
-// deny list before a hook runs, and the guard rewrites every Bash call in an
-// enrolled tree into `source <libexec>/wrap.sh '<command>'`. A Read rule on that
-// directory refuses the guard's own rewrite, which is every command in the tree.
-// The exemption that spares the invocation lives in the guard and cannot reach a
-// rule the agent enforces itself, and an allow rule cannot lift it: deny wins in
-// Claude Code, and the matcher has no negation.
+// The libexec directory gets no rule here, and it is the one directory that
+// does not. The guard rewrites every Bash call in an enrolled tree into `source
+// <libexec>/wrap.sh '<command>'`, and Claude Code checks the paths a Bash
+// command names against these rules before it acts on the hook's own decision.
+// A Read rule on the directory refuses the rewrite outright. An Edit rule makes
+// it ask on every command, since whether a `source` writes the file it names
+// cannot be told from the text, and that ask reaches the operator wherever the
+// pipeline cannot answer it alone: a default-mode terminal, or a device
+// attached over Remote Control in any mode. Either way the exemption that
+// spares the invocation, which lives in the guard, is never reached, and an
+// allow rule cannot lift a deny: deny wins in Claude Code and the matcher has
+// no negation.
 //
-// What the narrower verb gives up, this tier was not carrying. That directory
-// holds faramir's own code, the rendered pattern file, the PAM helper and the
-// sudo environment file: what they need is integrity rather than secrecy, and
-// the pattern file names the declared paths `faramir block ls` already prints.
-// The guard refuses reading it as before, the wrapper invocation excepted, so
-// what is lost is a second answer where the hook did not run.
+// What the omission gives up, the rule was not providing. Root owns the
+// directory and every file in it, so the agent's uid cannot write there whatever
+// the rules say; nothing in it is a secret, the pattern file naming the same
+// declared paths `faramir block ls` prints; and the guard refuses a command that
+// names it as before, the wrapper invocation excepted. OmittedFrom is how the
+// doctor knows not to report the gap.
 func claudeRules(layout hostlayout.Layout) []string {
 	var out []string
 	add := func(pattern string) {
@@ -244,8 +255,7 @@ func claudeRules(layout hostlayout.Layout) []string {
 	}
 	// The directories bare, like everything else: the subtree comes with them.
 	for _, dir := range Dirs(layout) {
-		if dir == libexecDir(layout) {
-			out = append(out, "Edit(//"+strings.TrimPrefix(dir, "/")+")")
+		if OmittedFrom("claude", layout, dir) {
 			continue
 		}
 		add(dir)

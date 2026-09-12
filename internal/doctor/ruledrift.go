@@ -222,6 +222,10 @@ type coverageCheck struct {
 	noun    string
 	okThe   string
 	failure string
+	// omitted names a path an agent's rule file deliberately leaves out, per
+	// agent; nil expects every path in every file. Set per run, since the
+	// answer depends on the layout.
+	omitted func(agent, path string) bool
 }
 
 var linkedFilesCheck = coverageCheck{
@@ -270,7 +274,7 @@ func denyRuleCoverage(report *Report, opts Options, name string,
 func (c coverageCheck) report(report *Report, name, home string,
 	paths []string) {
 	counted := fmt.Sprintf(c.noun, len(paths))
-	files, uncovered, unread := uncoveredIn(home, paths)
+	files, uncovered, unread := uncoveredIn(home, paths, c.omitted)
 	// Before the coverage verdict: a rule file that could not be read is not
 	// one anything vouched for, and a pass beside it would claim it.
 	if len(unread) > 0 {
@@ -302,7 +306,11 @@ func (c coverageCheck) report(report *Report, name, home string,
 // agent with no rule file of its own is refused by the guard instead, which
 // reads the same paths out of the rendered deny list, so the callers report
 // that case as unasked and name the check that does cover it.
-func uncoveredIn(home string, paths []string) (files int, uncovered, unread []string) {
+//
+// omitted, when given, names a path an agent's file deliberately leaves out, so
+// that gap is not reported; nil means every path is expected in every file.
+func uncoveredIn(home string, paths []string,
+	omitted func(agent, path string) bool) (files int, uncovered, unread []string) {
 	// One file two agents read is one file to check: the Antigravity family
 	// shares its account-wide hook, and reporting it twice reads as two files
 	// short of what they should carry.
@@ -335,6 +343,9 @@ func uncoveredIn(home string, paths []string) (files int, uncovered, unread []st
 			files++
 			var missing []string
 			for _, want := range paths {
+				if omitted != nil && omitted(agent, want) {
+					continue
+				}
 				if !agentcfg.Named(entries, want) {
 					missing = append(missing, want)
 				}
@@ -373,7 +384,14 @@ func diagnoseInstallRules(report *Report, opts Options) {
 	// not use.
 	layout := agentcfg.RuleLayout(opts.ConfigDir)
 	paths := append(agentcfg.Dirs(layout), agentcfg.PerInstallPaths(layout)...)
-	denyRuleCoverage(report, opts, name, installRulesCheck, paths)
+	// A gap the renderer left on purpose is not one to report: Claude Code's
+	// file carries no rule for the wrapper's directory, a rule there refusing or
+	// questioning the guard's own rewrite. The same predicate the renderer asked.
+	check := installRulesCheck
+	check.omitted = func(agent, path string) bool {
+		return agentcfg.OmittedFrom(agent, layout, path)
+	}
+	denyRuleCoverage(report, opts, name, check, paths)
 }
 
 // diagnoseBlockedPaths asks whether the account-wide deny rules carry every
