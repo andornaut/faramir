@@ -452,9 +452,10 @@ func antigravityMember(name string, detectHome []string, ownRules []File) *Targe
 			// so a file without this is one the model may never be shown.
 			Head: "---\ntrigger: always_on\n---\n",
 		},
-		// The permission check runs before the hook, so the guard's allow is not
-		// an approval anything was waiting for: a command with no rule to permit
-		// it is refused before this is asked. Nothing is traded away.
+		// The permission check runs on the rewritten command and does not take
+		// the guard's allow as an approval: a command no rule permits is put to
+		// the operator, wrapped or not, so the prompt names the wrapper
+		// invocation. Nothing is traded away.
 		AutoApprovesBash: false,
 		NoteStands:       true,
 		Note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +

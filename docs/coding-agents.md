@@ -368,9 +368,12 @@ The registration matches every tool rather than naming `run_command`, so a
 payload the guard cannot read is refused rather than passed, whatever tool it
 arrived on.
 
-The permission check runs before the hook. A command no rule permits is
-refused before the guard is asked, so the guard's allow approves nothing that
-was going to prompt. Unlike Claude Code, enrolling takes nothing away.
+The permission check runs on the rewritten command and does not take the
+guard's allow as an approval. A command no rule permits is put to you, wrapped
+or not, and the prompt names the wrapper invocation. The deny rules are not
+consulted for it, so a rule on the wrapper's directory does not change the
+answer the way it does in Claude Code. Unlike Claude Code, enrolling takes
+nothing away.
 
 The two halves differ in the rule file; the
 [README](../README.md#supported-agents) says which half gets one. The CLI

@@ -224,8 +224,8 @@ const applyPatchTool = "apply_patch"
 //
 // The allow is load-bearing for the same reason it is on Claude Code: a rewrite
 // carrying no decision is a call nothing approved. It is not a substitute for a
-// permission rule. The permission check runs before the hook, so a call with no
-// allow rule is refused and this is never asked.
+// permission rule: the permission check runs on the rewritten command, and a
+// call no rule permits is put to the operator whatever this answered.
 func antigravityHost() *host {
 	return &host{
 		shellTools: []string{runCommandTool},
