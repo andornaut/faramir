@@ -11,15 +11,19 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
+	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
 // wrapScript is the shell fragment the rewrite sources. Absolute: the
-// rewritten string runs in the agent's working directory.
+// rewritten string runs in the agent's working directory. Spelled by the layout
+// rather than here, the rendered agent rules being written from the same
+// helper: a rule that names a different path than the rewrite sources refuses
+// every command in an enrolled tree.
 func wrapScript() string {
 	if v := os.Getenv("FARAMIR_WRAP"); v != "" {
 		return v
 	}
-	return "/usr/local/libexec/faramir/wrap.sh"
+	return hostlayout.Layout{LibexecDir: hostlayout.DefaultLibexecDir}.WrapScript()
 }
 
 // patternsFile is rendered per install, so it lives in libexec rather than

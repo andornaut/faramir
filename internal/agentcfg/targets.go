@@ -230,10 +230,12 @@ var Targets = map[string]*Target{
 		Files: []File{
 			{Path: ".claude/settings.local.json", Asset: "agent/claude/settings.local.json.tmpl", Mode: 0o640, Merge: true, Local: true},
 		},
-		// Read rules only: Claude Code answers its file permission check for Edit,
-		// Write and NotebookEdit off the Read rule, so one rule per path covers
-		// the writing tools as well. A Write(path) rule matches nothing either
-		// way. See claudeRules.
+		// Read rules, bar one: Claude Code answers its file permission check for
+		// Edit, Write and NotebookEdit off the Read rule, so one rule per path
+		// covers the writing tools as well. A Write(path) rule matches nothing
+		// either way. The libexec directory takes an Edit rule instead, a Read
+		// rule there refusing the rewrite the guard sources from it. See
+		// claudeRules.
 		AccountFiles: []File{
 			{Path: ".claude/settings.json", Asset: "agent/claude/settings.json", Mode: 0o640, Merge: true},
 		},

@@ -68,11 +68,18 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 // Asserted as their absence rather than left unsaid: a rendered Edit rule means
 // either that this was re-widened without the comment above being revisited, or
 // that a renderer grew a second spelling nobody compared.
+//
+// One exception, and it is the reverse case: the libexec directory is refused
+// to a writer and not to a reader, because Claude Code scores the `source` in
+// the guard's own rewrite as a read of the wrapper installed there and refuses
+// it before the hook runs.
 func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
-	body, err := agentcfg.RenderAccount("agent/claude/settings.json", testLayout())
+	layout := testLayout()
+	body, err := agentcfg.RenderAccount("agent/claude/settings.json", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
+	wrapperDir := "//" + strings.TrimPrefix(layout.LibexecDir, "/")
 	reads, edits := map[string]bool{}, map[string]bool{}
 	for _, m := range regexp.MustCompile(`"(Read|Edit)\((.*?)\)"`).FindAllStringSubmatch(string(body), -1) {
 		if m[1] == "Read" {
@@ -84,6 +91,14 @@ func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 	if len(reads) == 0 {
 		t.Fatal("no Read rules were rendered")
 	}
+	if !edits[wrapperDir] {
+		t.Errorf("%s is refused by no Edit rule, so nothing refuses writing the wrapper", wrapperDir)
+	}
+	if reads[wrapperDir] {
+		t.Errorf("%s is refused by a Read rule, which refuses the rewrite the guard "+
+			"sources from it and so every Bash call in an enrolled tree", wrapperDir)
+	}
+	delete(edits, wrapperDir)
 	for pattern := range edits {
 		t.Errorf("%s is refused by an Edit rule, which the Read rule beside it already covers", pattern)
 	}

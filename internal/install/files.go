@@ -173,8 +173,7 @@ func (r *runner) stepBinaries() error {
 
 	// Sourced by the shell the hook rewrites into, so read and never executed, and
 	// it names no install path.
-	made, err = r.writeAsset("agent/hooks/wrap.sh",
-		filepath.Join(r.layout.LibexecDir, "wrap.sh"), 0o644)
+	made, err = r.writeAsset("agent/hooks/wrap.sh", r.layout.WrapScript(), 0o644)
 	if err != nil {
 		return err
 	}

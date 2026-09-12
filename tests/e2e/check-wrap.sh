@@ -308,4 +308,23 @@ agyw=$(jq -cn '{toolCall:{name:"run_command",args:{CommandLine:"cat notes.txt",C
 grep -q -- '--stream-state' <<<"$agyw" && ok "the Antigravity rewrite carries --stream-state" \
   || bad "the Antigravity rewrite does not stream in place: [$agyw]"
 
+# --------------------------------------------------------------------------
+head_ "the rendered rules do not refuse the rewrite"
+# Claude Code scores a Bash `source <path>` as a read of that path and answers it
+# from its deny list before a hook runs, so a Read rule covering the wrapper
+# refuses every Bash call in an enrolled tree and the guard's exemption never
+# gets asked. Checked against the rendered file rather than the renderer: this is
+# where a layout the renderer and the guard spell differently would show.
+CLAUDE_RULES=/home/op/.claude/settings.json
+if [ -f $CLAUDE_RULES ]; then
+  grep -qF '"Read(//usr/local/libexec/faramir' $CLAUDE_RULES \
+    && bad "a Read rule covers the wrapper, which refuses every Bash call in an enrolled tree" \
+    || ok "no Read rule covers the wrapper the guard sources"
+  grep -qF '"Edit(//usr/local/libexec/faramir)"' $CLAUDE_RULES \
+    && ok "and the directory is still refused to a writer" \
+    || bad "no Edit rule for the libexec directory in $CLAUDE_RULES"
+else
+  bad "no rule file at $CLAUDE_RULES, so the rendered rules could not be checked"
+fi
+
 summary

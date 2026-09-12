@@ -247,6 +247,15 @@ three things follow:
 - **The built-in read-only set is lost with it.** A wrapped `ls` is not `ls`, so
   it needs approval like anything else.
 
+**A `source` is scored as a read of the file.** Claude Code answers it from the
+deny list before any hook runs, so a `Read()` rule covering the wrapper refuses
+every Bash call in an enrolled tree, and the guard's own exemption for its
+rewrite is never asked. `/usr/local/libexec/faramir` therefore carries an
+`Edit()` rule and no `Read()` rule: what that directory needs is integrity
+rather than secrecy, and the guard refuses reading it in either case. Deny
+beats allow in Claude Code and its matcher has no negation, so no rule can take
+a narrower exception back.
+
 Returning `ask` does reach a prompt, and an operator willing to answer one per
 command could have it. What it cannot have is a way to stop: "don't ask again"
 saves a rule that can never match, the prompt shows the rewritten text rather

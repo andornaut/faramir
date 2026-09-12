@@ -85,9 +85,7 @@ func Dirs(layout hostlayout.Layout) []string {
 	if layout.LogDir == "" {
 		layout.LogDir = hostlayout.DefaultLogDir
 	}
-	if layout.LibexecDir == "" {
-		layout.LibexecDir = hostlayout.DefaultLibexecDir
-	}
+	layout.LibexecDir = libexecDir(layout)
 	// The secrets directory is named beside the config directory that holds it,
 	// though the regex rules cover it either way. The agent renderers do not
 	// agree: one spells a directory `<dir>/*`, which reaches the files in it and
@@ -114,6 +112,14 @@ func Dirs(layout hostlayout.Layout) []string {
 		dirs = append(dirs, filepath.Join(stateDirRoot, account))
 	}
 	return dirs
+}
+
+// libexecDir is the directory the wrapper, the guard's pattern file and the PAM
+// helper are installed in, defaulted the way Dirs defaults the rest. The
+// renderers ask for it by name because it is the one directory whose rules are
+// written in the write verbs alone; see claudeRules.
+func libexecDir(layout hostlayout.Layout) string {
+	return cmp.Or(layout.LibexecDir, hostlayout.DefaultLibexecDir)
 }
 
 // stateDirRoot is where systemd puts a StateDirectory=. Not a layout field:
@@ -214,6 +220,23 @@ func PerInstallPaths(layout hostlayout.Layout) []string {
 // the tree and allowing it everywhere else. These rules name paths the host
 // declared, not paths relative to wherever a session started, so both take the
 // root anchor.
+//
+// The libexec directory takes an Edit rule where every other path takes a Read,
+// and that is the one place the verbs are not interchangeable. Claude Code
+// scores a Bash `source <path>` as a read of that path and answers it from the
+// deny list before a hook runs, and the guard rewrites every Bash call in an
+// enrolled tree into `source <libexec>/wrap.sh '<command>'`. A Read rule on that
+// directory refuses the guard's own rewrite, which is every command in the tree.
+// The exemption that spares the invocation lives in the guard and cannot reach a
+// rule the agent enforces itself, and an allow rule cannot lift it: deny wins in
+// Claude Code, and the matcher has no negation.
+//
+// What the narrower verb gives up, this tier was not carrying. That directory
+// holds faramir's own code, the rendered pattern file, the PAM helper and the
+// sudo environment file: what they need is integrity rather than secrecy, and
+// the pattern file names the declared paths `faramir block ls` already prints.
+// The guard refuses reading it as before, the wrapper invocation excepted, so
+// what is lost is a second answer where the hook did not run.
 func claudeRules(layout hostlayout.Layout) []string {
 	var out []string
 	add := func(pattern string) {
@@ -221,6 +244,10 @@ func claudeRules(layout hostlayout.Layout) []string {
 	}
 	// The directories bare, like everything else: the subtree comes with them.
 	for _, dir := range Dirs(layout) {
+		if dir == libexecDir(layout) {
+			out = append(out, "Edit(//"+strings.TrimPrefix(dir, "/")+")")
+			continue
+		}
 		add(dir)
 	}
 	// Every declared path, refused or linked. blockedRulePaths is not read here:
