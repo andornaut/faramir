@@ -67,10 +67,10 @@ func TestABlockRunRendersBothEntryPoints(t *testing.T) {
 	}
 }
 
-// A command entry has no path, so nothing stats one: the warning said "` is not
-// there`" with an empty path where the path goes, once per command entry on
-// every run, which is how a warnings channel stops being read.
-func TestACommandEntryWarnsAboutItselfRatherThanAnEmptyPath(t *testing.T) {
+// A command entry names no path, so nothing stats one and no warning about a
+// missing file is written. One here would carry an empty path where the path
+// goes, once per command entry on every run.
+func TestACommandEntryProducesNoPathWarning(t *testing.T) {
 	var report Report
 	blockedWarnings(&report, config.BlockedPath{Command: "op read"}, nil)
 	if len(report.Warnings) != 0 {

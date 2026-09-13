@@ -56,7 +56,7 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 		return
 	}
 	checked := 0
-	var drifted, prose, unread, unguarded []string
+	var drifted, prose, unread, unguarded, stale []string
 	for _, tree := range trees {
 		// A tree that is gone is diagnoseAgentRules' finding, not this one.
 		if !hostfs.Exists(tree.Dir) {
@@ -96,6 +96,10 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 				case !carries:
 					drifted = append(drifted, path)
 				}
+				if found := staleTreeRules(target, file, path, opts.ConfigDir); len(found) > 0 {
+					stale = append(stale, fmt.Sprintf("in %s: %s", path,
+						strings.Join(found, ", ")))
+				}
 			}
 		}
 		for _, file := range agentcfg.OneSectionPerFile(instructions) {
@@ -115,6 +119,17 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 	sort.Strings(prose)
 	sort.Strings(unread)
 	sort.Strings(unguarded)
+	sort.Strings(stale)
+
+	// Said whatever else the trees carry: a rule faramir has stopped writing is
+	// not something re-running `enrol` takes out, the merge keeping what its
+	// record does not name, so this is the only thing that reports one.
+	if len(stale) > 0 {
+		report.addf("tree config", StatusWarn, "%d enrolled tree file(s) carry a rule "+
+			"faramir no longer writes, which a re-enrolment does not remove. They were "+
+			"left because yours would look the same. Remove them from the file, and only "+
+			"where they are not yours: %s", len(stale), strings.Join(stale, "; "))
+	}
 
 	if len(unguarded) > 0 {
 		report.addf("tree config", StatusWarn, "%d enrolled tree(s) registered "+
@@ -125,7 +140,7 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 	}
 
 	if len(drifted) == 0 && len(prose) == 0 && len(unread) == 0 {
-		if len(unguarded) > 0 {
+		if len(unguarded) > 0 || len(stale) > 0 {
 			return
 		}
 		report.addf("tree config", StatusOK, "%d enrolled tree(s) carry what "+
@@ -156,6 +171,32 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 			"`sudo faramir enrol` in the tree, which writes all three again",
 			len(drifted), strings.Join(drifted, ", "))
 	}
+}
+
+// staleTreeRules is the rules in one enrolled tree's file that name something
+// faramir manages and are not in what it writes now. The same question
+// `agent rule drift` asks of the account-wide files, asked here because nothing
+// else does: carriesWhatWeWrite merges before it compares, and a merge keeps a
+// rule its record does not name, so an extra one reads as a file in order.
+//
+// Merged files only. Where faramir owns the bytes, carriesWhatWeWrite compares
+// them, so an extra rule is already drift and would be reported twice.
+//
+// A file that cannot be read or parsed is not reported here: it is absent, which
+// carriesWhatWeWrite calls drift, or unreadable, which it returns as an error.
+func staleTreeRules(target *agentcfg.Target, file agentcfg.File, path, configDir string) []string {
+	if !file.Merge {
+		return nil
+	}
+	ours, err := agentcfg.AssetFor(target, file, configDir)
+	if err != nil {
+		return nil
+	}
+	found, err := agentcfg.StaleRules(path, ours, configDir)
+	if err != nil {
+		return nil
+	}
+	return found
 }
 
 // carriesWhatWeWrite reports whether a file on disk still carries what an

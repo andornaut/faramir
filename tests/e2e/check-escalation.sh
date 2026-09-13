@@ -741,9 +741,11 @@ ENVFILE=/usr/local/libexec/faramir/sudo-env
 [ -f "$ENVFILE" ] && ok "the environment file is there" \
   || bad "$ENVFILE was not written"
 owner=$(stat -c '%U:%G %a' "$ENVFILE" 2>/dev/null)
-[ "$owner" = "root:root 644" ] \
-  && ok "and is root's at 0644, PAM reading it as root" \
-  || bad "$ENVFILE is '$owner', not 'root:root 644'"
+# Not world-readable, though nothing in it is a value: PAM reads it as root, and
+# no other account reads it at all.
+[ "$owner" = "root:root 640" ] \
+  && ok "and is root's at 0640, PAM reading it as root" \
+  || bad "$ENVFILE is '$owner', not 'root:root 640'"
 # Read by pam_env in whichever file carries faramir's stack, rather than named as
 # the grant's env_file: sudo-rs has no such setting, so one mechanism is carried
 # for both. Which file that is, the install recorded.

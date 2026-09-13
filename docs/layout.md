@@ -8,7 +8,7 @@ Every path the install creates, what owns it, and what each account can reach th
   deny-patterns.txt             0644 root:root, rendered per install
   wrap.sh                       0644 root:root, copied verbatim
   pam-escalate                  0755 root:root, rendered; installed on every host, grant or not
-  sudo-env                      0644 root:root, what a brokered command's sudo is given; --allow-sudo only
+  sudo-env                      0640 root:root, what a brokered command's sudo is given; --allow-sudo only
 /usr/local/share/doc/faramir/   0755 root:root, README, LICENSE and docs/, embedded and written out
 
 /etc/systemd/system/faramir-*   0644 root:root, three .service and three .socket units
@@ -40,7 +40,7 @@ Every path the install creates, what owns it, and what each account can reach th
 <any tree you enrol>            2770 <operator>:<client-group>, setgid
 ```
 
-`sudo-env` is in `/usr/local/libexec/faramir` with the other files the install renders for its own use. It is not in `/etc/sudoers.d`, because sudo parses every file there, and not in `<config-dir>`, because an uninstall keeps that directory. It is owned by root, in a directory the executor's uid cannot write, because PAM reads it as root: if that uid could rewrite the file, it could set root's environment.
+`sudo-env` is in `/usr/local/libexec/faramir` with the other files the install renders for its own use. It is not in `/etc/sudoers.d`, because sudo parses every file there, and not in `<config-dir>`, because an uninstall keeps that directory. It is owned by root, in a directory the executor's uid cannot write, because PAM reads it as root: if that uid could rewrite the file, it could set root's environment. It is not world-readable either, though nothing in it is a value: root is its only reader, so the bit grants nobody anything.
 
 `init` also checks any file a `[[secret.link]]` entry names. It does not own or create that file, so it changes nothing. It reports what is wrong and the command that fixes it:
 

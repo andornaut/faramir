@@ -266,7 +266,11 @@ func (r *runner) writeSudoEnv() (bool, error) {
 	// install has already created by now. Nothing here makes a directory faramir
 	// does not own outright, which is how a path it merely shares ends up deleted
 	// by an uninstall that thinks it owns it.
-	return r.fs.WriteFile(r.layout.SudoEnvFile(), body, 0o644, 0, 0)
+	//
+	// Not world-readable, though nothing in it is a value: root is its only
+	// reader, pam_env opening it inside sudo's auth stack, so the bit grants
+	// nobody anything.
+	return r.fs.WriteFile(r.layout.SudoEnvFile(), body, 0o640, 0, 0)
 }
 
 // sudoSetsItself is the reserved names sudo fills in on its own: PATH from

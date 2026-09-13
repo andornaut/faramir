@@ -274,13 +274,24 @@ func denyRuleCoverage(report *Report, opts Options, name string,
 func (c coverageCheck) report(report *Report, name, home string,
 	paths []string) {
 	counted := fmt.Sprintf(c.noun, len(paths))
-	files, uncovered, unread := uncoveredIn(home, paths, c.omitted)
+	files, uncovered, stale, unread := uncoveredIn(home, paths, c.omitted)
 	// Before the coverage verdict: a rule file that could not be read is not
 	// one anything vouched for, and a pass beside it would claim it.
 	if len(unread) > 0 {
 		report.addf(name, StatusFailed, "%s could not be read or parsed, so "+
 			"what it refuses is unknown and the %s were not checked there. Fix the file, "+
 			"or re-run `sudo faramir init`", strings.Join(unread, ", "), counted)
+		return
+	}
+	// Ahead of the coverage verdict too, and failed rather than a warning: this
+	// rule refuses the wrapper every Bash call is rewritten into, so the agent
+	// runs nothing in an enrolled tree, and a run short of nothing else would
+	// otherwise report ok.
+	if len(stale) > 0 {
+		report.addf(name, StatusFailed, "%s: a rule this install writes none for, "+
+			"refusing the wrapper every Bash call is rewritten into, so no command "+
+			"runs in an enrolled tree. Remove it from the file",
+			strings.Join(stale, "; "))
 		return
 	}
 	switch {
@@ -308,9 +319,12 @@ func (c coverageCheck) report(report *Report, name, home string,
 // that case as unasked and name the check that does cover it.
 //
 // omitted, when given, names a path an agent's file deliberately leaves out, so
-// that gap is not reported; nil means every path is expected in every file.
+// that gap is not reported; nil means every path is expected in every file. A
+// rule found for such a path is returned in stale: the renderer writes none, so
+// what is there is left from an older install or was added by hand, and for the
+// one path this covers it refuses the agent every command.
 func uncoveredIn(home string, paths []string,
-	omitted func(agent, path string) bool) (files int, uncovered, unread []string) {
+	omitted func(agent, path string) bool) (files int, uncovered, stale, unread []string) {
 	// One file two agents read is one file to check: the Antigravity family
 	// shares its account-wide hook, and reporting it twice reads as two files
 	// short of what they should carry.
@@ -341,14 +355,26 @@ func uncoveredIn(home string, paths []string,
 				continue
 			}
 			files++
-			var missing []string
+			var missing, extra []string
 			for _, want := range paths {
 				if omitted != nil && omitted(agent, want) {
+					// The renderer writes no rule here, so one in the file came from
+					// somewhere else. Reported rather than passed over: the path this
+					// covers is the wrapper's directory, and a rule there refuses the
+					// invocation every Bash call is rewritten into.
+					if agentcfg.Named(entries, want) {
+						extra = append(extra, want)
+					}
 					continue
 				}
 				if !agentcfg.Named(entries, want) {
 					missing = append(missing, want)
 				}
+			}
+			if len(extra) > 0 {
+				sort.Strings(extra)
+				stale = append(stale, fmt.Sprintf("in ~/%s: %s",
+					file.Path, strings.Join(extra, ", ")))
 			}
 			if len(missing) > 0 {
 				sort.Strings(missing)
@@ -359,7 +385,7 @@ func uncoveredIn(home string, paths []string,
 			}
 		}
 	}
-	return files, uncovered, unread
+	return files, uncovered, stale, unread
 }
 
 // diagnoseInstallRules asks whether the account-wide deny rules still carry the

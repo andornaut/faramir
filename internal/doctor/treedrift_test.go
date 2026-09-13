@@ -454,3 +454,90 @@ func TestWhatAnEnrolmentWritesIsWhatDoctorCompares(t *testing.T) {
 			"compares it, so doctor would report every enrolled tree")
 	}
 }
+
+// A rule faramir has stopped writing, left in an enrolled tree's file and
+// settled there by a re-enrolment.
+//
+// The merge keeps a string its record does not name, so `enrol` does not remove
+// the rule: it rewrites the file in the merge's own order with the rule still
+// in it. Until that run the order differs and carriesWhatWeWrite calls the file
+// drifted, which reads as one missing what faramir writes; afterwards the file
+// is what a merge produces, that check passes, and nothing reports the rule at
+// all. `agent rule drift` asks this question of the account-wide files and
+// reaches no tree. For the wrapper's directory the rule is Claude Code refusing
+// every command the tree runs, so the state nothing reported is the state that
+// lasts.
+func TestTreeConfigReportsARuleFaramirNoLongerWrites(t *testing.T) {
+	configDir := t.TempDir()
+	tree := enrolTree(t, configDir, "claude")
+	settings := filepath.Join(tree, ".claude", "settings.local.json")
+
+	// A path an older layout used, which is how looksManaged recognises one:
+	// the name is what says whose it was.
+	const stale = "Read(//srv/faramir-old/age.key)"
+	body, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	// Appended to the rules the enrolment wrote, which is what a leftover is.
+	// Replacing them would be a file short of what faramir writes, which the
+	// check beside this one already reports.
+	perms, ok := doc["permissions"].(map[string]any)
+	if !ok {
+		t.Fatalf("the enrolled file carries no permissions object: %s", body)
+	}
+	deny, ok := perms["deny"].([]any)
+	if !ok {
+		t.Fatalf("the enrolled file carries no deny list: %s", body)
+	}
+	perms["deny"] = append(deny, stale)
+	edited, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Through the merge, which is what the next `enrol` writes: the file is then
+	// in the form that check compares against, so this is the tree an operator
+	// is left with rather than the moment before they were told to re-run.
+	settled, err := agentcfg.MergeJSON(edited, treeAsset(t, "claude", settings, configDir), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, settled, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	var report Report
+	diagnoseTreeConfig(&report, Options{ConfigDir: configDir})
+
+	got := findings(report, "tree config")
+	if len(got) != 1 || got[0].Status != StatusWarn {
+		t.Fatalf("findings = %+v, want one warning", got)
+	}
+	for _, want := range []string{settings, stale} {
+		if !strings.Contains(got[0].Detail, want) {
+			t.Errorf("the finding does not say %q: %s", want, got[0].Detail)
+		}
+	}
+}
+
+// treeAsset is what an enrolment writes into a tree for the file at path.
+func treeAsset(t *testing.T, agent, path, configDir string) []byte {
+	t.Helper()
+	target := agentcfg.Targets[agent]
+	for _, file := range target.Files {
+		if !strings.HasSuffix(path, file.Path) {
+			continue
+		}
+		body, err := agentcfg.AssetFor(target, file, configDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	t.Fatalf("%s writes no file at %s", agent, path)
+	return nil
+}

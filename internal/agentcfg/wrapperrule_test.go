@@ -80,7 +80,18 @@ func TestTheWrapperDirectoryIsTheOmission(t *testing.T) {
 // covers reports whether a rendered Claude Code pattern refuses path: the
 // pattern names it, or names a directory above it. Both are anchored at the
 // filesystem root, the rendered patterns carrying the "//" that does it.
+//
+// A trailing glob is read as the directory it hangs off, so a renderer that
+// starts writing `<dir>/**` is held to the same answer as one writing `<dir>`.
+// The literal form is all claudeRules produces today, and this is the check the
+// omission rests on, so it must not read a wildcard rule as covering nothing.
 func covers(pattern, path string) bool {
 	pattern = "/" + strings.TrimPrefix(strings.TrimPrefix(pattern, "//"), "/")
+	for _, glob := range []string{"/**", "/*"} {
+		if trimmed, found := strings.CutSuffix(pattern, glob); found {
+			pattern = trimmed
+			break
+		}
+	}
 	return pattern == path || strings.HasPrefix(path, strings.TrimSuffix(pattern, "/")+"/")
 }

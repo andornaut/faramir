@@ -184,6 +184,11 @@ const bashTool = "Bash"
 // disableAllHooks. The rules stay for the case this branch cannot cover, a
 // session that never reaches the hook, and because they say in one place what
 // the operator asked for.
+//
+// The libexec directory is the exception, and there this branch is the only
+// enforcement: no rule is written for it, a Read rule there refusing the
+// wrapper invocation the guard rewrites every Bash call into. See
+// agentcfg.OmittedFrom.
 func claudeCodeHost() *host {
 	h := hookDecision()
 	h.shellTools = []string{bashTool, "BashOutput"}

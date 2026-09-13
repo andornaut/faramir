@@ -251,10 +251,18 @@ func PerInstallPaths(layout hostlayout.Layout) []string {
 //
 // What the omission gives up, the rule was not providing. Root owns the
 // directory and every file in it, so the agent's uid cannot write there whatever
-// the rules say; nothing in it is a secret, the pattern file naming the same
-// declared paths `faramir block ls` prints; and the guard refuses a command that
-// names it as before, the wrapper invocation excepted. OmittedFrom is how the
-// doctor knows not to report the gap.
+// the rules say, and the guard refuses a command that names it as before, the
+// wrapper invocation excepted.
+//
+// Nor was the rule keeping a value: nothing here is one. The pattern file names
+// the declared paths `faramir block ls` prints, the wrapper and the PAM helper
+// are the shipped code, and `sudo-env` is an environment table, PATH and the
+// locale, rendered from `[command] env`. No credential reaches that setting: an
+// injected value is named per run and comes from the broker, where the redactor
+// holds it, and one set here would instead reach every brokered command with
+// nothing covering it.
+//
+// OmittedFrom is how the doctor knows not to report the gap.
 func claudeRules(layout hostlayout.Layout) []string {
 	var out []string
 	add := func(pattern string) {

@@ -457,9 +457,15 @@ func antigravityMember(name string, detectHome []string, ownRules []File) *Targe
 		// is suppressed; see docs/coding-agents.md#antigravity.
 		AutoApprovesBash: false,
 		NoteStands:       true,
+		// The saved-rule cost, which is not the plugin hosts' open question: the
+		// prompt names the wrapper invocation, so the rules are known to see the
+		// rewrite. docs/coding-agents.md#antigravity has the measurement.
 		Note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +
 			"project it has opened, so until then the rules file is there and inert. What " +
-			"holds meanwhile is the account-wide hook `faramir init` writes",
+			"holds meanwhile is the account-wide hook `faramir init` writes. A permission " +
+			"rule you saved for a command by its text stops matching it once it is wrapped, " +
+			"and one saved from a wrapped prompt is keyed on `source`, so it covers every " +
+			"wrapped command",
 	}
 }
 
