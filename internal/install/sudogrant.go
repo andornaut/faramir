@@ -61,8 +61,7 @@ func (r *runner) stepSudoGrant() error {
 	if !hostfs.Exists(hostlayout.SudoersDir) || !hostfs.Exists(hostlayout.PamDir) {
 		// A host with no sudo, or no PAM. Reported rather than failed: the rest of
 		// the install works.
-		r.warnf("%s or %s does not exist, so no grant was written and brokered "+
-			"commands cannot sudo here. Install sudo, then re-run this install",
+		r.warnf("%s or %s does not exist; no sudo grant written",
 			hostlayout.SudoersDir, hostlayout.PamDir)
 		r.skip("sudo grant", "no "+hostlayout.SudoersDir+" or "+hostlayout.PamDir)
 		return nil
@@ -125,8 +124,7 @@ func (r *runner) stepSudoGrant() error {
 	// a usable hash would be a second way in that the broker is not asked about.
 	// Re-asserted every run.
 	if _, err := runcmd.Output("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warnf("could not lock %s's password (%v). Lock it by hand: "+
-			"usermod -L %s",
+		r.warnf("could not lock %s's password (%v): usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
 	if granted || authChanged || envChanged || branchChanged {
@@ -215,20 +213,18 @@ func (r *runner) revokeSudoGrant() error {
 		// Reported rather than fatal, and named: the grant's own files are gone by
 		// now, so nothing can sudo either way, but a branch left in a shared stack
 		// is a line pointing at a helper this run deleted.
-		r.warnf("could not remove the faramir block from a shared PAM stack "+
-			"(%v). The grant is gone; remove the lines between %q and %q by hand",
+		r.warnf("could not remove the faramir block from a shared PAM stack (%v); "+
+			"remove the lines between %q and %q by hand",
 			err, hostsudo.PamBlockBegin, hostsudo.PamBlockEnd)
 	}
 	// Locking rather than clearing: an account with an empty password field is one
 	// some PAM stacks let in without asking.
 	if _, err := runcmd.Output("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warnf("could not lock %s's password (%v). The grant is gone, so nothing "+
-			"can sudo; lock it by hand anyway: usermod -L %s",
+		r.warnf("could not lock %s's password (%v): usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
 	r.restartFor("sudo grant")
-	r.step("sudo grant", true, "revoked: "+hostlayout.SudoersFile+" and the PAM service "+
-		"removed, because --allow-sudo was not passed")
+	r.step("sudo grant", true, "revoked: "+hostlayout.SudoersFile+" and the PAM service removed")
 	return nil
 }
 
@@ -241,8 +237,7 @@ func (r *runner) validateSudoers() error {
 		// Reported rather than failed: the file is generated from a template with no
 		// operator input in it, so the risk this covers is a sudo too old for a
 		// directive rather than a typo.
-		r.warnf("visudo is not installed, so %s was not checked. Verify it with "+
-			"`visudo -cf %s` on a host that has visudo", hostlayout.SudoersFile, hostlayout.SudoersFile)
+		r.warnf("visudo is not installed, so %s was not checked", hostlayout.SudoersFile)
 		return nil //nolint:nilerr // no visudo is a warning, not a failed install
 	}
 	if out, err := exec.CommandContext(context.Background(), path, "-cf", hostlayout.SudoersFile).
@@ -293,7 +288,7 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 		// name, and a newline there renders a second line this file never named.
 		// sudo skips the line without an '=' and applies the one after it.
 		if !secretref.ValidEnvName(name) {
-			r.warnf("[command] env %q is not a variable name, so it is left out of %s",
+			r.warnf("[command] env %q left out of %s: not a variable name",
 				name, r.layout.SudoEnvFile())
 			continue
 		}
@@ -305,8 +300,7 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 		// does not help: the value still truncates, and the opening quote survives
 		// into it (measured on sudo 1.9.15p5).
 		if strings.ContainsAny(value, "\n\r#") {
-			r.warnf("[command] env %s is left out of %s: a value containing a newline "+
-				"or '#' cannot be written to that file intact", name,
+			r.warnf("[command] env %s left out of %s: the value holds a newline or '#'", name,
 				r.layout.SudoEnvFile())
 			continue
 		}
@@ -322,8 +316,7 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 			// name. sudo sets these over whatever PAM handed back, so leaving them out
 			// changes nothing either way.
 			if !sudoSetsItself[name] {
-				r.warnf("[command] env %s is left out of %s: that name is refused for "+
-					"injected values too", name, r.layout.SudoEnvFile())
+				r.warnf("[command] env %s left out of %s: reserved name", name, r.layout.SudoEnvFile())
 			}
 			continue
 		}

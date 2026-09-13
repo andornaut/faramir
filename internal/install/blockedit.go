@@ -134,8 +134,8 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 	derivedWarnings(&report, derived, declared, skipped)
 	for _, entry := range stale {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s no longer resolves to %s, so the entry an earlier add derived for "+
-				"that path is removed", config.Shown(entry.DerivedFrom), config.Shown(entry.Path)))
+			"%s no longer resolves to %s; that derived entry is removed",
+			config.Shown(entry.DerivedFrom), config.Shown(entry.Path)))
 	}
 	derivedRemovalWarnings(&report, nil, retained, links)
 	return report, added, nil
@@ -280,23 +280,17 @@ func derivable(configDir string, entry config.BlockedPath) bool {
 func derivedWarnings(report *Report, derived, declared, skipped []config.BlockedPath) {
 	for _, entry := range derived {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s is a symlink to %s, which is blocked as well: a rule matches the path "+
-				"a command names, and either spelling opens the file. `faramir block rm "+
-				"--path %s` takes both while nothing else names the file",
-			config.Shown(entry.DerivedFrom), config.Shown(entry.Path),
-			config.Shown(entry.DerivedFrom)))
+			"%s is a symlink to %s, which is blocked too (derived entry)",
+			config.Shown(entry.DerivedFrom), config.Shown(entry.Path)))
 	}
 	for _, entry := range declared {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s is a symlink to %s, which has an entry of its own. That entry stays "+
-				"when this one is removed",
+			"%s is a symlink to %s, which has its own entry",
 			config.Shown(entry.DerivedFrom), config.Shown(entry.Path)))
 	}
 	for _, entry := range skipped {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s is a symlink to %s, which is not blocked: it is an enrolled tree or a "+
-				"path no entry may name, and a rule for it would refuse the agent the "+
-				"directory it works in. A command naming the target reaches the file",
+			"%s is a symlink to %s, which is not blocked: an enrolled tree or a reserved path",
 			config.Shown(entry.DerivedFrom), config.Shown(entry.Path)))
 	}
 }
@@ -369,25 +363,16 @@ func blockedWarnings(report *Report, refused config.BlockedPath, links []config.
 	// agent names, which is why it reaches a path this host does not have. What
 	// it will match is said instead, that being the thing a wide pattern hides.
 	if refused.Command != "" {
-		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s blocks the agent's shell from running it. The words are literal and "+
-				"are matched where a command starts, so a line that names them without "+
-				"running them, a grep or an editor's argument, is left alone",
-			config.Shown(refused.Command)))
 		return
 	}
 	if _, statErr := os.Stat(refused.Path); statErr != nil {
-		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s is not there. The rule is written and will hold when it appears, "+
-				"which is what an unmounted volume looks like. A path spelled wrong "+
-				"looks the same, so check it", config.Shown(refused.Path)))
+		report.Warnings = append(report.Warnings,
+			config.Shown(refused.Path)+" does not exist; the rule holds once it does")
 	}
 	for _, link := range links {
 		if link.Path == refused.Path {
 			report.Warnings = append(report.Warnings, fmt.Sprintf(
-				"%s is already refused by the [[secret.link]] entry for %s, which "+
-					"renders the same rule and also keeps the value out of any "+
-					"output. This entry adds nothing to that", config.Shown(refused.Path), config.Shown(link.Ref)))
+				"%s is already refused by the link %s", config.Shown(refused.Path), config.Shown(link.Ref)))
 		}
 	}
 }
@@ -536,9 +521,7 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 			}
 			if dir, ok := agentcfg.InstalledDirCovering(configDir, entry.Path); ok {
 				report.Warnings = append(report.Warnings, fmt.Sprintf(
-					"%s is still blocked: it is under %s, which this install occupies and "+
-						"renders a rule for on every run. What was removed is this install's "+
-						"own entry, which was asking for what the layout already blocks",
+					"%s is still blocked by the install directory %s",
 					config.Shown(entry.Blocks()), dir))
 			}
 		}
@@ -679,21 +662,18 @@ func derivedRemovalWarnings(report *Report, cascaded, retained []config.BlockedP
 			return link.Path == entry.Path
 		}); i >= 0 {
 			report.Warnings = append(report.Warnings, fmt.Sprintf(
-				"the entry for %s went with %s, which resolved to it. The file is still "+
-					"refused by the [[secret.link]] entry for %s",
+				"%s (derived from %s) is removed but still refused by the link %s",
 				config.Shown(entry.Path), config.Shown(entry.DerivedFrom),
 				config.Shown(links[i].Ref)))
 			continue
 		}
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s is no longer blocked either: it is what %s resolved to, and the "+
-				"entry for it was written for that one",
+			"%s (derived from %s) is no longer blocked either",
 			config.Shown(entry.Path), config.Shown(entry.DerivedFrom)))
 	}
 	for _, entry := range retained {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
-			"%s is still blocked: %s still names the same file, and the entry for it "+
-				"goes with that one",
+			"%s is still blocked: %s still resolves to it",
 			config.Shown(entry.Path), config.Shown(entry.DerivedFrom)))
 	}
 }
@@ -741,10 +721,8 @@ func builtInRuleError(configDir string, refused config.BlockedPath) error {
 	if !ok {
 		return nil
 	}
-	return fmt.Errorf("%s is under %s, faramir's own install directory. It is "+
-		"blocked by the install layout, not by a [[secret.block]] entry, so there "+
-		"is nothing to remove and it stays blocked. `faramir block ls` shows which "+
-		"rules come from the layout", config.Shown(refused.Blocks()), dir)
+	return fmt.Errorf("%s is blocked by the install directory %s, not by an entry; "+
+		"see `faramir block ls --built-in`", config.Shown(refused.Blocks()), dir)
 }
 
 // BlockedPaths is what the install declares, for `faramir block ls`.

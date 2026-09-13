@@ -372,28 +372,18 @@ func (d linkDerivation) say(report *Report, typed string, link config.Link) {
 	if d.entry.Path == "" {
 		return
 	}
-	said := fmt.Sprintf("%s is a symlink, so %s names %s, which is the file the "+
-		"broker reads and the file whose group and mode were checked",
+	said := fmt.Sprintf("%s is a symlink; %s reads %s",
 		config.Shown(typed), config.Shown(link.Ref), config.Shown(link.Path))
-	if d.declared {
-		report.Warnings = append(report.Warnings, said+fmt.Sprintf(
-			". %s has a block entry of its own, which stays when the link is removed",
-			config.Shown(typed)))
-		return
+	switch {
+	case d.declared:
+		said += fmt.Sprintf("; %s has its own block entry", config.Shown(typed))
+	case d.written:
+		said += fmt.Sprintf("; %s is blocked too (derived entry)", config.Shown(typed))
+	default:
+		said += fmt.Sprintf("; %s is not blocked: an enrolled tree or a reserved path",
+			config.Shown(typed))
 	}
-	if d.written {
-		report.Warnings = append(report.Warnings, said+fmt.Sprintf(
-			". %s is blocked as well, a rule matching the path a command names, so "+
-				"either spelling is refused. `faramir link rm %s` takes both while nothing "+
-				"else names the file",
-			config.Shown(typed), config.Shown(link.Ref)))
-		return
-	}
-	report.Warnings = append(report.Warnings, said+fmt.Sprintf(
-		". %s is not blocked: it is an enrolled tree or a path no entry may name, "+
-			"so a command naming it reaches the file. The value is still replaced "+
-			"in any output, the link having put it in the redactor",
-		config.Shown(typed)))
+	report.Warnings = append(report.Warnings, said)
 }
 
 // linkTarget is what a path resolves to, or the path itself where nothing
@@ -514,8 +504,7 @@ func reassertLink(opts Options, existing []config.Link, link config.Link) (Repor
 	// Refusing here would fail a converge run over a home that is not mounted,
 	// so it is said and the probe is skipped: there is nothing to read.
 	report.Warnings = append(report.Warnings, fmt.Sprintf(
-		"%s: %s is not there, so nothing was checked or read. The entry stands "+
-			"and the broker treats it as a ref naming nothing", link.Ref, link.Path))
+		"%s: %s does not exist; the ref serves nothing until it does", link.Ref, link.Path))
 	return report, nil
 }
 
@@ -564,16 +553,13 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	if err == nil {
 		for _, entry := range cascaded {
 			report.Warnings = append(report.Warnings, fmt.Sprintf(
-				"%s is no longer blocked either: it is the spelling %s was added under, "+
-					"and the entry for it was written by that add",
+				"%s (the spelling %s was added under) is no longer blocked either",
 				config.Shown(entry.Path), config.Shown(removed.Ref)))
 		}
 		for _, entry := range retained {
 			report.Warnings = append(report.Warnings, fmt.Sprintf(
-				"%s is still blocked: another entry still names %s, and the entry for "+
-					"the spelling %s was added under goes with that one",
-				config.Shown(entry.Path), config.Shown(entry.DerivedFrom),
-				config.Shown(removed.Ref)))
+				"%s is still blocked: another entry still names %s",
+				config.Shown(entry.Path), config.Shown(entry.DerivedFrom)))
 		}
 	}
 	return report, removed, err

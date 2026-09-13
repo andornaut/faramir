@@ -130,8 +130,7 @@ func (r *runner) keepSopsConfig(path string) {
 	if err != nil {
 		// The file is the operator's to edit and sops is what parses it, so a shape
 		// this does not understand is a question that went unasked.
-		r.warnf("%s could not be read (%v); encrypting a new value fails until "+
-			"sops can parse it", path, err)
+		r.warnf("%s could not be read (%v); sops cannot encrypt until it parses", path, err)
 		r.step("sops config", false, "keeping "+path)
 		return
 	}
@@ -140,12 +139,9 @@ func (r *runner) keepSopsConfig(path string) {
 	r.report.AgeRecipients = listed
 
 	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
-		r.warnf("%s does not list the keeper's own recipient (%s), so %s cannot "+
-			"decrypt any new value. Put it back with:\n"+
-			"  sudo faramir reader add %s\n"+
-			"This works while the managed files can still be opened with %s",
-			path, r.keeperRecipient, r.layout.KeeperUser,
-			r.keeperRecipient, r.layout.AgeKeyPath)
+		r.warnf("%s does not list the keeper's recipient %s, so %s cannot decrypt a new value: "+
+			"faramir reader add %s",
+			path, r.keeperRecipient, r.layout.KeeperUser, r.keeperRecipient)
 	}
 
 	r.step("sops config", false, fmt.Sprintf("keeping %s, %d recipient(s)", path, len(listed)))

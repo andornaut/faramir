@@ -123,7 +123,7 @@ Command | Does
 `sudo faramir sudo approve ID` | Approves. The id is required, so that nobody approves a command they have not seen
 `sudo faramir sudo reject [ID]` | Refuses. The id is optional, because only one question is outstanding at a time. Without one it prints the question it refused
 `sudo faramir reload` | Stops the daemons. The next brokered command starts them on the changed config. All three are socket activated, so stopping them is enough. [When you need it](#when-a-reload-is-needed)
-`sudo faramir uninstall` | Removes the broker from the install it finds. Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable. Running it again is not an error: the removal is at fixed paths whether or not an install answers
+`sudo faramir uninstall` | Removes the broker from the install it finds. Leaves the accounts, the config, the secrets, the key and the audit log, and lists them. Deleting the age key would make every managed sops file unreadable. Running it again is not an error: the removal is at fixed paths whether or not an install answers
 
 At the broker these four `sudo` commands are two ops: `ls` and `watch` both ask `escalations`, and `approve` and `reject` both send `answer` with a different verdict. `escalations`, `answer` and `escalate` are root-only there too, checked with `SO_PEERCRED`, so the account the coding agent runs as cannot answer what the agent asked for. `escalate` is the op sudo's PAM helper asks, and the one that decides whether a brokered command becomes root.
 

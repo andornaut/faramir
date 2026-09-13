@@ -36,14 +36,10 @@ func newEnrolCmd() *cobra.Command {
 	// No --agent-user. The tree belongs to the account this host belongs to, which
 	// [server] agent_user records; `faramir init --agent-user` is what names it.
 	fl.StringVar(&f.clientGroup, "client-group", "",
-		"share the tree with this group instead of the installed config's client group; "+
-			"the config must still load")
+		"group to share the tree with (default: the installed client group)")
 	fl.StringArrayVar(&f.agents, "agent", nil,
-		"coding agent to enrol; repeatable. \""+agentcfg.Auto+"\" (the default) means "+
-			"every agent this tree already has configuration for, and Codex when your "+
-			"home has it. A name enrols that "+
-			"agent whether or not it is there, and can be combined with auto. "+
-			"Known: "+strings.Join(agentcfg.Known(), ", "))
+		"agent to enrol; repeatable. \""+agentcfg.Auto+"\" (the default) enrols every agent "+
+			"the tree has configuration for. Known: "+strings.Join(agentcfg.Known(), ", "))
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
 	return c
@@ -89,15 +85,12 @@ func runEnrol(f enrolFlags, args []string) int {
 	}
 	if !f.asJSON {
 		for _, warning := range report.Warnings {
-			fmt.Fprintf(os.Stderr, "\nwarning: %s\n", warning)
+			fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 		}
 		if report.DryRun {
-			fmt.Fprintf(os.Stderr, "\nDry run: nothing was written. %s would be "+
-				"enrolled with group %s.\n", report.Dir, report.ClientGroup)
+			fmt.Fprintf(os.Stderr, "dry run: would enrol %s (group %s)\n", report.Dir, report.ClientGroup)
 		} else {
-			fmt.Fprintf(os.Stderr, "\nEnrolled %s with group %s.\n",
-				report.Dir, report.ClientGroup)
-			fmt.Fprintln(os.Stderr, "Check it: cd there and run `faramir run -- pwd`.")
+			fmt.Fprintf(os.Stderr, "enrolled %s (group %s)\n", report.Dir, report.ClientGroup)
 		}
 	}
 	return 0

@@ -30,12 +30,10 @@ func durationSeconds(flag, value string) (int, error) {
 	}
 	d, err := time.ParseDuration(value)
 	if err != nil {
-		return 0, fmt.Errorf("%s takes a duration such as 90s or 5m, or a "+
-			"bare number of seconds; %q is neither", flag, value)
+		return 0, fmt.Errorf("%s: %q is not a duration (90s, 5m) or a number of seconds", flag, value)
 	}
 	if d%time.Second != 0 {
-		return 0, fmt.Errorf("%s takes whole seconds, so %q cannot be used as "+
-			"given; use %s or round up", flag, value, d.Truncate(time.Second))
+		return 0, fmt.Errorf("%s: %q is not whole seconds", flag, value)
 	}
 	seconds := int(d / time.Second)
 	return seconds, checkSeconds(flag, seconds)
@@ -53,7 +51,7 @@ func asDuration(seconds int) string {
 // config read as their own default.
 func checkSeconds(flag string, seconds int) error {
 	if seconds < 0 {
-		return fmt.Errorf("%s must not be negative; leave it out for the default", flag)
+		return fmt.Errorf("%s must not be negative", flag)
 	}
 	return nil
 }

@@ -36,20 +36,13 @@ func newAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add [options] NAME",
 		Short: "Add a new encrypted secret file",
-		Long: "Creates one file in the secrets directory, encrypted to the recipients\n" +
-			"listed in .sops.yaml.\n\n" +
-			"NAME is relative to the secrets directory. The `.sops.yml` suffix is\n" +
-			"added unless NAME already ends with it.\n\n" +
-			"The content is written in an editor, on a 0600 file in a tmpfs, so no\n" +
-			"plaintext reaches a disk.\n\n" +
-			"--from encrypts an existing file instead. That file is left where it is,\n" +
-			"still in cleartext.",
+		Long: "Creates NAME in the secrets directory, encrypted to the recipients in\n" +
+			".sops.yaml. The content is written in an editor on a tmpfs.",
 		Args: exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runAdd(f, args[0])) },
 	}
 	c.Flags().StringVar(&f.editor, "editor", "", editorUsage)
-	c.Flags().StringVar(&f.from, "from", "",
-		"encrypt this plaintext `FILE` instead of opening an editor; the file is left where it is")
+	c.Flags().StringVar(&f.from, "from", "", "encrypt this plaintext `FILE` instead of opening an editor")
 	return c
 }
 
@@ -105,13 +98,12 @@ func runAdd(f addFlags, name string) int {
 		return 1
 	}
 
-	fmt.Fprintf(os.Stderr, "faramir %s: wrote %s; %s\n", label, target,
-		reReadNote(brokerclient.Refresh(socketDefault()), "it picks this up within one refresh interval"))
+	fmt.Fprintf(os.Stderr, "wrote %s; %s\n", target, reReadNote(brokerclient.Refresh(socketDefault())))
 	if f.from != "" {
 		// Said rather than done: removing somebody's file is not this command's to
 		// decide, and a plaintext copy nobody remembers is what this exists to keep
 		// off the disk.
-		fmt.Fprintf(os.Stderr, "faramir %s: %s is still cleartext on disk\n", label, f.from)
+		fmt.Fprintf(os.Stderr, "warning: %s is still cleartext on disk\n", f.from)
 	}
 	return 0
 }

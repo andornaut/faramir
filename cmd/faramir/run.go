@@ -112,15 +112,12 @@ func newRunCmd() *cobra.Command {
 	}
 	o.add(c)
 	c.Flags().BoolVar(&quiet, "quiet", false, "suppress the redaction summary")
-	c.Flags().BoolVarP(&stdin, "stdin", "i", false,
-		"pass piped input to the command; without this flag, piped input is refused")
-	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory for the command (default: the current directory)")
-	c.Flags().StringVarP(&timeout, "timeout", "t", "",
-		"how long the command may run: a duration such as 90s or 5m, or a number of seconds")
+	c.Flags().BoolVarP(&stdin, "stdin", "i", false, "pass piped input to the command")
+	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory (default: the current directory)")
+	c.Flags().StringVarP(&timeout, "timeout", "t", "", "duration (90s, 5m) or seconds")
 	c.Flags().StringArrayVar(&envRefs, "env", nil,
-		"NAME=faramir://ref, or NAME alone for the ref of the same name; repeatable")
-	c.Flags().StringArrayVar(&envFiles, "env-file", nil,
-		"file of NAME=faramir://ref lines, or NAME alone for the ref of the same name; repeatable")
+		"NAME=faramir://ref, or NAME for the ref of the same name; repeatable")
+	c.Flags().StringArrayVar(&envFiles, "env-file", nil, "file of --env lines; repeatable")
 	// Stop at the program name so its own flags stay with it. Without this pflag
 	// reads a colliding flag after the command (-C, -t, --env, --quiet) as run's
 	// own, running a different command than the caller typed.
@@ -145,10 +142,9 @@ func resolveCwd(cwd string) (string, error) {
 	here, err := os.Getwd()
 	if err != nil {
 		if cwd == "" {
-			return "", fmt.Errorf(
-				"the current directory cannot be read (%w); name one with -C", err)
+			return "", fmt.Errorf("current directory: %w; pass -C", err)
 		}
-		return "", fmt.Errorf("--cwd %s cannot be resolved: %w", cwd, err)
+		return "", fmt.Errorf("--cwd %s: %w", cwd, err)
 	}
 	if cwd == "" {
 		return here, nil
@@ -186,9 +182,7 @@ func pipedStdin(asked bool) ([]byte, error) {
 		return nil, fmt.Errorf("reading stdin: %w", err)
 	}
 	if len(piped) > config.MaxStdinBytes {
-		return nil, fmt.Errorf("stdin is larger than %d bytes, the most one "+
-			"request carries. Write it to a file the command opens itself",
-			config.MaxStdinBytes)
+		return nil, fmt.Errorf("stdin exceeds %d bytes", config.MaxStdinBytes)
 	}
 	return piped, nil
 }
@@ -214,9 +208,7 @@ func refusePipeWithoutTheFlag() error {
 	if !piped || spentPipe() {
 		return nil
 	}
-	return errors.New("stdin is a pipe but -i was not given, so the input would " +
-		"go nowhere. Pass -i to send it to the command, or redirect stdin from " +
-		"/dev/null")
+	return errors.New("stdin is a pipe: pass -i to send it, or redirect from /dev/null")
 }
 
 // spentPipe reports whether standard input is an anonymous pipe that will never
@@ -275,10 +267,8 @@ func fitsOneRequest(request map[string]any, piped int) error {
 		return nil
 	}
 	if piped > 0 {
-		return fmt.Errorf("the command plus its %d bytes of input is %d bytes, and a "+
-			"request is at most %d: shorten the command, or write the input to a "+
-			"file the command opens itself", piped, len(encoded), config.MaxRequestBytes)
+		return fmt.Errorf("request is %d bytes (%d of stdin); the limit is %d",
+			len(encoded), piped, config.MaxRequestBytes)
 	}
-	return fmt.Errorf("the command is %d bytes and a request is at most %d",
-		len(encoded), config.MaxRequestBytes)
+	return fmt.Errorf("request is %d bytes; the limit is %d", len(encoded), config.MaxRequestBytes)
 }

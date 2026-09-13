@@ -2,7 +2,6 @@ package install
 
 import (
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
@@ -74,15 +73,8 @@ func TestABlockRunRendersBothEntryPoints(t *testing.T) {
 func TestACommandEntryWarnsAboutItselfRatherThanAnEmptyPath(t *testing.T) {
 	var report Report
 	blockedWarnings(&report, config.BlockedPath{Command: "op read"}, nil)
-	if len(report.Warnings) != 1 {
-		t.Fatalf("warnings = %v, want one", report.Warnings)
-	}
-	got := report.Warnings[0]
-	if strings.Contains(got, "is not there") {
-		t.Errorf("a command entry was stat'ed as a path: %s", got)
-	}
-	if !strings.Contains(got, "op read") {
-		t.Errorf("the warning does not name the command: %s", got)
+	if len(report.Warnings) != 0 {
+		t.Errorf("warnings = %v, want none: a command is not stat'ed as a path", report.Warnings)
 	}
 }
 

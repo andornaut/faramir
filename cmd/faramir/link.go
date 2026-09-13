@@ -48,39 +48,19 @@ func newLinkAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add [options] REF FILE",
 		Short: "Add a secret read from a file another tool maintains",
-		Long: "Adds one [[secret.link]] entry and applies it: the file is checked to be\n" +
-			"readable by the broker, the file is refused to the agent's file tools, its\n" +
-			"shell and any brokered command that would print it, and the daemons are\n" +
-			"reloaded. Nothing is granted: a file that is not the broker's group,\n" +
-			"group-readable and not world-readable is refused, with the chgrp and\n" +
-			"chmod to run.\n\n" +
-			"REF is the name a caller asks for, with or without the faramir:// prefix\n" +
-			"that `faramir refs` prints.\n\n" +
-			"The file is read twice before anything is written, as root and then as\n" +
-			"the broker, so a --key that selects nothing, or a file the broker cannot\n" +
-			"reach, fails here rather than later.\n\n" +
-			"A symlink is resolved: the entry names the target, which is the file\n" +
-			"whose group and mode are checked, and the spelling you typed is\n" +
-			"blocked instead, so both names are refused. `link rm` takes both, unless\n" +
-			"another entry still names the target.\n\n" +
-			"Adding an entry that already exists re-applies it, which puts back the\n" +
-			"entry and any rule of it that was removed, reloads the daemons, and\n" +
-			"reports changed=false. The same ref with a different file, type or key\n" +
-			"is an error. The same ref with a different --strict updates the entry.\n\n" +
-			"Prints the ref it added. --json prints the file-by-file report.",
+		Long: "Adds a [[secret.link]] entry, blocks the file from the agent and reloads\n" +
+			"the daemons. The file must be readable by the broker's group and not\n" +
+			"world-readable; nothing is granted. A symlink is resolved and blocked at\n" +
+			"both names.",
 		Args: exactlyArgs(2, "a ref and a file"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runLinkAdd(f, secretref.Bare(args[0]), args[1]))
 		},
 	}
-	c.Flags().StringVar(&f.kind, "type", "",
-		"how to read the file: "+strings.Join(secretlink.Kinds(), ", "))
-	c.Flags().StringVar(&f.key, "key", "",
-		"the entry to select from the file, for types that have entries")
+	c.Flags().StringVar(&f.kind, "type", "", "file format: "+strings.Join(secretlink.Kinds(), ", "))
+	c.Flags().StringVar(&f.key, "key", "", "entry to select from the file")
 	c.Flags().BoolVar(&f.strict, "strict", false,
-		"refuse every command that names this file, not only the ones that would "+
-			"print it: ls, stat, chmod and mv included. Off by default, since the "+
-			"tool that owns the file could then not be told to rewrite it")
+		"refuse every brokered command naming the file, not only one that would print it")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
@@ -121,8 +101,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 	// doctor` says so where it reports one.
 	if report.Changed {
 		if err := install.Reload(); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir link add: %s written, daemons not "+
-				"reloaded, so it is not served yet: %v\n", ref, err)
+			fmt.Fprintf(os.Stderr, "faramir link add: %s written but daemons not reloaded: %v\n", ref, err)
 			return 1
 		}
 	}
@@ -130,11 +109,10 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 		return 0
 	}
 	if added {
-		fmt.Fprintf(os.Stderr, "faramir link add: added %s\n", ref)
-		printWarnings(report)
-		return 0
+		fmt.Fprintf(os.Stderr, "added %s\n", ref)
+	} else {
+		fmt.Fprintf(os.Stderr, "%s already reads %s\n", ref, path)
 	}
-	fmt.Fprintf(os.Stderr, "%s already reads %s\n", ref, path)
 	printWarnings(report)
 	return 0
 }
@@ -144,18 +122,8 @@ func newLinkRemoveCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "rm [options] REF",
 		Short: "Remove a linked secret",
-		Long: "Removes the entry. The value leaves the redactor and can no longer be\n" +
-			"injected.\n\n" +
-			"The rules faramir wrote into your agent's settings are removed with it,\n" +
-			"using its record of what it last wrote there. A rule you added yourself\n" +
-			"for the same path is not in that record and stays.\n\n" +
-			"The read access granted to the broker is not undone, because the file's\n" +
-			"previous mode is unknown. The command that undoes it is printed.\n\n" +
-			"A blocked entry the add derived from this link, the spelling it was\n" +
-			"added under before the path was resolved, is removed with it and named\n" +
-			"in the report.\n\n" +
-			"Prints the ref it removed. --json prints the file-by-file report.\n\n" +
-			"A ref this install does not have reports changed=false.",
+		Long: "Removes the entry and the rules faramir rendered from it. The broker's\n" +
+			"read access to the file is not undone.",
 		Args: exactlyOneArg("ref"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runLinkRemove(f, secretref.Bare(args[0])))
@@ -187,8 +155,7 @@ func runLinkRemove(f linkFlags, ref string) int {
 	// Only what changed reaches a daemon, as in link add.
 	if report.Changed {
 		if err := install.Reload(); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir link rm: %s removed, daemons not "+
-				"reloaded, so it is still served: %v\n", ref, err)
+			fmt.Fprintf(os.Stderr, "faramir link rm: %s removed but daemons not reloaded: %v\n", ref, err)
 			return 1
 		}
 	}
@@ -196,27 +163,17 @@ func runLinkRemove(f linkFlags, ref string) int {
 		return 0
 	}
 	if removed.Ref == "" {
-		fmt.Fprintf(os.Stderr, "no link named %s; `faramir link ls` lists them\n", ref)
+		fmt.Fprintf(os.Stderr, "no link %s\n", ref)
 		printWarnings(report)
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "faramir link rm: removed %s\n", removed.Ref)
+	fmt.Fprintf(os.Stderr, "removed %s\n", removed.Ref)
 	printWarnings(report)
 	// What was granted and is still granted, so the operator decides rather than
 	// discovering it later.
-	fmt.Fprintf(os.Stderr, "%s is still readable by the broker's group; narrow it "+
-		"with: chmod g-r %s\n", removed.Path, removed.Path)
-	// Only where an agent's settings were actually rewritten; see runBlockRemove.
-	if changedAny(report, "agent config", "enrolled trees") {
-		fmt.Fprintln(os.Stderr, noteHandWrittenRule)
-	}
+	fmt.Fprintf(os.Stderr, "%s is still group-readable: chmod g-r %s\n", removed.Path, removed.Path)
 	return 0
 }
-
-// noteHandWrittenRule is said after a removal that rewrote an agent's settings.
-// faramir takes out what it wrote, against its own record, and a rule the
-// operator added by hand is not in that record.
-const noteHandWrittenRule = "a rule you added to your agent's settings yourself is left in place"
 
 func newLinkListCmd() *cobra.Command {
 	var f linkFlags

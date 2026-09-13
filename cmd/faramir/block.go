@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"slices"
 
 	"github.com/spf13/cobra"
 
@@ -58,9 +57,7 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 	// means a command and types the argument gets a rule about a file, which is
 	// not what they asked for and looks like it worked.
 	if len(args) > 0 {
-		return nil, fmt.Errorf("faramir block %s: %q needs a flag: --path for a file or "+
-			"directory on this host, or --command for a command the agent's shell "+
-			"may not run. Neither is the default", verb, args[0])
+		return nil, fmt.Errorf("faramir block %s: %q: pass --path or --command", verb, args[0])
 	}
 	out := make([]config.BlockedPath, 0, len(f.paths)+len(f.commands))
 	// --strict rides on every path the command names, and on no command entry:
@@ -73,9 +70,7 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 		out = append(out, config.BlockedPath{Command: command})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("faramir block %s: nothing to block. Pass --path for a "+
-			"file or directory on this host, or --command for a command the "+
-			"agent's shell may not run. Both are repeatable and can be combined", verb)
+		return nil, fmt.Errorf("faramir block %s: nothing given: pass --path or --command", verb)
 	}
 	return out, nil
 }
@@ -84,36 +79,19 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 // form is a flag, including the path: two things are blocked here and a
 // positional argument would make one of them the default.
 func (f *blockFlags) registerForms(c *cobra.Command) {
-	c.Flags().StringArrayVar(&f.paths, "path", nil,
-		"an absolute path to a file or directory on this host; repeatable")
+	c.Flags().StringArrayVar(&f.paths, "path", nil, "absolute path; repeatable")
 	c.Flags().StringArrayVar(&f.commands, "command", nil,
-		"a command the agent may not run, as it would be typed "+
-			"(\"op read\"); the words are literal, not a pattern; repeatable")
+		"command as typed (\"op read\"), matched literally at the start of a command line; repeatable")
 }
 
 func newBlockAddCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
 		Use:   "add [options] (--path PATH | --command COMMAND)...",
-		Short: "Block one path or command from the agent",
-		Long: "Adds one [[secret.block]] entry per --path and --command, then\n" +
-			"re-renders the agent's deny rules and reloads the daemons. Use it for a\n" +
-			"credential whose value faramir never needs, such as a LUKS keyfile or an\n" +
-			"SSH identity.\n\n" +
-			"The file is never opened, so its value never enters the redactor. A\n" +
-			"blocked path is refused to the agent's file tools, to its shell, and to\n" +
-			"any brokered command that would print it. Other brokered commands are\n" +
-			"allowed, including ones that move or overwrite the file. --strict refuses\n" +
-			"every command that names the path.\n\n" +
-			"A bare argument is refused. A path that does not exist is still recorded,\n" +
-			"and reported. An entry that already exists re-renders the rules and\n" +
-			"reports changed=false.\n\n" +
-			"A path that is a symlink is recorded at both names: the target becomes a\n" +
-			"second entry, since a rule matches the path a command names and either\n" +
-			"spelling opens the file. `block rm` on the path you declared takes both,\n" +
-			"unless another entry still names the target. Declaring the symlink again\n" +
-			"after it was repointed replaces the target entry.\n\n" +
-			"Prints the path it blocked. --json prints the file-by-file report.",
+		Short: "Block paths or commands from the agent",
+		Long: "Adds a [[secret.block]] entry per --path and --command, re-renders the\n" +
+			"agent's deny rules and reloads the daemons. A symlink is blocked at both\n" +
+			"names; the target entry is removed with it.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runBlockAdd(f, args))
@@ -121,10 +99,7 @@ func newBlockAddCmd() *cobra.Command {
 	}
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.strict, "strict", false,
-		"refuse every command that names these paths, not only the ones that "+
-			"would print them: ls, stat, chmod and mv included. Off by default, "+
-			"since a file nothing may touch cannot be rotated. Not for --command, "+
-			"which already matches at the start of a command only")
+		"refuse every brokered command naming the path, not only one that would print it")
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
@@ -160,8 +135,7 @@ func runBlockAdd(f blockFlags, args []string) int {
 	// under whatever brokered command is running.
 	if report.Changed {
 		if err := install.Reload(); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir block add: entry written, daemons not "+
-				"reloaded, so it is not enforced yet: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir block add: written but daemons not reloaded: %v\n", err)
 			return 1
 		}
 	}
@@ -173,10 +147,10 @@ func runBlockAdd(f blockFlags, args []string) int {
 	// would not say which was which.
 	for i, entry := range blocked {
 		if added[i] {
-			fmt.Fprintf(os.Stderr, "faramir block add: blocked %s\n", config.Shown(entry.Blocks()))
+			fmt.Fprintf(os.Stderr, "blocked %s\n", config.Shown(entry.Blocks()))
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "faramir block add: already blocked: %s\n", config.Shown(entry.Blocks()))
+		fmt.Fprintf(os.Stderr, "already blocked %s\n", config.Shown(entry.Blocks()))
 	}
 	printWarnings(report)
 	return 0
@@ -186,19 +160,9 @@ func newBlockRemoveCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
 		Use:   "rm [options] (--path PATH | --command COMMAND)...",
-		Short: "Unblock one path or command",
-		Long: "Removes the entry, so `faramir init` stops rendering the rule.\n\n" +
-			"The rules faramir wrote into your agent's settings are removed with it,\n" +
-			"using its record of what it last wrote there. A rule you added yourself\n" +
-			"for the same path is not in that record and stays.\n\n" +
-			"Prints the path it stopped blocking. --json prints the file-by-file\n" +
-			"report.\n\n" +
-			"The flag identifies the entry: --command does not remove a --path entry\n" +
-			"with the same text. An entry that does not exist reports changed=false.\n" +
-			"An entry the add derived from this path, the target of a symlink, is\n" +
-			"removed with it and named in the report.\n" +
-			"A rule rendered from this install's layout cannot be removed;\n" +
-			"`faramir block ls` shows which rules those are.",
+		Short: "Unblock paths or commands",
+		Long: "Removes the entries and the rules faramir rendered from them. A rule\n" +
+			"rendered from the install layout cannot be removed.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockRemove(f, args)) },
 	}
@@ -246,8 +210,7 @@ func runBlockRemove(f blockFlags, args []string) int {
 	// on refusing a path the operator has just undeclared.
 	if report.Changed {
 		if err := install.Reload(); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir block rm: entry removed, daemons not "+
-				"reloaded, so it is still refused: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir block rm: removed but daemons not reloaded: %v\n", err)
 			return 1
 		}
 	}
@@ -256,39 +219,15 @@ func runBlockRemove(f blockFlags, args []string) int {
 	}
 	// The outcome first and on its own: it is the answer to what was asked, and
 	// an operator who has to find it under a dozen paths has been told nothing.
-	// Everything below it is about how, and only where it applies.
 	for i, entry := range removed {
 		if entry.Blocks() == "" {
-			fmt.Fprintf(os.Stderr, "not blocked: %s; `faramir block ls` lists what is\n",
-				config.Shown(asked[i].Blocks()))
+			fmt.Fprintf(os.Stderr, "not blocked %s\n", config.Shown(asked[i].Blocks()))
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "faramir block rm: stopped blocking %s\n", config.Shown(entry.Blocks()))
+		fmt.Fprintf(os.Stderr, "unblocked %s\n", config.Shown(entry.Blocks()))
 	}
 	printWarnings(report)
-	// Said only where an agent's settings were actually rewritten. Where nothing
-	// there changed there is no merge to explain, and the paragraph described a
-	// mechanism that had not run.
-	//
-	// Both steps, because either writes an agent's settings: the account-wide
-	// files on a home that has an agent in it, and the per-tree files on every
-	// enrolled tree. A host with no agent in the home still has trees, and
-	// asking only the first said nothing on the run that had just rewritten one.
-	if changedAny(report, "agent config", "enrolled trees") {
-		fmt.Fprintln(os.Stderr, noteHandWrittenRule)
-	}
 	return 0
-}
-
-// changedAny reports whether any of the named steps changed anything, so a note
-// about what a step did is printed only on a run where it did it.
-func changedAny(report install.Report, names ...string) bool {
-	for _, step := range report.Steps {
-		if slices.Contains(names, step.Name) && step.Changed {
-			return true
-		}
-	}
-	return false
 }
 
 func newBlockListCmd() *cobra.Command {
@@ -296,22 +235,13 @@ func newBlockListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   useLs,
 		Short: "List the blocked paths and commands",
-		Long: "Lists everything this host blocks: the [[secret.block]] entries it\n" +
-			"declares, in a table, then the rules rendered from this install's\n" +
-			"layout. --json prints one list with a `source` field per row.\n\n" +
-			"The kind says where a rule is enforced. A `path` rule applies to the\n" +
-			"agent's file tools and its shell; a `command` rule applies to the shell\n" +
-			"only.\n\n" +
-			"--declared lists only the entries a configuration manager can converge.\n" +
-			"--built-in lists only the rules no config names and no `block rm`\n" +
-			"removes. Passing both is refused; leaving both out lists everything.",
+		Long: "Lists the declared [[secret.block]] entries, then the rules rendered from\n" +
+			"the install layout. --json adds a `source` field per row.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockList(f)) },
 	}
-	c.Flags().BoolVar(&f.declared, "declared", false,
-		"list only the [[secret.block]] entries this install declares")
-	c.Flags().BoolVar(&f.builtIn, "built-in", false,
-		"list only the rules rendered from this install's layout, which no entry declares")
+	c.Flags().BoolVar(&f.declared, "declared", false, "only the declared entries")
+	c.Flags().BoolVar(&f.builtIn, "built-in", false, "only the rules rendered from the install layout")
 	c.Flags().BoolVar(&f.json, "json", false, "print the entries as JSON")
 	addColorFlag(c, &f.when)
 	return c
@@ -326,8 +256,7 @@ func runBlockList(f blockFlags) int {
 	// nothing. Refused rather than answered, a caller that wrote both having
 	// meant one of them.
 	if f.declared && f.builtIn {
-		fmt.Fprintln(os.Stderr, "faramir block ls: pass --declared or --built-in, "+
-			"not both; leave both out to list everything")
+		fmt.Fprintln(os.Stderr, "faramir block ls: --declared and --built-in are exclusive")
 		return 2
 	}
 	dir, err := installedConfigDir(socketDefault())
@@ -344,8 +273,7 @@ func runBlockList(f blockFlags) int {
 			fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "faramir block ls: %v; the built-in rules below "+
-			"apply regardless\n", err)
+		fmt.Fprintf(os.Stderr, "faramir block ls: %v; listing the built-in rules only\n", err)
 	}
 	if f.builtIn {
 		declared = nil

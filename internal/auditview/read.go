@@ -199,9 +199,7 @@ func ReportSkipped(path string, skipped int) {
 	if skipped == 0 {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "faramir logs: %s: %d line(s) do not parse and are not shown. "+
-		"The broker writes one complete record per line, so these lines were "+
-		"written by something else or damaged afterwards\n", path, skipped)
+	fmt.Fprintf(os.Stderr, "warning: %s: %d line(s) do not parse and are not shown\n", path, skipped)
 }
 
 // EmptyReason is why the listing is empty. A count that asked for nothing and
@@ -209,8 +207,7 @@ func ReportSkipped(path string, skipped int) {
 // and tailRecords reports it by opening the file whatever the count was.
 func EmptyReason(path string, count int) string {
 	if count <= 0 {
-		return fmt.Sprintf("--count %d asks for no records. Pass a positive count to "+
-			"list some, or a log-id to look one up", count)
+		return fmt.Sprintf("--count %d asks for no records", count)
 	}
-	return path + " holds no records to show"
+	return path + " holds no records"
 }

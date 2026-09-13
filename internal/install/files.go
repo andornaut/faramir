@@ -352,9 +352,7 @@ func (r *runner) stepLogrotate() error {
 	// "changed" either way, so a host with no logrotate looks installed and has
 	// no ceiling on the log. `faramir doctor` checks it again.
 	if _, err := exec.LookPath("logrotate"); err != nil {
-		r.warnf("logrotate is not installed, so %s does nothing and %s grows without "+
-			"limit. Install logrotate, or rotate that file some other way",
-			hostlayout.LogrotateConfig, r.layout.AuditLogPath())
+		r.warnf("logrotate is not installed, so %s is not rotated", r.layout.AuditLogPath())
 	}
 	r.step("logrotate", made, hostlayout.LogrotateConfig)
 	return nil

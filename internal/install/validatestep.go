@@ -50,11 +50,8 @@ func (r *runner) stepValidate() error {
 			// What it does is refuse, not run bare. Said that way round: a warning
 			// that reads as an exposure teaches the wrong reflex for the day a value
 			// set really does fail to load.
-			r.warnf("the broker is configured for %s, which %s not been written yet, so "+
-				"it serves nothing and refuses every brokered command. Write the "+
-				"secrets directory with sops and re-run",
-				strings.Join(absent, ", "),
-				map[bool]string{true: "has", false: "have"}[len(absent) == 1])
+			r.warnf("no managed file matches %s yet, so the broker refuses every brokered command",
+				strings.Join(absent, ", "))
 			r.step("validate", false, "no secrets yet")
 			return nil
 		}
@@ -72,11 +69,8 @@ func (r *runner) stepValidate() error {
 		// anything calls healthy, and the remedies are named here rather than
 		// attempted.
 		if report.OnlyDegradedLinks() {
-			r.warnf("%s did not load, so those refs return nothing: %s. Restore the "+
-				"file each names, fix its selector, or remove the entry with "+
-				"`sudo faramir link rm REF`, then run `sudo systemctl restart "+
-				"faramir-broker`: the broker does not notice a repair that leaves "+
-				"mtime and size unchanged",
+			r.warnf("%s did not load, so those refs return nothing: %s; "+
+				"restart faramir-broker after repairing the file",
 				brokercheck.LinkEntries(len(report.Secrets.DegradedLinks)), report.DegradedRefs())
 			r.step("validate", false, "installed; linked refs to fix")
 			return nil
@@ -94,17 +88,12 @@ func (r *runner) stepValidate() error {
 		// this and `faramir status` exits non-zero over it, so a host in this state
 		// is not one anything calls healthy.
 		if report.OnlyNotRedactable() {
-			r.warnf("%d ref(s) cannot be redacted, so they are never injected: %s. "+
-				"Fix each with `sudo faramir vault edit`",
+			r.warnf("%d ref(s) cannot be redacted, so they are never injected: %s",
 				len(report.Secrets.NotRedactable), report.RefusedRefs())
 			r.step("validate", false, "installed; refs to fix")
 			return nil
 		}
-		return fmt.Errorf("the installed config does not work for %s: %w\nA [secret] file named above "+
-			"could not be loaded. A ref under not_redactable needs fixing. A [[secret.link]] "+
-			"entry named above claims a ref the managed store already defines: remove it "+
-			"with `sudo faramir link rm REF`",
-			r.layout.BrokerUser, checkErr)
+		return fmt.Errorf("the installed config does not work for %s: %w", r.layout.BrokerUser, checkErr)
 	}
 
 	// A value absent from the set is neither injectable nor redacted, so zero refs
@@ -112,8 +101,7 @@ func (r *runner) stepValidate() error {
 	// looking healthy. Guarded on the resolved files rather than the patterns, no
 	// files at all being what a first install looks like.
 	if len(report.Secrets.Files) > 0 && report.Secrets.Count == 0 {
-		r.warnf("the broker read %s and loaded no refs, so nothing is injectable "+
-			"and nothing is redacted. %s",
+		r.warnf("the broker read %s and loaded no refs: %s",
 			strings.Join(report.Secrets.Files, ", "), brokercheck.LoadErrorDetail(report.Secrets.Errors))
 	}
 
@@ -123,9 +111,7 @@ func (r *runner) stepValidate() error {
 	// injection relies on. Nothing errors.
 	for _, file := range report.Secrets.Files {
 		if strings.Contains(file, "/group_vars/") || strings.Contains(file, "/host_vars/") {
-			return fmt.Errorf("%s is under group_vars/ or host_vars/, which Ansible "+
-				"auto-loads. Every var would silently resolve to its ENC[...] ciphertext "+
-				"instead of the injected value. Move it to %s",
+			return fmt.Errorf("%s is under group_vars/ or host_vars/, which Ansible auto-loads; move it to %s",
 				file, r.layout.SecretsDir())
 		}
 	}
@@ -144,8 +130,7 @@ func (r *runner) stepValidate() error {
 	// Skipped while the broker is refusing, which a managed file that did not
 	// load is: this probe would report that refusal as an SSH fault.
 	if r.sshKey != "" && !report.Serves() {
-		r.warnf("a managed file did not load, so the broker refuses brokered " +
-			"commands. Fix what the store reported, then: faramir doctor")
+		r.warnf("a managed file did not load, so the broker refuses brokered commands")
 		r.step("broker ssh agent", false, "not asked")
 	}
 	if r.sshKey != "" && report.Serves() {

@@ -374,7 +374,7 @@ out=$(head -c 200000 /dev/zero | tr '\0' 'x' \
   | runuser -u op -- /usr/local/bin/faramir run --quiet -i -t 20 -- /bin/cat 2>&1); code=$?
 [ "$code" != 0 ] && ok "an input past the cap is refused" \
   || bad "an oversized input was accepted (rc=$code)"
-grep -qi 'larger than' <<<"$out" && ok "and the refusal says what the limit is" \
+grep -qi 'exceeds [0-9]* bytes' <<<"$out" && ok "and the refusal says what the limit is" \
   || bad "the refusal does not name the limit: [$out]"
 
 head_ "6. where it runs"

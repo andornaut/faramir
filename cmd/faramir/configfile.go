@@ -59,16 +59,14 @@ func findConfigFile(st brokerclient.Status) (string, error) {
 	// would then write a new /etc/config.toml, which is the wrong install this
 	// whole ladder exists to refuse.
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
-		return "", fmt.Errorf("FARAMIR_CONFIG=%s is a directory; it must name the "+
-			"config file, such as %s", path, filepath.Join(path, "config.toml"))
+		return "", fmt.Errorf("FARAMIR_CONFIG=%s is a directory, not a config file", path)
 	}
 	return path, nil
 }
 
 // errNoInstall names both places that were asked, so the operator knows which
 // one to repair rather than which directory to pass.
-var errNoInstall = fmt.Errorf("no install found: the broker did not answer and %s names no config file. Start the "+
-	"broker, set FARAMIR_CONFIG, or run `faramir init`", brokerUnit)
+var errNoInstall = fmt.Errorf("no install found: the broker did not answer and %s names no config file", brokerUnit)
 
 // resolveConfigDir is the directory holding this host's config, for the
 // commands that act on the install rather than read it.
@@ -94,8 +92,7 @@ func installedConfigDir(socketPath string) (string, error) {
 		return "", err
 	}
 	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("config not found: %s. There is no install there; set "+
-			"$FARAMIR_CONFIG to the config file of the install to report on", path)
+		return "", fmt.Errorf("config not found: %s", path)
 	}
 	return filepath.Dir(path), nil
 }

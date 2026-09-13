@@ -16,7 +16,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -91,9 +90,7 @@ func runLogs(f logsFlags, args []string) int {
 		}
 		auditview.ReportSkipped(path, skipped)
 		if record == nil {
-			fmt.Fprintf(os.Stderr, "faramir logs: no record %s in %s; rotated files "+
-				"(%s.1.gz and its siblings) are not searched\n",
-				id, path, filepath.Base(path))
+			fmt.Fprintf(os.Stderr, "faramir logs: no record %s in %s (rotated files not searched)\n", id, path)
 			return 1
 		}
 		if f.asJSON {
@@ -177,8 +174,7 @@ func runWatch(path string, f logsFlags, paint termui.Palette) int {
 	// waiting for it rather than reporting it as empty.
 	switch {
 	case !follow.Following():
-		fmt.Fprintf(os.Stderr, "no audit log at %s yet; the first brokered "+
-			"command creates it\n", path)
+		fmt.Fprintf(os.Stderr, "no audit log at %s yet\n", path)
 	case len(records) == 0 && f.count > 0:
 		fmt.Fprintln(os.Stderr, auditview.EmptyReason(path, f.count))
 	}
@@ -189,7 +185,7 @@ func runWatch(path string, f logsFlags, paint termui.Palette) int {
 		}
 		printer.Row(record)
 	}
-	fmt.Fprintf(os.Stderr, "Watching %s. Ctrl-c to stop.\n", path)
+	fmt.Fprintf(os.Stderr, "watching %s\n", path)
 
 	for {
 		if err := follow.Drain(emit); err != nil {

@@ -88,87 +88,62 @@ func newInitCmd() *cobra.Command {
 	}
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
-		"the account the coding agent runs as; the operator's own account. Only init "+
-			"takes it, and every other command reads what init recorded "+
-			"(default: $FARAMIR_OPERATOR, then $SUDO_USER, then the current user)")
-	// One admits a caller to the broker socket and shares the working tree, the
-	// other owns the ciphertext; holding one is not holding the other.
+		"account the coding agent runs as (default: $FARAMIR_OPERATOR, $SUDO_USER, then the current user)")
 	fl.StringVar(&f.clientGroup, "client-group", "",
-		"the group admitted to the broker socket, and given access to an enrolled working "+
-			"tree (default: what the install uses, then "+hostlayout.DefaultClientGroup+")")
+		"group admitted to the broker socket and to enrolled trees (default: installed, then "+
+			hostlayout.DefaultClientGroup+")")
 	fl.StringVar(&f.secretsGroup, "secrets-group", "",
-		"the group that owns the ciphertext in <config-dir>/secrets; naming a group other "+
-			"than the keeper's adds a second reader (default: what the install uses, then "+
-			"the keeper's own group)")
+		"group that owns the ciphertext (default: installed, then the keeper's group)")
 	fl.StringVar(&f.brokerUser, "broker-user", "",
-		"the account the broker runs as, holding the SSH keys and the audit log (default: what the install "+
-			"uses, then "+hostlayout.DefaultBrokerUser+")")
+		"account the broker runs as (default: installed, then "+hostlayout.DefaultBrokerUser+")")
 	fl.StringVar(&f.keeperUser, "keeper-user", "",
-		"the account that holds the age key (default: what the install uses, then "+
-			hostlayout.DefaultKeeperUser+")")
+		"account that holds the age key (default: installed, then "+hostlayout.DefaultKeeperUser+")")
 	fl.StringVar(&f.execUser, "exec-user", "",
-		"the account brokered commands run as (default: what the install uses, then "+
-			hostlayout.DefaultExecUser+")")
+		"account brokered commands run as (default: installed, then "+hostlayout.DefaultExecUser+")")
 	fl.StringVar(&f.configDir, "config-dir", "",
-		"where config.toml, the age key and the managed sops files are "+
-			"installed (default: ask the broker, then read its unit, then "+hostlayout.DefaultConfigDir+")")
+		"install directory (default: installed, then "+hostlayout.DefaultConfigDir+")")
 	fl.StringVar(&f.sshKey, "ssh-key", "",
-		"path of the SSH identity the broker lends to brokered commands; it is "+
-			"minted if missing (default: what the install uses, then id_ed25519 beside "+
-			"the age key)")
+		"SSH identity lent to brokered commands, minted if missing (default: installed, then id_ed25519 beside the age key)")
 	fl.StringVar(&f.knownHosts, "known-hosts", "",
-		"a known_hosts file to copy to <exec-home>/.ssh/known_hosts for the executor "+
-			"(default: none; only /etc/ssh/ssh_known_hosts is used)")
+		"known_hosts file to copy for the executor (default: none)")
 	fl.StringArrayVar(&f.initAgents, "agent", nil,
-		"coding agent to install the deny rules for; repeatable. \""+agentcfg.Auto+"\" "+
-			"(the default) means every agent the agent account's home already has. A name "+
-			"installs them whether or not the agent is there, and can be combined with "+
-			"auto. Known: "+strings.Join(agentcfg.Known(), ", "))
+		"agent to install deny rules for; repeatable. \""+agentcfg.Auto+"\" (the default) covers every "+
+			"agent in the agent account's home. Known: "+strings.Join(agentcfg.Known(), ", "))
 	fl.BoolVar(&f.allowSudo, "allow-sudo", false,
-		"let a brokered command ask to run sudo. Each escalation is approved by a person "+
-			"with `faramir sudo approve`; there is no password. Off by default, and "+
-			"re-running init without it removes the grant")
+		"let a brokered command ask to run sudo; omitting it on a re-run removes the grant")
 	fl.StringArrayVar(&f.notifyCommand, "notify-command", nil,
 		// The backquoted word is cobra's placeholder for the value, taken from the
 		// first one in the string; without it the help reads "stringArray".
-		"command that announces a waiting escalation, one `ARG` per flag: "+
-			"--notify-command /usr/bin/wall --notify-command '{prompt}'. One of \"{prompt}\" "+
-			"and \"{id}\" is required; do not pass \"{id}\" to anything that broadcasts. The "+
-			"program is found on PATH and runs inside the broker unit's sandbox. Needs "+
-			"--allow-sudo. A re-run that omits it keeps the current command; naming it "+
-			"replaces the whole list")
+		"command announcing a waiting escalation, one `ARG` per flag; \"{prompt}\" or \"{id}\" is "+
+			"required. Needs --allow-sudo; omitting it on a re-run keeps the current command")
 	fl.BoolVar(&f.repointConfig, "repoint-config", false,
-		"allow a different --config-dir than the one the daemons use now. Nothing is "+
-			"moved: the old directory's age key and ciphertext stay on disk, and the "+
-			"refs it served are no longer redacted. Without this flag a new "+
-			"--config-dir is refused")
+		"allow a --config-dir other than the one the daemons use; the old directory stays on disk, unredacted")
 	// The name this had when it read as though init relocated the directory. Kept
 	// so a converge that names it keeps working, and hidden so nothing learns it
 	// from --help.
 	fl.BoolVar(&f.moveConfig, "move-config", false, "renamed to --repoint-config")
-	_ = fl.MarkDeprecated("move-config", "use --repoint-config: nothing is moved, "+
-		"the daemons are pointed at the new directory and the old one stays on disk")
+	_ = fl.MarkDeprecated("move-config", "use --repoint-config")
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
 	// The tunables, named for what they bound rather than for the section they
 	// land in.
 	command, secret := config.DefaultCommand(), config.DefaultSecret()
 	fl.StringArrayVar(&f.commandEnv, "command-env", nil,
-		"NAME=VALUE to add to every brokered command's environment; repeatable, and added to the built-in table")
+		"NAME=VALUE added to every brokered command's environment; repeatable")
 	fl.StringVar(&f.commandTimeout, "command-timeout", asDuration(command.TimeoutSec),
-		"timeout for a command that names none: a duration such as 90s or 5m, or a bare number of seconds")
+		"default command timeout: a duration (90s, 5m) or seconds")
 	fl.StringVar(&f.commandMaxTimeout, "command-max-timeout", asDuration(command.MaxTimeoutSec),
-		"the longest timeout a caller may ask for, and the idle limit on a redact stream: a duration such as 90s or 5m, or a bare number of seconds")
+		"longest timeout a caller may ask for, and the idle limit on a redact stream")
 	fl.IntVar(&f.commandConcurrency, "command-concurrency", command.Concurrency,
-		"how many brokered commands may run at once; further requests are refused as busy")
+		"how many brokered commands may run at once")
 	fl.IntVar(&f.commandMaxMemoryPct, "command-max-memory-percent", command.MaxMemoryPercent,
-		"the share of this machine's memory all brokered commands together may use, as MemoryMax on the executor unit (1 to 100). A cgroup total, so it counts every child process and page cache; 100 is no limit")
+		"MemoryMax on the executor unit, as a share of this machine's memory (1 to 100; 100 is no limit)")
 	fl.IntVar(&f.commandMaxProcMB, "command-max-process-memory-mb", command.MaxProcessMemoryMB,
-		"how much one brokered process may allocate, as LimitDATA on the executor unit (at least 256). Anonymous memory only, not page cache; a process that reaches it gets an allocation failure rather than the OOM killer")
+		"LimitDATA on the executor unit, per process (at least 256)")
 	fl.StringVar(&f.sudoTimeout, "sudo-timeout", asDuration(config.DefaultSudoTimeoutSec),
-		"how long an escalation waits for an answer before it is refused (1s to 1h, and at most --command-max-timeout, since the command waits inside sudo the whole time)")
+		"how long an escalation waits for an answer (1s to 1h, at most --command-max-timeout)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
-		"refuse a secret shorter than this, since a short value would match inside ordinary words (at least 6)")
+		"refuse a secret shorter than this (at least 6)")
 	return c
 }
 
@@ -184,16 +159,14 @@ func namedValues(pairs []string) (map[string]string, error) {
 			// Blocked rather than skipped: `--command-env FOO` reads as setting
 			// something, and accepting it would leave the child without it and no
 			// reason given.
-			return nil, fmt.Errorf("--command-env %q names no value; write it as NAME=VALUE", pair)
+			return nil, fmt.Errorf("--command-env %q: expected NAME=VALUE", pair)
 		}
 		// The name as well as the shape. A name no shell can reference reached the
 		// config either as a TOML key that would not parse, so the run failed with
 		// a line number and no mention of the flag, or as one that parsed and left
 		// the child holding a variable nothing in it could read.
 		if !secretref.ValidEnvName(name) {
-			return nil, fmt.Errorf("--command-env %q is not a usable environment "+
-				"variable name: a letter or underscore, then letters, digits and "+
-				"underscores", name)
+			return nil, fmt.Errorf("--command-env %q: not a valid variable name", name)
 		}
 		out[name] = value
 	}
@@ -206,8 +179,7 @@ func runInit(f initFlags) int {
 	// verification: a converge that changed nothing and reports failure, with
 	// nothing in the ending to point at the cause.
 	if why := protocol.NestedRun(); why != "" {
-		fmt.Fprintf(os.Stderr, "faramir init: %s, so its last step would be refused. "+
-			"Run it from your own shell\n", why)
+		fmt.Fprintf(os.Stderr, "faramir init: %s; run it outside a brokered command\n", why)
 		return 1
 	}
 
@@ -275,7 +247,7 @@ func runInit(f initFlags) int {
 		// Named before anything is written: without --config-dir this was
 		// discovered, and an install written somewhere the operator did not expect
 		// is a second install rather than an error.
-		fmt.Fprintf(os.Stderr, "faramir init: provisioning the install at %s\n", opts.ConfigDir)
+		fmt.Fprintf(os.Stderr, "provisioning %s\n", opts.ConfigDir)
 	}
 
 	report, err := install.Run(opts)
@@ -305,14 +277,12 @@ func runInit(f initFlags) int {
 // authorize.
 func reportToOperator(report install.Report) {
 	for _, warning := range report.Warnings {
-		fmt.Fprintf(os.Stderr, "\nwarning: %s\n", warning)
+		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 	}
 	if report.BrokerPublicKey != "" {
-		fmt.Fprintf(os.Stderr, "\nThe broker's public key:\n  %s\n", report.BrokerPublicKey)
-		fmt.Fprintln(os.Stderr, "Put it in ~/.ssh/authorized_keys on every managed host, "+
-			"for the account you connect as.")
+		fmt.Fprintf(os.Stderr, "broker public key: %s\n", report.BrokerPublicKey)
 	}
 	if report.DryRun {
-		fmt.Fprintln(os.Stderr, "\nDry run: nothing was written.")
+		fmt.Fprintln(os.Stderr, "dry run: nothing written")
 	}
 }

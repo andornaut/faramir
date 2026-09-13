@@ -76,12 +76,7 @@ func newRootCmd() *cobra.Command {
 		Short: "A secrets broker for AI coding agents",
 		Long: "A secrets broker for AI coding agents. It runs the commands that need\n" +
 			"credentials and keeps the values out of the agent's context.\n\n" +
-			"Commands that talk to the broker use the socket at $FARAMIR_SOCKET, or\n" +
-			defaultSocket + " when that is unset. All of them accept --json except\n" +
-			"redact, whose output is the redacted text.\n\n" +
-			"Name secrets with --env NAME=faramir://ref, or --env-file for a file of them.\n\n" +
-			"Secrets are injected as environment variables only. They are never put on\n" +
-			"the command line.",
+			"The broker socket is $FARAMIR_SOCKET, or " + defaultSocket + " when unset.",
 		Version: version.Version,
 		// A wrong invocation is cobra's to print, and is refused before
 		// PersistentPreRunE runs; what comes after it is silenced there.

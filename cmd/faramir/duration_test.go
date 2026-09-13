@@ -26,8 +26,8 @@ func TestADurationFlagTakesBothSpellings(t *testing.T) {
 		{value: "1500ms", says: "whole seconds"},
 		{value: "-5", says: "must not be negative"},
 		{value: "-5m", says: "must not be negative"},
-		{value: "nonsense", says: "takes a duration"},
-		{value: "5 m", says: "takes a duration"},
+		{value: "nonsense", says: "is not a duration"},
+		{value: "5 m", says: "is not a duration"},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
 			got, err := durationSeconds("--timeout", tc.value)
@@ -83,7 +83,7 @@ func TestARequestTooLargeToSendNamesWhichHalfIsBig(t *testing.T) {
 	if err == nil {
 		t.Fatal("a request past the line the broker reads was accepted")
 	}
-	for _, want := range []string{"bytes of input", "shorten the command"} {
+	for _, want := range []string{"of stdin", "the limit is"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal is %q, and does not say %q", err, want)
 		}

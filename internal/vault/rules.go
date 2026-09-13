@@ -133,10 +133,8 @@ func KeeperStaysAReader(keyPath string, wanted []string, rulePath string) error 
 	if slices.Contains(wanted, recipient) {
 		return nil
 	}
-	return fmt.Errorf("%s does not list %s, the recipient for the key at %s. "+
-		"Re-encrypting would leave a store the keeper cannot open, and the "+
-		"broker would serve nothing. Add it under '- age:' first",
-		rulePath, recipient, keyPath)
+	return fmt.Errorf("%s does not list %s, the keeper's recipient (key at %s); refused, "+
+		"the keeper could not open the store", rulePath, recipient, keyPath)
 }
 
 // EditRule is the one call that differs between add and rm.

@@ -110,9 +110,8 @@ func (r *runner) stepAccounts() error {
 	// leaves every file owned by the old gid behind.
 	if gid, err := hostfs.LookupGroup(r.layout.SecretsGroup); err == nil {
 		if first := firstLoginGID(); gid >= first {
-			r.warnf("group %s has gid %d, in the range login.defs reserves for "+
-				"login accounts; it belongs below %d. Move it with "+
-				"`groupdel %s && groupadd -r %s`, then re-run this install",
+			r.warnf("group %s has gid %d, in the login range (system gids are below %d): "+
+				"groupdel %s && groupadd -r %s, then re-run init",
 				r.layout.SecretsGroup, gid, first, r.layout.SecretsGroup, r.layout.SecretsGroup)
 		}
 	}
@@ -260,8 +259,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 	// config and units, so failing the run over a profile would leave the host
 	// with no broker at all.
 	skip := func(format string, args ...any) {
-		r.warnf(format+". Add `umask 002` to your shell profile by hand if you share "+
-			"a tree with brokered commands", args...)
+		r.warnf(format+"; add umask 002 to the shell profile by hand", args...)
 	}
 	// What it is, before opening it: this runs as root on a path in a directory
 	// the account the agent runs as can write, and a device node there would be

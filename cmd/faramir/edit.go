@@ -33,9 +33,8 @@ type editFlags struct {
 }
 
 // editorUsage is the --editor flag's help on vault add and vault edit.
-var editorUsage = "absolute path of the editor, run with no arguments " +
-	"(default: $VISUAL, then $EDITOR, then the first of " + strings.Join(vault.Editors, ", ") +
-	" that only root can write; sudo's env_reset drops both variables unless sudoers keeps them)"
+var editorUsage = "absolute path of the editor (default: $VISUAL, $EDITOR, then the first of " +
+	strings.Join(vault.Editors, ", ") + " that only root can write)"
 
 func newEditCmd() *cobra.Command {
 	var f editFlags
@@ -119,11 +118,10 @@ func runEdit(f editFlags, args []string) int {
 		return 1
 	}
 	if !changed {
-		fmt.Fprintln(os.Stderr, "faramir vault edit: unchanged")
+		fmt.Fprintln(os.Stderr, "unchanged")
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "faramir vault edit: wrote %s; %s\n", target,
-		reReadNote(brokerclient.Refresh(socketDefault()), "it picks this up within one refresh interval"))
+	fmt.Fprintf(os.Stderr, "wrote %s; %s\n", target, reReadNote(brokerclient.Refresh(socketDefault())))
 	return 0
 }
 

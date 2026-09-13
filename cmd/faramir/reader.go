@@ -54,18 +54,14 @@ type readerFlags struct {
 	when   string
 }
 
-func (f *readerFlags) register(c *cobra.Command, writes, reseals bool) {
+func (f *readerFlags) register(c *cobra.Command, writes bool) {
 	fl := c.Flags()
 	if !writes {
 		fl.BoolVar(&f.json, "json", false, "print the recipients as JSON")
 		addColorFlag(c, &f.when)
 		return
 	}
-	usage := "report the rule change and the files that would be re-encrypted, and write nothing"
-	if reseals {
-		usage = "report the files that would be re-encrypted, and write nothing"
-	}
-	fl.BoolVar(&f.dryRun, "dry-run", false, usage)
+	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 }
 
 func newReaderAddCmd() *cobra.Command {
@@ -73,17 +69,14 @@ func newReaderAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add [options] KEY",
 		Short: "Add a key that can decrypt the secret files",
-		Long: "Adds an age recipient to .sops.yaml and re-encrypts every managed file to\n" +
-			"it, so the rule and the ciphertext always agree.\n\n" +
-			"KEY is a public key: age1... or an ssh public key. A private key is\n" +
-			"refused, because .sops.yaml is world-readable. Create one with\n" +
-			"`age-keygen -o FILE` on the machine that will hold it.",
+		Long: "Adds an age or ssh public key to .sops.yaml and re-encrypts every managed\n" +
+			"file to it.",
 		Args: exactlyArgs(1, "one age recipient"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runReaderChange(f, args[0], true))
 		},
 	}
-	f.register(c, true, false)
+	f.register(c, true)
 	return c
 }
 
@@ -93,16 +86,14 @@ func newReaderRemoveCmd() *cobra.Command {
 		Use:     "rm [options] KEY",
 		Aliases: []string{opRemove},
 		Short:   "Remove a key, so it can no longer decrypt the secret files",
-		Long: "Removes an age recipient from .sops.yaml and re-encrypts every managed\n" +
-			"file without it.\n\n" +
-			"Copies of the old ciphertext can still be decrypted by that key. Treat\n" +
-			"every value it could read as disclosed, and rotate them.",
+		Long: "Removes the key from .sops.yaml and re-encrypts every managed file without\n" +
+			"it. Copies of the old ciphertext remain readable by that key.",
 		Args: exactlyArgs(1, "one age recipient"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runReaderChange(f, args[0], false))
 		},
 	}
-	f.register(c, true, false)
+	f.register(c, true)
 	return c
 }
 
@@ -115,7 +106,7 @@ func newReaderListCmd() *cobra.Command {
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runReaderList(f)) },
 	}
-	f.register(c, false, false)
+	f.register(c, false)
 	return c
 }
 
@@ -124,13 +115,10 @@ func newReaderResealCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "reseal [options] [FILE...]",
 		Short: "Re-encrypt every file to the keys .sops.yaml names",
-		Long: "Re-encrypts the managed files to match .sops.yaml. Use it after editing\n" +
-			".sops.yaml by hand, or after an `add` or `rm` that failed partway.\n\n" +
-			"Every managed file is re-encrypted unless FILEs are named. Files already\n" +
-			"encrypted to the current rule are skipped.",
-		RunE: func(c *cobra.Command, args []string) error { return codeErr(runReseal(f, args)) },
+		Long:  "Re-encrypts the managed files, or the FILEs named, to match .sops.yaml.",
+		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runReseal(f, args)) },
 	}
-	f.register(c, true, true)
+	f.register(c, true)
 	return c
 }
 
@@ -182,9 +170,8 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	// remove it, that reads as an instruction to undo what they typed.
 	if !adding {
 		if keeper, err := keygen.AgeRecipient(store.keyPath); err == nil && keeper == recipient {
-			fmt.Fprintf(os.Stderr, "faramir %s: %s is the keeper's own key (%s) and "+
-				"cannot be removed: without it nothing on this host can open the "+
-				"store\n", label, recipient, store.keyPath)
+			fmt.Fprintf(os.Stderr, "faramir %s: %s is the keeper's own key (%s); refused\n",
+				label, recipient, store.keyPath)
 			return 1
 		}
 	}
@@ -196,8 +183,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 		// and cannot create one, having no way to know who else should read the
 		// store.
 		if os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "faramir %s: `sudo faramir init` writes a creation rule "+
-				"naming the keeper's own key; run it first\n", label)
+			fmt.Fprintf(os.Stderr, "faramir %s: run faramir init to write one\n", label)
 		}
 		return 1
 	}
@@ -211,8 +197,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	// and then failed on a file leaves exactly that state, so the reseal runs
 	// either way and re-running is how such a pass is resumed.
 	if !changed {
-		fmt.Fprintf(os.Stderr, "faramir %s: %s already %s %s; checking the store agrees\n",
-			label, store.rulePath, listedOrNot(adding), recipient)
+		fmt.Fprintf(os.Stderr, "%s already %s %s\n", store.rulePath, listedOrNot(adding), recipient)
 	}
 
 	wanted, err := vault.RuleRecipientsFrom(edited, store.rulePath)
@@ -230,8 +215,8 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 
 	if f.dryRun {
 		if changed {
-			fmt.Fprintf(os.Stderr, "faramir %s: would %s %s: %s would name %s\n",
-				label, addOrRemove(adding), recipient, store.rulePath, strings.Join(wanted, ","))
+			fmt.Fprintf(os.Stderr, "would %s %s: %s -> %s\n",
+				addOrRemove(adding), recipient, store.rulePath, strings.Join(wanted, ","))
 		}
 		return resealStore(label, store, wanted, true)
 	}
@@ -250,8 +235,8 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 		"change": addedOrRemoved(adding), "recipient": recipient, "to": wanted,
 		"uid": os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
 	}, audit.Output{})
-	fmt.Fprintf(os.Stderr, "faramir %s: %s %s; %s now names %d recipient(s)\n",
-		label, addedOrRemoved(adding), recipient, store.rulePath, len(wanted))
+	fmt.Fprintf(os.Stderr, "%s %s: %s now names %d recipient(s)\n",
+		addedOrRemoved(adding), recipient, store.rulePath, len(wanted))
 
 	// A rule the files are not yet sealed to is the state this command exists to
 	// avoid, so its exit status is the reseal's.

@@ -499,24 +499,6 @@ grep -q 'gh/token' $CFG \
 grep -q 'chmod g-r' <<<"$out" \
   && ok "and it says the file is still readable by the broker's group" \
   || bad "removal does not say what access it left behind: $out"
-# The note about the operator's own rules is said only where an agent's settings
-# were rewritten: faramir takes out what it wrote, and has no record of a rule
-# added by hand. Asserted as the pairing, as in check-block.sh: whether the
-# removal rewrote an agent's settings is asked by repeating it under --json,
-# the human output carrying the outcome and not the steps.
-addlink gh/token $GH --type yaml --key github.com/oauth_token >/dev/null 2>&1
-rewrote=$("$faramir" link rm gh/token --json 2>/dev/null \
-  | jq -r '[.steps[] | select(.step == "agent config" or .step == "enrolled trees")
-           | .changed] | any')
-if [ "$rewrote" = true ]; then
-  grep -q 'added to your agent.s settings yourself' <<<"$out" \
-    && ok "and that a rule you added yourself stays" \
-    || bad "an agent's settings were rewritten and the note was not said: $out"
-else
-  grep -q 'added to your agent.s settings yourself' <<<"$out" \
-    && bad "the note was said on a run that rewrote no agent settings: $out" \
-    || ok "and says nothing about them on a run that rewrote none"
-fi
 
 waitfor 25 asop refs >/dev/null 2>&1
 asop refs 2>/dev/null | grep -q 'faramir://gh/token' \
@@ -534,8 +516,8 @@ rc=$?
 [ $rc -eq 0 ] \
   && ok "removing a ref this install does not carry is not an error" \
   || bad "link rm on an unknown ref exited $rc: $out"
-grep -q 'faramir link ls' <<<"$out" \
-  && ok "and names the command that lists the ones it does" \
+grep -q 'no link no/such-ref' <<<"$out" \
+  && ok "and says there is no such link" \
   || bad "link rm on an unknown ref: $out"
 [ "$(cat $CFG)" = "$before" ] \
   && ok "and writes nothing" \

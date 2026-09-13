@@ -454,7 +454,7 @@ grep -qiE 'would|dry' <<<"$out" && ok "and reported what it would do" \
 # In the tense of a run that has not happened. An operator reading "Enrolled
 # /home/op/p-dry" scrolls past the line below it and believes the tree is
 # enrolled, and the check it offers is one that would not work.
-grep -q "^Enrolled " <<<"$out" && bad "a dry run says it enrolled the tree" \
+grep -q "^enrolled " <<<"$out" && bad "a dry run says it enrolled the tree" \
   || ok "and does not say it enrolled anything"
 mode=$(stat -c '%a %U:%G' "$D")
 [ "$mode" = "755 op:op" ] && ok "and did not reshare the tree" || bad "a dry run changed the tree to $mode"
@@ -543,7 +543,7 @@ grep -q "would refuse to enrol" <<<"$out" \
   || ok "  and nothing was written into it"
 # Told apart from a tree that has simply gone: re-running enrol there is
 # the remedy for that one and is refused for this one.
-grep -q "Remove their entries" <<<"$out" \
+grep -q "remove their entries" <<<"$out" \
   && ok "  with the remedy that fits, which is not to enrol it again" \
   || bad "  the warning offers the wrong remedy: ${out:0:140}"
 

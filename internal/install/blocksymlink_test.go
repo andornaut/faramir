@@ -197,7 +197,7 @@ func TestADeclaredTargetIsReportedAsItsOwnEntry(t *testing.T) {
 	}
 	var report Report
 	derivedWarnings(&report, written, declared, nil)
-	if len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "entry of its own") {
+	if len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "its own entry") {
 		t.Errorf("warnings = %q, want the declared entry said to stay", report.Warnings)
 	}
 }

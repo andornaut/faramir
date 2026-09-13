@@ -39,9 +39,8 @@ func warnMissingAccountRules(p *project, target *agentcfg.Target) {
 	// which renders the same set into the bash deny list. Named that way rather
 	// than by example, a rule for a path faramir did not choose being the thing
 	// that design refuses to compile in.
-	p.warnf("%s's deny rules are missing from the agent account's home (%s), so its "+
-		"file tools can reach every path this install protects. Run "+
-		"`sudo faramir init --agent %s`",
+	p.warnf("%s has no account-wide deny rules (%s missing); its file tools are unguarded until "+
+		"faramir init --agent %s runs",
 		target.Name, strings.Join(missing, ", "), target.Name)
 }
 
@@ -56,8 +55,8 @@ func (p *project) agentConfig() error {
 		// enrolment leaves the tree shared with the client group and guarded by
 		// nothing. `faramir doctor` reports the same tree for as long as it stays
 		// that way.
-		p.warnf("no coding agent is configured in %s, so nothing this tree runs is "+
-			"redacted. To enrol one anyway, run `sudo faramir enrol --agent NAME` (%s)",
+		p.warnf("no coding agent is configured in %s, so nothing it runs is redacted; "+
+			"pass --agent to enrol one (%s)",
 			p.opts.Dir, strings.Join(agentcfg.Known(), ", "))
 		p.step(steps.LabelAgentConfig, false, "no coding agent is configured in "+p.opts.Dir)
 		return nil
@@ -84,10 +83,8 @@ func (p *project) agentConfig() error {
 		// Each warning is about this agent, so each asks whether this agent's files
 		// changed rather than whether any have.
 		if target.AutoApprovesBash && made {
-			p.warnf("Bash is now auto-approved in %s for %s: the hook rewrites each "+
-				"command into a sourced wrapper, which no permission rule can approve, "+
-				"so the hook approves it and only the deny list can refuse one",
-				p.opts.Dir, target.Name)
+			p.warnf("%s auto-approves Bash in %s; only the deny list can refuse a command",
+				target.Name, p.opts.Dir)
 		}
 		// The account-wide half is `faramir init --agent`'s, and without it the
 		// agent's file tools have no rules at all: the deny list covers the
@@ -121,8 +118,7 @@ func (p *project) agentConfig() error {
 		}
 	}
 	if len(unenrolled) > 0 {
-		p.warnf("this tree also has configuration for %v, which was not enrolled: "+
-			"nothing those agents run here is redacted. Pass --agent to include one",
+		p.warnf("not enrolled, though configured in this tree: %v; pass --agent to include one",
 			unenrolled)
 	}
 	return nil
@@ -142,10 +138,8 @@ func (p *project) warnUncommittableFiles(target *agentcfg.Target) {
 		if !file.Local || p.isIgnored(file.Path) {
 			continue
 		}
-		p.warnf("%s names this machine's layout and git is not ignoring it. %s reads "+
-			"it as your own file, not the repository's. Add it to .gitignore, or "+
-			"to .git/info/exclude to keep it local",
-			file.Path, target.Name)
+		p.warnf("%s is machine-specific and not git-ignored; add it to .gitignore or .git/info/exclude",
+			file.Path)
 	}
 }
 

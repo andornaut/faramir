@@ -316,7 +316,7 @@ rm -rf $STRICT
 # --------------------------------------------------------------------------
 head_ "4. a path that is not there"
 out=$(block add --path "$ABSENT")
-grep -q 'not there' <<<"$out" \
+grep -q 'does not exist' <<<"$out" \
   && ok "an absent path is recorded and reported as absent" \
   || bad "adding an absent path said nothing about it: ${out:0:160}"
 grep -q "$ABSENT" $CFG \
@@ -474,35 +474,12 @@ asop block ls >/dev/null 2>&1 \
   || note "block ls as the agent's account was refused (the guard denies it in a shell)"
 
 out=$(block rm --path "$ABSENT")
-grep -q "stopped blocking $ABSENT" <<<"$out" \
+grep -q "unblocked $ABSENT" <<<"$out" \
   && ok "block rm reports what it removed" \
   || bad "block rm: ${out:0:160}"
 grep -q "$ABSENT" $CFG \
   && bad "the entry is still in config.toml" \
   || ok "the entry is gone from config.toml"
-# The note is about a rule the operator added themselves, which faramir has no
-# record of and cannot take out. Said only on a run that rewrote an agent's
-# settings: where nothing there changed there was no merge to explain, and the
-# note described a mechanism that had not run. Asserted as the pairing, so it
-# holds on a host with an agent in the home and on one without.
-NOTED=/srv/e2e-own-rule
-block add --path "$NOTED" >/dev/null 2>&1
-out=$(block rm --path "$NOTED")
-# Whether that removal rewrote an agent's settings, asked by repeating it under
-# --json: the human output carries the outcome and not the steps.
-block add --path "$NOTED" >/dev/null 2>&1
-rewrote=$(block rm --path "$NOTED" --json 2>/dev/null \
-  | jq -r '[.steps[] | select(.step == "agent config" or .step == "enrolled trees")
-           | .changed] | any')
-if [ "$rewrote" = true ]; then
-  grep -q 'added to your agent.s settings yourself' <<<"$out" \
-    && ok "the removal says your own rules stay, an agent's settings having been rewritten" \
-    || bad "an agent's settings were rewritten and the note was not said: ${out:0:300}"
-else
-  grep -q 'added to your agent.s settings yourself' <<<"$out" \
-    && bad "the note was said on a run that rewrote no agent settings: ${out:0:300}" \
-    || ok "and says nothing about them on a run that rewrote none"
-fi
 
 before=$(cat $CFG)
 out=$(block rm --path /no/such/path 2>&1)
@@ -510,8 +487,8 @@ rc=$?
 [ $rc -eq 0 ] \
   && ok "removing a path this install does not refuse is not an error" \
   || bad "block rm on an unknown path exited $rc: ${out:0:160}"
-grep -q 'faramir block ls' <<<"$out" \
-  && ok "and names the command that lists the ones it does" \
+grep -q 'not blocked /no/such/path' <<<"$out" \
+  && ok "and says the path was not blocked" \
   || bad "block rm on an unknown path: ${out:0:160}"
 [ "$(cat $CFG)" = "$before" ] \
   && ok "and writes nothing" \
@@ -735,7 +712,7 @@ out=$(block rm --path /etc/faramir/age.key 2>&1); code=$?
   || bad "block rm of an undeclared covered path: exit $code [${out:0:200}]"
 
 out=$(block rm --path "$NAME")
-grep -qF "stopped blocking $NAME" <<<"$out" \
+grep -qF "unblocked $NAME" <<<"$out" \
   && ok "block rm --path removes it" \
   || bad "block rm --path: ${out:0:160}"
 grep -qF "path = \"$NAME\"" $CFG \
@@ -748,7 +725,7 @@ grep -qF "path = \"$NAME\"" $CFG \
 QUIET=/srv/e2e-quiet-rm
 block add --path "$QUIET" >/dev/null 2>&1
 out=$(block rm --path "$QUIET")
-[ "$(head -1 <<<"$out")" = "faramir block rm: stopped blocking $QUIET" ] \
+[ "$(head -1 <<<"$out")" = "unblocked $QUIET" ] \
   && ok "block rm leads with the outcome" \
   || bad "the first line is not the outcome: ${out:0:200}"
 grep -qE '^(changed|ok) ' <<<"$out" \

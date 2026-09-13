@@ -39,10 +39,8 @@ func newVaultListCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   useLs,
 		Short: "List the encrypted files, their refs and who can read them",
-		Long: "Reads the secrets directory directly, so a file the broker refused to\n" +
-			"load is listed here with the reason. `faramir refs` lists what the broker\n" +
-			"is serving.\n\n" +
-			"Ref names are cleartext in a sops file, so this decrypts nothing.",
+		Long: "Reads the secrets directory, so a file the broker refused to load is\n" +
+			"listed with the reason. Nothing is decrypted.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runVaultList(f)) },
 	}
@@ -87,7 +85,7 @@ func runVaultList(f vaultListFlags) int {
 	}
 
 	if len(files) == 0 {
-		fmt.Fprintf(os.Stderr, "faramir %s: no managed files\n", label)
+		fmt.Fprintln(os.Stderr, "no managed files")
 	} else {
 		// The directory once, above the rows, so the names are the ones the other
 		// commands take and a full path is still readable.
@@ -115,10 +113,10 @@ func runVaultList(f vaultListFlags) int {
 	// Named after the listing rather than mixed into it: a pattern that matched
 	// nothing is not a file.
 	for _, reason := range slices.Concat(failures, absent) {
-		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, termui.Safe(reason))
+		fmt.Fprintf(os.Stderr, "warning: %s\n", termui.Safe(reason))
 	}
 	if ruleErr != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, ruleErr)
+		fmt.Fprintf(os.Stderr, "warning: %v\n", ruleErr)
 	}
 	return 0
 }
@@ -133,17 +131,13 @@ func newVaultRemoveCmd() *cobra.Command {
 		Use:     "rm [options] NAME",
 		Aliases: []string{opRemove},
 		Short:   "Remove an encrypted secret file",
-		Long: "Deletes one managed file and every value in it. Only a backup can\n" +
-			"restore them.\n\n" +
-			"It lists the refs it is about to delete and asks for confirmation.\n" +
-			"--force skips the question.",
-		Args: exactlyArgs(1, "one file name"),
+		Long:    "Deletes one managed file and every value in it, after confirmation.",
+		Args:    exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runVaultRemove(f, args[0]))
 		},
 	}
-	c.Flags().BoolVar(&f.force, "force", false,
-		"delete the file and every value in it without asking")
+	c.Flags().BoolVar(&f.force, "force", false, "do not ask for confirmation")
 	return c
 }
 
@@ -173,7 +167,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	// rather than a path.
 	refs, refsErr := vault.RefsIn(target)
 	if !f.force && !confirmRemoval(target, refs, refsErr) {
-		fmt.Fprintf(os.Stderr, "faramir %s: left %s alone\n", label, termui.Safe(target))
+		fmt.Fprintf(os.Stderr, "faramir %s: not removed\n", label)
 		return 1
 	}
 
@@ -192,13 +186,8 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	stopped := reReadNote(brokerclient.Refresh(socketDefault()),
-		"it stops serving them within one refresh interval")
-	if strings.HasPrefix(stopped, "the broker has re-read") {
-		stopped = "the broker has stopped serving them"
-	}
-	fmt.Fprintf(os.Stderr, "faramir %s: removed %s and the %d ref(s) it held; %s\n",
-		label, termui.Safe(target), len(refs), stopped)
+	fmt.Fprintf(os.Stderr, "removed %s (%d ref(s)); %s\n",
+		termui.Safe(target), len(refs), reReadNote(brokerclient.Refresh(socketDefault())))
 	return 0
 }
 

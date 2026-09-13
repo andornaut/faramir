@@ -28,13 +28,11 @@ import (
 // tree.
 func (p *project) preflight() error {
 	if p.opts.AgentUser == "" || p.opts.AgentUser == "root" {
-		return fmt.Errorf("no agent account is named for %s. Run this through sudo so "+
-			"SUDO_USER names it, or record it with `sudo faramir init --agent-user`. Running "+
-			"as root without one would chown the tree away from its owner", p.opts.Dir)
+		return fmt.Errorf("no agent account for %s: run through sudo, or pass --agent-user to init (not root)",
+			p.opts.Dir)
 	}
 	if os.Geteuid() != 0 && !p.opts.DryRun {
-		return errors.New("faramir enrol must run as root: it " +
-			"changes group ownership and modes on the tree it enrols")
+		return errors.New("faramir enrol must run as root")
 	}
 	if err := RefuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {
 		return err
@@ -196,9 +194,8 @@ func (p *project) warnMissingBinary(binary string) {
 	if hostfs.Exists(binary) {
 		return
 	}
-	p.warnf("%s is not installed. Every hook and plugin written here runs it and "+
-		"fails closed without it, so the agents would refuse every command in %s. Run "+
-		"`sudo faramir init` on the host that runs this tree", binary, p.opts.Dir)
+	p.warnf("%s is not installed, so every hook written into %s fails closed until faramir init runs here",
+		binary, p.opts.Dir)
 }
 
 // RefuseOversharing stops an enrolment that would share far more than a
@@ -325,9 +322,7 @@ func (p *project) resolveGroup() error {
 			p.report.ClientGroup = p.opts.ClientGroup
 			return nil
 		}
-		return fmt.Errorf("cannot read %s: %w\nEnrolling writes this install's deny rules into the tree, "+
-			"and that file holds the linked and blocked paths. Run `faramir init` first, or "+
-			"set FARAMIR_CONFIG if the config is elsewhere", configFile, err)
+		return fmt.Errorf("cannot read %s: %w; run faramir init or set FARAMIR_CONFIG", configFile, err)
 	}
 	// The grant is this host's, and says nothing about a tree shared with a group
 	// this host's socket does not admit: that names another install, whose

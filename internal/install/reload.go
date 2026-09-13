@@ -18,8 +18,7 @@ func (r *runner) stepSystemd() error {
 		return nil
 	}
 	if !hostunit.Running() {
-		r.warnf("systemd is not running here; the units are installed but nothing " +
-			"has been started")
+		r.warnf("systemd is not running; the units are installed but not started")
 		r.skip("systemd", "not running")
 		return nil
 	}
@@ -31,8 +30,7 @@ func (r *runner) stepSystemd() error {
 	}
 	// The keeper reads the age key at startup and exits without one.
 	if !hostfs.Exists(r.layout.AgeKeyPath) {
-		r.warnf("%s does not exist, so the services are installed but not "+
-			"started", r.layout.AgeKeyPath)
+		r.warnf("%s does not exist; the services are installed but not started", r.layout.AgeKeyPath)
 		r.skip("systemd", "no age key")
 		return nil
 	}

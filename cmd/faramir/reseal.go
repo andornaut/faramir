@@ -76,8 +76,7 @@ func loadStore(label, socket string, named []string,
 		// Said once, and the per-pattern reasons dropped with it: each is "this glob
 		// matched nothing", which reads as three problems on a host whose first
 		// secret has not been written.
-		fmt.Fprintf(os.Stderr, "faramir %s: the managed store has no files, so "+
-			"there is nothing to re-encrypt\n", label)
+		fmt.Fprintln(os.Stderr, "no managed files")
 		return &storeContext{
 			cfg:      cfg,
 			keyPath:  keyPath,
@@ -137,12 +136,12 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 			continue
 		}
 		if sopsrule.Same(was, wanted) {
-			fmt.Fprintf(os.Stderr, "faramir %s: unchanged %s\n", label, target)
+			fmt.Fprintf(os.Stderr, "unchanged %s\n", target)
 			continue
 		}
 		if dryRun {
-			fmt.Fprintf(os.Stderr, "faramir %s: would re-encrypt %s: %s -> %s\n",
-				label, target, strings.Join(was, ","), strings.Join(wanted, ","))
+			fmt.Fprintf(os.Stderr, "would re-encrypt %s: %s -> %s\n",
+				target, strings.Join(was, ","), strings.Join(wanted, ","))
 			changed++
 			continue
 		}
@@ -165,26 +164,24 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 			failed++
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "faramir %s: re-encrypted %s: %s -> %s\n",
-			label, target, strings.Join(was, ","), strings.Join(wanted, ","))
+		fmt.Fprintf(os.Stderr, "re-encrypted %s: %s -> %s\n",
+			target, strings.Join(was, ","), strings.Join(wanted, ","))
 		changed++
 	}
 
 	// Named rather than left implicit: a reseal that reached only some of the
 	// files leaves the rest sealed to the old recipients.
 	if failed > 0 {
-		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) could not be re-encrypted "+
-			"and keep their previous recipients\n", label, failed, len(targets))
+		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) not re-encrypted\n", label, failed, len(targets))
 		return 1
 	}
 	if dryRun {
-		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) would change\n", label, changed, len(targets))
+		fmt.Fprintf(os.Stderr, "%d of %d file(s) would change\n", changed, len(targets))
 		return 0
 	}
 	if changed > 0 {
-		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) re-encrypted; %s\n",
-			label, changed, len(targets),
-			reReadNote(brokerclient.Refresh(socketDefault()), "it picks them up within one refresh interval"))
+		fmt.Fprintf(os.Stderr, "%d of %d file(s) re-encrypted; %s\n",
+			changed, len(targets), reReadNote(brokerclient.Refresh(socketDefault())))
 	}
 	return 0
 }

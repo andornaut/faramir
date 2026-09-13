@@ -26,15 +26,12 @@ import (
 // surfacing with the install half applied.
 func (r *runner) preflight() error {
 	if os.Geteuid() != 0 && !r.opts.DryRun {
-		return errors.New("faramir init must run as root: it creates accounts, " +
-			"writes under /etc and installs systemd units")
+		return errors.New("faramir init must run as root")
 	}
 	if r.opts.AgentUser == "" || r.opts.AgentUser == "root" {
 		// Reached by `block` and `link` as well, which have no flag of their own:
 		// they read what the config records, and `init` is what records it.
-		return errors.New("name the account the coding agent runs as: run this through " +
-			"sudo so SUDO_USER names it, or record it with " +
-			"`sudo faramir init --agent-user`. It must not be root")
+		return errors.New("no agent account: run through sudo, or pass --agent-user to init (not root)")
 	}
 	if !hostfs.UserExists(r.opts.AgentUser) {
 		return fmt.Errorf("no such user: %s", r.opts.AgentUser)
@@ -130,17 +127,13 @@ func (r *runner) refuseRepoint() error {
 		// A dry run reports and writes nothing, so this is what it has to report:
 		// refusing here would mean consenting to the change to preview it.
 		if r.opts.DryRun {
-			r.warnf("this host's daemons load %s, and this run names %s. A real run would be refused: "+
-				"pass --repoint-config to point them at the new one, or leave --config-dir out",
+			r.warnf("the daemons load %s, not %s; a real run is refused without --repoint-config",
 				installed, r.layout.ConfigDir)
 			return nil
 		}
-		return fmt.Errorf("this host's daemons load %s, and this run names %s.\nThere is one set of units, "+
-			"so the daemons would move to the new directory, and the age key and ciphertext "+
-			"left in %s would no longer be redacted.\nPass --repoint-config to move them, "+
-			"then retire %s "+
-			"yourself. To provision the existing install, leave --config-dir out",
-			installed, r.layout.ConfigDir, installed, installed)
+		return fmt.Errorf("the daemons load %s, not %s; pass --repoint-config to move them "+
+			"(the age key and ciphertext in %s are then no longer redacted), or leave --config-dir out",
+			installed, r.layout.ConfigDir, installed)
 	}
 	// Consented to, and still worth naming: nothing moved, and what is left
 	// behind is key material
@@ -149,18 +142,10 @@ func (r *runner) refuseRepoint() error {
 	// looks at it. That is the reason to name the files and the commands rather
 	// than the directory, since this is the only reading the operator gets.
 	managed, _ := filepath.Glob(filepath.Join(installed, "secrets", "*.sops.yml"))
-	key := filepath.Join(installed, "age.key")
-	store := filepath.Join(installed, "secrets")
-	width := max(len(key), len(store))
-	r.warnf("the daemons now load %s. %s is no longer part of this install, and "+
-		"nothing left in it is redacted:\n"+
-		"  %-*s  the age key for the files beside it\n"+
-		"  %-*s  %d managed file(s)\n"+
-		"Re-encrypt what you still need under the new directory, check it with "+
-		"`faramir refs`, then remove the old directory:\n"+
-		"  sudo rm -rf %s",
-		r.layout.ConfigDir, installed,
-		width, key, width, store, len(managed), installed)
+	r.warnf("the daemons now load %s; %s and the %d managed file(s) in %s are no longer "+
+		"part of the install and not redacted",
+		r.layout.ConfigDir, filepath.Join(installed, "age.key"), len(managed),
+		filepath.Join(installed, "secrets"))
 	return nil
 }
 

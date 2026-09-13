@@ -56,7 +56,7 @@ func strictDetail(detail string, strict bool) string {
 	if !strict {
 		return detail
 	}
-	const said = "strict: every mention refused, not only a read"
+	const said = "strict"
 	if detail == "" {
 		return said
 	}
@@ -99,7 +99,6 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 		if entry.Command != "" {
 			rows = append(rows, blockRow{
 				Source: sourceDeclared, Kind: kindCommand, Entry: entry.Command,
-				Detail: "neither the agent's shell nor a brokered command may run it",
 			})
 			continue
 		}
@@ -110,8 +109,7 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 		source, detail := sourceDeclared, ""
 		if entry.DerivedFrom != "" {
 			source = sourceDerived
-			detail = "another name for " + entry.DerivedFrom + "; removed with the entry for it " +
-				"once nothing else names the file"
+			detail = "target of " + entry.DerivedFrom
 		}
 		rows = append(rows, blockRow{
 			Source: source, Kind: kindPath, Entry: entry.Path,
@@ -141,7 +139,7 @@ func blockRows(configDir string, declared []config.BlockedPath, builtIn bool) []
 	for _, dir := range agentcfg.InstalledDirs(configDir) {
 		rows = append(rows, blockRow{
 			Source: sourceBuiltIn, Kind: kindPath, Entry: dir, Strict: true,
-			Detail: strictDetail("this install's own, and everything under it", true),
+			Detail: strictDetail("install directory", true),
 		})
 	}
 	// What faramir blocks for what a command does rather than for what it

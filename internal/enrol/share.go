@@ -46,10 +46,8 @@ func (p *project) shareTree() error {
 	// writable tree, so a tree outside it takes the group and then refuses every
 	// write with EROFS.
 	if hostlayout.HomeOf(p.opts.Dir) == "" {
-		p.warnf("%s is outside /home, the only tree faramir-exec can write to, so "+
-			"every write by a brokered command there fails with EROFS. Add a drop-in "+
-			"that extends ReadWritePaths= on faramir-exec.service",
-			p.opts.Dir)
+		p.warnf("%s is outside /home, so brokered writes there fail with EROFS unless a drop-in "+
+			"extends ReadWritePaths= on faramir-exec.service", p.opts.Dir)
 	}
 	// What it altered, not whether it ran: the first run rewrites the ownership
 	// and mode of every file in the tree, and reporting that as no change would

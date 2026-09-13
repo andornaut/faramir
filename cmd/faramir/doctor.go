@@ -247,14 +247,11 @@ func printNotAsked(w io.Writer, paint termui.Palette, count int) {
 	if count == 0 {
 		return
 	}
-	note := fmt.Sprintf("%d more check(s) were not made; the totals above do not "+
-		"include them.", count)
+	note := fmt.Sprintf("%d more check(s) not made", count)
 	if os.Geteuid() != 0 {
 		// "Most", not "each": want of systemd, of sops on the PATH, or of a broker
 		// holding values is counted here too, and root changes none of those.
-		note += " Most of them have to read a file or run a command as an account " +
-			"that is not yours: the operator can run `sudo faramir doctor`, and what " +
-			"root does not answer stays listed with its own reason."
+		note += "; most need root"
 	}
 	_, _ = fmt.Fprintln(w)
 	for _, line := range termui.Wrap(note, termui.Width()) {

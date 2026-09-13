@@ -309,18 +309,17 @@ func TestEachFormOfEntryIsWarnedAboutOnItsOwnTerms(t *testing.T) {
 		{
 			name:  "a command names what it will and will not catch",
 			entry: config.BlockedPath{Command: "sops"},
-			want:  []string{"sops", "literal", "where a command starts", "is left alone"},
-			gone:  []string{"is not there"},
+			gone:  []string{"does not exist"},
 		},
 		{
 			name:  "a path that is not there is said, an unmounted volume looking so",
 			entry: config.BlockedPath{Path: "/nowhere/absent.key"},
-			want:  []string{"/nowhere/absent.key", "is not there"},
+			want:  []string{"/nowhere/absent.key", "does not exist"},
 		},
 		{
 			name:  "a path a link already refuses adds nothing to it",
 			entry: config.BlockedPath{Path: linked},
-			want:  []string{linked, "some/ref", "adds nothing"},
+			want:  []string{linked, "some/ref", "already refused"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

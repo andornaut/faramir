@@ -389,8 +389,8 @@ logs "$newID" >/dev/null 2>&1 && ok "and that record reads back" || bad "the pos
 
 out=$(logs "$oldID"); code=$?
 [ $code -eq 1 ] && ok "an id that rotated out is a failure, not an empty answer" || bad "rotated-out id: exit $code"
-grep -q "$(basename "$LOG").1.gz" <<<"$out" && ok "and the hint names the file it went to" \
-  || bad "the hint does not name the rotated file: [$out]"
+grep -q 'rotated files not searched' <<<"$out" && ok "and says rotated files were not searched" \
+  || bad "the refusal does not say rotated files were skipped: [$out]"
 gz=$(zcat "$LOG.1.gz" | wc -l)
 [ "$gz" -eq "$before" ] && ok "the rotated file holds all $before records, still JSONL" \
   || bad "the rotated file holds $gz of $before records"

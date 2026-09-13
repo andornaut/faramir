@@ -43,8 +43,7 @@ func requireRoot(command string) bool {
 	if os.Geteuid() == 0 {
 		return true
 	}
-	fmt.Fprintf(os.Stderr, "faramir %s must run as root: try `sudo faramir %s`\n",
-		command, command)
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root\n", command)
 	return false
 }
 

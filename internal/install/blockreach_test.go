@@ -147,7 +147,7 @@ func TestTheRemovalSaysWhenALinkStillRefusesTheTarget(t *testing.T) {
 	derivedRemovalWarnings(&report, []config.BlockedPath{{Path: target, DerivedFrom: link}}, nil,
 		[]config.Link{{Ref: "app/token", Path: target, Type: "text"}})
 
-	if len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "still refused by the [[secret.link]] entry for app/token") {
+	if len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "still refused by the link app/token") {
 		t.Errorf("warnings = %q, want the link named", report.Warnings)
 	}
 	if strings.Contains(report.Warnings[0], "no longer blocked") {
