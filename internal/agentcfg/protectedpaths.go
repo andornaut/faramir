@@ -126,6 +126,13 @@ func libexecDir(layout hostlayout.Layout) string {
 // rather than as drift. One case: Claude Code and the libexec directory, for
 // the reason on claudeRules. Asked by the renderer and by the doctor, so the two
 // cannot disagree about which path that is.
+//
+// Antigravity is not a second case, and its rules keep the directory: the CLI's
+// read_file and write_file rules are not matched against the paths a
+// run_command names, so they neither refuse nor question the rewrite. That is a
+// measurement of CLI 1.1.22, not a contract; a release that started matching
+// them would refuse every wrapped command by faramir's own rule, and this is
+// where the answer would change.
 func OmittedFrom(agent string, layout hostlayout.Layout, path string) bool {
 	return agent == "claude" && path == libexecDir(layout)
 }

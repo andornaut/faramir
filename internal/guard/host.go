@@ -222,10 +222,12 @@ const applyPatchTool = "apply_patch"
 // the rest of the arguments are already there, and Cwd among them is the
 // directory the wrapper has to run in.
 //
-// The allow is load-bearing for the same reason it is on Claude Code: a rewrite
-// carrying no decision is a call nothing approved. It is not a substitute for a
-// permission rule: the permission check runs on the rewritten command, and a
-// call no rule permits is put to the operator whatever this answered.
+// The rewrite goes back with decision allow because the contract returns a
+// decision beside an overwrite and the only other decision refuses the call.
+// The allow approves nothing here: the host applies the overwrite and then runs
+// its own permission check on the rewritten command. Whether an overwrite sent
+// without a decision would be applied is not measured, so the allow stays. See
+// docs/coding-agents.md#antigravity.
 func antigravityHost() *host {
 	return &host{
 		shellTools: []string{runCommandTool},

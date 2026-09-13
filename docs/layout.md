@@ -61,7 +61,7 @@ Kilo Code | `~/.config/kilo/kilo.json` | `~/.config/kilo/plugin/faramir.js` | `~
 opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/plugin/faramir.js` | `~/.config/opencode/AGENTS.md` | Its rule file is also a prompt, not a refusal, so the plugin refuses
 Pi | none | `~/.pi/agent/extensions/faramir.ts` | `~/.pi/agent/AGENTS.md` | No rule file an install can write, so the extension does everything. Pi loads a home's extensions for every project without the project being trusted
 
-Every one of these refuses a path by asking `faramir guard`. Every one except Claude Code's and Codex's also routes commands through the broker. Those two return a permission decision, so a hook that rewrites a command must also approve it. Their account-wide hooks are `--deny-only`: each refuses what the list names and nothing else. An enrolment adds the routing.
+Every one of these refuses a path by asking `faramir guard`. Every one except Claude Code's and Codex's also routes commands through the broker. Those two take the hook's decision as the permission decision, so a hook that rewrites a command must also approve it. Their account-wide hooks are `--deny-only`: each refuses what the list names and nothing else. An enrolment adds the routing.
 
 The reasons behind each agent's files are in [coding-agents.md](coding-agents.md).
 

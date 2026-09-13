@@ -36,10 +36,11 @@ what a `[[secret.block]]` entry is for: it describes the host, and the agent
 may work in any directory on it.
 
 **Command routed, and its output redacted.** Applies everywhere except on
-Claude Code and Codex, where it applies only in enrolled trees. Their hooks
-return a permission decision, so a hook that rewrites a command must also
-approve it, and that approval covers every command the deny list does not
-name. Claude Code refuses the permission rule that would approve the rewrite
+Claude Code and Codex, where it applies only in enrolled trees. They take the
+hook's decision as the permission decision, so a hook that rewrites a command
+must also approve it, and that approval covers every command the deny list does
+not name. Antigravity's hook returns a decision too and it approves nothing
+there, so returning one is not what costs; being taken as the approval is. Claude Code refuses the permission rule that would approve the rewrite
 instead, with "'source' evaluates arguments as shell code". So on those two
 agents routing suppresses the Bash permission prompt, and the operator accepts
 that per tree, by enrolling it. Account-wide, they run `faramir guard
@@ -368,12 +369,20 @@ The registration matches every tool rather than naming `run_command`, so a
 payload the guard cannot read is refused rather than passed, whatever tool it
 arrived on.
 
-The permission check runs on the rewritten command and does not take the
-guard's allow as an approval. A command no rule permits is put to you, wrapped
-or not, and the prompt names the wrapper invocation. The deny rules are not
-consulted for it, so a rule on the wrapper's directory does not change the
-answer the way it does in Claude Code. Unlike Claude Code, enrolling takes
-nothing away.
+The hook returns the rewrite under `overwrite` with `decision: allow`, the
+decision being what the contract returns beside a rewrite. Antigravity applies
+the overwrite and then runs its own permission check on the rewritten command,
+without taking that allow as an approval: a command no rule permits is put to
+you, and the prompt names the wrapper invocation. So enrolling suppresses no
+prompt, which is why the enrolment warns of none. What it can cost is the
+plugin hosts' cost: a rule that permitted a command by its text no longer
+matches it once wrapped, so that command prompts.
+
+The CLI's `read_file` and `write_file` rules are not matched against the paths
+a `run_command` names, so a rule on the wrapper's directory neither refuses nor
+questions the rewrite as it does in Claude Code. Measured on CLI 1.1.22; a
+release that started matching them would refuse every wrapped command by
+faramir's own rule, and `agentcfg.OmittedFrom` is where that would be answered.
 
 The two halves differ in the rule file; the
 [README](../README.md#supported-agents) says which half gets one. The CLI

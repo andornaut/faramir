@@ -69,8 +69,11 @@ func TestTheWrapperDirectoryIsTheOmission(t *testing.T) {
 				"directory should be", path)
 		}
 	}
+	// Antigravity keeps the rule: its file-tool rules are not matched against
+	// the paths a run_command names, so nothing there collides with the rewrite.
+	// Measured on CLI 1.1.22; see OmittedFrom for what would change this.
 	if OmittedFrom("agy", layout, layout.LibexecDir) {
-		t.Error("the omission applies to an agent whose rules do not collide with the rewrite")
+		t.Error("the omission applies to Antigravity, whose rules do not collide with the rewrite")
 	}
 }
 

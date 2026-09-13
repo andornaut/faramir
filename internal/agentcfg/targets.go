@@ -88,7 +88,8 @@ type Target struct {
 	// is the one that pays it: it refuses the sourced command the rewrite
 	// produces whatever permission rules exist, so the hook has to approve what
 	// it rewrote, and every Bash prompt in the project goes with it. Every other
-	// agent has no allow to return, so its prompts are untouched.
+	// agent either returns no allow or does not take the one it gets as an
+	// approval, so its prompts are untouched.
 	AutoApprovesBash bool
 
 	// Note is warned about on enrolment, for anything that is not the Bash
@@ -452,10 +453,8 @@ func antigravityMember(name string, detectHome []string, ownRules []File) *Targe
 			// so a file without this is one the model may never be shown.
 			Head: "---\ntrigger: always_on\n---\n",
 		},
-		// The permission check runs on the rewritten command and does not take
-		// the guard's allow as an approval: a command no rule permits is put to
-		// the operator, wrapped or not, so the prompt names the wrapper
-		// invocation. Nothing is traded away.
+		// The host does not take the hook's allow as an approval, so no prompt
+		// is suppressed; see docs/coding-agents.md#antigravity.
 		AutoApprovesBash: false,
 		NoteStands:       true,
 		Note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +
