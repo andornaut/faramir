@@ -369,14 +369,17 @@ The registration matches every tool rather than naming `run_command`, so a
 payload the guard cannot read is refused rather than passed, whatever tool it
 arrived on.
 
-The hook returns the rewrite under `overwrite` with `decision: allow`, the
-decision being what the contract returns beside a rewrite. Antigravity applies
-the overwrite and then runs its own permission check on the rewritten command,
-without taking that allow as an approval: a command no rule permits is put to
-you, and the prompt names the wrapper invocation. So enrolling suppresses no
-prompt, which is why the enrolment warns of none. What it can cost is the
-plugin hosts' cost: a rule that permitted a command by its text no longer
-matches it once wrapped, so that command prompts.
+The hook returns the rewrite under `overwrite` with `decision: allow`, and the
+decision is what makes the overwrite count: one that arrives without a decision
+is not applied, and the call is denied outright ("tool call denied by pre-tool
+hook"). Antigravity applies the overwrite and then runs its own permission check
+on the rewritten command, without taking that allow as an approval: a command no
+rule permits is put to you, and the prompt names the wrapper invocation. So
+enrolling suppresses no prompt, which is why the enrolment warns of none. What
+it can cost is the plugin hosts' cost: the prompt offers to always allow
+"commands that start with" the command's first word, so a rule that permitted a
+command by its text no longer matches it once wrapped, and one saved from a
+wrapped prompt is keyed on `source`. Measured on CLI 1.1.22.
 
 The CLI's `read_file` and `write_file` rules are not matched against the paths
 a `run_command` names, so a rule on the wrapper's directory neither refuses nor

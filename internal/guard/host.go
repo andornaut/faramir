@@ -222,12 +222,12 @@ const applyPatchTool = "apply_patch"
 // the rest of the arguments are already there, and Cwd among them is the
 // directory the wrapper has to run in.
 //
-// The rewrite goes back with decision allow because the contract returns a
-// decision beside an overwrite and the only other decision refuses the call.
-// The allow approves nothing here: the host applies the overwrite and then runs
-// its own permission check on the rewritten command. Whether an overwrite sent
-// without a decision would be applied is not measured, so the allow stays. See
-// docs/coding-agents.md#antigravity.
+// The allow is load-bearing here for a different reason than on Claude Code: an
+// overwrite that arrives without a decision is not applied, the call is denied
+// outright ("tool call denied by pre-tool hook"), so without it no command in
+// any workspace would run. It approves nothing: the host applies the overwrite
+// and then runs its own permission check on the rewritten command. Both
+// measured on CLI 1.1.22; see docs/coding-agents.md#antigravity.
 func antigravityHost() *host {
 	return &host{
 		shellTools: []string{runCommandTool},

@@ -74,8 +74,8 @@ func TestARewriteHandsBackTheCommandAlone(t *testing.T) {
 		}
 		doc := h.rewrite(map[string]any{h.commandField(): "source /x/wrap.sh 'ls'"})
 		if doc["decision"] != "allow" {
-			t.Errorf("%s: decision = %v, want allow: the contract returns a decision "+
-				"beside an overwrite, and the only other one refuses the call", name, doc["decision"])
+			t.Errorf("%s: decision = %v, want allow: an overwrite without a decision "+
+				"is not applied and the call is denied outright", name, doc["decision"])
 		}
 		overwrite, ok := doc["overwrite"].(map[string]any)
 		if !ok {
