@@ -83,7 +83,7 @@ matches `Bash` only, so its file tools never reach the guard.
 **Runs a hook only once told to trust it.** Codex only. It skips a hook it has
 not been told to trust and does not say so, so what faramir writes does
 nothing until you start Codex once and trust the hook. `faramir init` and
-`faramir enrol` say so on every run.
+`faramir enrol` say so until Codex trusts every hook they wrote.
 
 ## Which agents an install configures
 
@@ -331,8 +331,10 @@ readers, so the guard covers every read it makes.
 been told to trust and does not say so, so what `faramir init` and `faramir
 enrol` write does nothing until you start Codex once and trust it. The trust
 is a hash of the hook as Codex parses it, so you must grant it, and grant it
-again after any change. Both commands say so on every run, and `faramir
-doctor` fails on a hook that is still untrusted: it is the only
+again after any change. Both commands say so while any hook they wrote is
+untrusted, the account-wide half and each enrolled tree being trusted
+separately, so a release that rewrites one of them brings the reminder back.
+`faramir doctor` fails on a hook that is still untrusted: it is the only
 misconfiguration here that produces no refusal, no failed play and no degraded
 ref, so nothing else would report it.
 

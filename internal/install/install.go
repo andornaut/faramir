@@ -95,6 +95,11 @@ type runner struct {
 	// question asked there and the files written later are about the same set.
 	agentTargets []*agentcfg.Target
 
+	// The agents whose account-wide note this run has to consider, collected
+	// where their files were written and said once every enrolled tree has been
+	// rewritten too. See warnAccountNotes.
+	accountNotes []*agentcfg.Target
+
 	// The keeper's own age recipient, empty when it could not be read. A
 	// .sops.yaml written without it encrypts every later value to everyone except
 	// the account that has to decrypt them.

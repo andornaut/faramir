@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/codextrust"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/steps"
 )
@@ -92,8 +93,13 @@ func (p *project) agentConfig() error {
 		// the agent running as the operator.
 		warnMissingAccountRules(p, target)
 		// Where the note stands, whether or not this run wrote anything: see
-		// agentcfg.Target.NoteStands.
-		if target.Note != "" && (made || target.NoteStands) {
+		// agentcfg.Target.NoteStands, and codextrust.NoteStands for the one note
+		// the agent itself answers. Both scopes: what this tree's hook is trusted
+		// to do says nothing about the account-wide one an earlier `init` wrote,
+		// which is inert under the same conditions and guards the file tools
+		// wherever the agent is working.
+		if target.Note != "" && (made || target.NoteStands) &&
+			codextrust.NoteStands(target.Name, p.agentHome, p.opts.Dir, p.agentHome) {
 			p.warnf("%s: %s", target.Name, target.Note)
 		}
 		p.warnUncommittableFiles(target)

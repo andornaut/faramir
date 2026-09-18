@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/codextrust"
 	"github.com/andornaut/faramir/internal/enrol"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
@@ -98,11 +100,14 @@ func (r *runner) stepAgentConfig() error {
 		changed = changed || made
 		// Whether or not this run wrote anything, but not where the write was
 		// refused: what the note describes is a condition the agent is under rather
-		// than something this run just did, and nothing here can check it has been
-		// met -- but told to go and trust a hook that was never written, an operator
-		// goes looking for one. See agentcfg.Target.AccountNote.
+		// than something this run just did -- but told to go and trust a hook that
+		// was never written, an operator goes looking for one.
+		//
+		// Held rather than said here: this run rewrites every enrolled tree's
+		// files below, and whether the agent has recorded that the condition is met
+		// is a question about the files as they are left. See warnAccountNotes.
 		if target.AccountNote != "" && stood {
-			r.warnf("%s: %s", target.Name, target.AccountNote)
+			r.accountNotes = append(r.accountNotes, target)
 		}
 	}
 	r.step(steps.LabelAgentConfig, changed, strings.Join(written, ", "))
@@ -310,7 +315,38 @@ func (r *runner) stepEnrolledTrees() error {
 		r.warnf("%d enrolled tree(s) not rewritten, now stale: %s",
 			len(skipped), strings.Join(skipped, ", "))
 	}
+	r.warnAccountNotes(trees)
 	return nil
+}
+
+// warnAccountNotes says what the agents this run configured cannot be made to
+// do, held back from the step that wrote their files until every enrolled tree
+// has been rewritten as well: a note the agent itself answers is answered by
+// the files as this run leaves them, and asking before the rewrite would read a
+// hook that is about to be replaced.
+//
+// Every scope the run wrote: the account-wide half and each tree enrolled for
+// that agent. The two halves render from separate assets and are trusted on
+// separate keys, so a release that rewrites one alone drops the trust in that
+// one alone.
+func (r *runner) warnAccountNotes(trees []agentcfg.EnrolledTree) {
+	for _, target := range r.accountNotes {
+		// A dry run wrote nothing, so what is on disk is the install this run was
+		// asked about rather than the one it describes. Said rather than decided
+		// from files the real run would replace.
+		if !r.opts.DryRun {
+			dirs := []string{r.operatorHome}
+			for _, tree := range trees {
+				if slices.Contains(tree.Agents, target.Name) {
+					dirs = append(dirs, tree.Dir)
+				}
+			}
+			if !codextrust.NoteStands(target.Name, r.operatorHome, dirs...) {
+				continue
+			}
+		}
+		r.warnf("%s: %s", target.Name, target.AccountNote)
+	}
 }
 
 // treeCount is the phrase the step above uses, so "1 tree" does not read as

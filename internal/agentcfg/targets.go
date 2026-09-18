@@ -104,7 +104,8 @@ type Target struct {
 
 	// NoteStands says the Note describes what this tree is rather than what this
 	// run just did, so it is warned about on every enrolment rather than only on
-	// the one that wrote the files.
+	// the one that wrote the files. A note the agent itself answers is left out
+	// once it has: see codextrust.NoteStands.
 	NoteStands bool
 }
 
@@ -198,10 +199,13 @@ const (
 // and it holds at both scopes: the account-wide hook and a tree's are inert
 // under either of them.
 //
-// Said on every run rather than only on the one that wrote the files. Both fail
-// quietly, so neither is safe to leave to be discovered. Trust is reported
-// afterwards as well, `doctor` failing on a hook Codex will not run; how Codex
-// was started is not something a later run can know, and is said here alone.
+// Said on every run rather than only on the one that wrote the files, and left
+// out once Codex trusts every hook the run wrote, at both scopes: see
+// codextrust.NoteStands.
+// Both fail quietly, so neither is safe to leave to be discovered. Trust is
+// reported afterwards as well, `doctor` failing on a hook Codex will not run;
+// how Codex was started is not something a later run can know, and is said here
+// alone.
 const codexNote = "Codex skips a hook it has not been told to trust, silently, so nothing here is " +
 	"routed or refused until you start Codex once and trust this hook. Codex must also " +
 	"run without its own sandbox (`codex --dangerously-bypass-approvals-and-sandbox`): " +

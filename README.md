@@ -54,7 +54,7 @@ Each agent is also told what the rules refuse and why, in the file it reads for 
 Codex needs two things from you before any of this applies.
 
 > [!IMPORTANT]
-> **Codex has two conditions faramir cannot meet for you.** Codex silently skips a hook it has not been told to trust, so what `faramir init` writes does nothing until you start Codex once and trust the hook. And Codex must run without its own sandbox (`codex --dangerously-bypass-approvals-and-sandbox`): sandboxed, it cannot reach the broker socket, the wrapper fails closed, and every command's output is withheld instead of redacted. Both commands print a reminder on every run. Details in [coding-agents.md](docs/coding-agents.md#codex).
+> **Codex has two conditions faramir cannot meet for you.** Codex silently skips a hook it has not been told to trust, so what `faramir init` writes does nothing until you start Codex once and trust the hook. And Codex must run without its own sandbox (`codex --dangerously-bypass-approvals-and-sandbox`): sandboxed, it cannot reach the broker socket, the wrapper fails closed, and every command's output is withheld instead of redacted. Both commands print a reminder until Codex trusts every hook they wrote. Details in [coding-agents.md](docs/coding-agents.md#codex).
 
 ## What it protects against
 
