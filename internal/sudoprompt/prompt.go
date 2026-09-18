@@ -140,7 +140,7 @@ var fromTerminal = answers
 // reader: a second would buffer past the newline and eat the answer to the next
 // question.
 type Terminal struct {
-	lines chan string
+	lines chan input
 	// paint is the palette the prompt below is printed with. Held here because
 	// the prompt is reprinted on every blank line, and the reader is what knows
 	// when that happens.
@@ -150,6 +150,20 @@ type Terminal struct {
 	// substituting another must not make this one flush a terminal it is no
 	// longer reading.
 	terminal bool
+	// since is the moment the question now on screen was shown, set by discard.
+	// A line read before it was typed against something else and is dropped on
+	// arrival. Zero where the reader is not a terminal, which takes its scripted
+	// lines in order.
+	since time.Time
+}
+
+// input is one line and the moment the reader had it. The moment is what the
+// ioctl cannot supply: a line already taken off the terminal's queue is out of
+// the kernel's reach, and only the time it was read says whether it was typed
+// against the question it would otherwise answer.
+type input struct {
+	line string
+	read time.Time
 }
 
 func ReadLines(paint termui.Palette) *Terminal {
@@ -157,13 +171,16 @@ func ReadLines(paint termui.Palette) *Terminal {
 	// test that substituted a reader of its own, and one reading whatever the
 	// variable holds now would take the lines meant for whoever set it.
 	source, fromTTY := answers, answers == fromTerminal
-	t := &Terminal{lines: make(chan string, 1), terminal: fromTTY, paint: paint}
+	t := &Terminal{lines: make(chan input, 1), terminal: fromTTY, paint: paint}
 	go func() {
 		defer close(t.lines)
 		for {
 			line, err := source.ReadString('\n')
 			if line != "" {
-				t.lines <- line
+				// Stamped where it was read rather than where it is received: the
+				// send below blocks until somebody asks for it, which is the whole of
+				// what the stamp is for.
+				t.lines <- input{line: line, read: time.Now()}
 			}
 			if err != nil {
 				return
@@ -182,16 +199,21 @@ func ReadLines(paint termui.Palette) *Terminal {
 // canonical mode a read returns one line, so the buffer holds nothing the ioctl
 // has not already dropped.
 //
-// This narrows the window rather than closing it: a line the goroutine holds
-// between its read and its send lands after the drain.
+// What neither reaches is a line the goroutine read and is holding between its
+// read and its send, which lands after the drain. The moment recorded here is
+// what covers it: every line carries the time it was read, and Answer drops one
+// older than this.
 func (t *Terminal) discard() {
 	if !t.terminal {
 		return
 	}
-	if !termui.FlushTypeahead() {
-		return
+	if termui.FlushTypeahead() {
+		t.drain()
 	}
-	t.drain()
+	// Last, and whether or not the ioctl worked: everything read up to here was
+	// read before this question's prompt, the flush having failed or not. A stamp
+	// taken earlier would leave the lines read in between spendable on it.
+	t.since = time.Now()
 }
 
 // drain empties the channel of lines the goroutine has already delivered.
@@ -224,22 +246,34 @@ const (
 // stray newline is nobody saying anything. Deny by default comes from the
 // expiry instead, which the broker applies whether or not this terminal is
 // still asking.
+//
+// Only what was typed against this question counts: a line read before its
+// prompt was shown is dropped on arrival, however it got past the flush. See
+// discard.
 func (t *Terminal) Answer(deadline time.Time) (string, State) {
 	t.discard()
+	// Bold, and the trailing space left outside it: what is being asked for is
+	// the last thing on the screen before the cursor, and the cursor sits on a
+	// plain space rather than inside a highlight.
+	prompt := func() { fmt.Print("  " + t.paint.Bold("Approve? [y/n]") + " ") }
+	prompt()
 	for {
-		// Bold, and the trailing space left outside it: what is being asked for is
-		// the last thing on the screen before the cursor, and the cursor sits on a
-		// plain space rather than inside a highlight.
-		fmt.Print("  " + t.paint.Bold("Approve? [y/n]") + " ")
 		select {
-		case line, open := <-t.lines:
+		case in, open := <-t.lines:
 			if !open {
 				return "", StdinClosed
 			}
-			if termui.AnswerOf(line) == "" {
+			// Typed against whatever was on the screen before this question, so it
+			// answers nothing here. Dropped without reprinting: it was echoed above
+			// the prompt, which is still on screen with the cursor after it.
+			if in.read.Before(t.since) {
 				continue
 			}
-			return line, Answered
+			if termui.AnswerOf(in.line) == "" {
+				prompt()
+				continue
+			}
+			return in.line, Answered
 		case <-time.After(time.Until(deadline)):
 			// Anything the goroutine delivered as the clock ran out was typed for the
 			// question that just expired, so it goes with it: left in the channel, a

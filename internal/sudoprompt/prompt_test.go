@@ -72,6 +72,34 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 	}
 }
 
+// The flush reaches the terminal's queue, and a line the reader has already
+// taken off it is out of that reach: held between its read and its send, it
+// lands on the next question the moment one is asked. An approval nobody typed
+// against this question is the whole of what the prompt exists to prevent.
+func TestALineReadBeforeTheQuestionIsNotItsAnswer(t *testing.T) {
+	terminal := &Terminal{lines: make(chan input, 1), since: time.Now()}
+	terminal.lines <- input{line: "y\n", read: time.Now().Add(-time.Second)}
+
+	line, state := terminal.Answer(time.Now().Add(150 * time.Millisecond))
+	if state != Expired {
+		t.Errorf("the wait gave (%q, %v), want an expiry: the y was typed against "+
+			"whatever was on the screen before this question", line, state)
+	}
+}
+
+// And the line typed against the question is taken, or a prompt that dropped
+// what predates it would drop the answer as well.
+func TestALineReadAfterTheQuestionIsItsAnswer(t *testing.T) {
+	terminal := &Terminal{lines: make(chan input, 1), since: time.Now().Add(-time.Second)}
+	terminal.lines <- input{line: "y\n", read: time.Now()}
+
+	line, state := terminal.Answer(time.Now().Add(time.Minute))
+	if state != Answered || !termui.Approves(line) {
+		t.Errorf("the wait gave (%q, %v), want the answer typed against the question",
+			line, state)
+	}
+}
+
 // The wait rides the received line, and only where it says something. A
 // watcher already running is answered the moment a question is filed, so zero is
 // the ordinary reading and its absence says as much. It is the other case the
