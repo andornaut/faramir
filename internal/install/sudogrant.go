@@ -250,7 +250,7 @@ func (r *runner) validateSudoers() error {
 }
 
 // writeSudoEnv renders what a brokered command's sudo is given on top of what
-// sudo builds. Root's, 0644: PAM reads it as root through the pam_env line in
+// sudo builds. Root's, 0640: PAM reads it as root through the pam_env line in
 // faramir's own service, and the executor's uid must not be able to write what
 // root will be handed.
 //

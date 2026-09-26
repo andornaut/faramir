@@ -50,8 +50,8 @@ ProtectSystem=strict
 {{if .KeeperBinds -}}
 # The config directory is inside a home, so tmpfs rather than true: every other
 # home stays invisible and only that directory is bound back. A home is not
-# mounted until its owner logs in, so the secrets are absent at boot, which the
-# broker treats as a load failure rather than an empty one.
+# mounted until its owner logs in, so the secrets are absent at boot: each entry
+# then names no file, and the broker serves without it and logs a warning.
 ProtectHome=tmpfs
 {{range .KeeperBinds}}BindReadOnlyPaths={{.}}
 {{end -}}

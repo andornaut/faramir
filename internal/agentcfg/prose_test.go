@@ -52,9 +52,7 @@ func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
 }
 
 // What the home section claims about the deny rules has to be true of the agent
-// it is written for: pi's are compiled into the extension an enrolment
-// installs, and Antigravity has nothing that refuses a file tool anything. An
-// agent told it is refused everywhere, and finding it is not, has no reason to
+// it is written for. An agent told it is refused everywhere, and finding it is not, has no reason to
 // believe the next claim.
 func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
 	const everywhere = "wherever you are working"
