@@ -208,7 +208,7 @@ Establish what is actually refused, once each, through the ordinary route.
 
 A refusal proves something is protected only if there was something there to
 protect. Confirm the target exists before you record one as a pass, and note
-that `ls -l` on a declared path is itself refused now: naming one is what the
+that `ls -l` on a declared path is itself refused: naming one is what the
 rule answers. `faramir block ls` is the way, and you may run it: `--json` carries
 a `state` on each path row saying whether that path is there. It is not a column
 in the table, so read the JSON rather than reporting the table as missing one. A deny on a path that is absent

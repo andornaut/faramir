@@ -47,7 +47,7 @@ Order | Source
 2 | the running broker's own answer, asked at `$FARAMIR_SOCKET`, else `/run/faramir/broker.sock`
 3 | the `FARAMIR_CONFIG=` line in the broker's unit, which covers a host whose config moved and whose broker is down
 
-If nothing answers, the command fails and names both places it asked. It does not fall back to the compiled-in default: acting on the wrong install is worse than an error. A config file the ladder named but did not find is the same error. `$FARAMIR_CONFIG` is the override, and the only setting an operator needs to give. It names the config **file**, not its directory; a directory value is refused.
+If nothing answers, the command fails and names both places it asked. It does not fall back to the compiled-in default: acting on the wrong install is worse than an error. A config file the ladder named but did not find fails the command that reads it, and `doctor` reports it as a failed `config` check. `$FARAMIR_CONFIG` is the override, and the only setting an operator needs to give. It names the config **file**, not its directory; a directory value is refused.
 
 `init` is the exception and takes `--config-dir`: a host with no install has no broker to ask and no unit to read, and `init`'s caller decides where the config goes. It asks the broker and reads the unit like the other commands, then falls back to `/etc/faramir`, and prints its choice before writing. `init` ignores `$FARAMIR_CONFIG`: it is a shell variable that `sudo -E` carries through, and a leftover from an earlier command must not decide where a host is provisioned.
 
@@ -69,7 +69,7 @@ There are two kinds, and the kind decides what a run may do to the file.
 - Codex's tree hook is `.codex/hooks.json`. Its account-wide hook has the same name under the home.
 - Neither tree file is git-ignored by default. The enrolment says so when nothing ignores it.
 - Your agent instructions file gets only the block between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`.
-- An existing file keeps its owner. A rule file, hook or plugin is set to `0640` whatever mode it had; an instructions file keeps its mode. An existing file keeps its group too, except in a tree, where the client group must be able to read the file the hook is written into. Only a file a run creates takes an owner from the run, and only one created in a rules directory gets the frontmatter that agent needs to load it.
+- An existing file keeps its owner. A rule file, hook or plugin is set to `0640` in a tree, and in a home an existing one's mode is only narrowed to it; an instructions file keeps its mode. An existing file keeps its group too, except in a tree, where the client group must be able to read the file the hook is written into. Only a file a run creates takes an owner from the run, and only one created in a rules directory gets the frontmatter that agent needs to load it.
 
 A run stops rather than write a file it should not, and leaves it as it was:
 

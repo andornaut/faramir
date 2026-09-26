@@ -39,7 +39,8 @@ func newEnrolCmd() *cobra.Command {
 		"group to share the tree with (default: the installed client group)")
 	fl.StringArrayVar(&f.agents, "agent", nil,
 		"agent to enrol; repeatable. \""+agentcfg.Auto+"\" (the default) enrols every agent "+
-			"the tree has configuration for. Known: "+strings.Join(agentcfg.Known(), ", "))
+			"the tree has configuration for, plus one configured only in the home, such as Codex. "+
+			"Known: "+strings.Join(agentcfg.Known(), ", "))
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
 	return c

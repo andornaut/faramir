@@ -49,7 +49,7 @@ Every path the install creates, what owns it, and what each account can reach th
 <the directories above it>      enterable by <client-group>, down from the home
 ```
 
-`init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>`, and a missing parent is `0700`. A file that already exists keeps its owner and group; a rule file, hook or plugin is set to `0640` whatever mode it had, and an instructions file keeps its mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
+`init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>`, and a missing parent is `0700`. A file that already exists keeps its owner and group; a rule file, hook or plugin loses any bit outside `0640` and is never widened, and an instructions file keeps its mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
 
 Agent | Rule file | What faramir installs beside it | Credentials section | Notes
 --- | --- | --- | --- | ---

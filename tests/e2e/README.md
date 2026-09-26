@@ -51,7 +51,7 @@ Every container, image and network name takes a suffix from `SUDO`, so the two s
 
 `SUDO` is `sudo` or `sudo-rs`, the implementations' own names rather than labels for them, so what a CI job is called, what you type and what the docs say are one word. Unset is `sudo`, which is what the image pins, and it takes the unsuffixed names.
 
-`make e2e` from the repository root is `fetch` and `both` in one command, and `make test` is that plus the Go suite. The linters are `make lint`, which CI runs as a job of its own.
+`make e2e` from the repository root is `fetch` and `both` in one command, and `make test` is that plus the Go suite. The linters are `make lint`. CI runs the same linters as separate steps of its own job.
 
 `up` is idempotent and rebuilds the binary from the current tree, so it is how you pick up a change. `run` copies each script in fresh, so editing a suite needs no rebuild.
 
@@ -109,6 +109,7 @@ Helper | Use
 `ok` / `bad` | Count a pass or a failure, and print. Say what was expected in the `bad` message and include the output
 `note` | Print without counting, for what a suite observes rather than claims. Reaching for `ok` on both sides of a branch writes an assertion that cannot fail and counts it as a pass; that is what this is for
 `waitfor SECONDS COMMAND...` | Poll until the command succeeds. Prefer it to a `sleep` long enough for the slowest case, which is slower than the usual case and still too short for the unusual one
+`answers USER` | Whether the broker answers USER, degraded or not, for `waitfor` after a restart. Not `refs`' exit status, which is 1 on the suites' stores because they hold a ref it cannot serve
 `head_` | A section heading
 `snap`, `st`, `dt` | `snap` writes `faramir doctor --json` to `$JSON`; `st CHECK` and `dt CHECK` print that check's statuses and details, joined across every finding of that name
 `summary` | End the suite. Takes its name from the filename, so the name in the output is the one `e2e.sh` and the table above use

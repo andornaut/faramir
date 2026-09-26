@@ -77,8 +77,8 @@ The hook is registered for every tool, not for the shell alone. An empty reply
 leaves a call unchanged, so answering for a tool that runs no command has no
 effect, and matching every tool is what makes the file
 tools reach the deny list. `faramir doctor` reports a Claude Code registration
-that matches less than every tool: an enrolment written by an older version
-matches `Bash` only, so its file tools never reach the guard.
+that matches less than every tool: a registration matching `Bash` only never
+sends the file tools to the guard.
 
 **Runs a hook only once told to trust it.** Codex only. It skips a hook it has
 not been told to trust and does not say so, so what faramir writes does
@@ -282,10 +282,8 @@ Mode | Cost
 
 `auto` is the mode a session starts in on most plans, and its cost is the one
 line here that is not established. A classifier reviews each command instead of
-prompting, and whether the hook's `allow` preempts that review is not
-documented and was not settled by testing: every probe was an action the
-operator had asked for, which the classifier permits with or without the hook.
-Until it is settled, assume enrolment may remove the classifier's review of a
+prompting, and whether the hook's `allow` preempts that review is undocumented
+and unverified. Assume enrolment may remove the classifier's review of a
 command as well as the prompt.
 
 ## Codex
@@ -315,9 +313,9 @@ a patch that adds documentation quoting `rm /etc/faramir/config.toml` would be
 refused for what the documentation says. It is never rewritten either: run
 through the wrapper, the result would be a patch that no longer applies.
 
-A patch the guard cannot parse is refused. This check is the only thing that
-refuses Codex a path, so an envelope the guard cannot read would otherwise
-leave every write unexamined.
+An `apply_patch` call with no patch in the field the guard reads is refused.
+This check is the only thing that refuses Codex a path, so an envelope the
+guard cannot read would otherwise leave every write unexamined.
 
 The tool can also be invoked from a shell, and the documented form puts the
 envelope in a heredoc. The body is split into commands like any other, and a

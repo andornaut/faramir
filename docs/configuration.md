@@ -33,14 +33,14 @@ Two consequences:
 
 ## What a flag sets
 
-Each of these is written into the file and read back on the next run.
+Each of these is written into the file and read back on the next run. A numeric flag given as 0 counts as not given: `init` keeps what the install already has, and takes the default only where the file holds none. The bounds apply to the file.
 
 Flag | Key | Default | Bounds
 --- | --- | --- | ---
 `--command-env NAME=VALUE` | `[command.env] NAME` | `PATH`, `TERM`, `LANG`, `LC_ALL`, `DEBIAN_FRONTEND` | Repeatable, and it **adds**: naming one variable keeps the rest. `PATH` may not be empty, and every component must be absolute.
 `--command-timeout` | `[command] timeout_sec` | 600 | A duration (`10m`) or a bare number of seconds, in whole seconds. At least 1. Zero would kill every command as it started.
 `--command-max-timeout` | `[command] max_timeout_sec` | 3600 | A duration or a bare number of seconds. At least 1, and not below `timeout_sec`. A lower value would silently replace `timeout_sec` for every command.
-`--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor forks at once. `init` refuses a negative value and anything above 16, because above 16 the executor would refuse the surplus *after* the run was recorded as started. Zero means unset: it keeps what the install already has, and takes the default only where the file holds none.
+`--command-concurrency` | `[command] concurrency` | 10 | 1 to 16, the most the executor forks at once. `init` refuses a negative value and anything above 16, because above 16 the executor would refuse the surplus *after* the run was recorded as started.
 `--command-max-memory-percent` | `[command] max_memory_percent` | 25 | 1 to 100. Rendered as `MemoryMax=` on the executor unit.
 `--command-max-process-memory-mb` | `[command] max_process_memory_mb` | 4096 | 256 to 1048576. Rendered as `LimitDATA=` on the executor unit and inherited by every child.
 `--sudo-timeout` | `[sudo] timeout_sec` | 120 | A duration or a bare number of seconds. 1 to 3600, and never more than `[command] max_timeout_sec`: a longer value is read as that one. How long a sudo question waits for a human. While a question is open, and through the approved run that follows, every other brokered command is refused, so a long timeout blocks every brokered command on the host for that long.

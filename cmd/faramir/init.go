@@ -117,9 +117,6 @@ func newInitCmd() *cobra.Command {
 			"required. Needs --allow-sudo; omitting it on a re-run keeps the current command")
 	fl.BoolVar(&f.repointConfig, "repoint-config", false,
 		"allow a --config-dir other than the one the daemons use; the old directory stays on disk, unredacted")
-	// The name this had when it read as though init relocated the directory. Kept
-	// so a converge that names it keeps working, and hidden so nothing learns it
-	// from --help.
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
 	// The tunables, named for what they bound rather than for the section they
@@ -232,10 +229,8 @@ func runInit(f initFlags) int {
 		CommandMaxProcessMemoryMB: f.commandMaxProcMB,
 		SudoTimeoutSec:            seconds["--sudo-timeout"],
 		SecretMinLength:           f.secretMinLength,
-		// Either spelling: the old one is deprecated rather than gone, so a fleet
-		// that has not been edited yet still installs.
-		RepointConfig: f.repointConfig,
-		DryRun:        f.dryRun,
+		RepointConfig:             f.repointConfig,
+		DryRun:                    f.dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
 	// --json entirely.
