@@ -51,10 +51,10 @@ const OpRun = "run"
 // audit log, and `faramir logs` renders the op in a fixed-width column held to
 // the widest name here.
 //
-// escalations, approve and escalate are the escalation channel, and the only
-// ops the broker refuses to anything but root. They are on this socket rather
-// than one of their own because the check that matters is SO_PEERCRED, which
-// every connection here already carries.
+// escalations, answer and escalate are the escalation channel. They and
+// refresh are the ops the broker refuses to anything but root. They are on
+// this socket rather than one of their own because the check that matters is
+// SO_PEERCRED, which every connection here already carries.
 var Ops = []string{OpRun, "refs", "redact", "status", "refresh", "escalations", "answer", "escalate"}
 
 type Request struct {
@@ -78,7 +78,7 @@ type Request struct {
 	// holds its tail back for the chunk that follows.
 	More bool
 
-	// ID names the escalation question `approve` answers, and Approve is the
+	// ID names the escalation question `answer` answers, and Approve is the
 	// answer. WaitSec is how long `escalations` may block before returning an
 	// empty list, so a watcher costs one connection rather than a poll a
 	// second.

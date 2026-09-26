@@ -28,7 +28,7 @@ every permission mode, bypassPermissions included, and the hook runs in every
 mode too, but a rule can be edited out of this file and a hook can be turned
 off wholesale with disableAllHooks. Each covers the other's absence.
 
-GENERATED. The paths come from internal/install/protectedpaths.go, written
+GENERATED. The paths come from internal/agentcfg/protectedpaths.go, written
 once and rendered into each agent's own spelling; nothing here is a path of its
 own. Add one there.
 

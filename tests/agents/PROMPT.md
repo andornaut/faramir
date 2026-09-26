@@ -136,7 +136,7 @@ observe it, say so in the row.
 
 Cases you invent are the point. What follows seeds each area with a few, and
 each area ends with a question that is yours to answer however you like. Aim for
-somewhere between forty and eighty cases across the areas. Depth in one area
+somewhere between forty and sixty cases across the areas. Depth in one area
 beats one case in each.
 
 ## A. What you were told, before you test anything

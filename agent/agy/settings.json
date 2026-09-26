@@ -6,7 +6,7 @@ The CLI only. The IDE ships the same rule syntax and reads none of this file:
 the keys beside these are the CLI's own, and the IDE's permission scopes are
 its own state. See the antigravity target in internal/install/agents.go.
 
-GENERATED. The paths come from internal/install/protectedpaths.go, written
+GENERATED. The paths come from internal/agentcfg/protectedpaths.go, written
 once and rendered into each agent's own spelling; nothing here is a path of its
 own. Add one there.
 

@@ -13,8 +13,9 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// requireRoot gates the three escalation ops, the only ones this socket refuses
-// to a caller it otherwise admits. Root, checked with SO_PEERCRED: not the
+// requireRoot gates the three escalation ops. They and refresh, which checks
+// for root in opRefresh, are the ops this socket refuses to a caller it
+// otherwise admits. Root, checked with SO_PEERCRED: not the
 // client group, which holds the account the coding agent runs as, and not the
 // executor, which is the side asking. Made in the op rather than left to a
 // file mode, the socket admitting a group by design.

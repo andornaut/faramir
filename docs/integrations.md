@@ -214,7 +214,7 @@ Two things to know before choosing the plugin:
 - `vars_plugins_enabled` in `ansible.cfg` **replaces** the default list rather than adding to it, so it must keep naming `host_group_vars` or `host_vars/` stops loading.
 - A store key that `faramir.env` does not name is invisible to Ansible. That follows from one list saying what a run needs.
 
-Have a missing or unreadable env file yield no names rather than an error. Every credential is then undefined, and the first task to read one fails and names it. That is the right failure for a run nothing was injected into, and an ad-hoc command against a host that needs no credential keeps working.
+Have a missing or unreadable env file raise `AnsibleParserError` naming the file rather than yield no names: every credential coming back undefined would read as a broker that is not serving. A file that is there and declares nothing is not an error. A credential the environment lacks, or holds empty, is omitted, so the first task to read one fails and names it. An ad-hoc `ansible` command looks for the file in the working directory, so run those from the repository root.
 
 #### Running it, either way
 
