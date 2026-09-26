@@ -114,9 +114,15 @@ func TestEnterableJudgesOneClassTheWayTheKernelDoes(t *testing.T) {
 // rather than reporting "runuser: user does not exist" as a boundary that does
 // not hold. Guarded at the source, so no caller has to remember it.
 func TestAsUserRefusesAnUnnamedAccount(t *testing.T) {
-	if _, err := Output("", "true"); err == nil {
-		t.Fatal("an empty account was passed to runuser, which reads it as the " +
-			"account name and fails with a message about the host")
+	_, err := Output("", "true")
+	if err == nil {
+		t.Fatal("a command with no account to run as succeeded")
+	}
+	// runuser fails on an empty name as well, so the refusal is held to its own
+	// words rather than to there being an error at all.
+	if !strings.Contains(err.Error(), "no account named") {
+		t.Errorf("an empty account was passed to runuser, which reads it as the "+
+			"account name and fails with a message about the host: %v", err)
 	}
 }
 

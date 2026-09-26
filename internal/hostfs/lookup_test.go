@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestMissingAncestors(t *testing.T) {
+func TestMissingAncestorsListsOnlyWhatIsAbsentOutermostFirst(t *testing.T) {
 	root := t.TempDir()
 	got := missingAncestors(filepath.Join(root, "a", "b"))
 	want := []string{filepath.Join(root, "a"), filepath.Join(root, "a", "b")}

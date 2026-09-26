@@ -60,7 +60,7 @@ type = "text"
 	}
 }
 
-func TestValidateLink(t *testing.T) {
+func TestALinkKeyIsAcceptedOnlyOnAStructuredType(t *testing.T) {
 	ok := Link{Ref: "gh/token", Path: "/x", Type: "yaml", Key: "a/b"}
 	if err := ValidateLink(ok); err != nil {
 		t.Errorf("a good link was refused: %v", err)

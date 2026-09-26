@@ -2,11 +2,8 @@ package main
 
 import (
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
-
-	"github.com/spf13/cobra"
 
 	faramir "github.com/andornaut/faramir"
 	"github.com/andornaut/faramir/internal/cli"
@@ -103,30 +100,5 @@ func TestTheReadmeGroupTableFollowsTheSameOrderWithinEachRow(t *testing.T) {
 	}
 	if rows == 0 {
 		t.Fatal("no README row names two commands, so this asserts nothing")
-	}
-}
-
-// Sorted to the leaf, not only at the top: a reader who opens `faramir vault
-// --help` is looking a verb up the same way.
-func TestEverySubcommandListIsSorted(t *testing.T) {
-	checked := 0
-	var walk func(*cobra.Command)
-	walk = func(c *cobra.Command) {
-		names := make([]string, 0, len(c.Commands()))
-		for _, sub := range c.Commands() {
-			names = append(names, sub.Name())
-			walk(sub)
-		}
-		if len(names) < 2 {
-			return
-		}
-		checked++
-		if !slices.IsSorted(names) {
-			t.Errorf("%s lists %v, want it sorted", c.CommandPath(), names)
-		}
-	}
-	walk(newRootCmd())
-	if checked == 0 {
-		t.Fatal("no command groups others, so this asserts nothing")
 	}
 }

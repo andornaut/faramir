@@ -464,25 +464,21 @@ func TestExecNamesTheOperator(t *testing.T) {
 // large enough value wraps negative and a min against the ceiling keeps the
 // negative. Poll then returns at once on a request that asked to wait.
 //
-// The same shape the command timeout had before responseWait saturated it.
-func TestTheEscalationWaitDoesNotWrapOnAHugeWaitSec(t *testing.T) {
-	for _, seconds := range []int{
-		0, 1, 30, maxEscalationWaitSec, maxEscalationWaitSec + 1,
-		1 << 30, 1 << 62, math.MaxInt64,
-	} {
-		wait := time.Duration(min(seconds, maxEscalationWaitSec)) * time.Second
-		switch {
-		case wait < 0:
-			t.Errorf("wait_sec %d gives %v, a deadline already past", seconds, wait)
-		case wait > maxEscalationWait:
-			t.Errorf("wait_sec %d gives %v, past the ceiling of %v",
-				seconds, wait, maxEscalationWait)
-		}
-	}
-	// And a wait under the ceiling is still the one asked for. Through a variable,
-	// the constants folding away otherwise and asserting nothing about the clamp.
-	asked := 30
-	if got := time.Duration(min(asked, maxEscalationWaitSec)) * time.Second; got != 30*time.Second {
-		t.Errorf("wait_sec %d gives %v, want 30s", asked, got)
+// Held through the op rather than by restating its arithmetic: the poll must
+// still be open when a question arrives after it started.
+func TestAHugeWaitSecStillHoldsThePoll(t *testing.T) {
+	s, _ := execServer(t)
+	allowSudo(t, s)
+	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
+	token, _ := s.Escalation.Register(escalation.Run{
+		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-wrap",
+	})
+	timer := time.AfterFunc(200*time.Millisecond, func() { askInBackground(t, s, token) })
+	t.Cleanup(func() { timer.Stop() })
+
+	response := handle(s, map[string]any{"op": "escalations", "wait_sec": math.MaxInt64}, root)
+	if questions, _ := response["questions"].([]escalation.Question); len(questions) == 0 {
+		t.Errorf("a wait_sec of %d returned with no question: the wait wrapped "+
+			"negative and the poll did not hold (%v)", int64(math.MaxInt64), response)
 	}
 }

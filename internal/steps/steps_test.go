@@ -59,10 +59,19 @@ func TestAWarningIsRecordedWithoutFailingTheRun(t *testing.T) {
 // A count of nothing is left off: a step that asserted a tree and one that
 // rewrote it must not read alike.
 func TestDetailWithCountNamesOnlyWhatChanged(t *testing.T) {
-	if got, want := DetailWithCount("/srv/tree", 0), "/srv/tree"; got != want {
-		t.Errorf("DetailWithCount(_, 0) = %q, want %q", got, want)
-	}
-	if got := DetailWithCount("/srv/tree", 3); got == "/srv/tree" {
-		t.Errorf("DetailWithCount(_, 3) = %q, which does not say what changed", got)
+	for _, tc := range []struct {
+		name    string
+		changed int
+		want    string
+	}{
+		{"nothing changed", 0, "/srv/tree"},
+		{"one path", 1, "/srv/tree (1 path(s) regrouped or rechmodded)"},
+		{"many paths", 4096, "/srv/tree (4096 path(s) regrouped or rechmodded)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := DetailWithCount("/srv/tree", tc.changed); got != tc.want {
+				t.Errorf("DetailWithCount(_, %d) = %q, want %q", tc.changed, got, tc.want)
+			}
+		})
 	}
 }

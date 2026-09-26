@@ -170,8 +170,10 @@ func TestAnEscalationHoldsEveryOtherCommand(t *testing.T) {
 // so many concurrent rounds assert the two never both happen.
 func TestAnEscalationAndASecondRunNeverCoexist(t *testing.T) {
 	for range 400 {
-		s := New(baseConfig())
-		s.Owner = ownerFromRegistry(s)
+		// Through started, for its quiet host: without one every approval is
+		// refused before either half is reached, and the assertion below never
+		// has an approval to weigh.
+		s := started(t, baseConfig())
 		first := mustRegister(s, run())
 		go s.Ask(procsFor(first))
 		id := waitForQuestion(t, s)

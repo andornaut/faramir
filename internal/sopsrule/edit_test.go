@@ -74,7 +74,7 @@ func TestAddingOneAlreadyThereChangesNothing(t *testing.T) {
 	}
 }
 
-func TestRemove(t *testing.T) {
+func TestRemovingARecipientKeepsTheOthers(t *testing.T) {
 	out, removed, err := Remove([]byte(installed), "test", "age1backup")
 	if err != nil || !removed {
 		t.Fatalf("remove: %v (removed %v)", err, removed)

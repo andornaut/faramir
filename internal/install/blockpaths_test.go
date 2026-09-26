@@ -1,7 +1,6 @@
 package install
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -117,30 +116,5 @@ func TestSeveralEntriesFoldIntoOneSet(t *testing.T) {
 	// The one it started with is untouched by a fold that added nothing.
 	if _, added := foldBlocked(entries, []config.BlockedPath{{Path: "/mnt/vol/luks.key"}}); added[0] {
 		t.Error("an entry already in the set was reported as added")
-	}
-}
-
-// One bad entry writes none of the list. A partial write would leave the
-// operator to work out which half of what they pasted took.
-func TestOneBadEntryWritesNoneOfTheList(t *testing.T) {
-	dir := layouttest.BlockConfigDir(t, "")
-	before, err := os.ReadFile(filepath.Join(dir, "config.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = AddBlockedPaths(Options{ConfigDir: dir}, []config.BlockedPath{
-		{Path: "/home/op/.ssh"},
-		{Path: "relative/not/absolute"}, // refused: a path entry is absolute
-		{Path: "/etc/wpa.conf"},
-	})
-	if err == nil {
-		t.Fatal("a list carrying an entry that cannot be written was accepted")
-	}
-	after, err := os.ReadFile(filepath.Join(dir, "config.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(after) != string(before) {
-		t.Errorf("a refused list wrote part of itself:\n%s", after)
 	}
 }

@@ -70,10 +70,15 @@ func TestCutAtRuneNeverExceedsTheLimitOrSplitsARune(t *testing.T) {
 		if !strings.HasPrefix(s, got) {
 			t.Fatalf("cutAtRune(_, %d) = %q, which is not a prefix of the input", limit, got)
 		}
-		// Whatever it returns must not end mid-rune, unless the input itself was
-		// invalid there: a trailing partial rune is what this exists to prevent.
-		if r, size := utf8.DecodeLastRuneInString(got); r == utf8.RuneError && size == 1 {
-			if utf8.ValidString(s[:len(got)]) {
+		// Whatever it returns must not end mid-rune: the last rune it keeps has to
+		// be whole in what it returns wherever the input has that rune whole. A
+		// trailing partial rune is what this exists to prevent.
+		last := len(got) - 1
+		for last > 0 && len(got)-last < utf8.UTFMax && !utf8.RuneStart(got[last]) {
+			last--
+		}
+		if last >= 0 {
+			if r, size := utf8.DecodeRuneInString(s[last:]); r != utf8.RuneError && last+size > len(got) {
 				t.Fatalf("cutAtRune(_, %d) = %q ends on a partial rune", limit, got)
 			}
 		}
@@ -160,15 +165,19 @@ func TestOneOversizedChunkKeepsItsOwnTail(t *testing.T) {
 }
 
 // Both cuts land on rune boundaries, or the output carries a partial rune the
-// caller has to render.
+// caller has to render. One chunk, so that the head is cut from its front and
+// the tail from its back, over a span of budgets so that each cut falls inside
+// a two-byte rune for some of them.
 func TestNeitherCutSplitsARune(t *testing.T) {
-	b := NewBounded(256, Raw)
-	for range 200 {
-		b.Add("héllo wörld ")
-	}
-	got, _ := b.Result(rawMarker)
-	if !utf8.ValidString(got) {
-		t.Error("the kept output is not valid UTF-8, so a cut split a rune")
+	text := strings.Repeat("héllo wörld ", 200)
+	for budget := 240; budget < 256; budget++ {
+		b := NewBounded(budget, Raw)
+		b.Add(text)
+		got, _ := b.Result(rawMarker)
+		if !utf8.ValidString(got) {
+			t.Fatalf("at a budget of %d the kept output is not valid UTF-8, so a cut "+
+				"split a rune: %q", budget, got)
+		}
 	}
 }
 

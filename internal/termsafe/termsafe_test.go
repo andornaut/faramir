@@ -55,14 +55,6 @@ func TestOrdinaryTextIsLeftAlone(t *testing.T) {
 	}
 }
 
-// Line keeps a tab: it is layout an operator wants, and it cannot move the
-// cursor anywhere a reader would not expect.
-func TestLineKeepsTabs(t *testing.T) {
-	if got := Line("a\tb"); got != "a\tb" {
-		t.Errorf("Line = %q, want the tab kept", got)
-	}
-}
-
 // Line neither quotes nor truncates: it renders the text an operator came to
 // read, and wrapping or cutting it would make the log worse at its one job.
 func TestLineDoesNotQuoteOrTruncate(t *testing.T) {
@@ -151,7 +143,8 @@ func TestLineEscapesEveryByteATerminalWouldActOn(t *testing.T) {
 }
 
 // And ordinary text is returned as it was written, tabs and multi-byte runes
-// included: this is what an operator came to read.
+// included: this is what an operator came to read. A tab is layout, and it
+// cannot move the cursor anywhere a reader would not expect.
 func TestLineLeavesOrdinaryTextAlone(t *testing.T) {
 	for _, s := range []string{
 		"ordinary text", "with\ttabs", "\u65e5\u672c\u8a9e caf\u00e9", "a/b/c.sops.yml", "",

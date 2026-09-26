@@ -1,6 +1,7 @@
 package hostunit
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -94,8 +95,13 @@ func TestAnEmptyUserAssignmentClearsTheAccount(t *testing.T) {
 // names that file rather than a drop-in directory that is also absent.
 func TestAnAbsentUnitIsReportedAsTheUnit(t *testing.T) {
 	unitDirWith(t, nil)
-	if _, err := User("svc.service"); err == nil {
+	_, err := User("svc.service")
+	if err == nil {
 		t.Fatal("an absent unit was read as one naming an account")
+	}
+	var pathErr *os.PathError
+	if !errors.As(err, &pathErr) || !errors.Is(err, os.ErrNotExist) || pathErr.Path != Path("svc.service") {
+		t.Errorf("err = %v, want the unit file's own not-exist error", err)
 	}
 }
 

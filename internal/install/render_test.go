@@ -12,7 +12,7 @@ import (
 )
 
 // Catches a field renamed in Layout and not in the file that names it.
-func TestTemplatesRender(t *testing.T) {
+func TestEveryShippedTemplateRenders(t *testing.T) {
 	layout := testLayout()
 	assets := append([]string{
 		"etc/config.toml.tmpl",

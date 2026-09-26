@@ -8,21 +8,33 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/escalation"
+	"github.com/andornaut/faramir/internal/testio"
 )
 
 // The PAM helper's exit status is the whole authentication: zero authenticates
 // the sudo, anything else refuses it. So every check here is about a path that
-// must NOT return zero, and the socket it would ask is one nothing is listening
-// on: a helper that reached the broker at all would already have got past the
-// guard being tested.
+// must NOT return zero. The status alone cannot say which guard refused: every
+// guard is backed by the next and by the broker at the end, so a guard that
+// stopped refusing would leave the call refused all the same. Each check holds
+// the refusal to the reason it printed.
+
+// noBroker is a socket nothing listens on.
 const noBroker = "/nonexistent/faramir-pam-escalate-test.sock"
 
-func pamEscalate(t *testing.T, env map[string]string, args ...string) int {
+// refusedFor fails the test unless the helper refused the sudo and said why in
+// words containing reason.
+func refusedFor(t *testing.T, env map[string]string, reason string, args ...string) {
 	t.Helper()
 	for name, value := range env {
 		t.Setenv(name, value)
 	}
-	return runPamEscalateCommand(args)
+	said, code := testio.CaptureStderr(t, func() int { return runPamEscalateCommand(args) })
+	if code == 0 {
+		t.Fatalf("authenticated a sudo with %v", env)
+	}
+	if !strings.Contains(said, reason) {
+		t.Errorf("refused, but not because %q: %q", reason, said)
+	}
 }
 
 // The helper asks the installed broker and nothing else. It runs inside the
@@ -45,9 +57,7 @@ func TestOnlyTheAuthStageDecidesAnything(t *testing.T) {
 	for _, stage := range []string{"account", "session", "password", ""} {
 		t.Run(stage, func(t *testing.T) {
 			env := map[string]string{"PAM_TYPE": stage, "PAM_USER": "faramir-exec"}
-			if code := pamEscalate(t, env, "--account", "faramir-exec"); code == 0 {
-				t.Errorf("PAM_TYPE=%q authenticated a sudo", stage)
-			}
+			refusedFor(t, env, "handles authentication only", "--account", "faramir-exec")
 		})
 	}
 }
@@ -57,9 +67,7 @@ func TestOnlyTheAuthStageDecidesAnything(t *testing.T) {
 // reads it, is a service deciding calls it was not written for.
 func TestTheServiceAuthenticatesOneAccount(t *testing.T) {
 	env := map[string]string{"PAM_TYPE": "auth", "PAM_USER": "root"}
-	if code := pamEscalate(t, env, "--account", "faramir-exec"); code == 0 {
-		t.Error("a call for root was authenticated by faramir-exec's service")
-	}
+	refusedFor(t, env, "authenticates one account", "--account", "faramir-exec")
 }
 
 // A sudo that no brokered command is above is somebody typing `sudo` as the
@@ -75,9 +83,7 @@ func TestASudoUnderNoBrokeredCommandIsRefused(t *testing.T) {
 	t.Cleanup(func() { ancestryOf = original })
 
 	env := map[string]string{"PAM_TYPE": "auth", "PAM_USER": "faramir-exec"}
-	if code := pamEscalate(t, env, "--account", "faramir-exec"); code == 0 {
-		t.Error("a sudo with no brokered command above it was authenticated")
-	}
+	refusedFor(t, env, "no process above this sudo", "--account", "faramir-exec")
 }
 
 // Neither a usage error nor a help flag authenticates anything: PAM reads the
