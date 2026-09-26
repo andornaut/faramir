@@ -117,3 +117,22 @@ func TestTheInstallsOwnDirectoriesAreListedAsStrict(t *testing.T) {
 		t.Fatal("no built-in path rules listed, so this asserts nothing")
 	}
 }
+
+// --strict with only commands would change nothing, which the loader refuses on
+// a command entry. With a path beside them it rides on the path alone.
+func TestStrictIsRefusedWithNoPathToApplyTo(t *testing.T) {
+	f := blockFlags{commands: []string{"op read"}, strict: true}
+	if _, err := f.entries("add", nil); err == nil {
+		t.Fatal("--strict with only --command was accepted")
+	}
+	f.paths = []string{"/home/user/.aws"}
+	got, err := f.entries("add", nil)
+	if err != nil {
+		t.Fatalf("--strict with a --path was refused: %v", err)
+	}
+	for _, entry := range got {
+		if entry.Strict != (entry.Path != "") {
+			t.Errorf("%+v: strict should be on the path entry and nowhere else", entry)
+		}
+	}
+}
