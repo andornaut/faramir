@@ -146,6 +146,10 @@ func (r *runner) stepValidate() error {
 				return fmt.Errorf("could not ask the broker what its agent holds: %s",
 					why)
 			}
+			if held := escalationHeld(agentErr); held != "" {
+				return fmt.Errorf("installed, but the ssh-agent check waits on another "+
+					"escalation (%s). Approve or reject it, then run init again", held)
+			}
 			return fmt.Errorf("could not ask the broker what its agent holds: %w",
 				agentErr)
 		}
@@ -159,4 +163,19 @@ func (r *runner) stepValidate() error {
 	}
 
 	return nil
+}
+
+// escalationHeld is the broker's reason when a brokered probe was refused for an
+// escalation another command holds, and empty otherwise. `faramir run` prints a
+// refusal as "faramir run: <code>: <message>" on a line of its own.
+func escalationHeld(err error) string {
+	const prefix = "faramir run: escalation_in_progress: "
+	_, rest, found := strings.Cut(err.Error(), prefix)
+	if !found {
+		return ""
+	}
+	held, _, _ := strings.Cut(rest, "\n")
+	// The clause naming the command; the rest is the broker's reason and advice.
+	held, _, _ = strings.Cut(held, ", and no other brokered command")
+	return strings.TrimSpace(held)
 }
