@@ -81,11 +81,12 @@ func runVaultList(f vaultListFlags) int {
 	})
 
 	code := 0
-	if f.json {
+	switch {
+	case f.json:
 		code = printJSON(label, files)
-	} else if len(files) == 0 {
+	case len(files) == 0:
 		fmt.Fprintln(os.Stderr, "no managed files")
-	} else {
+	default:
 		// The directory once, above the rows, so the names are the ones the other
 		// commands take and a full path is still readable.
 		fmt.Println(paint.Dim(filepath.Dir(cfg.Secret.Patterns[0])))

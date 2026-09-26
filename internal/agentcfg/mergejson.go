@@ -102,7 +102,10 @@ func mergeValue(into, from any, wrote []string) (any, error) {
 	// "edit": "ask" where faramir writes a rule per path. Replacing it would
 	// discard a policy the operator chose, and nothing would say so.
 	if fromIsMap && into != nil && !intoIsList {
-		value, _ := json.Marshal(into)
+		value, err := json.Marshal(into)
+		if err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("holds the single value %s where faramir writes an "+
 			"object of rules; rewrite it as an object and run this again", value)
 	}

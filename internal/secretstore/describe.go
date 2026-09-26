@@ -42,6 +42,7 @@ type Summary struct {
 // back from it.
 type OperatorSummary struct {
 	Summary
+
 	// NotRedactable is the refs the store read and the redactor refused, by ref
 	// and reason. A refused value is absent from the redactor, so the list names
 	// which secrets are never tokenized: a repair list for the operator,

@@ -91,16 +91,8 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		// field below.
 		var raw map[string]any
 		if err := json.Unmarshal(line, &raw); err == nil {
-			// status's output is itself a JSON document, so it is embedded as one
-			// rather than as a string holding one. Only status: a brokered
-			// command's output is text, whatever it happens to look like.
 			if request["op"] == brokerclient.OpStatus {
-				if text, ok := raw["output"].(string); ok {
-					var document any
-					if json.Unmarshal([]byte(text), &document) == nil {
-						raw["output"] = document
-					}
-				}
+				embedDocument(raw)
 			}
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetEscapeHTML(false)
@@ -193,4 +185,19 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		return *response.ExitCode
 	}
 	return 0
+}
+
+// embedDocument replaces status's output, itself a JSON document, with the
+// decoded document, so --json embeds it as one rather than as a string holding
+// one. Only status: a brokered command's output is text, whatever it happens to
+// look like.
+func embedDocument(raw map[string]any) {
+	text, ok := raw["output"].(string)
+	if !ok {
+		return
+	}
+	var document any
+	if json.Unmarshal([]byte(text), &document) == nil {
+		raw["output"] = document
+	}
 }
