@@ -33,9 +33,13 @@ command).
 
 ## Waiting for an escalation
 
-While an approval question is open, other brokered commands are refused with
-`escalation_in_progress`. A command refused that way did not run: run it again
-once the operator has answered. Do not work around the pause.
+While a brokered `sudo` command is waiting for approval, and for as long as it
+runs once approved, every other brokered command is refused with
+`escalation_in_progress`. The refusal names the command holding it and which of
+the two states it is in. A command refused that way did not run and is not
+queued: run it again once that command has finished, not on a timer. Brokered
+`sudo` commands therefore run one at a time; starting them in parallel gains
+nothing. Do not work around the pause.
 {{- end}}
 
 The guard that refuses these commands is not the security boundary. It is a

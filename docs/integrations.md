@@ -4,8 +4,8 @@ Every program gets its credentials the same way: the caller names refs, the brok
 
 Two rules apply to every tool:
 
-- **Only the keeper decrypts sops.** Decrypting needs the age private key, and no process the broker starts receives it. A brokered command runs arbitrary code, so a command that held the master key could decrypt every managed file. A vars plugin, a `lookup('pipe', 'sops -d …')` or a tool's own sops support fails for this reason.
-- **A brokered command inherits nothing from the broker's environment.** A variable the program needs, such as `ANSIBLE_CONFIG`, must be set with `sudo faramir init --command-env NAME=VALUE`. Otherwise it is absent.
+- **Only the keeper decrypts sops.** Decrypting needs the age private key, and no process the broker starts receives it. A brokered command runs arbitrary code, so a command that held the master key could decrypt every managed file. A sops vars plugin, a `lookup('pipe', 'sops -d …')` or a tool's own sops support fails for this reason.
+- **A brokered command inherits nothing from the caller's or the broker's environment.** A variable the program needs, such as `ANSIBLE_CONFIG`, must be set with `sudo faramir init --command-env NAME=VALUE`. Otherwise it is absent.
 
 ## Where the value lives
 
@@ -111,8 +111,6 @@ c     = three
 
 That is refused, and the refusal names all of them. Choosing one would choose which credential to inject, and the others would be absent from the redactor and printed in the clear. Rename a section, or link the file as `text`. A file holding the *same* key twice is a different case, and is refused as well: faramir will not choose which one wins, so remove the duplicates.
 
-The alternative, if this comes up in practice, is to escape `ini` like the other types. npm's key would then become `\/\/registry.npmjs.org\/:_authToken`.
-
 **A linked file is limited to 1 MiB.** A link to a larger file fails rather than reading it into the value set. Credential files are small.
 
 **Link only what the agent can already read.** A link to a file the agent cannot read makes that value obtainable through `env_refs` and closes no disclosure path in return. A root-owned keyfile belongs outside the store. [Why](design.md#linked-secrets-are-read-by-the-broker).
@@ -129,11 +127,11 @@ Brokered commands run as `faramir-exec`. That account must be able to *use* the 
 - A key the broker cannot load is logged, not fatal. `--check` and `doctor` report it, and only commands that reach a host fail, with ssh's own error.
 - The executor's account cannot read the key, so debug `ssh` problems through `faramir run`, or from the audit log using the reported `log_id`.
 
-Two settings that are off by default:
+Two settings that are not set by default:
 
 Setting | Why
 --- | ---
-`sudo faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True` | Host key checking for Ansible. Not in the shipped `[command.env]`. With it off, the broker offers its credentials to whatever host answers at that address
+`sudo faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True` | Host key checking for Ansible, whatever a project's `ansible.cfg` says. Not in the shipped `[command.env]`. With checking off, the broker offers its credentials to whatever host answers at that address
 `sudo faramir init --known-hosts ~/.ssh/known_hosts` | `faramir-exec` has its own `known_hosts`, and it starts empty. A play whose hosts are trusted only in the operator's file fails verification before the key is offered
 
 `faramir doctor` reports how many host keys the executor can verify against. `--command-env`: [configuration.md](configuration.md#what-a-flag-sets); `--known-hosts`: [installing.md](installing.md#what-each-flag-sets). Which login a bare `ssh host` uses, which files it verifies against, and how to pin host keys across a fleet: [operating.md](operating.md#rules-a-command-does-not-state).

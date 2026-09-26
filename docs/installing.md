@@ -73,7 +73,7 @@ Each rule covers everything under its path, so the age key, the broker's SSH key
 
 Which file each agent reads the rules from is in [layout.md](layout.md). How the rules affect each agent is in [coding-agents.md](coding-agents.md).
 
-No rule is compiled in. A compiled-in rule would have to name a file faramir does not write and cannot locate. faramir creates one age key, in its own directory. A second identity exists only if the operator made one, and `reader add` takes a public key without learning where the private half is. A rule for `~/.config/sops/age` would usually guard a file that does not exist, and would make the default look more protective than it is.
+No rule for a file outside the install is compiled in; the guard's compiled-in fallback, used when the rendered list is missing, covers only faramir's own paths and commands. A compiled-in rule would have to name a file faramir does not write and cannot locate. faramir creates one age key, in its own directory. A second identity exists only if the operator made one, and `reader add` takes a public key without learning where the private half is. A rule for `~/.config/sops/age` would usually guard a file that does not exist, and would make the default look more protective than it is.
 
 Every secret an install writes is also protected by its mode. The rules are the second of two mechanisms.
 

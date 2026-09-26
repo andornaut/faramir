@@ -155,7 +155,7 @@ Code | Meaning
 `bad_request` | Malformed request, a `version` that is not this daemon's own, a bad or reserved env var name, a malformed `faramir://` reference, or a `cwd` that does not exist or is not a directory
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `unknown_question` | `answer` named a question that is no longer waiting: already answered, or its command gave up
-`busy` | At `[command] concurrency`; retry
+`busy` | At `[command] concurrency`, or a `refresh` found a reload already running that did not finish in time; retry
 `escalation_in_progress` | An escalation is being decided or held, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only where `--allow-sudo` was installed
 `not_quiescent` | The answer was yes, but a process of the executor's uid was alive outside the run being approved and could have used the escalation. The `sudo` fails; run the command again once the host is quiet
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `run` only
@@ -196,11 +196,11 @@ The peer uid is checked against `[keeper] allowed_user` on top of the socket mod
 - A file that could not be stat-ed or decrypted comes back in `errors`, not as an error response, so one broken file does not empty the whole value set. Key material is stripped from those strings before they cross the socket.
 - `unresolved_patterns` is kept separate because it means something different. An entry that named no file is a secrets directory not written yet, which is the state of every first install. A file that exists and will not open is a value the redactor is missing without knowing it. Neither stops the daemon. A file that will not open fails `faramir broker --check` and `faramir doctor`; an entry that named no file is logged by `--check` and is a warning in `doctor`, which fails it only where the directory could not be searched.
 - `shadowed_refs`, on `get_values` only, names a ref that more than one managed file defines with different values. One of those values ends up in no redactor, so `doctor` fails it under `shadowed refs`.
-- An oversized or malformed request gets no response: the connection closes. A JSON `null` payload is the one case that answers `bad_request`.
+- An oversized or malformed request gets no response: the connection closes. A JSON `null` payload is the one malformed request answered, with `bad_request`.
 
 ```json
 {"error": {"code": "unsupported",
-           "message": "unsupported op 'get_age_key'; the keeper serves
+           "message": "unsupported op \"get_age_key\"; the keeper serves
                        'get_values' and 'get_state' only and has no operation
                        that returns key material"}}
 ```
@@ -220,6 +220,8 @@ One request, carrying a single file descriptor as ancillary data:
 
 {"exit_code": 0, "timed_out": false}
 ```
+
+A run the broker was given `stdin` for carries it here too, base64, under the same name.
 
 The descriptor is the **slave** end of a PTY the broker created. The broker keeps the master, so redaction and the audit log read the child's bytes directly. Both sides close their copy of the slave once the child holds it; otherwise the master never reaches EOF.
 

@@ -65,7 +65,7 @@ Every one of these refuses a path by asking `faramir guard`. Every one except Cl
 
 The reasons behind each agent's files are in [coding-agents.md](coding-agents.md).
 
-In an enrolled tree, every agent reads the tree's own `AGENTS.md`, or its `CLAUDE.md` if that is what the tree has. Three agents also read a file under their own name, and the enrolment writes one:
+In an enrolled tree, the section goes into the tree's own instructions file: its `AGENTS.md`, its `CLAUDE.md` if that is the only one it has, or a new `AGENTS.md` if it has neither. Three agents also read a file under their own name, and the enrolment writes one:
 
 Agent | File in the tree | Why
 --- | --- | ---

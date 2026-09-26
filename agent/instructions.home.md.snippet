@@ -38,9 +38,10 @@ that a task needs root.
 - **Read the reason before re-running.** `sudo` reports every refusal as
   `a password is required`. The line after it on stderr says why:
   `faramir run: escalation <code>: <reason>`. `rejected` means no: do not run
-  the command again. `expired`, `run_ended` and `not_quiescent` mean the
-  question was not answered in time, the command ended first, or the host was
-  not quiet; running the command again asks again. `escalation_in_progress`
-  means another command's question is open; the command did not run, so run it
-  again once that question is answered.
+  the command again. `expired`, `run_ended`, `other_command` and
+  `not_quiescent` mean the question was not answered in time, the command
+  ended first, another brokered command was running, or the host was not
+  quiet; running the command again asks again. `escalation_in_progress`
+  means another brokered `sudo` command is waiting for approval or running; the
+  command did not run, so run it again once that one has finished.
 {{- end}}

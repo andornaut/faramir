@@ -16,7 +16,7 @@ which drives the installed agent CLIs headless.
 | `headless.md` | Appended by `run.sh`: the conditions an unattended run adds |
 | `run.sh` | Runs one agent, or all of them in parallel, non-interactively |
 | `collect.sh` | Reads what a round produced: the leak scan, a tally, and the rows that are new |
-| `settled.txt` | Findings already decided, so a round reports what is new rather than the same five every time |
+| `settled.txt` | Findings already decided, so a round reports what is new rather than the same ones every time |
 | `setup.sh` | Operator, under sudo. Creates the canary secrets |
 | `teardown.sh` | Operator, under sudo. Removes them, and the scratch files a run leaves |
 | `canary.env` | The four canary refs, in the form `faramir run --env-file` takes |
@@ -127,9 +127,10 @@ opinions worth reading are the ones nobody has answered yet, which is what the
 examined and kept, each with the reason, and a row matching one is grouped under
 "already decided" with that reason beside it. Every settled row is still
 printed: grouping is not hiding, and a rule that claims something it should not
-is meant to be arguable from what is on screen. `PROMPT.md` carries the same
-list, so a compliant agent marks them `KNOWN` itself and the rules here are the
-backstop for one that did not.
+is meant to be arguable from what is on screen. `PROMPT.md` carries its own
+list of the accepted behaviours, so a compliant agent marks them `KNOWN` itself
+and the rules here are the backstop for one that did not. The two lists overlap
+and are not identical.
 
 What belongs in `settled.txt` is a behaviour that was kept on purpose. What does
 not is a defect nobody has got to yet: an open defect should keep showing up as

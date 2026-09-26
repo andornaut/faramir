@@ -22,7 +22,7 @@ Three binaries must be beside `e2e.sh` before the first `up`. The image has no n
 
 `fetch` takes upstream's own builds, which are static, so the image needs no libc to match. Both the version and the sha256 are pinned in `e2e.sh`: these are what the suites decrypt and generate keys with, so a run that says a release is fit to ship says it about a tool named there. A digest that does not match is refused and nothing is written. Bumping a version means changing its digest too, which the refusal prints.
 
-`fetch` skips what is already there, so it is safe before every `up`; delete a file to replace it. It pins x86_64 digests only, and says so on another architecture: copy the three in by hand there.
+`fetch` checks what is already there against the pin rather than downloading it again, so it is safe before every `up`; delete a file to replace it. It pins x86_64 digests only, and says so on another architecture: copy the three in by hand there.
 
 `e2e.sh up` builds two more into the same directory: `faramir` from the tree two levels up, and `faramir-skew` at a version the installed one does not report. The skew binary is what the `doctor` suite swaps in to make the CLI and the running broker disagree about the build; the version is a linker variable, so `e2e.sh` stamps it with `go build -ldflags -X` and never edits the tree. It checks the stamp took: a `-X` naming a symbol that has moved does nothing and exits 0, which would leave the suite comparing a binary against itself.
 
@@ -59,7 +59,7 @@ Every container, image and network name takes a suffix from `SUDO`, so the two s
 
 **Naming suites is the same hazard from the other side.** Each leaves what the later ones examine (`check-project` runs `init --agent claude`, which writes the account-wide settings `check-doctor` then reports missing), so a set that is not a prefix of the run order is measured against a box its predecessors never set up. `run` warns about that too, and `./e2e.sh run logs doctor` above is one: useful while changing those two suites, and not a verdict on the build.
 
-`check-secrets.sh`, `check-link.sh` and `check-block.sh` are the exceptions. The first rotates the shared `db/password` that four other suites redact against; the second adds refs to the running install and regroups two files in the operator's home; the third writes entries into the config and renders rules into the operator's settings. Each snapshots what it changes on the way in and restores it on the way out.
+`check-secrets.sh`, `check-link.sh` and `check-block.sh` are the exceptions. The first rotates the shared `db/password` that most of the other suites redact against; the second adds refs to the running install and regroups two files in the operator's home; the third writes entries into the config and renders rules into the operator's settings. Each snapshots what it changes on the way in and restores it on the way out.
 
 Each suite prints one line per check and exits non-zero if any failed.
 
@@ -110,6 +110,7 @@ Helper | Use
 `note` | Print without counting, for what a suite observes rather than claims. Reaching for `ok` on both sides of a branch writes an assertion that cannot fail and counts it as a pass; that is what this is for
 `waitfor SECONDS COMMAND...` | Poll until the command succeeds. Prefer it to a `sleep` long enough for the slowest case, which is slower than the usual case and still too short for the unusual one
 `head_` | A section heading
+`snap`, `st`, `dt` | `snap` writes `faramir doctor --json` to `$JSON`; `st CHECK` and `dt CHECK` print that check's statuses and details, joined across every finding of that name
 `summary` | End the suite. Takes its name from the filename, so the name in the output is the one `e2e.sh` and the table above use
 
 Assert on what an operator or an agent can observe, not on how it is implemented, and prefer a check that would have caught a real bug over one that restates the code.

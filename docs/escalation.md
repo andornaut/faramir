@@ -152,7 +152,7 @@ The file holds two things:
 Not all of `[command.env]` reaches the file. A variable is added only where `sudo` did not already set one, so `HOME`, `PATH` and `SUDO_*` stay `sudo`'s own. Three kinds of entry are left out with a warning (`PATH` and `HOME` are left out silently, since sudo sets those itself):
 
 - **A name that is not a variable name.** `--command-env` splits on the first `=`, so any other character in the name would be read as a second variable.
-- **A name [an injected value may not carry either](protocol.md#run)**, because sudoers reads this file without `env_keep` or `env_check`.
+- **A name [an injected value may not carry either](protocol.md#run)**, because what `pam_env` hands back is not put through `env_keep` or `env_check`.
 - **A value holding a newline, a carriage return or a `#`.** `sudo` treats `#` as a comment anywhere on the line, not only at the start: it keeps what precedes one and drops the rest, and quoting does not help. A value that differs between a command and its `sudo` is worse than one that is absent.
 
 `faramir init` rewrites the file whenever it grants sudo. An install without `--allow-sudo` removes it with the rest of the grant.
@@ -166,10 +166,10 @@ Dropped | Why
 `NoNewPrivileges=` | Makes every setuid binary inert, so `sudo` fails whatever sudoers says
 `CapabilityBoundingSet=` (empty) | Leaves a root that cannot chown or mount
 `ProtectSystem=strict` | Makes the filesystem read-only, so configuring the host fails with `EROFS`
-`SystemCallFilter=@system-service` | Excludes `@mount`, `@swap`, `@module`, `@reboot`
-the `Protect*` family | Covers the things root configures
+`DevicePolicy=closed` | Refuses an approved task every device but the PTY
+Every seccomp-based directive: `SystemCallFilter=@system-service`, `SystemCallArchitectures=`, `RestrictAddressFamilies=`, `RestrictSUIDSGID=`, `RestrictRealtime=`, `LockPersonality=`, and `ProtectClock=`, `ProtectHostname=`, `ProtectKernelLogs=`, `ProtectKernelModules=`, `ProtectKernelTunables=` | systemd turns `NoNewPrivileges=` back on when any of them is set, so keeping one makes `sudo` fail as the first row does. `@system-service` also excludes `@mount`, `@swap`, `@module` and `@reboot`
 
-Still kept: `ProtectProc=invisible`, the supplementary groups, the umask, `AmbientCapabilities=`. Re-running `init` without `--allow-sudo` restores everything dropped.
+Still kept: `ProtectProc=invisible`, `PrivateTmp=`, `LimitCORE=0`, the supplementary groups, the umask, `AmbientCapabilities=`. Re-running `init` without `--allow-sudo` restores everything dropped.
 
 **The broker's own rules stay.** They are decided before the command runs rather than enforced by the unit, so a brokered command naming a declared path or one of faramir's own directories is refused whether or not the host grants an escalation. This matters because root ignores file modes and can read the age key.
 

@@ -73,9 +73,9 @@ A Claude Code path rule takes two leading slashes. One anchors the pattern at
 the settings source, so `Read(/home/op/.age)` in `~/.claude/settings.json` asks
 about `~/.claude/home/op/.age` and refuses nothing.
 
-For the same reason the hook is registered for every tool, not for the shell
-alone. An empty reply leaves a call unchanged, so answering for a tool that
-runs no command has no effect, and matching every tool is what makes the file
+The hook is registered for every tool, not for the shell alone. An empty reply
+leaves a call unchanged, so answering for a tool that runs no command has no
+effect, and matching every tool is what makes the file
 tools reach the deny list. `faramir doctor` reports a Claude Code registration
 that matches less than every tool: an enrolment written by an older version
 matches `Bash` only, so its file tools never reach the guard.
@@ -117,12 +117,15 @@ another tool, an interpreter, a base64 pipe.
 There are two such sections:
 
 - **The account-wide one**, in the file each agent reads for every project. In
-  a tree that has never been enrolled, this is the only thing faramir says: the
-  deny rules still apply there, and there is no route to describe.
-- **The tree's own**, written by `enrol`. It is longer, because in an enrolled
-  tree there is a route to describe.
+  a tree that has never been enrolled, this is the only thing faramir says. It
+  describes `faramir run`, which reaches the broker from any directory, and,
+  where `--allow-sudo` was installed, how to escalate.
+- **The tree's own**, written by `enrol`. It adds the faramir subcommands the
+  agent may run, and rules on where a value may go and on the broker's own
+  files.
 
-A tree's own file is whichever of `AGENTS.md` and `CLAUDE.md` it already has.
+A tree's own file is whichever of `AGENTS.md` and `CLAUDE.md` it already has,
+`AGENTS.md` when it has both, and a new `AGENTS.md` when it has neither.
 Three agents also read a file of their own beside it and get the section there
 as well:
 
@@ -197,9 +200,9 @@ spellings it catches is the agent's answer, not faramir's.
 
 ### A file two agents share
 
-A file two agents both read is written once, and claims only what is true for
-both. Telling one agent that its file tools are refused everywhere would tell
-the other something false. Antigravity's two halves are the case:
+A file two agents both read is written once. The account-wide section is the
+same for every agent, so what it claims holds for both. Antigravity's two
+halves are the case:
 `~/.gemini/GEMINI.md` and `~/.gemini/config/hooks.json` are each written once
 for the family, whichever half `--agent` named.
 
