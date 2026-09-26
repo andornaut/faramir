@@ -36,7 +36,7 @@ func newRedactCmd() *cobra.Command {
 			}
 			if err := brokerclient.RedactStreamLive(socketDefault(), os.Stdin, os.Stdout); err != nil {
 				fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
-				return codeErr(1)
+				return codeErr(streamFailure(err))
 			}
 			return nil
 		},
@@ -65,9 +65,9 @@ func redactChild(socketPath string, argv []string) int {
 		// not there. Distinct codes so a script does not read "not installed"
 		// where the file is present and not executable.
 		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.ENOEXEC) {
-			return 126
+			return brokerclient.ExitNotExecutable
 		}
-		return 127
+		return brokerclient.ExitNotFound
 	}
 	streamErr := brokerclient.RedactStream(socketPath, output, os.Stdout)
 	if streamErr != nil {
@@ -88,7 +88,17 @@ func redactChild(socketPath string, argv []string) int {
 	// becomes a failure: withheld output must not read as a command that printed
 	// nothing. wrap.sh does the same.
 	if streamErr != nil && code == 0 {
-		code = 1
+		code = streamFailure(streamErr)
 	}
 	return code
+}
+
+// streamFailure is the status a redaction that did not finish exits with:
+// ExitUnavailable for a broker that could not be reached, as `faramir run` and
+// `faramir refs` give, and 1 for anything else.
+func streamFailure(err error) int {
+	if _, ok := errors.AsType[*brokerclient.UnavailableError](err); ok {
+		return brokerclient.ExitUnavailable
+	}
+	return 1
 }

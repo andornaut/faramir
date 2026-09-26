@@ -10,12 +10,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
 
+// The install's default names, which the loader falls back to for a key the file
+// leaves out. Defined here because hostlayout imports this package and not the
+// other way round; hostlayout re-exports them for everything else.
 const (
-	DefaultConfigPath = "/etc/faramir/config.toml"
+	DefaultConfigDir   = "/etc/faramir"
+	DefaultRunDir      = "/run/faramir"
+	DefaultClientGroup = "faramir-client"
+	DefaultBrokerUser  = "faramir-broker"
+	DefaultKeeperUser  = "faramir-keeper"
+	DefaultExecUser    = "faramir-exec"
+	// DefaultBrokerSocket is [server] socket_path when the file leaves it out,
+	// and where every client looks unless FARAMIR_SOCKET moves it.
+	DefaultBrokerSocket = DefaultRunDir + "/broker.sock"
+)
+
+const (
+	DefaultConfigPath = DefaultConfigDir + "/config.toml"
 	defaultPATH       = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	// sopsExecPATH is the PATH sops runs under, wherever the install runs it. Fixed and absolute, not inherited: which sops decrypts the store
 	// must not depend on how the keeper unit was launched, and the account that
@@ -149,6 +165,22 @@ func SopsEnv() []string {
 		home = "/tmp"
 	}
 	return []string{"PATH=" + sopsExecPATH, "HOME=" + home, "LANG=C.UTF-8"}
+}
+
+// SopsExecutable resolves a bare command name against the PATH SopsEnv sets,
+// which exec.Command does not do: it searches the calling process's own PATH.
+// A name with a slash in it is returned as it is.
+func SopsExecutable(name string) (string, error) {
+	if strings.Contains(name, "/") {
+		return name, nil
+	}
+	for _, dir := range filepath.SplitList(sopsExecPATH) {
+		path := filepath.Join(dir, name)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("%s is not in %s", name, sopsExecPATH)
 }
 
 // secretPatterns is the managed store, derived from where the config sits

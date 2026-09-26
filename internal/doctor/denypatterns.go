@@ -3,7 +3,6 @@ package doctor
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -29,7 +28,7 @@ func uncompilable(rules []string) []string {
 }
 
 func diagnoseDenyPatterns(report *Report, opts Options) {
-	reportDenyPatterns(report, opts, filepath.Join(hostlayout.DefaultLibexecDir, "deny-patterns.txt"))
+	reportDenyPatterns(report, opts, hostlayout.Installed.DenyPatternsFile())
 }
 
 // reportDenyPatterns is the check against a path already chosen, so a test can
@@ -37,8 +36,8 @@ func diagnoseDenyPatterns(report *Report, opts Options) {
 func reportDenyPatterns(report *Report, opts Options, path string) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		report.addf("deny patterns", StatusFailed, "%s is missing, so the hook refuses "+
-			"nothing: %v", path, err)
+		report.addf("deny patterns", StatusFailed, "%s cannot be read, so the hook "+
+			"refuses faramir's own paths and no declared entry: %v", path, err)
 		return
 	}
 	// Interpolated quoted, so the comparison is against that form.

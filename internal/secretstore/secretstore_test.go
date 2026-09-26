@@ -132,11 +132,7 @@ func TestTheOperatorSummaryNamesThemAndTheReason(t *testing.T) {
 	s := newStore(t, k)
 	s.Reload()
 
-	out := s.DescribeForOperator()
-	refused, ok := out["not_redactable"].(map[string]string)
-	if !ok {
-		t.Fatalf("not_redactable = %T", out["not_redactable"])
-	}
+	refused := s.DescribeForOperator().NotRedactable
 	reason, ok := refused["tiny"]
 	if !ok {
 		t.Fatalf("tiny not named: %v", refused)
@@ -159,11 +155,7 @@ func TestARefusalDoesNotSurviveAReloadThatFixesIt(t *testing.T) {
 	if _, err := s.Value("x"); err != nil {
 		t.Fatalf("the lengthened value is still refused: %v", err)
 	}
-	out := s.DescribeForOperator()
-	refused, ok := out["not_redactable"].(map[string]string)
-	if !ok {
-		t.Fatalf("not_redactable = %#v, want map[string]string", out["not_redactable"])
-	}
+	refused := s.DescribeForOperator().NotRedactable
 	if len(refused) != 0 {
 		t.Errorf("the stale refusal survived: %v", refused)
 	}

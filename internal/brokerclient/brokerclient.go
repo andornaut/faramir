@@ -247,7 +247,7 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 		conn, err := (&net.Dialer{Timeout: DialWait}).DialContext(
 			context.Background(), "unix", rc.socketPath)
 		if err != nil {
-			return "", err
+			return "", &UnavailableError{err}
 		}
 		rc.conn, rc.lines = conn, sockutil.NewLineReader(conn, 1<<26)
 	}
@@ -341,15 +341,15 @@ const maxWaitSeconds = int(math.MaxInt64/int64(time.Second)) - int(execGrace/tim
 func ExitFor(code string) int {
 	switch code {
 	case "busy":
-		return 75 // EX_TEMPFAIL
+		return ExitTempFail
 	// The shell's two, so a script can branch on them the way it does on any
 	// other command: 127 for a program that is not there, 126 for one that is
 	// and cannot be run. `faramir redact -- command` runs its command itself
 	// and has always given these; a brokered run gives them now.
 	case "not_found":
-		return 127
+		return ExitNotFound
 	case "not_executable":
-		return 126
+		return ExitNotExecutable
 	}
 	return 1
 }

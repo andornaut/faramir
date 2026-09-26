@@ -3,9 +3,9 @@ package vault
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"slices"
 
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/keygen"
 	"github.com/andornaut/faramir/internal/sopsrule"
@@ -39,7 +39,7 @@ func ruleMustCover(rulePath, target string, recipients []string) error {
 	// Covered unless the probe says otherwise, which is what makes a probe that
 	// cannot be put leave the edit alone.
 	covered := true
-	if sops, err := exec.LookPath(sopsBinary); err == nil {
+	if sops, err := config.SopsExecutable(sopsBinary); err == nil {
 		if answer, err := sopsrule.Covers(sops, configPath, recipients, target); err == nil {
 			covered = answer
 		}

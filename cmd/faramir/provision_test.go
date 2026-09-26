@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/hostlayout"
@@ -147,29 +146,5 @@ func TestTheUnitReaderTakesTheDropInTheDaemonsLoad(t *testing.T) {
 	}
 	if got != "/srv/faramir" {
 		t.Errorf("resolveConfigDir = %q, want the directory the daemons load", got)
-	}
-}
-
-// The flag was called --move-config, which read as though init relocated the
-// directory. It does not: the daemons are pointed at the new one and the old
-// stays where it is. The old spelling keeps working, a fleet's converge being
-// where this is typed, and is hidden from --help so nothing learns it now.
-func TestTheRenamedRepointFlagStillTakesItsOldSpelling(t *testing.T) {
-	for _, spelling := range []string{"--repoint-config", "--move-config"} {
-		c := newInitCmd()
-		if err := c.Flags().Parse([]string{spelling}); err != nil {
-			t.Fatalf("%s: %v", spelling, err)
-		}
-		on, err := c.Flags().GetBool(strings.TrimPrefix(spelling, "--"))
-		if err != nil || !on {
-			t.Errorf("%s did not set: %v", spelling, err)
-		}
-	}
-	c := newInitCmd()
-	if flag := c.Flags().Lookup("move-config"); flag == nil || !flag.Hidden {
-		t.Error("the old spelling is still offered in --help")
-	}
-	if c.Flags().Lookup("repoint-config") == nil {
-		t.Fatal("--repoint-config is not registered")
 	}
 }

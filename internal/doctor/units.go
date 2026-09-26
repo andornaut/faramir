@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -108,8 +109,7 @@ func diagnoseDropIns(report *Report) {
 		return
 	}
 	var dropIns []string
-	for _, unit := range []string{hostunit.BrokerUnit, hostunit.KeeperUnit, hostunit.ExecUnit,
-		"faramir-broker.socket", "faramir-keeper.socket", "faramir-exec.socket"} {
+	for _, unit := range slices.Concat(hostunit.Services, hostunit.Sockets) {
 		if paths, ok := hostunit.Property(unit, "DropInPaths"); ok && paths != "" {
 			dropIns = append(dropIns, unit+" ("+paths+")")
 		}

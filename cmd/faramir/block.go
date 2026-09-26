@@ -271,8 +271,12 @@ func runBlockList(f blockFlags) int {
 		fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", err)
 		return 1
 	}
+	// 1 once the config could not be read, whatever is listed: the built-in half
+	// alone is not the whole answer.
+	status := 0
 	declared, err := install.BlockedPaths(dir)
 	if err != nil {
+		status = 1
 		// The built-in rules are compiled in and hold whatever the config says, so
 		// they are still worth printing where it could not be read. --declared
 		// asked for the half that is missing, so that form fails.
@@ -291,11 +295,14 @@ func runBlockList(f blockFlags) int {
 		if rows == nil {
 			rows = []blockRow{}
 		}
-		return printJSON("block ls", rows)
+		if code := printJSON("block ls", rows); code != 0 {
+			return code
+		}
+		return status
 	}
 	if len(rows) == 0 {
 		fmt.Fprintln(os.Stderr, "no [[secret.block]] entries")
-		return 0
+		return status
 	}
 	// The table is what this host declared. The built-ins go under it, by kind:
 	// the command rules are regular expressions, one long enough that a cell
@@ -336,7 +343,7 @@ func runBlockList(f blockFlags) int {
 		termui.PrintTable(os.Stdout, table)
 	}
 	printBuiltIn(paint, builtIn, declaredTable)
-	return 0
+	return status
 }
 
 // errReason is why a stat failed, in the few words a table cell has room for.

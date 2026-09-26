@@ -1,6 +1,7 @@
 package secretstore
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -259,25 +260,23 @@ func TestDescribeCountsLinksAndNamesThemOnlyToTheOperator(t *testing.T) {
 	s.Reload()
 
 	described := s.Describe()
-	if described["links"] != 1 {
-		t.Errorf("links = %v, want 1", described["links"])
+	if described.Links != 1 {
+		t.Errorf("links = %v, want 1", described.Links)
 	}
-	for key, value := range described {
-		if strings.Contains(strings.ToLower(key), "link") {
-			continue
-		}
-		if text, ok := value.(string); ok && strings.Contains(text, path) {
-			t.Errorf("the agent-facing summary names a linked file under %q", key)
-		}
+	body, err := json.Marshal(described)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, named := described["linked_files"]; named {
+	if strings.Contains(string(body), path) {
+		t.Errorf("the agent-facing summary names a linked file: %s", body)
+	}
+	if strings.Contains(string(body), "linked_files") {
 		t.Error("the agent-facing summary names the linked files")
 	}
 
 	operator := s.DescribeForOperator()
-	linked, ok := operator["linked_files"].(map[string]string)
-	if !ok || linked["gh/token"] != path {
-		t.Errorf("linked_files = %v, want gh/token at %s", operator["linked_files"], path)
+	if operator.LinkedFiles["gh/token"] != path {
+		t.Errorf("linked_files = %v, want gh/token at %s", operator.LinkedFiles, path)
 	}
 }
 

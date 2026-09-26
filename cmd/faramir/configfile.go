@@ -13,7 +13,7 @@ import (
 // brokerUnit records the config the daemons loaded. A variable so a test can
 // point it at a fixture, and taken from install rather than written out again:
 // init refuses a config move against the same file.
-var brokerUnit = hostunit.Path("faramir-broker.service")
+var brokerUnit = hostunit.Path(hostunit.BrokerUnit)
 
 // unitConfigFile reads the config path out of the broker's unit and its
 // drop-ins, or "" when neither is readable or names one: what the broker was

@@ -15,41 +15,15 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/keeper"
+	"github.com/andornaut/faramir/internal/secretstore"
 )
 
 // CheckReport is the part of `faramir-broker --check` this acts on; the rest is
 // passed through as the command's own output.
 type CheckReport struct {
-	Secrets struct {
-		Count int `json:"count"`
-		// Patterns is the configured globs, Files what they named on disk. Entries
-		// naming nothing are a host waiting for its secrets; files that did not
-		// load are a fault.
-		Patterns []string `json:"patterns"`
-		Files    []string `json:"files"`
-		Errors   []string `json:"errors"`
-		// UnresolvedPatterns is the entries that named nothing, which the broker
-		// cannot work out for itself: the secrets directory is the keeper's to
-		// list.
-		UnresolvedPatterns []string `json:"unresolved_patterns"`
-		// NotRedactable is the refs the store read and the redactor refused, by ref
-		// and reason. They load and are never injected, so each is a value to
-		// lengthen rather than anything about the install.
-		NotRedactable map[string]string `json:"not_redactable"`
-		// ShadowedRefs is the refs more than one managed file defines with
-		// different values, by ref and by which files. The value that lost is on
-		// disk and in no redactor, which is what NotRedactable is too, so the two
-		// are reported alike.
-		ShadowedRefs map[string]string `json:"shadowed_refs"`
-		// DegradedLinks is the [[secret.link]] entries that did not load, by ref.
-		// Each refuses that ref alone; the broker goes on serving the rest.
-		DegradedLinks map[string]string `json:"degraded_links"`
-		// Links is how many of Count came from [[secret.link]] entries rather than
-		// from a managed file. A count, not the paths, which are the operator's
-		// own files. An install whose whole value set is linked keeps no store,
-		// and the daemon serves it.
-		Links int `json:"links"`
-	} `json:"secrets"`
+	// Secrets is the type the broker writes the section from, so a field renamed
+	// on one side is a compile error on the other rather than a zero read here.
+	Secrets secretstore.OperatorSummary `json:"secrets"`
 	// Policy is the socket-policy problems, which --check also exits non-zero
 	// for. Read here so a caller can tell which reason it is looking at.
 	Policy []string `json:"policy"`

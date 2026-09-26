@@ -225,7 +225,7 @@ distinct=$(grep -o 'gpasswd -d [a-z-]* [a-z-]*' <<<"$out" | sort -u | wc -l)
 out=$(reinit); rc=$?
 [ $rc -eq 0 ] && ok "with the memberships cleared, init runs" \
   || bad "init still refuses after the memberships were cleared: ${out##*$'\n'}"
-waitfor 25 runuser -u op -- /usr/local/bin/faramir refs \
+waitfor 25 answers op \
   && ok "and the broker serves" \
   || bad "the broker is not serving after the refused runs"
 

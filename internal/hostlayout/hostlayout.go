@@ -23,11 +23,11 @@ import (
 // Default paths. Only ConfigDir is meant to be moved; the rest are here so the
 // templates have one source for them.
 const (
-	DefaultConfigDir  = "/etc/faramir"
+	DefaultConfigDir  = config.DefaultConfigDir
 	DefaultBinDir     = "/usr/local/bin"
 	DefaultLibexecDir = "/usr/local/libexec/faramir"
 	DefaultDocDir     = "/usr/local/share/doc/faramir"
-	DefaultRunDir     = "/run/faramir"
+	DefaultRunDir     = config.DefaultRunDir
 	DefaultLogDir     = "/var/log/faramir"
 
 	// PamServiceName is not derived from a layout field: the path is the
@@ -41,10 +41,10 @@ const (
 	// host is likely to have already, and an install adopts a group that exists
 	// rather than refusing, so a collision grants every current member at
 	// install time.
-	DefaultClientGroup = "faramir-client"
-	DefaultBrokerUser  = "faramir-broker"
-	DefaultKeeperUser  = "faramir-keeper"
-	DefaultExecUser    = "faramir-exec"
+	DefaultClientGroup = config.DefaultClientGroup
+	DefaultBrokerUser  = config.DefaultBrokerUser
+	DefaultKeeperUser  = config.DefaultKeeperUser
+	DefaultExecUser    = config.DefaultExecUser
 )
 
 // The flags that move a daemon to another account, beside the defaults they
@@ -247,6 +247,24 @@ func (l Layout) PamHelper() string { return filepath.Join(l.LibexecDir, "pam-esc
 // rule and a rewrite that disagree about where it is refuse every command in an
 // enrolled tree, which is what a second spelling costs.
 func (l Layout) WrapScript() string { return filepath.Join(l.LibexecDir, "wrap.sh") }
+
+// Installed is the layout's fixed directories at their compiled defaults, for
+// a reader that is not the install and has no options to derive a layout from:
+// the guard and doctor. The accounts and the config directory are per install
+// and are not in it.
+var Installed = Layout{
+	BinDir:     DefaultBinDir,
+	LibexecDir: DefaultLibexecDir,
+	DocDir:     DefaultDocDir,
+	RunDir:     DefaultRunDir,
+	LogDir:     DefaultLogDir,
+}
+
+// DenyPatternsFile is the guard's rendered rule list. Rendered per install, so
+// it lives in libexec rather than under the config directory.
+func (l Layout) DenyPatternsFile() string {
+	return filepath.Join(l.LibexecDir, "deny-patterns.txt")
+}
 
 // PamService is the sudoers `pam_service` name, and so the file under
 // /etc/pam.d that sudo reads for the executor's account alone.

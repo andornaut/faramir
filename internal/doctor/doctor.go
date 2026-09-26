@@ -221,7 +221,9 @@ var checks = []check{
 // diverge when a new binary was installed and the daemons were not restarted
 // onto it, which leaves every other finding describing the wrong build: the
 // checks read this build's paths, modes and config rules. A fail rather than a
-// warn: an upgrade did not finish, and re-running init is what finishes it.
+// warn: an upgrade did not finish. reload finishes it: init restarts the
+// daemons only when it changed the installed binary, and after a `make install`
+// it has nothing to change.
 func diagnoseVersion(report *Report, opts Options) {
 	switch {
 	case opts.BrokerVersion == "":
@@ -234,7 +236,7 @@ func diagnoseVersion(report *Report, opts Options) {
 		report.addf("version", StatusFailed, "the broker is running %s and this "+
 			"binary is %s, so the daemons were never restarted after the install, and "+
 			"every check against the broker describes the wrong build. Run `sudo faramir "+
-			"init`",
+			"reload`",
 			opts.BrokerVersion, version.Version)
 	// Same version, different build. Every unstamped binary reports "dev", so
 	// the comparison above passes between two of them and this is what catches
@@ -246,7 +248,7 @@ func diagnoseVersion(report *Report, opts Options) {
 		report.addf("version", StatusFailed, "the broker and this binary are "+
 			"both %s but are different builds, %s against %s, so the daemons were never "+
 			"restarted after the install, and every check against the broker describes "+
-			"the wrong build. Run `sudo faramir init`",
+			"the wrong build. Run `sudo faramir reload`",
 			version.Version, opts.BrokerBuild, version.Build)
 	case version.Build != "":
 		report.addf("version", StatusOK, "broker and binary are both %s (%s)",

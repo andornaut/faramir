@@ -79,7 +79,7 @@ Every instructions file in a tree gets the same section, so you can symlink one 
 
 The section says what the deny rules cannot: why they refuse, and what to do instead.
 
-`~/.bashrc` gets a `umask 002` line, so a file the operator creates in a shared tree stays group-writable.
+`~/.bashrc` gets a `umask 007` line, so a file the operator creates in a shared tree stays group-writable and is not readable by other accounts. The executor runs brokered commands under the same umask.
 
 ## What the modes decide
 

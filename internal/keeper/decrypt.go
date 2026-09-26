@@ -32,9 +32,9 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 	disagreed := map[string]bool{}
 	paths, errors, _ := Resolve(secrets.Patterns)
 
-	// Fixed rather than inherited: argv[0] is a bare "sops", so the PATH in it
-	// is what resolves it, and the binary that decrypts every managed file must
-	// not depend on the environment the keeper unit was started with.
+	// Fixed rather than inherited: the binary that decrypts every managed file
+	// must not depend on the environment the keeper unit was started with.
+	// argv[0] is a bare "sops", resolved against this PATH below.
 	env := config.SopsEnv()
 	// The path, never the material: SOPS_AGE_KEY would put the key in the child's
 	// environment block, visible in /proc/<pid>/environ.
@@ -59,8 +59,13 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 			continue
 		}
 
+		bin, err := config.SopsExecutable(argv[0])
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: running %s failed: %v", path, argv[0], err))
+			continue
+		}
 		ctx, cancel := context.WithTimeout(overall, decryptTimeout)
-		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+		cmd := exec.CommandContext(ctx, bin, argv[1:]...)
 		cmd.Env = env
 		stdout, err := cmd.Output()
 		cancel()

@@ -80,11 +80,10 @@ func runVaultList(f vaultListFlags) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 
+	code := 0
 	if f.json {
-		return printJSON(label, files)
-	}
-
-	if len(files) == 0 {
+		code = printJSON(label, files)
+	} else if len(files) == 0 {
 		fmt.Fprintln(os.Stderr, "no managed files")
 	} else {
 		// The directory once, above the rows, so the names are the ones the other
@@ -110,13 +109,22 @@ func runVaultList(f vaultListFlags) int {
 		}
 		termui.PrintTable(os.Stdout, table)
 	}
-	// Named after the listing rather than mixed into it: a pattern that matched
-	// nothing is not a file.
+	// Named after the listing rather than mixed into it, and in both forms: a
+	// pattern that matched nothing is not a file.
 	for _, reason := range slices.Concat(failures, absent) {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", termui.Safe(reason))
 	}
 	if ruleErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: %v\n", ruleErr)
+	}
+	if code != 0 {
+		return code
+	}
+	// A file that is there and would not open, or a rule that could not be read,
+	// leaves the listing short of what is in the store. A pattern that matched
+	// nothing does not: that is a store not written yet.
+	if len(failures) > 0 || ruleErr != nil {
+		return 1
 	}
 	return 0
 }
@@ -128,11 +136,10 @@ type vaultRemoveFlags struct {
 func newVaultRemoveCmd() *cobra.Command {
 	var f vaultRemoveFlags
 	c := &cobra.Command{
-		Use:     "rm [options] NAME",
-		Aliases: []string{opRemove},
-		Short:   "Remove an encrypted secret file",
-		Long:    "Deletes one managed file and every value in it, after confirmation.",
-		Args:    exactlyArgs(1, "one file name"),
+		Use:   "rm [options] NAME",
+		Short: "Remove an encrypted secret file",
+		Long:  "Deletes one managed file and every value in it, after confirmation.",
+		Args:  exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runVaultRemove(f, args[0]))
 		},

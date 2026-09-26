@@ -1,7 +1,7 @@
 // Package sharetree makes one directory usable by brokered commands.
 //
 //	shared     group-owned and setgid, so the operator and a brokered command
-//	           do not fight over every file either creates (with umask 002)
+//	           do not fight over every file either creates (with umask 007)
 //	reachable  a home is 0700, so every directory above the tree has to be
 //	           group-executable by a group the executor is in
 //

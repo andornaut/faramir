@@ -45,3 +45,12 @@ waitfor() {
   done
   return 1
 }
+
+# answers USER is whether the broker answers USER, degraded or not. Not refs'
+# exit status: refs exits 1 on a store holding a ref it cannot serve, which the
+# suites' stores do on purpose. A refusal carries an error, and a broker not
+# reached prints nothing.
+answers() {
+  runuser -u "$1" -- /usr/local/bin/faramir refs --json 2>/dev/null |
+    jq -e '.error == null' >/dev/null
+}

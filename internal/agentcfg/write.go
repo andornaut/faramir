@@ -113,8 +113,10 @@ func WriteFiles(fs hostfs.FS, warn func(string, ...any), root, configDir string,
 		// there, editedFile having established that it is the operator's. The
 		// group is asserted in a tree, where the client group has to read these;
 		// in a home it decides nothing. The mode is asserted throughout: these
-		// carry the hook, and group-writable is what they must never be.
-		writeUID, writeGID := uid, gid
+		// carry the hook, and group-writable is what they must never be. In a home
+		// an existing file's mode is only ever narrowed: one the operator keeps at
+		// 0600 may hold a token, and nothing but its owner reads it.
+		writeUID, writeGID, writeMode := uid, gid, file.Mode
 		if spot.Info() != nil {
 			// Read off the file: a write renames a new file over the path, so
 			// anything not named here comes out owned by root.
@@ -122,9 +124,10 @@ func WriteFiles(fs hostfs.FS, warn func(string, ...any), root, configDir string,
 			writeUID = ownerUID
 			if !inTree {
 				writeGID = ownerGID
+				writeMode &= spot.Info().Mode().Perm()
 			}
 		}
-		made, err := fs.WriteEdited(spot, data, file.Mode, writeUID, writeGID)
+		made, err := fs.WriteEdited(spot, data, writeMode, writeUID, writeGID)
 		spot.Close()
 		if err != nil {
 			return changed, written, err

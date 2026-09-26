@@ -41,7 +41,7 @@ Op | Does | Notes
 --- | --- | ---
 `run` | run a command | The default when `op` is absent. An unknown `op` is refused, not defaulted.
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
-`refs` | ref names only | Adds `refs`.
+`refs` | ref names only | Adds `refs`. On a degraded store `exit_code` is `1` and `warning` counts what is missing, as `status` counts it under `degraded`; the list is still the refs that loaded.
 `status` | version, `build`, `config`, the managed store's `patterns` and resolved `files`, secret count, load errors, `unresolved_patterns`, a `links` count, `degraded_links`, `degraded`, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Reports whether a value exists, never the value. The store's paths are not secret: `config` names the config file, which is `0644`, and its `[secret]` patterns name the directory. `files` lists which globs resolved, never what a file holds. A linked file is a count, never a path. `degraded` is why the exit status is `1`. A ref the redactor refused is counted, not named; `doctor` names it. A linked file that did not load is named by its ref in `degraded_links` with a reason; `faramir link ls` already lists that ref.
 `refresh` | re-read the managed store now | Root only. Adds `refs`. `faramir vault` sends it so a rotated value is redacted before the command that rotated it returns, instead of up to a second later at the next staleness check.
 `escalations` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.

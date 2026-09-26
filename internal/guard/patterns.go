@@ -1,7 +1,9 @@
 package guard
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/hostlayout"
@@ -23,35 +26,23 @@ func wrapScript() string {
 	if v := os.Getenv("FARAMIR_WRAP"); v != "" {
 		return v
 	}
-	return hostlayout.Layout{LibexecDir: hostlayout.DefaultLibexecDir}.WrapScript()
+	return hostlayout.Installed.WrapScript()
 }
 
-// patternsFile is rendered per install, so it lives in libexec rather than
-// under /etc/faramir. Missing, the fallback list below is used.
+// patternsFile is the rendered rule list, spelled by the layout the install
+// writes it from. Missing, the fallback list below is used.
 func patternsFile() string {
 	if v := os.Getenv("FARAMIR_DENY_PATTERNS"); v != "" {
 		return v
 	}
-	return "/usr/local/libexec/faramir/deny-patterns.txt"
+	return hostlayout.Installed.DenyPatternsFile()
 }
 
-// defaultInstallPaths is what an install at the compiled defaults occupies, in
-// the order agentcfg.Dirs renders them.
-//
-// Written here rather than taken from internal/install, which cannot be
-// imported: this package's own tests import that one, so the arrow only points
-// one way. The rules generated from these have to equal the ones the shipped
-// file carries at the same defaults, which TestTheFallbackMatchesTheShippedFile
-// holds them to.
-var defaultInstallPaths = []string{
-	`/etc/faramir`,
-	`/etc/faramir/secrets`,
-	`/var/log/faramir`,
-	`/usr/local/libexec/faramir`,
-	`/var/lib/faramir-broker`,
-	`/var/lib/faramir-keeper`,
-	`/var/lib/faramir-exec`,
-}
+// defaultInstallPaths is what an install at the compiled defaults occupies,
+// from the same function the shipped file is rendered from, an empty layout
+// being one at every default. TestTheFallbackMatchesTheShippedFile holds the
+// rules generated from these to the ones that file carries.
+var defaultInstallPaths = agentcfg.Dirs(hostlayout.Layout{})
 
 // fallback is used if the patterns file is missing, so a broken install still
 // fails closed. Keep it in step with agent/hooks/deny-patterns.txt.
@@ -189,10 +180,17 @@ var (
 )
 
 // rawFilePatterns reads the deny-pattern lines from the patterns file, dropping
-// blanks and comments. Nil when the file is missing or holds no rule.
+// blanks and comments. Nil when the file is missing or holds no rule. A read
+// error other than the file being missing is reported on stderr: the guard then
+// runs on the fallback list, which carries none of the host's declared entries.
 func rawFilePatterns() []string {
-	data, err := os.ReadFile(patternsFile())
+	path := patternsFile()
+	data, err := os.ReadFile(path)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(os.Stderr, "faramir guard: cannot read %s, so only faramir's own "+
+				"paths are refused and no declared entry is: %v\n", path, err)
+		}
 		return nil
 	}
 	var lines []string
@@ -218,7 +216,7 @@ func withConfigDir(raw []string) []string {
 }
 
 // compilePatterns compiles each pattern the way denyrules says one is read.
-// complete is false when any line did not compile.
+// failed is the lines that did not compile, in order.
 //
 // Once per guard process, which is once per tool call: the cache above lives
 // only as long as this one. Compilation is linear in the file's bytes at
@@ -228,18 +226,17 @@ func withConfigDir(raw []string) []string {
 // list of those literals rendered beside the patterns: a second artifact an
 // install can get out of step with the first, and a redesign rather than a
 // change here.
-func compilePatterns(raw []string) (out []compiled, complete bool) {
-	complete = true
+func compilePatterns(raw []string) (out []compiled, failed []string) {
 	out = make([]compiled, 0, len(raw))
 	for _, pattern := range raw {
 		re, err := denyrules.Compile(pattern)
 		if err != nil {
-			complete = false
+			failed = append(failed, pattern)
 			continue
 		}
 		out = append(out, compiled{source: pattern, re: re})
 	}
-	return out, complete
+	return out, failed
 }
 
 func loadPatterns() []compiled {
@@ -258,12 +255,14 @@ func loadPatterns() []compiled {
 		return patternCacheVal
 	}
 
-	out, complete := compilePatterns(raw)
-	if usingFile && !complete {
+	out, failed := compilePatterns(raw)
+	if usingFile {
 		// A bad line must not be dropped in silence: report it so the operator
 		// knows a rule they wrote is not in force. The lines around it still stand.
-		fmt.Fprintln(os.Stderr,
-			"faramir guard: a line in the deny-patterns file does not compile; skipping it")
+		for _, pattern := range failed {
+			fmt.Fprintf(os.Stderr, "faramir guard: a line in %s does not compile; "+
+				"skipping it: %s\n", patternsFile(), pattern)
+		}
 	}
 	if usingFile && len(out) == 0 {
 		// Nothing in the file compiled, so running with an empty list would refuse

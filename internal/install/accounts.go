@@ -130,7 +130,7 @@ func (r *runner) stepAccounts() error {
 	if err != nil {
 		return err
 	}
-	r.step("operator umask", umask, "umask 002 for the shared tree")
+	r.step("operator umask", umask, "umask 007 for the shared tree")
 	return nil
 }
 
@@ -240,9 +240,11 @@ func (r *runner) joinOperatorToGroup() (bool, error) {
 	return true, nil
 }
 
-// ensureOperatorUmask appends umask 002 to the operator's .bashrc, without
+// ensureOperatorUmask appends umask 007 to the operator's .bashrc, without
 // which the operator and a brokered command fight over every new file in a
-// shared tree. Here rather than in share-tree, belonging to the account.
+// shared tree. 007 rather than 002, the executor's own UMask=: group write is
+// what the tree needs, and a file readable by every account is not. Here
+// rather than in share-tree, belonging to the account.
 func (r *runner) ensureOperatorUmask() (bool, error) {
 	home, err := homeDir(r.opts.AgentUser)
 	if err != nil {
@@ -259,7 +261,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 	// config and units, so failing the run over a profile would leave the host
 	// with no broker at all.
 	skip := func(format string, args ...any) {
-		r.warnf(format+"; add umask 002 to the shell profile by hand", args...)
+		r.warnf(format+"; add umask 007 to the shell profile by hand", args...)
 	}
 	// What it is, before opening it: this runs as root on a path in a directory
 	// the account the agent runs as can write, and a device node there would be
@@ -318,7 +320,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		return false, nil
 	}
 	for line := range strings.Lines(string(current)) {
-		if strings.HasPrefix(strings.TrimSpace(line), "umask 002") {
+		if strings.HasPrefix(strings.TrimSpace(line), "umask 007") {
 			return false, nil
 		}
 	}
@@ -326,7 +328,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		return true, nil
 	}
 	_, err = handle.WriteString(
-		"\n# shared dev tree: let group members edit each other's files\numask 002\n")
+		"\n# shared dev tree: let group members edit each other's files\numask 007\n")
 	return err == nil, err
 }
 

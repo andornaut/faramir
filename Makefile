@@ -16,20 +16,6 @@ LDFLAGS := -s -w
 # interpreter runs on a host whose Python is older than 3.11.
 export CGO_ENABLED := 0
 
-# DELEGATE runs a test in a cgroup of its own. Every brokered command is
-# confined to a cgroup and reaped there, with no process-group fallback, so an
-# executor that cannot make one refuses every command: on a bare shell that
-# skips a couple of dozen tests and still prints ok, which is a green run that
-# checked none of the confinement or the executor. A user
-# scope inherits the delegation systemd gives user@.service, so this asks for no
-# privilege and no container. CI hands its runner a cgroup the same way.
-#
-# Recursive rather than immediate, so the probe runs when a test target uses it
-# and not on every `make build`. Empty where systemd-run cannot make a scope,
-# which leaves those tests skipping and report-skips saying so.
-DELEGATE = $(shell systemd-run --user --scope --quiet true >/dev/null 2>&1 \
-	&& echo systemd-run --user --scope --quiet)
-
 # QUIET renders a -v run as a quiet one. -v is the only way a skip is reported
 # at all, and it also repeats everything a passing test wrote, which here is the
 # brokers and keepers the tests start: thousands of lines that say only that the
@@ -91,25 +77,23 @@ build:
 ## them under both sudo implementations, so this pulls in two containers rather
 ## than one: half the arrangements would not be everything.
 ##
-## Needs sops installed. The fixtures are built by running it rather than by
-## linking its libraries, which is what keeps every cloud KMS SDK out of the
-## module as well as out of the binary, and it is the only way to hold a test
-## against how sops itself resolves a creation rule. A missing binary fails the
-## suites that need one rather than skipping them: what they cover is the guard
-## against a planted .sops.yaml, and a skip there is a green run that checked
-## none of it. `make e2e` fetches a pinned copy into tests/e2e, and CI installs
-## the same pin.
+## The Go suite runs in a container (tests/go/run.sh), never on the host: a test
+## that deletes, walks or copies files can escape its temporary directory, and
+## there it reaches nothing but a copy of the checkout. The container owns a
+## cgroup, which the executor tests need, as CI's runner does.
 ##
-## Under a delegated cgroup where there is one: the executor makes a cgroup per
-## child, and without one it refuses every command, which skips the tests that
-## exercise confinement rather than failing them.
+## sops is the pinned copy `make e2e` fetches into tests/e2e, which CI installs
+## too. The fixtures are built by running it rather than by linking its
+## libraries, which is what keeps every cloud KMS SDK out of the module as well
+## as out of the binary, and it is the only way to hold a test against how sops
+## itself resolves a creation rule.
 ##
 ## The status is taken from the pipeline's first command rather than left to
 ## pipefail, so that the skip report still runs when the suite failed: a run
 ## that fails is not one that checked everything else.
 test: e2e
 	@mkdir -p $(BIN)
-	@$(DELEGATE) go test -v ./... 2>&1 \
+	@tests/go/run.sh 2>&1 \
 		| tee $(BIN)/test.log | $(QUIET); \
 	  status=$${PIPESTATUS[0]}; \
 	  $(REPORT) $(BIN)/test.log; \
@@ -166,7 +150,7 @@ lint: shellcheck
 
 ## shellcheck: the same shellcheck run CI does
 shellcheck:
-	shellcheck tests/*.sh tests/agents/*.sh tests/e2e/*.sh agent/hooks/wrap.sh
+	shellcheck tests/*.sh tests/agents/*.sh tests/e2e/*.sh tests/go/*.sh agent/hooks/wrap.sh
 
 ## e2e: the functional suites, against a real install in a container: systemd
 ## units, three uids, a sops store and an agent working in a project tree. Go

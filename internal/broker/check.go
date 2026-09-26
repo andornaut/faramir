@@ -44,11 +44,10 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	// A link that did not load: one ref refused, the broker still serving. Not
 	// logged for the reason below, and non-zero so `doctor` and a converge run
 	// see it rather than waiting for a command to ask for the ref.
-	if degraded, _ := secrets["degraded_links"].(map[string]string); len(degraded) > 0 {
+	if len(secrets.DegradedLinks) > 0 {
 		code = 1
 	}
-	refused, _ := secrets["not_redactable"].(map[string]string)
-	if len(refused) > 0 {
+	if len(secrets.NotRedactable) > 0 {
 		// Nothing logged: loading already named every refused secret, and the JSON
 		// body carries the same set as not_redactable.
 		code = 1

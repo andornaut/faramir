@@ -10,7 +10,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/asaccount"
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/hostfs"
+	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostsudo"
 	"github.com/andornaut/faramir/internal/runcmd"
@@ -291,16 +291,15 @@ func originalSudoOnRsStack(execUser, pamFile string, readErr error, cfg *config.
 	return body, stack, true, ""
 }
 
-// readSudoStack resolves which file carries sudo's stack and reads faramir's
-// block out of it: the configured one where it is there, else the first shared
-// file that is. problem is "" where the block was read, else the failure with
-// its remedy.
+// readSudoStack resolves which file carries sudo's stack, the way the broker
+// resolves it, and reads faramir's block out of it. problem is "" where the
+// block was read, else the failure with its remedy.
 func readSudoStack(cfg *config.Config) (body []byte, stack, problem string) {
-	stack = cfg.Sudo.PamStack
-	if stack == "" || !hostfs.Exists(stack) {
-		stack = hostsudo.FirstExistingStack()
+	stack, err := escalation.Stack(hostlayout.PamDir, cfg.Sudo.PamStack, cfg.Sudo.PamService)
+	if err != nil {
+		return nil, stack, fmt.Sprintf("%v. Re-run `sudo faramir init --allow-sudo`", err)
 	}
-	body, err := hostsudo.Block(stack)
+	body, err = hostsudo.Block(stack)
 	if err != nil {
 		return nil, stack, fmt.Sprintf("%s: %v. Re-run `sudo faramir init "+
 			"--allow-sudo`", stack, err)

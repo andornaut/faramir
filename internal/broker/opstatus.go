@@ -109,7 +109,17 @@ func (s *Server) opListSecrets() protocol.Response {
 	for _, ref := range refs {
 		output.WriteString("faramir://" + ref + "\n")
 	}
-	response := okResponse(0, output.String())
+	// Non-zero on a degraded store, as status is, the list still printed: a ref
+	// missing from a partial list otherwise reads as one nobody configured.
+	// Counted, not named, the agent being the one reading it.
+	code, warning := 0, s.Store.DegradedCounts()
+	if warning != "" {
+		code = 1
+	}
+	response := okResponse(code, output.String())
 	response["refs"] = refs
+	if warning != "" {
+		response["warning"] = warning
+	}
 	return response
 }

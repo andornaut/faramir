@@ -9,8 +9,8 @@
 # 0600 on create, matching what the broker opens with; logrotate would otherwise
 # apply the daemon's umask.
 {{.LogDir}}/audit.log {
-    su {{.BrokerUser}} {{.BrokerUser}}
-    create 0600 {{.BrokerUser}} {{.BrokerUser}}
+    su {{.BrokerUser}} {{.BrokerGroup}}
+    create 0600 {{.BrokerUser}} {{.BrokerGroup}}
     weekly
     rotate 8
     maxsize 16M

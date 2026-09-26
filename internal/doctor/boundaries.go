@@ -260,12 +260,12 @@ func diagnoseInstalledFiles(report *Report, opts Options) {
 		// much as to libexec: write there is permission to replace the hook.
 		hostlayout.DefaultBinDir,
 		hostlayout.DefaultLibexecDir,
-		filepath.Join(hostlayout.DefaultLibexecDir, "deny-patterns.txt"),
-		filepath.Join(hostlayout.DefaultLibexecDir, "wrap.sh"),
+		hostlayout.Installed.DenyPatternsFile(),
+		hostlayout.Installed.WrapScript(),
 		// The PAM helper is here for a different reason: nothing reads it to
 		// enforce a rule, PAM execs it as root. An account that can write it
 		// decides every escalation on this host.
-		filepath.Join(hostlayout.DefaultLibexecDir, "pam-escalate"),
+		hostlayout.Installed.PamHelper(),
 	}
 	for _, path := range enforcers {
 		if !hostfs.Exists(path) {

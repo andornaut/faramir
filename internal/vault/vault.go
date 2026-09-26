@@ -39,8 +39,8 @@ import (
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
-// sopsBinary is resolved through PATH. A variable so a test can point it
-// elsewhere.
+// sopsBinary is resolved against the PATH config.SopsEnv sets. A variable so a
+// test can point it elsewhere.
 var sopsBinary = "sops"
 
 // Edit decrypts, edits and re-encrypts one file in place, and reports
@@ -223,8 +223,12 @@ func WriteBack(target string, data []byte) error {
 // the variable ignores it and searches anyway, where an argument it does not
 // understand is an error.
 func runSops(keyPath, rulePath string, args ...string) ([]byte, error) {
+	sops, err := config.SopsExecutable(sopsBinary)
+	if err != nil {
+		return nil, err
+	}
 	argv := append([]string{"--config", sopsConfigPath(rulePath)}, args...)
-	cmd := exec.CommandContext(context.Background(), sopsBinary, argv...)
+	cmd := exec.CommandContext(context.Background(), sops, argv...)
 	cmd.Env = append(config.SopsEnv(), "SOPS_AGE_KEY_FILE="+keyPath)
 	cmd.Stderr = os.Stderr
 	return cmd.Output()

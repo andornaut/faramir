@@ -98,6 +98,15 @@ func mergeValue(into, from any, wrote []string) (any, error) {
 		return mergeList(intoList, fromList, wrote), nil
 	}
 
+	// An operator's single value where faramir writes an object, such as
+	// "edit": "ask" where faramir writes a rule per path. Replacing it would
+	// discard a policy the operator chose, and nothing would say so.
+	if fromIsMap && into != nil && !intoIsList {
+		value, _ := json.Marshal(into)
+		return nil, fmt.Errorf("holds the single value %s where faramir writes an "+
+			"object of rules; rewrite it as an object and run this again", value)
+	}
+
 	// A scalar, or the shapes disagree. faramir's value wins: a file holding a
 	// string where a hook list belongs is one an agent cannot load.
 	return from, nil

@@ -1,6 +1,7 @@
 package install
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -429,15 +430,26 @@ func (r *runner) refuseShadowedRef(configFile, ref string) error {
 			"be asked whether it already serves %s. Re-run `sudo faramir init` "+
 			"before adding a link", configFile, ref)
 	}
+	// The response rather than the exit status: refs exits 1 on a degraded store
+	// with the list still in it, and that is an answer. An error in the response,
+	// or none at all, is not.
 	out, err := asaccount.Output(r.opts.AgentUser, "env",
-		"FARAMIR_SOCKET="+cfg.Server.SocketPath, asaccount.SelfPath(), "refs")
-	if err != nil {
+		"FARAMIR_SOCKET="+cfg.Server.SocketPath, asaccount.SelfPath(), "refs", "--json")
+	var answer struct {
+		Refs  []string        `json:"refs"`
+		Error json.RawMessage `json:"error"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out), &answer); jsonErr != nil || len(answer.Error) > 0 &&
+		string(answer.Error) != "null" {
+		if err == nil {
+			err = fmt.Errorf("an answer that is not a ref list: %s", strings.TrimSpace(out))
+		}
 		return fmt.Errorf("the broker did not answer, so it could not be asked whether it already serves %s. "+
 			"A link that claims a ref the broker serves would refuse every brokered command. Start the broker "+
 			"and run this again (`systemctl start faramir-broker.socket`): %w", ref, err)
 	}
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		if strings.TrimSpace(line) != "faramir://"+ref {
+	for _, served := range answer.Refs {
+		if served != ref {
 			continue
 		}
 		return fmt.Errorf("the broker already serves %s, and a ref has one definition, so a [[secret.link]] "+
@@ -561,8 +573,32 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 				"%s is still blocked: another entry still names %s",
 				config.Shown(entry.Path), config.Shown(entry.DerivedFrom)))
 		}
+		// The link was what refused the file to the agent. Said, unless a block
+		// entry still covers it, because nothing else would: the file is where
+		// it was and reads as it did.
+		if removed.Ref != "" && !stillBlocked(configDirOr(opts.ConfigDir), removed.Path) {
+			report.Warnings = append(report.Warnings, fmt.Sprintf(
+				"%s is no longer refused to the agent; `sudo faramir block add --path %s` "+
+					"refuses it again", config.Shown(removed.Path), config.Shown(removed.Path)))
+		}
 	}
 	return report, removed, err
+}
+
+// stillBlocked is whether a block entry names path or a directory above it. A
+// config that cannot be read answers false, so the caller warns rather than
+// staying quiet.
+func stillBlocked(configDir, path string) bool {
+	entries, err := BlockedPaths(configDir)
+	if err != nil {
+		return false
+	}
+	for _, blocked := range blockedPathsOf(entries) {
+		if path == blocked || strings.HasPrefix(path, strings.TrimSuffix(blocked, "/")+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // withoutLinkDerivation drops the blocked entries an add derived from this

@@ -10,82 +10,106 @@ import (
 	"strings"
 )
 
+// Summary is what the store says about itself on the agent-facing wire: what
+// loaded, and whether, never a value or a linked file's path.
+type Summary struct {
+	// Patterns is the configured globs, Files what they named on disk. A glob
+	// makes them differ, which is how a first install is told apart from secrets
+	// that went missing.
+	Patterns []string `json:"patterns"`
+	Files    []string `json:"files"`
+	Count    int      `json:"count"`
+	// Errors is the managed files that were found and did not load.
+	Errors []string `json:"errors"`
+	// UnresolvedPatterns is the entries that named nothing, which the broker
+	// cannot work out for itself: the secrets directory is the keeper's to list.
+	UnresolvedPatterns []string `json:"unresolved_patterns"`
+	// Links is how many of Count came from [[secret.link]] entries. A count, not
+	// the paths: a linked file is one of the operator's own, refused to the
+	// agent's file tools, so naming it here would hand over the location of a
+	// credential. OperatorSummary carries the paths.
+	Links int `json:"links"`
+	// DegradedLinks is the links that did not load, by ref and reason, no paths,
+	// to the same rule. A degraded ref is not one the refs op lists, that being
+	// the loaded ones, but it is a name the agent can already read out of
+	// `faramir link ls` and is given verbatim the moment it asks for the ref.
+	// Each refuses that ref alone; the broker goes on serving the rest.
+	DegradedLinks map[string]string `json:"degraded_links"`
+}
+
+// OperatorSummary is Summary plus what names a secret or where it lives: the
+// `--check` report's secrets section, and what the install and doctor read
+// back from it.
+type OperatorSummary struct {
+	Summary
+	// NotRedactable is the refs the store read and the redactor refused, by ref
+	// and reason. A refused value is absent from the redactor, so the list names
+	// which secrets are never tokenized: a repair list for the operator,
+	// targeting information for the agent, and operator-only for that reason.
+	NotRedactable map[string]string `json:"not_redactable"`
+	// ShadowedRefs is the refs two managed files both defined, with the files
+	// named. Same kind of missing as NotRedactable: the value exists on disk, one
+	// of the two is in no redactor, and neither is a file that would not open.
+	ShadowedRefs map[string]string `json:"shadowed_refs"`
+	// LinkedFiles is ref to file, so `--check` and doctor can say which link is
+	// broken and where to fix it.
+	LinkedFiles map[string]string `json:"linked_files"`
+	// DegradedLinkDetail is the link failures with their paths, which Summary
+	// leaves out.
+	DegradedLinkDetail []string `json:"degraded_link_detail"`
+}
+
 // Describe is a loaded-state summary. Safe for the agent-facing wire.
-func (s *Store) Describe() map[string]any {
+func (s *Store) Describe() Summary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.describeLocked()
 }
 
-func (s *Store) describeLocked() map[string]any {
+func (s *Store) describeLocked() Summary {
 	files := make([]string, 0, len(s.state))
 	for _, st := range s.state {
 		files = append(files, st.Path)
 	}
-	errs := s.loadErrors
-	if errs == nil {
-		errs = []string{}
+	orEmpty := func(list []string) []string {
+		if list == nil {
+			return []string{}
+		}
+		return list
 	}
-	// patterns is what was configured, files what it named on disk. A glob makes
-	// them differ, which is how a first install is told apart from secrets that
-	// went missing.
-	patterns := s.config.Patterns
-	if patterns == nil {
-		patterns = []string{}
-	}
-	absent := s.unresolvedPatterns
-	if absent == nil {
-		absent = []string{}
-	}
-	return map[string]any{
-		"patterns":            patterns,
-		"files":               files,
-		"count":               len(s.values),
-		"errors":              errs,
-		"unresolved_patterns": absent,
-		// A count, not the paths: a linked file is one of the operator's own,
-		// refused to the agent's file tools, so naming it here would hand over the
-		// location of a credential. DescribeForOperator carries the paths.
-		"links": len(s.config.Links),
-		// Refs and reasons, no paths, to the same rule. A degraded ref is not one
-		// the refs op lists, that being the loaded ones, but it is a name the agent
-		// can already read out of `faramir link ls` and is given verbatim the
-		// moment it asks for the ref. Where the file lives is what stays out.
-		"degraded_links": maps.Clone(s.degradedLinks),
+	return Summary{
+		Patterns:           orEmpty(s.config.Patterns),
+		Files:              files,
+		Count:              len(s.values),
+		Errors:             orEmpty(s.loadErrors),
+		UnresolvedPatterns: orEmpty(s.unresolvedPatterns),
+		Links:              len(s.config.Links),
+		DegradedLinks:      maps.Clone(s.degradedLinks),
 	}
 }
 
-// DescribeForOperator is Describe plus the refs refused at load, and why. A
-// refused value is absent from the redactor, so the list names which secrets
-// are never tokenized: a repair list for the operator, targeting information
-// for the agent, and operator-only for that reason. One snapshot, or a reload
-// in between would report a set that never existed.
-func (s *Store) DescribeForOperator() map[string]any {
+// DescribeForOperator is Describe plus what only the operator is shown. One
+// snapshot, or a reload in between would report a set that never existed.
+func (s *Store) DescribeForOperator() OperatorSummary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := s.describeLocked()
-	refused := make(map[string]string, len(s.refused))
-	maps.Copy(refused, s.refused)
-	out["not_redactable"] = refused
-	// The refs two managed files both defined, with the files named. Same kind of
-	// missing as not_redactable: the value exists on disk, one of the two is in
-	// no redactor, and neither is a file that would not open. Operator-only for
-	// the reason describeLocked gives, and a repair list rather than a
-	// diagnostic.
-	shadowed := make(map[string]string, len(s.shadowedRefs))
-	maps.Copy(shadowed, s.shadowedRefs)
-	out["shadowed_refs"] = shadowed
-	// Ref to file, so `--check` and doctor can say which link is broken and where
-	// to fix it. Operator-only for the reason describeLocked gives.
 	linked := make(map[string]string, len(s.config.Links))
 	for _, link := range s.config.Links {
 		linked[link.Ref] = link.Path
 	}
-	out["linked_files"] = linked
-	// The same failures with their paths, which the agent-facing summary leaves
-	// out.
-	out["degraded_link_detail"] = append([]string{}, s.linkDetail...)
-	return out
+	// Copies rather than clones, which keep a nil map nil: these are {} when
+	// empty, not null.
+	refused := make(map[string]string, len(s.refused))
+	maps.Copy(refused, s.refused)
+	shadowed := make(map[string]string, len(s.shadowedRefs))
+	maps.Copy(shadowed, s.shadowedRefs)
+	return OperatorSummary{
+		Summary:            s.describeLocked(),
+		NotRedactable:      refused,
+		ShadowedRefs:       shadowed,
+		LinkedFiles:        linked,
+		DegradedLinkDetail: append([]string{}, s.linkDetail...),
+	}
 }
 
 // Degraded reports why this store is not doing the whole job the config asks

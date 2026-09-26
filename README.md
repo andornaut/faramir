@@ -162,14 +162,15 @@ Every flag, what a re-run adopts, and where the config directory may not go: [do
 
 ## Getting Started
 
-From a bare host to a redacted command in six steps.
+From a bare host to a redacted command in seven steps.
 
 1. **Install the binary**, from [an archive](#pre-compiled-binary) or [a build](#compile-from-source). `init` puts it in `/usr/local/bin` itself.
-2. **Provision the host** with `sudo faramir init`. [What it does](#what-init-does), and [every flag](docs/installing.md).
+2. **Provision the host** with `sudo faramir init`. [What it does](#what-init-does), and [every flag](docs/installing.md). Log out and back in afterwards: `init` adds you to the group the broker socket admits, and an open session does not pick that up.
 3. **Check it** with `sudo faramir doctor`. It reports whether the install works and, as root, what each account can reach. Without root it still runs, and reports what it could not check as unasked rather than as passing. [What it checks](docs/operating.md#checking-an-install).
 4. **Declare what this machine should block.** A fresh install refuses only its own files, so your SSH key stays readable to your agent until you declare it. [Below](#declaring-blocked-paths-and-commands).
 5. **Enrol a tree** with `cd <tree> && sudo faramir enrol`, in each tree where managed credentials are used. [What an enrolment writes, and the three steps before it](#onboarding-a-project).
-6. **Run something.** `faramir refs` lists what the broker serves, and `faramir run` injects one into a command:
+6. **Write a value** with `sudo faramir vault add svc`. A document holding `token` under `svc` serves `faramir://svc/token`. [Writing the values](#onboarding-a-project).
+7. **Run something.** `faramir refs` lists what the broker serves, and `faramir run` injects one into a command:
 
 ```bash
 faramir refs
@@ -248,12 +249,12 @@ faramir redact -- ./deploy.sh
 `--quiet` | Suppress the redaction summary on stderr. Only that: why a `sudo` was refused is printed either way, and so is every note saying the output is not what the command produced, truncation included
 `--cwd`/`-C` | Where the command runs. A relative path is resolved against the caller's directory, which is also the default
 `--timeout`/`-t` | How long before the broker kills it: a duration (`90s`, `5m`) or a bare number of seconds, in whole seconds. Defaults to `[command] timeout_sec`; `max_timeout_sec` is the ceiling
-`--json` | The raw response. Every broker-facing command accepts it except `redact`, whose output is the redaction itself
+`--json` | The raw response. Every broker-facing command accepts it except `redact`, whose output is the redaction itself. For `status`, `output` is the status document as an object rather than a string holding it
 
 - Without `--stdin`, a pipeline is refused rather than dropped. `faramir run` does not own the file on its standard input, so a `while read ... done < hosts.txt` loop and an `ssh host 'faramir run …'` session keep theirs. An anonymous pipe every writer has closed with nothing in it is not refused, since that is what a program driving `faramir run` as a subprocess hands it. A FIFO stays refused, since another writer can open one after the last has closed.
 - Flags after the program name belong to the program. Parsing stops at the first non-flag word, so `--` works but is not required.
 - `--env` and `--env-file` both refuse a literal value and a name that cannot be an environment variable. A name given twice with different refs is refused, within a file, across files, and across `--env` flags; the bare and the mapping form count as the same name. `--env` still overrides `--env-file`. A bad line is reported with file and line, and the offending value never appears. A bare name must be both a usable variable name and a ref a store can hold.
-- **`faramir redact` writes nothing it could not redact**, in either form. A chunk the broker cannot cover is withheld, the stream stops there, and the exit status is non-zero: for `-- CMD` the child's own status when it failed, otherwise 1. Chunks already redacted are kept, so a broker lost mid-stream truncates the output rather than emptying it.
+- **`faramir redact` writes nothing it could not redact**, in either form. A chunk the broker cannot cover is withheld, the stream stops there, and the exit status is non-zero: for `-- CMD` the child's own status when it failed, otherwise `69` when the broker could not be reached and `1` for any other failure. Chunks already redacted are kept, so a broker lost mid-stream truncates the output rather than emptying it.
 
 Exit code | Meaning
 --- | ---
@@ -337,6 +338,6 @@ Target | Does
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/`, with `README.md` and `LICENSE`, is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. Operator documentation goes in `docs/`, which ships. Developer documentation goes beside what it covers, such as `tests/e2e/README.md`, which does not.
 - Tests live beside the logic they cover. Most of what the broker does is decide, so `internal/broker` substitutes the executor. `internal/execclient` drives a real child, because the PTY and the streaming redactor cannot be tested against synthetic bytes, and tests the rune and truncation rules directly. A test that needs a cgroup does not run everywhere.
 - The Go suite runs under one uid, so it never covers the uid boundary. That boundary exists only on a host, which is what `sudo faramir doctor` and [tests/e2e](tests/e2e/README.md) are for. Adversarial exfiltration is asserted nowhere, as [Not prevented](#not-prevented) says.
-- The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, since every brokered command is confined to its own. `make test` supplies one with `systemd-run --user --scope`. Without it about two dozen tests skip, and the run ends by naming what it did not check. On a runner with no such scope, delegate a cgroup first, as [the test workflow](.github/workflows/test.yml) does. cgroup v1 is unsupported.
+- The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, since every brokered command is confined to its own. `make test` runs the Go suite in a container ([tests/go/run.sh](tests/go/run.sh)) that owns one, with the checkout copied in read-only. Without such a cgroup about two dozen tests skip, and the run ends by naming what it did not check. [The test workflow](.github/workflows/test.yml) delegates one to its runner instead. cgroup v1 is unsupported.
 - The suite needs `sops` on `PATH`. `internal/sopstest` builds its encrypted fixtures by running it, not by linking it, so the sops libraries are absent from the module as well as from the binary. The keeper execs sops, and linking it anywhere would add the AWS, GCP, Azure and Vault SDKs as dependencies. A missing binary fails the suites that need one rather than skipping them. Those suites hold sops' own resolution of a creation rule, which guards against a `.sops.yaml` planted in the agent's tree. `cmd/faramir/nosops_test.go` asserts both halves: nothing the command reaches links sops, and `go.mod` requires no getsops module.
 - The shipped logic that is not Go is the plugin opencode and Kilo Code load, Pi's extension, and the shell of `wrap.sh` and the PAM helper. Node drives the two rendered files against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed. Skipped where node is absent. ShellCheck covers the shell, and [tests/e2e](tests/e2e/README.md) runs all of it against a real install. No test covers a running opencode, Kilo Code or Pi, or Bun.

@@ -90,8 +90,8 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 		return err
 	}
 	*out = ServerConfig{
-		SocketPath:   "/run/faramir/broker.sock",
-		AllowedGroup: "faramir-client",
+		SocketPath:   DefaultBrokerSocket,
+		AllowedGroup: DefaultClientGroup,
 	}
 	return strFields(sec, where, []strField{
 		{keySocketPath, &out.SocketPath},
@@ -106,8 +106,8 @@ func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
 		return err
 	}
 	*out = KeeperConfig{
-		SocketPath:  "/run/faramir/keeper.sock",
-		AllowedUser: "faramir-broker", AgeKeyCredential: "age_key",
+		SocketPath:  DefaultRunDir + "/keeper.sock",
+		AllowedUser: DefaultBrokerUser, AgeKeyCredential: "age_key",
 	}
 	return strFields(sec, where, []strField{
 		{keySocketPath, &out.SocketPath},
@@ -123,8 +123,8 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 		return err
 	}
 	*out = ExecutorConfig{
-		SocketPath:  "/run/faramir/exec.sock",
-		AllowedUser: "faramir-broker",
+		SocketPath:  DefaultRunDir + "/exec.sock",
+		AllowedUser: DefaultBrokerUser,
 	}
 	return strFields(sec, where, []strField{
 		{keySocketPath, &out.SocketPath},
@@ -236,8 +236,8 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 		return err
 	}
 	*out = SshConfig{
-		AgentSocket: "/run/faramir/ssh-agent.sock",
-		ExecGroup:   "faramir-exec", SshAgent: "/usr/bin/ssh-agent", SshAdd: "/usr/bin/ssh-add",
+		AgentSocket: DefaultRunDir + "/ssh-agent.sock",
+		ExecGroup:   DefaultExecUser, SshAgent: "/usr/bin/ssh-agent", SshAdd: "/usr/bin/ssh-add",
 	}
 	return strFields(sec, where, []strField{
 		{keyKey, &out.Key},

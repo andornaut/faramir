@@ -10,11 +10,12 @@ import (
 	"os/user"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostunit"
 	"github.com/andornaut/faramir/internal/protocol"
 )
 
-const defaultSocket = "/run/faramir/broker.sock"
+const defaultSocket = config.DefaultBrokerSocket
 
 // socketDefault is where every subcommand looks for the broker, and
 // FARAMIR_SOCKET is the only way to move it: no subcommand takes a socket

@@ -27,14 +27,14 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		context.Background(), "unix", socketPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, fserr.At(socketPath, err))
-		return 69 // EX_UNAVAILABLE
+		return brokerclient.ExitUnavailable
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(wait))
 
 	if err := sockutil.Send(conn, request); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, err)
-		return 69
+		return brokerclient.ExitUnavailable
 	}
 	// The write half stays open, though nothing more is sent down it. It is what
 	// tells the broker this caller is still here: a run is killed when its
@@ -46,11 +46,11 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		// answered, which is a broker that did not come up rather than one that
 		// refused.
 		fmt.Fprintf(os.Stderr, "faramir %s: no answer from the broker within %s\n", prog, wait)
-		return 69
+		return brokerclient.ExitUnavailable
 	}
 	if err != nil || len(line) == 0 {
 		fmt.Fprintf(os.Stderr, "faramir %s: broker closed the connection without responding\n", prog)
-		return 69
+		return brokerclient.ExitUnavailable
 	}
 
 	var response struct {
@@ -69,7 +69,10 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		// failure.
 		Escalation     string `json:"escalation"`
 		EscalationCode string `json:"escalation_code"`
-		Redactions     []struct {
+		// Why a response that still carries its output is not the whole answer:
+		// refs on a degraded store.
+		Warning    string `json:"warning"`
+		Redactions []struct {
 			Token string `json:"token"`
 			Count int    `json:"count"`
 		} `json:"redactions"`
@@ -84,9 +87,21 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 	}
 
 	if asJSON {
-		// Re-encoded for readability; the round trip changes nothing.
-		var raw any
+		// Re-encoded for readability; the round trip changes nothing but the one
+		// field below.
+		var raw map[string]any
 		if err := json.Unmarshal(line, &raw); err == nil {
+			// status's output is itself a JSON document, so it is embedded as one
+			// rather than as a string holding one. Only status: a brokered
+			// command's output is text, whatever it happens to look like.
+			if request["op"] == brokerclient.OpStatus {
+				if text, ok := raw["output"].(string); ok {
+					var document any
+					if json.Unmarshal([]byte(text), &document) == nil {
+						raw["output"] = document
+					}
+				}
+			}
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetEscapeHTML(false)
 			enc.SetIndent("", "  ")
@@ -122,6 +137,10 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 	if _, err := io.WriteString(os.Stdout, response.Output); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: writing output: %v\n", prog, err)
 		return 1
+	}
+
+	if response.Warning != "" {
+		fmt.Fprintf(os.Stderr, "faramir %s: %s\n", prog, response.Warning)
 	}
 
 	// Outside --quiet, which suppresses the redaction summary rather than this:

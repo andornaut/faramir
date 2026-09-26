@@ -210,7 +210,7 @@ func waiting(prog, socketPath, verb string) ([]escalation.Question, int) {
 	questions, _, err := brokerclient.Escalations(socketPath, 0, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, err)
-		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
+		return nil, brokerclient.ExitUnavailable
 	}
 	if len(questions) == 0 {
 		fmt.Fprintf(os.Stderr, "nothing waiting to be %s\n", verb)
@@ -241,7 +241,7 @@ func listEscalations(socketPath string, asJSON bool, paint termui.Palette) int {
 // reached prints nothing at all, an empty array there saying the host is
 // quiet.
 func listAsJSON(questions []escalation.Question, code int) int {
-	if code == 69 {
+	if code == brokerclient.ExitUnavailable {
 		return code
 	}
 	if questions == nil {
@@ -283,7 +283,7 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			// a watcher and it has to be started again.
 			fmt.Fprintf(os.Stderr, "faramir sudo watch: %v\n", err)
 			fmt.Fprintln(os.Stderr, "faramir sudo watch: lost the broker; not reconnecting")
-			return 69 // EX_UNAVAILABLE, as every other broker-facing command
+			return brokerclient.ExitUnavailable
 		}
 		if finished != nil {
 			sudoprompt.PrintOutcome(*finished, paint)
@@ -335,9 +335,9 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 				// as one: not because rejecting is wrong, but because something asked.
 				fmt.Printf("  %s %s %s\n", paint.Dim(question.LogID), paint.Bad("rejected:"),
 					strconv.Quote(strings.Trim(line, "\r\n")))
-			case 69:
+			case brokerclient.ExitUnavailable:
 				fmt.Fprintf(os.Stderr, "faramir sudo watch: %s is still open and unwatched\n", question.ID)
-				return 69
+				return brokerclient.ExitUnavailable
 			default:
 				fmt.Fprintf(os.Stderr, "faramir sudo watch: %s closed without approval\n", question.ID)
 			}

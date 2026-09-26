@@ -326,6 +326,9 @@ cmd_both() {
   local logs
   logs="${TMPDIR:-/tmp}/faramir-e2e-$(id -u)"
   for arrangement in sudo sudo-rs; do
+    # An earlier run's log, left in place, is what the summary below would print
+    # for a stack that did not come up this time, reading as that run's pass.
+    rm -f "$logs-$arrangement-run.log"
     ( SUDO=$arrangement "$0" up  >"$logs-$arrangement-up.log"  2>&1 &&
       SUDO=$arrangement "$0" run >"$logs-$arrangement-run.log" 2>&1 ) &
     pids+=($!)

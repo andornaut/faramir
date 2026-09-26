@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostsudo"
@@ -53,6 +54,10 @@ func Uninstall(configDir string) ([]string, error) {
 	if configDir == "" {
 		configDir = hostlayout.DefaultConfigDir
 	}
+	// The accounts and group this install runs as, read before the units that
+	// name them are removed: an adopted account need not have the default name,
+	// and the list below tells the operator what to delete.
+	accounts := installedAccounts(configDir)
 	// What this run could not take back out, reported with everything else it
 	// leaves. Appended to rather than returned early: an uninstall that stopped
 	// here would leave a host with its units gone and no daemon-reload.
@@ -68,8 +73,8 @@ func Uninstall(configDir string) ([]string, error) {
 			return nil, err
 		}
 	}
-	for _, unit := range []string{"faramir-broker", "faramir-keeper", "faramir-exec"} {
-		if err := os.RemoveAll(filepath.Join(hostunit.SystemUnitDir, unit+".service.d")); err != nil {
+	for _, unit := range hostunit.Services {
+		if err := os.RemoveAll(filepath.Join(hostunit.SystemUnitDir, unit+".d")); err != nil {
 			return nil, err
 		}
 	}
@@ -113,10 +118,10 @@ func Uninstall(configDir string) ([]string, error) {
 		filepath.Join(configDir, "secrets")+"/ -- the managed sops files",
 		filepath.Join(configDir, "config.toml")+" -- the base config",
 		hostlayout.DefaultLogDir+"/ -- the audit log",
-		fmt.Sprintf("users %s, %s and %s, and the shared group. %s's own password "+
+		fmt.Sprintf("users %s, %s and %s, and the group %s. %s's own password "+
 			"is not cleared: `usermod -L %s`",
-			hostlayout.DefaultBrokerUser, hostlayout.DefaultKeeperUser, hostlayout.DefaultExecUser,
-			hostlayout.DefaultExecUser, hostlayout.DefaultExecUser),
+			accounts.broker, accounts.keeper, accounts.exec, accounts.client,
+			accounts.exec, accounts.exec),
 		"a shared tree's group and setgid bits, and the traversal granted to reach it",
 		"an enrolled tree's own agent configuration: for Claude Code, the settings "+
 			"that name the hook",
@@ -125,4 +130,30 @@ func Uninstall(configDir string) ([]string, error) {
 			agentcfg.SectionEnd+" in the file that agent reads for every project. Both are "+
 			"in files the operator owns, so remove those lines by hand",
 	), nil
+}
+
+// serviceAccounts is the names an install runs as.
+type serviceAccounts struct{ broker, keeper, exec, client string }
+
+// installedAccounts reads the accounts off the units' own User= and the client
+// group off the config, as init adopts them, each falling back to the default
+// where the install does not say.
+func installedAccounts(configDir string) serviceAccounts {
+	named := func(unit, fallback string) string {
+		if account, err := hostunit.User(unit); err == nil && account != "" {
+			return account
+		}
+		return fallback
+	}
+	accounts := serviceAccounts{
+		broker: named(hostunit.BrokerUnit, hostlayout.DefaultBrokerUser),
+		keeper: named(hostunit.KeeperUnit, hostlayout.DefaultKeeperUser),
+		exec:   named(hostunit.ExecUnit, hostlayout.DefaultExecUser),
+		client: hostlayout.DefaultClientGroup,
+	}
+	if cfg, err := config.Load(filepath.Join(configDir, "config.toml")); err == nil &&
+		cfg.Server.AllowedGroup != "" {
+		accounts.client = cfg.Server.AllowedGroup
+	}
+	return accounts
 }

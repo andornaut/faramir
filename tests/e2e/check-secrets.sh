@@ -28,7 +28,7 @@ reload_daemons() {
     faramir-broker.socket faramir-broker.service faramir-exec.socket >/dev/null 2>&1
   systemctl restart faramir-keeper.socket faramir-broker.socket >/dev/null 2>&1
   for _ in $(seq 20); do
-    runuser -u op -- faramir refs >/dev/null 2>&1 && return 0
+    answers op && return 0
     sleep 1
   done
   return 1
@@ -782,8 +782,8 @@ jq -e --arg p /etc/faramir/secrets/inventory.sops.yml \
 
 # refs is the broker's answer, and needs no root.
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir refs > /tmp/refs.log 2>&1 \
-  && ok "refs answers without root" || bad "refs needed root: $(tail -2 /tmp/refs.log)"
+runuser -u op -- faramir refs > /tmp/refs.log 2>&1
+answers op && ok "refs answers without root" || bad "refs needed root: $(tail -2 /tmp/refs.log)"
 grep -q 'faramir://inventory/one' /tmp/refs.log \
   && ok "and the broker is serving what ls found" || bad "the broker is not serving it"
 

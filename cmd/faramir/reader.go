@@ -83,9 +83,8 @@ func newReaderAddCmd() *cobra.Command {
 func newReaderRemoveCmd() *cobra.Command {
 	var f readerFlags
 	c := &cobra.Command{
-		Use:     "rm [options] KEY",
-		Aliases: []string{opRemove},
-		Short:   "Remove a key, so it can no longer decrypt the secret files",
+		Use:   "rm [options] KEY",
+		Short: "Remove a key, so it can no longer decrypt the secret files",
 		Long: "Removes the key from .sops.yaml and re-encrypts every managed file without\n" +
 			"it. Copies of the old ciphertext remain readable by that key.",
 		Args: exactlyArgs(1, "one age recipient"),
@@ -100,11 +99,10 @@ func newReaderRemoveCmd() *cobra.Command {
 func newReaderListCmd() *cobra.Command {
 	var f readerFlags
 	c := &cobra.Command{
-		Use:     useLs,
-		Aliases: []string{"list"},
-		Short:   "List the keys that can decrypt the secret files",
-		Args:    noArgs,
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runReaderList(f)) },
+		Use:   useLs,
+		Short: "List the keys that can decrypt the secret files",
+		Args:  noArgs,
+		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runReaderList(f)) },
 	}
 	f.register(c, false)
 	return c

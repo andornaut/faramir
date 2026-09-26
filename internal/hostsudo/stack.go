@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
@@ -184,18 +183,6 @@ func FirstAuthLine(body []byte) string {
 		}
 	}
 	return ""
-}
-
-// FirstExistingStack is the shared stack a diagnosis should read, which is the
-// first one this host actually has. Falls back to the first name so a message
-// about a host with neither still names a path.
-func FirstExistingStack() string {
-	for _, path := range hostlayout.SudoPamStacks() {
-		if hostfs.Exists(path) {
-			return path
-		}
-	}
-	return hostlayout.SudoPamStacks()[0]
 }
 
 // StackProblem names what is wrong with the authentication stack, or "".

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/audit"
+	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
@@ -72,13 +73,6 @@ func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
 	return protocol.ErrorResponse(code, detail, logID)
 }
 
-// privateTmpDirs is what PrivateTmp= gives every unit its own copy of, so a path
-// under one is the daemon's and not the caller's. These two and no others:
-// /dev/shm is shared with the caller, which is why a brokered command's
-// leavings there are the caller's to find. Must agree with install.privateTmp,
-// which is the same list for the install's own purposes.
-var privateTmpDirs = []string{"/tmp", "/var/tmp"}
-
 // cwdMissing explains a working directory the broker cannot find, and names the
 // one reason it goes missing while the caller is looking straight at it: every
 // faramir unit runs with PrivateTmp=true, so the daemon's /tmp and /var/tmp are
@@ -89,14 +83,14 @@ var privateTmpDirs = []string{"/tmp", "/var/tmp"}
 // boundary it is. Scratch under /tmp is the obvious place to put a working
 // directory, so this is met by anyone who tries it.
 func cwdMissing(cwd string) string {
-	for _, private := range privateTmpDirs {
+	for _, private := range hostlayout.PrivateTmp {
 		if cwd != private && !strings.HasPrefix(cwd, private+"/") {
 			continue
 		}
 		return "cwd does not exist for this daemon: " + cwd + ". Every faramir unit " +
 			"runs with PrivateTmp=true, so " + private + " here is the daemon's own " +
 			"and holds nothing you put in yours. Name a directory outside " +
-			strings.Join(privateTmpDirs, " and ") + "."
+			strings.Join(hostlayout.PrivateTmp, " and ") + "."
 	}
 	return "cwd does not exist: " + cwd
 }

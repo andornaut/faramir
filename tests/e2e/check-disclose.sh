@@ -30,14 +30,16 @@ carries() { # label, text
   ok "$label carries no value and no key material"
 }
 
-echo "probing as op; $(asop refs | wc -l) ref(s) served"
+echo "probing as op; $(runuser -u op -- /usr/local/bin/faramir refs 2>/dev/null | wc -l) ref(s) served"
 
 # --------------------------------------------------------------------------
 head_ "1. what the agent is told"
 
-refs=$(asop refs)
+# stdout alone for the list, which is what a caller parses; both streams for
+# what may not appear anywhere, stderr carrying why a degraded list is short.
+refs=$(runuser -u op -- /usr/local/bin/faramir refs 2>/dev/null)
 grep -q '^faramir://' <<<"$refs" && ok "refs answers with refs" || bad "no refs: ${refs:0:80}"
-carries "refs" "$refs"
+carries "refs" "$(asop refs)"
 [ "$(grep -cv '^faramir://' <<<"$refs")" -eq 0 ] \
   && ok "and with nothing else on any line" || bad "a line is not a ref: $(grep -v '^faramir://' <<<"$refs" | head -1)"
 
@@ -144,6 +146,15 @@ for ref in $refused; do
   grep -q "$ref" <<<"$out" && bad "\`faramir refs\` names the refused ref $ref" \
     || ok "and does not name $ref"
 done
+# A partial list must not read as a whole one: the store holds a ref it cannot
+# serve, so refs exits 1 and counts what is missing.
+if [ -n "$refused" ]; then
+  asop refs >/dev/null; code=$?
+  [ $code -eq 1 ] && ok "and exits 1 on a store holding a ref it cannot serve" \
+    || bad "refs exited $code on a degraded store"
+  grep -q 'cannot be redacted' <<<"$out" && ok "and says how many, on stderr" \
+    || bad "refs did not say why the list is short: ${out:0:160}"
+fi
 
 # An error from a brokered run is agent-visible text like any other.
 out=$(cd $PROJECT && asop run -- /bin/nosuchprogram)

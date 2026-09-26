@@ -88,7 +88,8 @@ for _ in $(seq 20); do
 done
 
 step "what the broker is serving"
-runuser -u op -- faramir refs
+# 1 is a degraded store, which this one is on purpose: the list still printed.
+runuser -u op -- faramir refs || [ $? -eq 1 ]
 echo
 echo "refs refused at load (operator-facing only):"
 faramir broker --check 2>/dev/null | jq -c '.secrets.not_redactable' || true

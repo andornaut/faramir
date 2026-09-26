@@ -128,8 +128,7 @@ func (r *runner) stepDenyPatterns() error {
 	if err != nil {
 		return err
 	}
-	r.step("deny patterns", changed,
-		filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"))
+	r.step("deny patterns", changed, r.layout.DenyPatternsFile())
 	return nil
 }
 
@@ -146,7 +145,7 @@ func (r *runner) writeDenyPatterns() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return r.fs.WriteFile(filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"),
+	return r.fs.WriteFile(r.layout.DenyPatternsFile(),
 		patterns, 0o644, 0, 0)
 }
 

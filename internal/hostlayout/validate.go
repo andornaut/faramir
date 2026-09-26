@@ -122,13 +122,15 @@ func (l Layout) Validate() error {
 }
 
 // PrivateTmp is what PrivateTmp= gives every unit its own copy of. Both
-// hierarchies, since the directive covers both.
+// hierarchies, since the directive covers both. These two and no others:
+// /dev/shm is shared with the caller, which is why a brokered command's
+// leavings there are the caller's to find.
 //
-// A variable rather than a constant for this package's own tests, which point
-// an install at a directory made by t.TempDir(): that lands under TMPDIR, which
-// is the very thing this refuses on a real host, so a test asserting on some
-// other refusal would meet this one first. Unexported and cleared only by the
-// helper those tests share, so nothing outside can turn the check off.
+// A variable rather than a constant for the install's tests, which point an
+// install at a directory made by t.TempDir(): that lands under TMPDIR, which is
+// the very thing this refuses on a real host, so a test asserting on some other
+// refusal would meet this one first. Cleared only by the helper those tests
+// share.
 var PrivateTmp = []string{"/tmp", "/var/tmp"}
 
 // privateTmpDir is the temporary hierarchy a path sits in, or "" for a path
