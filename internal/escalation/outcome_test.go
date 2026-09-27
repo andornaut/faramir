@@ -30,7 +30,7 @@ func TestAnApprovedRunPublishesItsEnding(t *testing.T) {
 	s.Release(token, Outcome{LogID: "log-1", ExitCode: &code, DurationSec: 1.5,
 		StatusUnknown: true})
 
-	_, finished := s.Poll(0, "log-1")
+	_, finished := s.Poll(0, "log-1", "")
 	if finished == nil {
 		t.Fatal("an approved run ended with nothing reported to the terminal that approved it")
 	}
@@ -55,13 +55,13 @@ func TestAnEndingReachesOnlyTheCallerWaitingForIt(t *testing.T) {
 	code := 0
 	s.Release(token, Outcome{LogID: "log-1", ExitCode: &code})
 
-	if _, finished := s.Poll(0, ""); finished != nil {
+	if _, finished := s.Poll(0, "", ""); finished != nil {
 		t.Error("a caller that approved nothing was told how somebody else's run ended")
 	}
-	if _, finished := s.Poll(0, "log-2"); finished != nil {
+	if _, finished := s.Poll(0, "log-2", ""); finished != nil {
 		t.Error("a caller waiting on one run was told about another")
 	}
-	if _, finished := s.Poll(0, "log-1"); finished == nil {
+	if _, finished := s.Poll(0, "log-1", ""); finished == nil {
 		t.Error("the caller waiting on this run was not told it ended")
 	}
 }
@@ -75,7 +75,7 @@ func TestARunNobodyApprovedPublishesNothing(t *testing.T) {
 	code := 0
 	s.Release(token, Outcome{LogID: "log-1", ExitCode: &code})
 
-	if _, finished := s.Poll(0, "log-1"); finished != nil {
+	if _, finished := s.Poll(0, "log-1", ""); finished != nil {
 		t.Error("a run that was never approved reported an ending")
 	}
 }
@@ -93,7 +93,7 @@ func TestAWatcherIsWokenByTheEnding(t *testing.T) {
 	}()
 
 	start := time.Now()
-	_, finished := s.Poll(5*time.Second, "log-1")
+	_, finished := s.Poll(5*time.Second, "log-1", "")
 	if finished == nil {
 		t.Fatal("the poll returned without the ending it was waiting for")
 	}
@@ -110,7 +110,7 @@ func TestAnEndingWithNoStatusReportsNone(t *testing.T) {
 	token := approved(t, s)
 	s.Release(token, Outcome{LogID: "log-1", Error: "the executor could not be reached"})
 
-	_, finished := s.Poll(0, "log-1")
+	_, finished := s.Poll(0, "log-1", "")
 	if finished == nil {
 		t.Fatal("a failed run reported no ending")
 	}

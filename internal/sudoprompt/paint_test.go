@@ -131,7 +131,7 @@ func TestTheAnswerPromptIsBold(t *testing.T) {
 	answers = bufio.NewReader(strings.NewReader("y\n"))
 
 	out, _ := testio.CaptureStdout(t, func() int {
-		ReadLines(termuitest.Always(t)).Answer(time.Now().Add(time.Minute))
+		ReadLines(termuitest.Always(t)).Answer(time.Now().Add(time.Minute), nil)
 		return 0
 	})
 	if !strings.Contains(out, sgrBold+"Approve? [y/n]"+sgrReset+" ") {

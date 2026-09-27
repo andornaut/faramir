@@ -113,7 +113,7 @@ func watching(t *testing.T, s *Server, approve bool) *human {
 				return
 			default:
 			}
-			questions, _ := s.Poll(50*time.Millisecond, "")
+			questions, _ := s.Poll(50*time.Millisecond, "", "")
 			for _, question := range questions {
 				h.mu.Lock()
 				h.asked = append(h.asked, question)

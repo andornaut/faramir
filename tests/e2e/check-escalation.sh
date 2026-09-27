@@ -730,6 +730,103 @@ systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; 
 quiesce
 
 # --------------------------------------------------------------------------
+head_ "14b. two watchers, one answer"
+#
+# Every watcher shows the question, and the one that did not answer takes its
+# prompt down when another does. Left up, it waits out the question's clock and
+# shows nothing raised in the meantime.
+cat >/tmp/watch-two.py <<'EOS'
+import os, pty, select, subprocess, sys, time
+
+PROMPT = "Approve? [y/n]"
+GONE = "no longer pending"
+
+
+def spawn():
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execv("/usr/local/bin/faramir", ["faramir", "sudo", "watch"])
+        os._exit(127)
+    return pid, fd
+
+
+watchers = [spawn(), spawn()]
+bufs = ["", ""]
+
+
+def pump(until, timeout):
+    end = time.time() + timeout
+    while time.time() < end:
+        if until():
+            return True
+        r, _, _ = select.select([fd for _, fd in watchers], [], [], 0.2)
+        for i, (_, fd) in enumerate(watchers):
+            if fd not in r:
+                continue
+            try:
+                data = os.read(fd, 4096)
+            except OSError:
+                continue
+            bufs[i] += data.decode("utf-8", "replace")
+    return until()
+
+
+def give_up(why):
+    print("FAILED", why)
+    for i, b in enumerate(bufs):
+        print("TERMINAL%d %r" % (i, b[-600:]))
+    for pid, _ in watchers:
+        os.kill(pid, 9)
+    sys.exit(0)
+
+
+def raise_question(marker):
+    return subprocess.Popen(
+        ["runuser", "-u", "op", "--", "/usr/local/bin/faramir", "run", "--quiet",
+         "-t", "60", "--", "/usr/bin/sudo", "/bin/echo", marker],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+if not pump(lambda: all("waiting for escalations" in b.lower() for b in bufs), 30):
+    give_up("the watchers never started")
+
+results = {}
+for answerer, other, marker in ((0, 1, "first"), (1, 0, "second")):
+    asked = [b.count(PROMPT) for b in bufs]
+    command = raise_question(marker)
+    if not pump(lambda: all(bufs[i].count(PROMPT) > asked[i] for i in (0, 1)), 60):
+        give_up("both watchers did not show the %s question" % marker)
+    seen = bufs[other].count(GONE)
+    os.write(watchers[answerer][1], b"n\n")
+    # Well inside the question's 120s clock, so the prompt came down because the
+    # question was answered and not because it expired.
+    results[marker] = "yes" if pump(lambda: bufs[other].count(GONE) > seen, 15) else "no"
+    try:
+        command.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        command.kill()
+        give_up("the %s command never returned" % marker)
+    time.sleep(1)
+
+for pid, _ in watchers:
+    os.kill(pid, 15)
+print("FIRST_GONE", results["first"])
+print("SECOND_GONE", results["second"])
+for i, b in enumerate(bufs):
+    print("TERMINAL%d %r" % (i, b[-600:]))
+EOS
+
+quiesce
+out=$(/usr/bin/python3 /tmp/watch-two.py 2>&1)
+[ "$(field "$out" FIRST_GONE)" = yes ] \
+  && ok "a prompt answered at another watcher comes down before its clock runs out" \
+  || bad "the second watcher kept asking about an answered question: ${out//$'\n'/ }"
+[ "$(field "$out" SECOND_GONE)" = yes ] \
+  && ok "and both watchers show the next question, whichever answers it" \
+  || bad "a watcher missed the question raised after an answered one: ${out//$'\n'/ }"
+quiesce
+
+# --------------------------------------------------------------------------
 head_ "15. what a brokered command's sudo is given"
 #
 # env_reset throws away what the caller was holding, which is right: the

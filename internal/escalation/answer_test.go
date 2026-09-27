@@ -21,13 +21,13 @@ func TestAnsweringAnUnknownQuestionFails(t *testing.T) {
 func TestPollBlocksUntilSomethingIsAsked(t *testing.T) {
 	s := started(t, baseConfig())
 
-	if got, _ := s.Poll(50*time.Millisecond, ""); len(got) != 0 {
+	if got, _ := s.Poll(50*time.Millisecond, "", ""); len(got) != 0 {
 		t.Errorf("Poll = %v with nothing waiting", got)
 	}
 	token := mustRegister(s, run())
 	go func() { _, _, _ = s.Ask(procsFor(token)) }()
 
-	questions, _ := s.Poll(5*time.Second, "")
+	questions, _ := s.Poll(5*time.Second, "", "")
 	if len(questions) != 1 {
 		t.Fatalf("Poll returned %d questions, want the one just asked", len(questions))
 	}
@@ -37,6 +37,54 @@ func TestPollBlocksUntilSomethingIsAsked(t *testing.T) {
 	}
 	if question.Cmd != "ansible-playbook msmtp.yml" {
 		t.Errorf("cmd = %q, want the command being asked about", question.Cmd)
+	}
+}
+
+// A watcher showing a question holds the poll on it and is woken when it is
+// settled elsewhere. Returned at once instead, the watcher's poll under its
+// prompt would spin; never woken, a second watcher would keep asking about a
+// question another had answered.
+func TestPollHoldsOnTheQuestionShownUntilItIsSettled(t *testing.T) {
+	s := started(t, baseConfig())
+	token := mustRegister(s, run())
+	go func() { _, _, _ = s.Ask(procsFor(token)) }()
+	id := waitForQuestion(t, s)
+
+	if got, _ := s.Poll(50*time.Millisecond, "", id); len(got) != 1 {
+		t.Fatalf("Poll showing %s = %v after its wait, want the question still open", id, got)
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_ = s.Answer(id, false, "the other watcher")
+	}()
+	start := time.Now()
+	got, _ := s.Poll(5*time.Second, "", id)
+	if len(got) != 0 {
+		t.Errorf("Poll showing %s = %v once it was answered, want nothing", id, got)
+	}
+	if took := time.Since(start); took < 40*time.Millisecond || took > 4*time.Second {
+		t.Errorf("Poll showing %s returned after %v, want it held until the answer", id, took)
+	}
+}
+
+// A question settled before the watcher's poll arrives is reported at once. The
+// window is the prompt being printed, and a poll that parked on it would hold
+// an answered question's prompt up for the whole wait.
+func TestPollShowingAQuestionAlreadySettledReturnsAtOnce(t *testing.T) {
+	s := started(t, baseConfig())
+	token := mustRegister(s, run())
+	go func() { _, _, _ = s.Ask(procsFor(token)) }()
+	id := waitForQuestion(t, s)
+	if err := s.Answer(id, false, "the other watcher"); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	if got, _ := s.Poll(5*time.Second, "", id); len(got) != 0 {
+		t.Errorf("Poll showing %s = %v once it was answered, want nothing", id, got)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("Poll showing a settled question took %v, want it at once", took)
 	}
 }
 

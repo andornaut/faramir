@@ -13,7 +13,7 @@ func TestStopWakesAWatcherWithNothingWaiting(t *testing.T) {
 	done := make(chan time.Duration, 1)
 	go func() {
 		start := time.Now()
-		s.Poll(time.Minute, "")
+		s.Poll(time.Minute, "", "")
 		done <- time.Since(start)
 	}()
 	// Let the poll reach the wait rather than racing Stop to the lock.
@@ -34,7 +34,7 @@ func TestAPollAfterStopReturnsAtOnce(t *testing.T) {
 	s := New(baseConfig())
 	s.Stop()
 	start := time.Now()
-	s.Poll(time.Minute, "")
+	s.Poll(time.Minute, "", "")
 	if took := time.Since(start); took > 5*time.Second {
 		t.Fatalf("the poll took %v, so a late watcher holds the shutdown open", took)
 	}

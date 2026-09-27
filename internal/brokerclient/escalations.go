@@ -13,13 +13,18 @@ import (
 // Escalations asks what is waiting, blocking up to waitSec for something to
 // be. awaitLogID names the run this caller approved and has not yet heard the
 // end of, and is the only run it is told about; empty asks about none.
-func Escalations(socketPath string, waitSec int, awaitLogID string) ([]escalation.Question, *escalation.Outcome, error) {
+// showingID names the question this caller has on screen, which the broker
+// holds the poll on rather than returning; empty holds on nothing.
+func Escalations(socketPath string, waitSec int, awaitLogID, showingID string) ([]escalation.Question, *escalation.Outcome, error) {
 	request := map[string]any{"op": "escalations"}
 	if waitSec > 0 {
 		request["wait_sec"] = waitSec
 	}
 	if awaitLogID != "" {
 		request["await_log_id"] = awaitLogID
+	}
+	if showingID != "" {
+		request["showing_id"] = showingID
 	}
 	// The read deadline has to outlast the broker's own wait, or every long poll
 	// looks like a broker that stopped answering.

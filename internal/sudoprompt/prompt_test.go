@@ -24,7 +24,7 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 		false, // "y please" is not y, and is still an answer
 		true,  // the blank line is asked again, and the y after it read
 	} {
-		line, state := terminal.Answer(time.Now().Add(time.Minute))
+		line, state := terminal.Answer(time.Now().Add(time.Minute), nil)
 		if state != Answered {
 			t.Fatalf("the wait ended in state %v, want an answer", state)
 		}
@@ -33,7 +33,7 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 		}
 	}
 	// And only a closed stdin ends the watch.
-	if _, state := terminal.Answer(time.Now().Add(time.Minute)); state != StdinClosed {
+	if _, state := terminal.Answer(time.Now().Add(time.Minute), nil); state != StdinClosed {
 		t.Errorf("the wait ended in state %v past the end of its input, want StdinClosed", state)
 	}
 }
@@ -45,7 +45,7 @@ func TestReadAnswerReturnsWhatItRead(t *testing.T) {
 	original := answers
 	t.Cleanup(func() { answers = original })
 	answers = bufio.NewReader(strings.NewReader("\x1b[?62;c\n"))
-	line, state := ReadLines(termui.Palette{}).Answer(time.Now().Add(time.Minute))
+	line, state := ReadLines(termui.Palette{}).Answer(time.Now().Add(time.Minute), nil)
 	if state != Answered {
 		t.Fatalf("the wait ended in state %v, want an answer", state)
 	}
@@ -66,7 +66,7 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 	t.Cleanup(func() { answers = original })
 	// One burst: a stray newline, then the answer behind it.
 	answers = bufio.NewReader(strings.NewReader("\ny\n"))
-	line, state := ReadLines(termui.Palette{}).Answer(time.Now().Add(time.Minute))
+	line, state := ReadLines(termui.Palette{}).Answer(time.Now().Add(time.Minute), nil)
 	if state != Answered || !termui.Approves(line) {
 		t.Errorf("the wait gave (%q, %v), want the y behind the blank line", line, state)
 	}
@@ -80,7 +80,7 @@ func TestALineReadBeforeTheQuestionIsNotItsAnswer(t *testing.T) {
 	terminal := &Terminal{lines: make(chan input, 1), since: time.Now()}
 	terminal.lines <- input{line: "y\n", read: time.Now().Add(-time.Second)}
 
-	line, state := terminal.Answer(time.Now().Add(150 * time.Millisecond))
+	line, state := terminal.Answer(time.Now().Add(150*time.Millisecond), nil)
 	if state != Expired {
 		t.Errorf("the wait gave (%q, %v), want an expiry: the y was typed against "+
 			"whatever was on the screen before this question", line, state)
@@ -93,7 +93,7 @@ func TestALineReadAfterTheQuestionIsItsAnswer(t *testing.T) {
 	terminal := &Terminal{lines: make(chan input, 1), since: time.Now().Add(-time.Second)}
 	terminal.lines <- input{line: "y\n", read: time.Now()}
 
-	line, state := terminal.Answer(time.Now().Add(time.Minute))
+	line, state := terminal.Answer(time.Now().Add(time.Minute), nil)
 	if state != Answered || !termui.Approves(line) {
 		t.Errorf("the wait gave (%q, %v), want the answer typed against the question",
 			line, state)
@@ -169,12 +169,31 @@ func TestTheWaitEndsWhenTheQuestionExpires(t *testing.T) {
 	answers = bufio.NewReader(blockingReader{make(chan struct{})})
 
 	start := time.Now()
-	line, state := ReadLines(termui.Palette{}).Answer(time.Now().Add(150 * time.Millisecond))
+	line, state := ReadLines(termui.Palette{}).Answer(time.Now().Add(150*time.Millisecond), nil)
 	if state != Expired {
 		t.Errorf("the wait ended in state %v with %q, want expired", state, line)
 	}
 	if waited := time.Since(start); waited > 5*time.Second {
 		t.Errorf("the wait took %v, so it was not the question's clock that ended it", waited)
+	}
+}
+
+// A question settled elsewhere ends the wait before its clock does, so a second
+// watcher takes the prompt down and goes back to the poll for the next one.
+func TestTheWaitEndsWhenTheQuestionIsGone(t *testing.T) {
+	original := answers
+	t.Cleanup(func() { answers = original })
+	answers = bufio.NewReader(blockingReader{make(chan struct{})})
+
+	gone := make(chan struct{})
+	close(gone)
+	start := time.Now()
+	line, state := ReadLines(termui.Palette{}).Answer(time.Now().Add(time.Minute), gone)
+	if state != Gone {
+		t.Errorf("the wait ended in state %v with %q, want gone", state, line)
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Errorf("the wait took %v, so it was not the question going that ended it", waited)
 	}
 }
 

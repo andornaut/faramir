@@ -65,7 +65,7 @@ func (s *Server) opEscalations(request *protocol.Request, peer *sockutil.Peer) p
 	// not hold. The parser bounds this below and not above, any non-negative
 	// integer reaching here.
 	wait := time.Duration(min(request.WaitSec, maxEscalationWaitSec)) * time.Second
-	questions, finished := s.Escalation.Poll(wait, request.AwaitLogID)
+	questions, finished := s.Escalation.Poll(wait, request.AwaitLogID, request.ShowingID)
 	// Present only when the caller named a run and that run has ended, rather
 	// than carrying a null nothing asked for.
 	rendered := map[string]any{"questions": questions}

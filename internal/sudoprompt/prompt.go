@@ -239,6 +239,9 @@ const (
 	// StdinClosed: there is no more input to read, which is the one condition
 	// that ends the watch.
 	StdinClosed
+	// Gone: the broker no longer holds the question, because another watcher
+	// answered it, it expired, or its run ended. Nothing is sent.
+	Gone
 )
 
 // Answer waits for the operator, until the question it is about expires. A
@@ -250,7 +253,11 @@ const (
 // Only what was typed against this question counts: a line read before its
 // prompt was shown is dropped on arrival, however it got past the flush. See
 // discard.
-func (t *Terminal) Answer(deadline time.Time) (string, State) {
+//
+// gone is closed when the broker stops holding the question, so a prompt
+// another watcher answered comes down rather than waiting out its clock. Nil
+// waits on the clock alone.
+func (t *Terminal) Answer(deadline time.Time, gone <-chan struct{}) (string, State) {
 	t.discard()
 	// Bold, and the trailing space left outside it: what is being asked for is
 	// the last thing on the screen before the cursor, and the cursor sits on a
@@ -280,6 +287,11 @@ func (t *Terminal) Answer(deadline time.Time) (string, State) {
 			// yes would approve root for a command nobody answered for.
 			t.drain()
 			return "", Expired
+		case <-gone:
+			// Drained for the same reason: whatever was typed was typed at a
+			// question that is no longer there.
+			t.drain()
+			return "", Gone
 		}
 	}
 }

@@ -90,6 +90,10 @@ type Request struct {
 	// lets the broker leave the last one filled rather than emptying it when it
 	// is read.
 	AwaitLogID string
+	// ShowingID names the question an `escalations` caller already has on
+	// screen, so the poll blocks until it is settled rather than returning it
+	// again at once.
+	ShowingID string
 	// Procs is the ancestry above the sudo the `escalate` op asks about, most
 	// recent first. Claims rather than facts, and worth something only because
 	// the executor checks them against what it forked: a caller presents nothing
@@ -277,8 +281,8 @@ func parseEnvRefs(payload map[string]any, req *Request) error {
 	return nil
 }
 
-// parseEscalations takes the run a watcher is waiting to hear the end of.
-// Absent is the ordinary case: a listing, or a watcher that has approved
+// parseEscalations takes the run a watcher is waiting to hear the end of, and
+// the question it has on screen. Absent is the ordinary case: a listing, or a watcher that has approved
 // nothing yet.
 func parseEscalations(payload map[string]any, req *Request) error {
 	if req.Op != "escalations" {
@@ -290,6 +294,13 @@ func parseEscalations(payload map[string]any, req *Request) error {
 			return errors.New("'await_log_id' must name the exec record whose ending to report")
 		}
 		req.AwaitLogID = id
+	}
+	if raw, ok := payload["showing_id"]; ok && raw != nil {
+		id, isStr := raw.(string)
+		if !isStr {
+			return errors.New("'showing_id' must name the question the caller is showing")
+		}
+		req.ShowingID = id
 	}
 	return nil
 }

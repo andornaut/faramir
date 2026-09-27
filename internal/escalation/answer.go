@@ -89,10 +89,17 @@ func (s *Server) questionsLocked() []Question {
 // long poll rather than a subscription, the broker keeping no client state.
 // awaitLogID names the run the caller approved and has not yet heard the end
 // of, which is what keeps the never-emptied outcome slot from turning this into
-// a spin.
-func (s *Server) Poll(wait time.Duration, awaitLogID string) ([]Question, *Outcome) {
+// a spin. showingID names the question the caller already has on screen: it is
+// not news, so the poll blocks while it waits and returns once it is settled
+// elsewhere, which is how a second watcher learns to take its prompt down.
+func (s *Server) Poll(wait time.Duration, awaitLogID, showingID string) ([]Question, *Outcome) {
 	s.mu.Lock()
-	if s.stopped || s.waiting != nil || s.finishedLocked(awaitLogID) != nil {
+	// A question shown and already gone is news too: settled between the poll
+	// that returned it and this one, it would otherwise hold the prompt up
+	// until the next change or the end of the wait.
+	news := (s.waiting == nil && showingID != "") ||
+		(s.waiting != nil && s.waiting.id != showingID)
+	if s.stopped || news || s.finishedLocked(awaitLogID) != nil {
 		defer s.mu.Unlock()
 		return s.questionsLocked(), s.finishedLocked(awaitLogID)
 	}

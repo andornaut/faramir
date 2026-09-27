@@ -17,6 +17,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -207,7 +208,7 @@ func rejectWaiting(socketPath string, asJSON bool, paint termui.Palette) int {
 // for a broker that could not be reached, 1 for nothing waiting. One question,
 // never a queue, so the caller indexes rather than loops.
 func waiting(prog, socketPath, verb string) ([]escalation.Question, int) {
-	questions, _, err := brokerclient.Escalations(socketPath, 0, "")
+	questions, _, err := brokerclient.Escalations(socketPath, 0, "", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, err)
 		return nil, brokerclient.ExitUnavailable
@@ -271,7 +272,7 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 	var awaiting string
 	terminal := sudoprompt.ReadLines(paint)
 	for {
-		questions, finished, err := brokerclient.Escalations(socketPath, watchWait, awaiting)
+		questions, finished, err := brokerclient.Escalations(socketPath, watchWait, awaiting, "")
 		if err != nil {
 			// Out, rather than reconnecting: a watcher that heals itself is one whose
 			// absence is invisible, every question raised while it reconnected
@@ -294,8 +295,8 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			// The question's own clock, which is what the answer is typed against.
 			// Reaching it ends the wait rather than the watch: the broker refused it
 			// on the way out, so there is nothing to send.
-			line, state := terminal.Answer(
-				time.Now().Add(time.Duration(question.ExpiresInSec) * time.Second))
+			deadline := time.Now().Add(time.Duration(question.ExpiresInSec) * time.Second)
+			line, state := terminal.Answer(deadline, whenGone(socketPath, question.ID))
 			switch state {
 			case sudoprompt.StdinClosed:
 				// Nothing further can be answered here, and leaving the loop spinning
@@ -304,6 +305,16 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 				return 0
 			case sudoprompt.Expired:
 				fmt.Printf("\n  %s %s\n", paint.Dim(question.LogID), paint.Bad("expired"))
+				continue
+			case sudoprompt.Gone:
+				// The broker's clock and this one differ by up to a second, the
+				// question's expires_in_sec being rounded, so a question that went
+				// within that of its deadline is the expiry arriving first.
+				if time.Until(deadline) < expirySlack {
+					fmt.Printf("\n  %s %s\n", paint.Dim(question.LogID), paint.Bad("expired"))
+				} else {
+					fmt.Printf("\n  %s no longer pending\n", paint.Dim(question.LogID))
+				}
 				continue
 			case sudoprompt.Answered:
 			}
@@ -343,6 +354,34 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			}
 		}
 	}
+}
+
+// expirySlack is how close to its deadline a question may go and still be
+// reported as expired: expires_in_sec is rounded to the second.
+const expirySlack = 2 * time.Second
+
+// whenGone is closed once the broker no longer holds the question with this
+// id: another watcher answered it, it expired, or its run ended. Not closed if
+// the broker cannot be reached, which the prompt's own clock and the next poll
+// report instead.
+//
+// The goroutine ends with the question, which this terminal answering also
+// settles, so it does not outlive the prompt by more than one round trip.
+func whenGone(socketPath, id string) <-chan struct{} {
+	gone := make(chan struct{})
+	go func() {
+		for {
+			questions, _, err := brokerclient.Escalations(socketPath, watchWait, "", id)
+			if err != nil {
+				return
+			}
+			if !slices.ContainsFunc(questions, func(q escalation.Question) bool { return q.ID == id }) {
+				close(gone)
+				return
+			}
+		}
+	}()
+	return gone
 }
 
 func answer(prog, socketPath, id string, approve, asJSON bool) int {
