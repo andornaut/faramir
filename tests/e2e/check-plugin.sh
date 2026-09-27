@@ -248,7 +248,7 @@ head_ "what the rewrite actually runs"
 
 PLUGIN_UNDER_TEST=$(asModule "$HOME_OP/.config/opencode/plugin/faramir.js")
 export PLUGIN_UNDER_TEST
-rewritten=$(cd $PROJECT && FARAMIR_CLI=/usr/local/bin/faramir node --input-type=module -e '
+rewritten=$(cd $PROJECT && node --input-type=module -e '
 const m = await import(process.env.PLUGIN_UNDER_TEST)
 const hooks = await (m.faramir ?? m.default.server)()
 const args = { command: "echo hunter2-correct-horse-battery" }

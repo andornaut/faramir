@@ -1,8 +1,6 @@
 // Drives one enrolled plugin's tool.execute.before hook the way its host does.
 //
-// One case per process: the plugin reads FARAMIR_CLI once at module load, so a
-// case that needs a different guard needs a different process.  That is also
-// how the host loads it, which is the point.
+// One case per process, which is how the host loads a plugin.
 //
 // usage: node plugin-harness.mjs <plugin.js> <case>
 // prints: PASS <case> <detail>  |  FAIL <case> <detail>

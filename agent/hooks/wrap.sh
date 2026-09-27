@@ -15,6 +15,10 @@
 #
 # Every failure fails closed: output that could not be redacted is never
 # shown.
+#
+# The redactor is the installed path, never one the environment names: this
+# runs in the agent's shell, where an exported override would decide what
+# redacts, and one naming `cat` would pass everything through and exit 0.
 
 # A backgrounded command takes the streaming path instead:
 #
@@ -29,7 +33,7 @@
 # not touch the caller's shell: a backgrounded command has no shell state to
 # persist, unlike the sourced path below.
 if [ "${1:-}" = "--stream" ]; then
-  ( { eval "${2:-}"; } 2>&1 | "${FARAMIR_CLI:-/usr/local/bin/faramir}" redact
+  ( { eval "${2:-}"; } 2>&1 | /usr/local/bin/faramir redact
     __fps=("${PIPESTATUS[@]}")
     [ "${__fps[0]}" -eq 0 ] && [ "${__fps[1]}" -ne 0 ] && exit 1
     exit "${__fps[0]}" )
@@ -58,7 +62,7 @@ fi
 if [ "${1:-}" = "--stream-state" ]; then
   __fpt=$(trap -p PIPE)
   trap '' PIPE
-  if exec {__ffd}> >("${FARAMIR_CLI:-/usr/local/bin/faramir}" redact); then
+  if exec {__ffd}> >(/usr/local/bin/faramir redact); then
     __fpid=$!
     { :; eval "${2:-}"
     } >&"$__ffd" 2>&1 {__ffd}>&-
@@ -123,13 +127,15 @@ else
   trap 'rm -f "$__frf" "$__fro"' EXIT
 
   # ":;" keeps a comment-only command from forming an empty group.
+  # >| because mktemp already made both files: under a caller's set -C a plain >
+  # refuses them, and every command after it would fail.
   { :; eval "$1"
-  } >"$__frf" 2>&1
+  } >|"$__frf" 2>&1
   __frc=$?
 
   # A second file rather than stdout, so a redaction that fails part way
   # through cannot have printed what it did not redact.
-  if "${FARAMIR_CLI:-/usr/local/bin/faramir}" redact <"$__frf" >"$__fro"; then
+  if /usr/local/bin/faramir redact <"$__frf" >|"$__fro"; then
     cat "$__fro"
   else
     # The command ran, so what it set in this shell is intact; only the output

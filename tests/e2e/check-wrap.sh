@@ -33,6 +33,22 @@ agentRun() {
   local w; w=$(rewriteOf "$1")
   asAgent "$(printf '%s' "$w")"
 }
+# withRedactor runs the rest of its arguments with the installed faramir moved
+# aside and, unless the stand-in is "none", that program in its place, then
+# puts it back. wrap.sh runs that path and nothing the environment names, so
+# this is the only way to hand it a redactor that fails. The running daemons
+# keep the binary they were started from.
+withRedactor() {
+  local stand_in=$1 rc
+  shift
+  mv /usr/local/bin/faramir /usr/local/bin/faramir.real
+  [ "$stand_in" = none ] || cp "$stand_in" /usr/local/bin/faramir
+  "$@"
+  rc=$?
+  rm -f /usr/local/bin/faramir
+  mv /usr/local/bin/faramir.real /usr/local/bin/faramir
+  return "$rc"
+}
 
 # A file in the tree holding a secret in the clear: an operator's mistake, and
 # the case the wrapper exists for. The guard has no rule against reading it,
@@ -89,6 +105,10 @@ out=$(asAgent "$(rewriteOf 'greet() { echo hello; }'); greet")
 [ "$out" = "hello" ] && ok "a function defined by the command survives" || bad "function lost: [$out]"
 out=$(asAgent "$(rewriteOf 'PLAIN=also-kept'); echo \$PLAIN")
 [ "$out" = "also-kept" ] && ok "an unexported assignment survives" || bad "assignment lost: [$out]"
+# set -C persists too, and the capture files already exist when it applies.
+out=$(asAgent "$(rewriteOf 'set -C'); $(rewriteOf 'echo after-noclobber')")
+[ "$out" = "after-noclobber" ] && ok "a command after set -C still runs and prints" \
+  || bad "set -C broke the wrapper for every later command: [$out]"
 # And it leaves nothing of its own behind in the caller's namespace.
 out=$(asAgent "$(rewriteOf 'true'); echo \"[\${__frf:-unset}][\${__fro:-unset}][\${__frc:-unset}]\"")
 [ "$out" = "[unset][unset][unset]" ] && ok "and its own variables are unset afterwards" \
@@ -171,8 +191,8 @@ head_ "7. a redactor that cannot answer withholds the output"
 # sitting in a file. If the redactor cannot be reached, that output must not
 # be printed.
 rm -f /tmp/it-ran
-out=$(runuser -u op -- env HOME=/home/op XDG_RUNTIME_DIR="$RUNDIR" FARAMIR_CLI=/nonexistent/faramir \
-  bash -c "cd /home/op/project; $(rewriteOf 'touch /tmp/it-ran; cat notes.txt')" 2>&1; echo "rc=$?")
+w=$(rewriteOf 'touch /tmp/it-ran; cat notes.txt')
+out=$(withRedactor none asAgent "$w"; echo "rc=$?")
 [ -e /tmp/it-ran ] && ok "the command itself ran" || bad "the command did not run"
 grep -q "$SECRET" <<<"$out" && bad "OUTPUT LEAKED: no redactor, and it printed anyway" \
   || ok "with no redactor, the output it had already captured is withheld"
@@ -180,10 +200,17 @@ grep -q 'withheld' <<<"$out" && ok "and says so" || bad "no explanation: $out"
 grep -q 'rc=1' <<<"$out" && ok "and does not read as a clean success" || bad "status: $out"
 # A command that succeeded, whose output could not be redacted, must not
 # report success either.
-out=$(runuser -u op -- env HOME=/home/op XDG_RUNTIME_DIR="$RUNDIR" FARAMIR_CLI=/bin/false \
-  bash -c "cd /home/op/project; $(rewriteOf 'true')" 2>/dev/null; echo "rc=$?")
+w=$(rewriteOf 'true')
+out=$(withRedactor /bin/false asAgent "$w"; echo "rc=$?")
 grep -q 'rc=1' <<<"$out" && ok "a successful command with withheld output returns non-zero" \
   || bad "a withheld output read as success: $out"
+# The redactor is the installed one whatever the agent's shell exports: an
+# override naming cat would pass the capture through unredacted.
+out=$(asAgent "export FARAMIR_CLI=/bin/cat; $(rewriteOf 'cat notes.txt')")
+grep -q "$SECRET" <<<"$out" && bad "an exported FARAMIR_CLI chose the redactor: $out" \
+  || ok "an exported FARAMIR_CLI does not replace the redactor"
+grep -q "$TOKEN" <<<"$out" && ok "  and the value came back as its token" \
+  || bad "  no token in the output: $out"
 
 head_ "8. the same, with the broker actually stopped"
 systemctl stop faramir-broker.socket faramir-broker.service >/dev/null 2>&1
@@ -295,7 +322,7 @@ grep -q 'rc=7' <<<"$out" && ok "the command's exit status carried out" \
   || bad "status lost under --stream-state: $out"
 
 # A redactor that cannot answer leaks nothing and is not a clean success.
-out=$(asAgent "export FARAMIR_CLI=/bin/false; $W 'cat notes.txt'; echo rc=\$?")
+out=$(withRedactor /bin/false asAgent "$W 'cat notes.txt'; echo rc=\$?")
 grep -q "$SECRET" <<<"$out" && bad "a dead redactor leaked the raw value: $out" \
   || ok "a redactor that cannot answer leaks nothing"
 grep -q 'rc=0' <<<"$out" && bad "a failed redaction read as a clean success: $out" \
