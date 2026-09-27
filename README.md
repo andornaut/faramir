@@ -168,8 +168,8 @@ From a bare host to a redacted command in seven steps.
 2. **Provision the host** with `sudo faramir init`. [What it does](#what-init-does), and [every flag](docs/installing.md). Log out and back in afterwards: `init` adds you to the group the broker socket admits, and an open session does not pick that up.
 3. **Check it** with `sudo faramir doctor`. It reports whether the install works and, as root, what each account can reach. Without root it still runs, and reports what it could not check as unasked rather than as passing. [What it checks](docs/operating.md#checking-an-install).
 4. **Declare what this machine should block.** A fresh install refuses only its own files, so your SSH key stays readable to your agent until you declare it. [Below](#declaring-blocked-paths-and-commands).
-5. **Enrol a tree** with `cd <tree> && sudo faramir enrol`, in each tree where managed credentials are used. [What an enrolment writes, and the three steps before it](#onboarding-a-project).
-6. **Write a value** with `sudo faramir vault add svc`. A document holding `token` under `svc` serves `faramir://svc/token`. [Writing the values](#onboarding-a-project).
+5. **Write a value** with `sudo faramir vault add svc`. A document holding `token` under `svc` serves `faramir://svc/token`. [Writing the values](#onboarding-a-project).
+6. **Enrol a tree** with `cd <tree> && sudo faramir enrol`, in each tree where managed credentials are used. [What an enrolment writes, and the steps before it](#onboarding-a-project).
 7. **Run something.** `faramir refs` lists what the broker serves, and `faramir run` injects one into a command:
 
 ```bash
@@ -246,10 +246,10 @@ faramir redact -- ./deploy.sh
 `--env NAME=faramir://ref` | Once per secret, or a bare `NAME` meaning `faramir://NAME`
 `--env-file FILE` | `NAME=faramir://ref` per line, or a bare `NAME` meaning `faramir://NAME`. `#` starts a comment, at the start of a line or after whitespace
 `--stdin`/`-i` | Send what you pipe in to the command, up to 128 KiB. More is refused rather than cut; a larger input belongs in a file the command opens itself
-`--quiet` | Suppress the redaction summary on stderr. Only that: why a `sudo` was refused is printed either way, and so is every note saying the output is not what the command produced, truncation included
+`--quiet` | Suppress the redaction summary on stderr, and the `log_id` of a command that ran. Only those: a refused request still prints its `log_id`, why a `sudo` was refused is printed either way, and so is every note saying the output is not what the command produced, truncation included
 `--cwd`/`-C` | Where the command runs. A relative path is resolved against the caller's directory, which is also the default
 `--timeout`/`-t` | How long before the broker kills it: a duration (`90s`, `5m`) or a bare number of seconds, in whole seconds. Defaults to `[command] timeout_sec`; `max_timeout_sec` is the ceiling
-`--json` | The raw response. Every broker-facing command accepts it except `redact`, whose output is the redaction itself. For `status`, `output` is the status document as an object rather than a string holding it
+`--json` | The raw response. Every broker-facing command accepts it except `redact`, whose output is the redaction itself, and `sudo watch`, which answers at a terminal. For `status`, `output` is the status document as an object rather than a string holding it
 
 - Without `--stdin`, a pipeline is refused rather than dropped. `faramir run` does not own the file on its standard input, so a `while read ... done < hosts.txt` loop and an `ssh host 'faramir run …'` session keep theirs. An anonymous pipe every writer has closed with nothing in it is not refused, since that is what a program driving `faramir run` as a subprocess hands it. A FIFO stays refused, since another writer can open one after the last has closed.
 - Flags after the program name belong to the program. Parsing stops at the first non-flag word, so `--` works but is not required.
@@ -333,7 +333,7 @@ Target | Does
 `make lint` | golangci-lint and ShellCheck. CI's Lint job also runs markdownlint and `goreleaser check`, which need no tooling from this tree
 `make shellcheck` | The shell scripts alone, as CI checks them
 `make install`, `make uninstall` | Copy the binary to `/usr/local/bin` and remove it. Both use sudo
-`make clean` | Remove `bin/`, `dist/` and `coverage.txt`
+`make clean` | Remove `bin/` and `dist/`, which hold every build, test log, coverage profile and fuzz crasher the targets write
 
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/`, with `README.md` and `LICENSE`, is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. Operator documentation goes in `docs/`, which ships. Developer documentation goes beside what it covers, such as `tests/e2e/README.md`, which does not.
 - Tests live beside the logic they cover. Most of what the broker does is decide, so `internal/broker` substitutes the executor. `internal/execclient` drives a real child, because the PTY and the streaming redactor cannot be tested against synthetic bytes, and tests the rune and truncation rules directly. A test that needs a cgroup does not run everywhere.

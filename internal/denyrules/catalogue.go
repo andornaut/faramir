@@ -16,9 +16,7 @@ import (
 // The two tiers do not read a rule the same way and are not meant to.
 // GuardRules and Broker below are that difference, written once and beside each
 // other, so a kind added here cannot reach one tier and be forgotten in the
-// other. Before this there were two inventories built in two packages, and the
-// operator commands were in one of them: a brokered `faramir vault ls` met no
-// rule at all.
+// other.
 type Rule struct {
 	// Kind decides which of Subjects and Patterns is populated, and which
 	// message a refusal carries in either tier.

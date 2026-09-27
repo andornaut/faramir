@@ -37,12 +37,11 @@ const (
 		`csplit|cpio|gzip|bzip2|xz|zstd))\b`
 )
 
-// gnuPrefix takes the name a tool has where it is not the default one. Ubuntu
-// 26.04 ships uutils as `cat` and the GNU build as `gnucat`, and does that for
-// 104 programs, 18 of which are in the vocabulary above. A word boundary does
-// not fall inside `gnucat`, so every one of those walked past these rules on
-// that release: `gnucat /etc/faramir/age.key` reached the EACCES the deny list
-// exists to answer instead of.
+// gnuPrefix takes the name a tool has where it is not the default one. A
+// distribution that ships uutils as `cat` installs the GNU build as `gnucat`
+// (Ubuntu 26.04 does so for 18 programs in the vocabulary above), and a word
+// boundary does not fall inside `gnucat`, so without the prefix those names
+// match no rule.
 //
 // Optional, so the ordinary names still match, and only this prefix: a rule
 // fires only where one of these words meets a path this host protects, so
