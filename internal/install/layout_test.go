@@ -11,10 +11,10 @@ import (
 // The key follows the config directory, so an encrypted home holding the
 // secrets directory holds the key too and a powered-off disk carries neither.
 func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
-	for _, tc := range []struct{ name, configDir, wantKey, wantDir string }{
-		{"the default", hostlayout.DefaultConfigDir, hostlayout.DefaultConfigDir + "/age.key", hostlayout.DefaultConfigDir},
-		{"an agent account's home", "/home/op/.config/faramir", "/home/op/.config/faramir/age.key", "/home/op/.config/faramir"},
-		{"a trailing slash is cleaned", "/srv/f/", "/srv/f/age.key", "/srv/f"},
+	for _, tc := range []struct{ name, configDir, wantKey string }{
+		{"the default", hostlayout.DefaultConfigDir, hostlayout.DefaultConfigDir + "/age.key"},
+		{"an agent account's home", "/home/op/.config/faramir", "/home/op/.config/faramir/age.key"},
+		{"a trailing slash is cleaned", "/srv/f/", "/srv/f/age.key"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := Options{
@@ -31,12 +31,9 @@ func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 				t.Errorf("AgeKeyPath = %q, want %q", layout.AgeKeyPath, tc.wantKey)
 			}
 			// The config directory, created for the config anyway.
-			if got := layout.AgeKeyDir(); got != tc.wantDir {
-				t.Errorf("AgeKeyDir = %q, want %q", got, tc.wantDir)
-			}
-			if layout.AgeKeyDir() != layout.ConfigDir {
-				t.Errorf("AgeKeyDir %q is not the config directory %q",
-					layout.AgeKeyDir(), layout.ConfigDir)
+			if dir := filepath.Dir(layout.AgeKeyPath); dir != layout.ConfigDir {
+				t.Errorf("the age key's directory %q is not the config directory %q",
+					dir, layout.ConfigDir)
 			}
 		})
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/andornaut/faramir/internal/brokerclient"
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostunit"
 )
@@ -34,7 +35,7 @@ func unitConfigFile() string {
 // not be found.
 func configFileFrom(st brokerclient.Status) (string, error) {
 	if st.ConfigDir != "" {
-		return filepath.Join(st.ConfigDir, "config.toml"), nil
+		return config.FileIn(st.ConfigDir), nil
 	}
 	if path := unitConfigFile(); path != "" {
 		return path, nil

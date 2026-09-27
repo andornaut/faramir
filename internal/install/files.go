@@ -128,7 +128,7 @@ func (r *runner) stepDenyPatterns() error {
 	if err != nil {
 		return err
 	}
-	r.step("deny patterns", changed, r.layout.DenyPatternsFile())
+	r.step(steps.LabelDenyPatterns, changed, r.layout.DenyPatternsFile())
 	return nil
 }
 

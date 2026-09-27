@@ -189,7 +189,7 @@ func diagnoseStore(report *Report, opts Options, cfg *config.Config) {
 // programs the executor resolves. One file: a config.d left over from an older
 // install is not read, so it decides nothing.
 func diagnoseConfigWritable(report *Report, opts Options) {
-	configFile := filepath.Join(opts.ConfigDir, "config.toml")
+	configFile := config.FileIn(opts.ConfigDir)
 	if hostfs.Exists(configFile) && asaccount.CanWrite(opts.AgentUser, configFile) {
 		report.addf("config ownership", StatusFailed, "%s can write %s, which "+
 			"sets [command.env] PATH, so an edit there chooses what the executor runs", opts.AgentUser, configFile)
@@ -221,7 +221,7 @@ func diagnoseConfigWritable(report *Report, opts Options) {
 // broker answers, the refs resolve, and the next `faramir reload` is the first
 // thing to say otherwise.
 func diagnoseConfigReadable(report *Report, opts Options) {
-	configFile := filepath.Join(opts.ConfigDir, "config.toml")
+	configFile := config.FileIn(opts.ConfigDir)
 	if !hostfs.Exists(configFile) {
 		report.addf("config reach", StatusNA, "%s is not there to be read", configFile)
 		return

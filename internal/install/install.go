@@ -23,8 +23,6 @@
 package install
 
 import (
-	"crypto/sha256"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,25 +48,6 @@ type Report struct {
 	// read back on every run but the one that writes the file, which reports what
 	// it just sealed the store to. Empty when the file could not be read.
 	AgeRecipients []string `json:"age_recipients,omitempty"`
-}
-
-// recordConfigDigest remembers config.toml as it stands, for a run that is
-// about to write back entries it has just read out of it.
-func recordConfigDigest(opts *Options, configFile string) error {
-	opts.configRead = true
-	body, err := os.ReadFile(configFile)
-	if errors.Is(err, os.ErrNotExist) {
-		// Nothing there. The digest stays nil, which with configRead set is an
-		// expectation of its own: a file that appears before the write is another
-		// run that got there first.
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	sum := sha256.Sum256(body)
-	opts.configDigest = sum[:]
-	return nil
 }
 
 type runner struct {
@@ -217,7 +196,7 @@ func (r *runner) steps() []steps.Named {
 		{Name: "reachable", Run: r.stepReachable},
 		// After the step above, this granting traversal down to a file in the same
 		// home: the two must not race to regroup the directories they share.
-		{Name: "linked files", Run: r.stepLinkAccess},
+		{Name: steps.LabelLinkedFiles, Run: r.stepLinkAccess},
 		{Name: "units", Run: r.stepUnits},
 		{Name: "systemd", Run: r.stepSystemd},
 		{Name: steps.LabelAgentConfig, Run: r.stepAgentConfig},

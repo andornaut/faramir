@@ -269,7 +269,7 @@ func TestALinkOperationKeepsTheSudoGrant(t *testing.T) {
 	}
 
 	opts := Options{}
-	if err := keepInstalledGrant(&opts, dir); err != nil {
+	if err := keepInstalledGrant(&opts, installedEdit(t, dir)); err != nil {
 		t.Fatal(err)
 	}
 	if !opts.AllowSudo {
@@ -289,7 +289,7 @@ func TestALinkOperationGrantsNoSudoOfItsOwn(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := Options{}
-	if err := keepInstalledGrant(&opts, dir); err != nil {
+	if err := keepInstalledGrant(&opts, installedEdit(t, dir)); err != nil {
 		t.Fatal(err)
 	}
 	if opts.AllowSudo {
@@ -364,7 +364,7 @@ func TestALinkOperationRendersTheSameConfigTheInstallDid(t *testing.T) {
 
 	// What AddLink and RemoveLink build, against nothing but the installed file.
 	next := Options{ConfigDir: dir, AgentUser: "operator"}
-	if err := keepInstalledGrant(&next, dir); err != nil {
+	if err := keepInstalledGrant(&next, installedEdit(t, dir)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := next.adoptInstalled(); err != nil {
@@ -385,4 +385,21 @@ func TestALinkOperationRendersTheSameConfigTheInstallDid(t *testing.T) {
 			"install that wrote it, so something in this file is derived and not "+
 			"recovered:\n--- installed\n%s\n--- after a link operation\n%s", first, second)
 	}
+}
+
+// installedEdit is the installed config in dir as an entry edit reads it.
+func installedEdit(t *testing.T, dir string) *configEdit {
+	t.Helper()
+	opts := Options{ConfigDir: dir}
+	edit, err := openConfigEdit(&opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return edit
+}
+
+// installedBlocked is the blocked entries the installed config in dir declares.
+func installedBlocked(t *testing.T, dir string) []config.BlockedPath {
+	t.Helper()
+	return installedEdit(t, dir).blocked()
 }

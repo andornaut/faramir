@@ -97,15 +97,11 @@ func TestASpellingStaysWhileAnotherEntryStillNamesTheTarget(t *testing.T) {
 	typed := "/home/op/.npmrc"
 	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\npath = \""+typed+"\"\n"+
 		"derived_from = \""+target+"\"\n")
-	configFile := filepath.Join(dir, "config.toml")
 	other := config.Link{Ref: "npm/other", Path: target, Type: "text"}
 
-	opts, cascaded, retained, err := withoutLinkDerivation(Options{ConfigDir: dir, links: []config.Link{other}},
-		configFile, config.Link{Ref: "npm/token", Path: target, Type: "text"})
+	opts, cascaded, retained := withoutLinkDerivation(Options{ConfigDir: dir, links: []config.Link{other}},
+		installedBlocked(t, dir), config.Link{Ref: "npm/token", Path: target, Type: "text"})
 
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(cascaded) != 0 {
 		t.Errorf("cascaded = %+v, want the spelling kept for the other link", cascaded)
 	}
@@ -124,14 +120,10 @@ func TestASpellingStaysWhileABlockEntryNamesTheTarget(t *testing.T) {
 	typed := "/home/op/.npmrc"
 	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\npath = \""+target+"\"\n\n"+
 		"[[secret.block]]\npath = \""+typed+"\"\nderived_from = \""+target+"\"\n")
-	configFile := filepath.Join(dir, "config.toml")
 
-	_, cascaded, retained, err := withoutLinkDerivation(Options{ConfigDir: dir}, configFile,
-		config.Link{Ref: "npm/token", Path: target, Type: "text"})
+	_, cascaded, retained := withoutLinkDerivation(Options{ConfigDir: dir},
+		installedBlocked(t, dir), config.Link{Ref: "npm/token", Path: target, Type: "text"})
 
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(cascaded) != 0 || len(retained) != 1 {
 		t.Errorf("cascaded = %+v, retained = %+v, want the spelling kept", cascaded, retained)
 	}

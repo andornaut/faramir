@@ -22,12 +22,8 @@ func SampleSockets() map[string]string {
 	}
 	states := make(map[string]string, len(hostunit.Sockets))
 	for _, socket := range hostunit.Sockets {
-		out, err := runcmd.OutputWithin(30*time.Second, "systemctl", "is-active", socket)
-		state := strings.TrimSpace(out)
-		// systemctl prints the state even when it exits non-zero, so an empty
-		// answer is systemctl itself having failed, as is an error alongside
-		// "active".
-		if state == "" || (err != nil && state == hostunit.Active) {
+		state, ok := hostunit.State(socket)
+		if !ok {
 			state = unitUnreportable
 		}
 		states[socket] = state

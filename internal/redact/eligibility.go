@@ -7,6 +7,8 @@ package redact
 import (
 	"fmt"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // EligibilityPolicy is the one property of a value this decides: whether it is
@@ -45,8 +47,9 @@ type EligibilityPolicy struct {
 // automaton.
 const MaxValueBytes = 16 << 10
 
+// DefaultPolicy is the policy an install that sets no [secret] min_length gets.
 func DefaultPolicy() EligibilityPolicy {
-	return EligibilityPolicy{MinLength: 8}
+	return EligibilityPolicy{MinLength: config.DefaultMinLength}
 }
 
 // Check returns "" if the value may be redacted, else the reason it may not.

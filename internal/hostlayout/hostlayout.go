@@ -25,14 +25,14 @@ import (
 const (
 	DefaultConfigDir  = config.DefaultConfigDir
 	DefaultBinDir     = "/usr/local/bin"
-	DefaultLibexecDir = "/usr/local/libexec/faramir"
+	DefaultLibexecDir = config.DefaultLibexecDir
 	DefaultDocDir     = "/usr/local/share/doc/faramir"
 	DefaultRunDir     = config.DefaultRunDir
-	DefaultLogDir     = "/var/log/faramir"
+	DefaultLogDir     = config.DefaultLogDir
 
 	// PamServiceName is not derived from a layout field: the path is the
 	// distribution's.
-	PamServiceName = "faramir-sudo"
+	PamServiceName = config.DefaultPamService
 	// DefaultClientGroup is named for what membership grants rather than for who
 	// tends to hold it. A member may ask the broker for any managed value, and
 	// once a tree is enrolled the group is on every directory from the
@@ -239,7 +239,7 @@ type Layout struct {
 
 // PamHelper is what the PAM service execs, as root, to decide one sudo: a
 // wrapper beside the hook's own files that runs `faramir pam-escalate`.
-func (l Layout) PamHelper() string { return filepath.Join(l.LibexecDir, "pam-escalate") }
+func (l Layout) PamHelper() string { return filepath.Join(l.LibexecDir, config.PamHelperName) }
 
 // WrapScript is the shell fragment the guard's rewrite sources, installed
 // beside the helper above. Named here so the install that writes it, the rules
@@ -317,11 +317,6 @@ func (l Layout) SudoEnvFile() string { return filepath.Join(l.LibexecDir, "sudo-
 // points would be a grant sudo never saw.
 func (l Layout) SudoersFile() string { return SudoersFile }
 
-// AgeKeyDir is where the key lives, which is the config directory: the key
-// follows the config, so secrets in an encrypted home have the key that opens
-// them in there too.
-func (l Layout) AgeKeyDir() string { return filepath.Dir(l.AgeKeyPath) }
-
 // SecretsDir is where the managed sops files live, always under the config
 // directory, so the ciphertext cannot end up on a different disk from the key
 // that opens it.
@@ -335,7 +330,7 @@ func (l Layout) SopsConfigPath() string { return filepath.Join(l.ConfigDir, ".so
 // AuditLogPath is the file the broker appends a record to. Rendered into both
 // config.toml and logrotate.conf from LogDir, and created by the install so
 // that its owner is not whichever uid writes to it first.
-func (l Layout) AuditLogPath() string { return filepath.Join(l.LogDir, "audit.log") }
+func (l Layout) AuditLogPath() string { return filepath.Join(l.LogDir, config.AuditLogName) }
 
 // BrokerHome, KeeperHome and ExecHome are the service accounts' homes, derived
 // from the account names so that renaming one does not leave it living in a

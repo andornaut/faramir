@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -108,11 +107,11 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 func (r *runner) stepLinkAccess() error {
 	links := r.opts.links
 	if len(links) == 0 {
-		r.skip("linked files", "no [[secret.link]] entries are configured")
+		r.skip(steps.LabelLinkedFiles, "no [[secret.link]] entries are configured")
 		return nil
 	}
 	if r.opts.DryRun {
-		r.skip("linked files", "dry run")
+		r.skip(steps.LabelLinkedFiles, "dry run")
 		return nil
 	}
 
@@ -145,7 +144,7 @@ func (r *runner) stepLinkAccess() error {
 			len(absent), strings.Join(absent, ", "))
 	}
 	// Never changed: this step asks questions and alters nothing.
-	r.step("linked files", false, detail)
+	r.step(steps.LabelLinkedFiles, false, detail)
 	return nil
 }
 
@@ -156,18 +155,7 @@ func (r *runner) stepLinkAccess() error {
 // is not optional here: it resolves the agents whose files stepAgentConfig
 // writes, so a list without it writes no deny rule.
 func (r *runner) linkSteps() []steps.Named {
-	return []steps.Named{
-		{Name: steps.LabelResolveIDs, Run: r.resolveIDs},
-		{Name: steps.LabelPreconditions, Run: r.stepPreconditions},
-		{Name: steps.LabelConfig, Run: r.stepConfig},
-		{Name: "linked files", Run: r.stepLinkAccess},
-		{Name: steps.LabelAgentConfig, Run: r.stepAgentConfig},
-		// And into every tree already enrolled, for the reason blockedSteps gives.
-		{Name: steps.LabelEnrolledTrees, Run: r.stepEnrolledTrees},
-		// A linked path is a subject in the command guard's rules as well as in
-		// the agents' own, so both are rendered here.
-		{Name: "deny patterns", Run: r.stepDenyPatterns},
-	}
+	return r.entrySteps(steps.Named{Name: steps.LabelLinkedFiles, Run: r.stepLinkAccess})
 }
 
 // keepInstalledGrant takes the sudo arrangement off the installed config so
@@ -179,13 +167,12 @@ func (r *runner) linkSteps() []steps.Named {
 // read back by `init` as well, under a grant it was given; this names it here
 // rather than leaving it to adoption because the grant it hangs off is the one
 // being read on this line.
-func keepInstalledGrant(opts *Options, configDir string) error {
-	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
-	if err != nil {
-		return err
+func keepInstalledGrant(opts *Options, edit *configEdit) error {
+	if edit.cfg == nil {
+		return fmt.Errorf("config not found: %s", edit.file)
 	}
-	opts.AllowSudo = cfg.Sudo.ExecUser != ""
-	opts.NotifyCommand = cfg.Sudo.NotifyCommand
+	opts.AllowSudo = edit.cfg.Sudo.ExecUser != ""
+	opts.NotifyCommand = edit.cfg.Sudo.NotifyCommand
 	return nil
 }
 
@@ -230,18 +217,12 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	if err := refuseEnrolledTrees(configDir, []string{link.Path}); err != nil {
 		return Report{}, false, err
 	}
-	configFile := filepath.Join(configDir, "config.toml")
-	if err := recordConfigDigest(&opts, configFile); err != nil {
-		return Report{}, false, err
-	}
-	opts, derived, err := withLinkDerivation(opts, configDir, typed, link)
+	edit, err := openConfigEdit(&opts)
 	if err != nil {
 		return Report{}, false, err
 	}
-	existing, err := config.BaseLinks(configFile)
-	if err != nil {
-		return Report{}, false, fmt.Errorf("%s: %w", configFile, err)
-	}
+	opts, derived := withLinkDerivation(opts, configDir, edit.blocked(), typed, link)
+	existing := edit.links()
 	if other, claimed := linkNamed(existing, link.Ref); claimed {
 		// The strictness is how the entry is matched rather than what it names, so
 		// a re-add that changes it edits the entry instead of colliding with it.
@@ -250,7 +231,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		tightened := other
 		tightened.Strict = link.Strict
 		if tightened != link {
-			return Report{}, false, redefinedRef(configFile, other, link)
+			return Report{}, false, redefinedRef(edit.file, other, link)
 		}
 		if other.Strict != link.Strict {
 			updated := slices.Clone(existing)
@@ -259,12 +240,12 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 					updated[i].Strict = link.Strict
 				}
 			}
-			report, err := reassertLink(opts, updated, link)
+			report, err := reassertLink(opts, edit, updated, link)
 			derived.say(&report, typed, link)
 			// Changed: the rules this renders are not the ones the host had.
 			return report, err == nil, err
 		}
-		report, err := reassertLink(opts, existing, link)
+		report, err := reassertLink(opts, edit, existing, link)
 		derived.say(&report, typed, link)
 		return report, false, err
 	}
@@ -287,10 +268,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	}
 
 	opts.links, opts.linksSet = append(append([]config.Link{}, existing...), link), true
-	if err := keepInstalledGrant(&opts, configDir); err != nil {
-		return Report{}, false, err
-	}
-	run, err := newRunner(opts)
+	run, err := entryRunner(opts, edit)
 	if err != nil {
 		return Report{}, false, err
 	}
@@ -298,7 +276,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		return Report{}, false, err
 	}
 
-	if err := run.refuseShadowedRef(configFile, link.Ref); err != nil {
+	if err := run.refuseShadowedRef(edit, link.Ref); err != nil {
 		return Report{}, false, err
 	}
 	fault, err := run.linkFault(link)
@@ -343,27 +321,25 @@ type linkDerivation struct {
 // Set on the options rather than written separately: the entries and the rules
 // are rendered from one layout, so this lands in the same config write as the
 // link and there is no half-applied state to put back.
-func withLinkDerivation(opts Options, configDir, typed string,
-	link config.Link) (Options, linkDerivation, error) {
+//
+// existing is the blocked entries the install declares.
+func withLinkDerivation(opts Options, configDir string, existing []config.BlockedPath,
+	typed string, link config.Link) (Options, linkDerivation) {
 	if typed == link.Path {
-		return opts, linkDerivation{}, nil
+		return opts, linkDerivation{}
 	}
 	// The strictness of the entry it stands in for: one flag, one meaning, on
 	// whichever entry names the file.
 	entry := config.BlockedPath{Path: typed, Strict: link.Strict, DerivedFrom: link.Path}
 	if !derivable(configDir, entry) {
-		return opts, linkDerivation{entry: entry}, nil
-	}
-	existing, err := config.BaseBlocked(filepath.Join(configDir, "config.toml"))
-	if err != nil {
-		return opts, linkDerivation{}, fmt.Errorf("%s: %w", configDir, err)
+		return opts, linkDerivation{entry: entry}
 	}
 	entries, _ := foldBlocked(existing, []config.BlockedPath{entry})
 	// An entry the operator declared for the typed spelling is left as it is,
 	// and is theirs to remove.
 	_, declared := splitDeclared(entries, []config.BlockedPath{entry})
 	opts.blocked, opts.blockedSet = entries, true
-	return opts, linkDerivation{entry: entry, written: true, declared: len(declared) > 0}, nil
+	return opts, linkDerivation{entry: entry, written: true, declared: len(declared) > 0}
 }
 
 // say is what the report tells an operator who typed a symlink. Both outcomes
@@ -417,13 +393,13 @@ func linkTarget(path string) string {
 // secrets yet and on one whose store will not serve, so there is no first
 // install this locks out; what it stops is an add made against a broker that is
 // down.
-func (r *runner) refuseShadowedRef(configFile, ref string) error {
+func (r *runner) refuseShadowedRef(edit *configEdit, ref string) error {
 	if r.opts.DryRun {
 		return nil
 	}
-	cfg, err := config.Load(configFile)
-	if err != nil {
-		return fmt.Errorf("%s: %w", configFile, err)
+	cfg, configFile := edit.cfg, edit.file
+	if cfg == nil {
+		return fmt.Errorf("config not found: %s", configFile)
 	}
 	if cfg.Server.SocketPath == "" {
 		return fmt.Errorf("%s names no [server] socket_path, so the broker cannot "+
@@ -495,12 +471,9 @@ func keySuffix(key string) string {
 // The access the file needs is checked by the steps and not repaired by them.
 // A tool that replaced its own file and took the group with it is reported
 // here, with the command that puts it back.
-func reassertLink(opts Options, existing []config.Link, link config.Link) (Report, error) {
+func reassertLink(opts Options, edit *configEdit, existing []config.Link, link config.Link) (Report, error) {
 	opts.links, opts.linksSet = existing, true
-	if err := keepInstalledGrant(&opts, configDirOr(opts.ConfigDir)); err != nil {
-		return Report{}, err
-	}
-	run, err := newRunner(opts)
+	run, err := entryRunner(opts, edit)
 	if err != nil {
 		return Report{}, err
 	}
@@ -530,14 +503,11 @@ func reassertLink(opts Options, existing []config.Link, link config.Link) (Repor
 // returned entry is the zero value there, which is how the caller tells the two
 // apart.
 func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
-	configFile := filepath.Join(configDirOr(opts.ConfigDir), "config.toml")
-	if err := recordConfigDigest(&opts, configFile); err != nil {
+	edit, err := openConfigEdit(&opts)
+	if err != nil {
 		return Report{}, config.Link{}, err
 	}
-	existing, err := config.BaseLinks(configFile)
-	if err != nil {
-		return Report{}, config.Link{}, fmt.Errorf("%s: %w", configFile, err)
-	}
+	existing := edit.links()
 	kept := make([]config.Link, 0, len(existing))
 	var removed config.Link
 	for _, link := range existing {
@@ -550,14 +520,8 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	// kept is existing where nothing matched, so the steps below re-render what
 	// is already there and report no change.
 	opts.links, opts.linksSet = kept, true
-	opts, cascaded, retained, err := withoutLinkDerivation(opts, configFile, removed)
-	if err != nil {
-		return Report{}, config.Link{}, err
-	}
-	if err := keepInstalledGrant(&opts, configDirOr(opts.ConfigDir)); err != nil {
-		return Report{}, config.Link{}, err
-	}
-	run, err := newRunner(opts)
+	opts, cascaded, retained := withoutLinkDerivation(opts, edit.blocked(), removed)
+	run, err := entryRunner(opts, edit)
 	if err != nil {
 		return Report{}, config.Link{}, err
 	}
@@ -609,26 +573,24 @@ func stillBlocked(configDir, path string) bool {
 //
 // A ref this install does not carry removes nothing, which is the zero Link
 // this is given and the empty lists it answers with.
-func withoutLinkDerivation(opts Options, configFile string,
-	removed config.Link) (Options, []config.BlockedPath, []config.BlockedPath, error) {
+//
+// existing is the blocked entries the install declares.
+func withoutLinkDerivation(opts Options, existing []config.BlockedPath,
+	removed config.Link) (Options, []config.BlockedPath, []config.BlockedPath) {
 	if removed.Path == "" {
-		return opts, nil, nil, nil
-	}
-	existing, err := config.BaseBlocked(configFile)
-	if err != nil {
-		return opts, nil, nil, fmt.Errorf("%s: %w", configFile, err)
+		return opts, nil, nil
 	}
 	kept, cascaded, retained := reclaimDerived(existing, opts.links, []string{removed.Path})
 	if len(cascaded) == 0 && len(retained) == 0 {
-		return opts, nil, nil, nil
+		return opts, nil, nil
 	}
 	opts.blocked, opts.blockedSet = kept, true
-	return opts, cascaded, retained, nil
+	return opts, cascaded, retained
 }
 
 // Links is what the install declares, for `faramir link ls`.
 func Links(configDir string) ([]config.Link, error) {
-	return config.BaseLinks(filepath.Join(configDirOr(configDir), "config.toml"))
+	return config.BaseLinks(config.FileIn(configDirOr(configDir)))
 }
 
 func configDirOr(dir string) string {

@@ -12,6 +12,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
+	"github.com/andornaut/faramir/internal/steps"
 )
 
 // Rules faramir wrote once and no longer writes.
@@ -111,7 +112,7 @@ func reportRuleDrift(report *Report, home, configDir string) {
 // Failed rather than a warning, unlike rule drift: a stale rule refuses more
 // than the current list asks for, while this refuses less.
 func diagnoseLinkedFiles(report *Report, opts Options, cfg *config.Config) {
-	const name = "linked files"
+	const name = steps.LabelLinkedFiles
 	links := make([]string, 0, len(cfg.Secret.Links))
 	for _, link := range cfg.Secret.Links {
 		links = append(links, link.Path)

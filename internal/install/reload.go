@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostunit"
@@ -43,8 +44,7 @@ func (r *runner) stepSystemd() error {
 	restart := r.needsRestart
 	if !restart {
 		for _, socket := range hostunit.Sockets {
-			out, err := runcmd.Output("systemctl", "is-active", socket)
-			if err != nil || strings.TrimSpace(out) != hostunit.Active {
+			if state, ok := hostunit.State(socket); !ok || state != hostunit.Active {
 				restart = true
 				break
 			}
@@ -100,7 +100,7 @@ func parseInstalledConfig() error {
 	unit := hostunit.Path(hostunit.BrokerUnit)
 	configFile := hostunit.ConfigFile(unit)
 	if configFile == "" {
-		configFile = filepath.Join(hostlayout.DefaultConfigDir, "config.toml")
+		configFile = config.FileIn(hostlayout.DefaultConfigDir)
 	}
 	brokerUser, err := hostunit.User(filepath.Base(unit))
 	if err != nil {

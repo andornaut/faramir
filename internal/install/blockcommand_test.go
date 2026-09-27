@@ -41,7 +41,7 @@ func TestADeclaredCommandIsTheWords(t *testing.T) {
 func TestABlockRunRendersBothEntryPoints(t *testing.T) {
 	var run runner
 	var agents, patterns bool
-	for _, step := range run.blockedSteps() {
+	for _, step := range run.entrySteps() {
 		switch step.Name {
 		case steps.LabelAgentConfig:
 			agents = true

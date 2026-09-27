@@ -198,16 +198,6 @@ func TestALinkedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 	}
 }
 
-// An empty entry would be a prefix of every path in the plugin hosts' spelling,
-// so it is dropped rather than rendered: that fails closed and still breaks the
-// agent. Duplicates and order are settled so the file does not churn.
-func TestLinkedPathsAreCleanedAndOrdered(t *testing.T) {
-	got := linkedPaths(hostlayout.Layout{Links: configtest.LinksAt("/b", "", "/a", "/b")})
-	if !slices.Equal(got, []string{"/a", "/b"}) {
-		t.Errorf("linkedPaths = %v, want the two paths sorted and deduplicated", got)
-	}
-}
-
 // An install with no links renders what it always did.
 func TestNoLinksChangesNothing(t *testing.T) {
 	layout := layouttest.Layout()

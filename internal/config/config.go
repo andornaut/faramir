@@ -28,10 +28,18 @@ const (
 	// DefaultBrokerSocket is [server] socket_path when the file leaves it out,
 	// and where every client looks unless FARAMIR_SOCKET moves it.
 	DefaultBrokerSocket = DefaultRunDir + "/broker.sock"
+	DefaultLibexecDir   = "/usr/local/libexec/faramir"
+	DefaultLogDir       = "/var/log/faramir"
+	// AuditLogName and PamHelperName are the file names inside the log and
+	// libexec directories, wherever those are.
+	AuditLogName  = "audit.log"
+	PamHelperName = "pam-escalate"
+	// DefaultPamService is [sudo] pam_service when the file leaves it out.
+	DefaultPamService = "faramir-sudo"
 )
 
 const (
-	DefaultConfigPath = DefaultConfigDir + "/config.toml"
+	DefaultConfigPath = DefaultConfigDir + "/" + ConfigFileName
 	defaultPATH       = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	// sopsExecPATH is the PATH sops runs under, wherever the install runs it. Fixed and absolute, not inherited: which sops decrypts the store
 	// must not depend on how the keeper unit was launched, and the account that
@@ -139,9 +147,18 @@ func DefaultCommand() CommandConfig {
 	}
 }
 
+// ConfigFileName is the base config's name inside the config directory.
+const ConfigFileName = "config.toml"
+
+// FileIn is the base config inside the config directory dir.
+func FileIn(dir string) string { return filepath.Join(dir, ConfigFileName) }
+
+// DefaultMinLength is [secret] min_length when the file leaves it out.
+const DefaultMinLength = 8
+
 // DefaultSecret is DefaultCommand for the store.
 func DefaultSecret() SecretConfig {
-	return SecretConfig{DecryptCommand: decryptCommand(), MinLength: 8}
+	return SecretConfig{DecryptCommand: decryptCommand(), MinLength: DefaultMinLength}
 }
 
 // DefaultSudoTimeoutSec is how long a question waits for a human.
@@ -218,10 +235,22 @@ func Load(path string) (*Config, error) {
 // before the write: afterwards the broker cannot start, and `faramir init`
 // refuses to run against a config it cannot parse.
 func Check(data []byte, path string) error {
+	_, err := Parse(data, path)
+	return err
+}
+
+// Parse is Load for a config already read, path being where it was read from.
+// For a caller that needs the bytes as well as what they say, so the two come
+// from one read.
+func Parse(data []byte, path string) (*Config, error) {
 	var raw map[string]any
 	if err := toml.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	_, err := fromMap(raw, path)
-	return err
+	cfg, err := fromMap(raw, path)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Path = path
+	return cfg, nil
 }

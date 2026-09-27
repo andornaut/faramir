@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
@@ -63,9 +64,17 @@ func Uninstall(configDir string) ([]string, error) {
 	// here would leave a host with its units gone and no daemon-reload.
 	var leftBehind []string
 	if hostunit.Running() {
-		units := append(append([]string{"disable", "--now"}, hostunit.Sockets...), hostunit.Services...)
-		// Not fatal: a unit already gone is the state this is reaching for.
-		_, _ = runcmd.Output("systemctl", units...)
+		for _, unit := range append(slices.Clone(hostunit.Sockets), hostunit.Services...) {
+			// One unit at a time, so a unit file already gone, which is the state a
+			// re-run after a partial uninstall is in, cannot keep the others from
+			// being stopped. Not fatal for the same reason; what is still running
+			// afterwards is what matters.
+			_, _ = runcmd.Output("systemctl", "disable", "--now", unit)
+			if state, _ := hostunit.State(unit); state == hostunit.Active {
+				leftBehind = append(leftBehind, unit+" -- still running with its unit file "+
+					"removed: systemctl stop "+unit)
+			}
+		}
 	}
 	for _, name := range agentcfg.UnitNames() {
 		if err := os.Remove(filepath.Join(hostunit.SystemUnitDir, name)); err != nil &&
@@ -116,7 +125,7 @@ func Uninstall(configDir string) ([]string, error) {
 		filepath.Join(configDir, "age.key")+
 			" -- deleting it makes every managed sops file unreadable",
 		filepath.Join(configDir, "secrets")+"/ -- the managed sops files",
-		filepath.Join(configDir, "config.toml")+" -- the base config",
+		config.FileIn(configDir)+" -- the base config",
 		hostlayout.DefaultLogDir+"/ -- the audit log",
 		fmt.Sprintf("users %s, %s and %s, and the group %s. %s's own password "+
 			"is not cleared: `usermod -L %s`",
@@ -151,7 +160,7 @@ func installedAccounts(configDir string) serviceAccounts {
 		exec:   named(hostunit.ExecUnit, hostlayout.DefaultExecUser),
 		client: hostlayout.DefaultClientGroup,
 	}
-	if cfg, err := config.Load(filepath.Join(configDir, "config.toml")); err == nil &&
+	if cfg, err := config.Load(config.FileIn(configDir)); err == nil &&
 		cfg.Server.AllowedGroup != "" {
 		accounts.client = cfg.Server.AllowedGroup
 	}

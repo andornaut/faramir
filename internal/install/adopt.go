@@ -98,7 +98,7 @@ func (o *Options) adoptInstalled() (took []string, err error) {
 // adoptFromConfig takes the client group and the SSH key off the installed
 // config, those being the two values only it records.
 func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise string)) error {
-	configFile := filepath.Join(dir, "config.toml")
+	configFile := config.FileIn(dir)
 	cfg, err := config.Load(configFile)
 	if err != nil {
 		if _, statErr := os.Stat(configFile); errors.Is(statErr, os.ErrNotExist) {

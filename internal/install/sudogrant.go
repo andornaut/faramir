@@ -310,8 +310,7 @@ func (r *runner) sudoEnv() hostlayout.Layout {
 		}
 		// What env_refs refuses, refused here too. What PAM hands back is not put
 		// through env_keep or env_check, so a name that redirects the loader, the
-		// interpreter or sops reaches root through it -- and sudo's own env_reset used
-		// to strip exactly these before this file existed.
+		// interpreter or sops reaches root through it.
 		if protocol.ReservedEnv[name] {
 			// Quietly for the ones sudo sets itself. PATH is a [command] env default,
 			// so warning about it would put a line on every clean install that names

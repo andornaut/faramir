@@ -256,13 +256,13 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 	// No exec_user by default, which is the install that granted no sudoers
 	// entry: the rest describes where things would go if one ever did.
 	*out = SudoConfig{
-		PamService: "faramir-sudo",
+		PamService: DefaultPamService,
 		// No default: which file carries the stack depends on which sudo the host
 		// has, and a guess here would be a config asserting something nobody
 		// established. Absent means "look for either", which is what an install
 		// made before this key existed leaves behind.
 		PamStack: "",
-		Helper:   "/usr/local/libexec/faramir/pam-escalate",
+		Helper:   DefaultLibexecDir + "/" + PamHelperName,
 		// Nothing by default: `faramir sudo watch` is where a question is
 		// seen and answered.
 		NotifyCommand: nil,
@@ -319,6 +319,6 @@ func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
 	if err != nil {
 		return err
 	}
-	*out = AuditConfig{LogPath: "/var/log/faramir/audit.log"}
+	*out = AuditConfig{LogPath: DefaultLogDir + "/" + AuditLogName}
 	return strFields(sec, where, []strField{{"log_path", &out.LogPath}})
 }

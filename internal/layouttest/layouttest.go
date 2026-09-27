@@ -10,6 +10,7 @@ package layouttest
 import (
 	"path/filepath"
 
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
@@ -37,7 +38,7 @@ func Layout() hostlayout.Layout {
 		KeeperGroup: "kpgrp",
 		ExecGroup:   "exgrp",
 		ConfigDir:   dir,
-		ConfigFile:  filepath.Join(dir, "config.toml"),
+		ConfigFile:  config.FileIn(dir),
 		BinDir:      hostlayout.DefaultBinDir,
 		LibexecDir:  hostlayout.DefaultLibexecDir,
 		DocDir:      hostlayout.DefaultDocDir,

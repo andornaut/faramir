@@ -53,6 +53,8 @@ const (
 	LabelAgentConfig   = "agent config"
 	LabelEnrolledTrees = "enrolled trees"
 	LabelConfig        = "config"
+	LabelLinkedFiles   = "linked files"
+	LabelDenyPatterns  = "deny patterns"
 )
 
 // Record records one unit of work and its outcome.
@@ -75,7 +77,8 @@ func (r *Report) Record(name string, changed bool, detail string) {
 	r.log(line)
 }
 
-// Skip records a step that could not be evaluated. Only under DryRun.
+// Skip records a step that was not run or could not be evaluated: a dry run,
+// a host with nothing for it to do, or one where the answer needs root.
 func (r *Report) Skip(name, why string) {
 	r.Steps = append(r.Steps, Step{Name: name, Skipped: true, Detail: why})
 	if r.log != nil {

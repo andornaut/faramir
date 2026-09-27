@@ -3,13 +3,13 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/secretlink"
 	"github.com/andornaut/faramir/internal/secretref"
@@ -232,8 +232,13 @@ func runLinkList(f linkFlags) int {
 		termui.Painted("STATE", paint.Key),
 	}}
 	for _, link := range links {
+		// Only a missing file is "not there". Any other error, permission denied
+		// on a parent above all, says nothing about the file, and this runs
+		// unprivileged.
 		state, colour := "present", paint.OK
-		if _, err := os.Stat(link.Path); err != nil {
+		if present, known := hostfs.Probe(link.Path); !known {
+			state, colour = "unknown", paint.Dim
+		} else if !present {
 			state, colour = "not there", paint.Bad
 		}
 		key := link.Key
@@ -261,7 +266,7 @@ func installOptions(dir string) install.Options {
 		// What [server] agent_user records, for the reason recordedOperator gives:
 		// these re-render the agent's rule files, and the account those are
 		// rendered against is not theirs to choose.
-		AgentUser: recordedOperator(filepath.Join(dir, "config.toml")),
+		AgentUser: recordedOperator(config.FileIn(dir)),
 		// No per-step log: these commands are asked one question -- did the thing
 		// I named happen -- and the answer is the line they print. The steps are in
 		// the --json document for a caller that wants them.

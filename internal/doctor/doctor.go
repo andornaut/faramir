@@ -11,6 +11,7 @@ import (
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/runcmd"
+	"github.com/andornaut/faramir/internal/steps"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -86,7 +87,7 @@ func Diagnose(opts Options) Report {
 		opts.ConfigDir = hostlayout.DefaultConfigDir
 	}
 	var report Report
-	configFile := filepath.Join(opts.ConfigDir, "config.toml")
+	configFile := config.FileIn(opts.ConfigDir)
 
 	// Before anything is examined. Every check that asks what the agent account
 	// can reach answers about a uid that is not there, so the report reads as an
@@ -201,7 +202,7 @@ var checks = []check{
 	{name: "agent code", needsRoot: true, run: func(r *Report, c checkCtx) { diagnoseAgentCode(r, c.opts) }},
 	{name: "agent rule drift", needsRoot: true,
 		run: func(r *Report, c checkCtx) { diagnoseAgentRuleDrift(r, c.opts) }},
-	{name: "linked files", needsRoot: true,
+	{name: steps.LabelLinkedFiles, needsRoot: true,
 		run: func(r *Report, c checkCtx) { diagnoseLinkedFiles(r, c.opts, c.cfg) }},
 	{name: "install rules", needsRoot: true,
 		run: func(r *Report, c checkCtx) { diagnoseInstallRules(r, c.opts) }},

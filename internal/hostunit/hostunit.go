@@ -48,6 +48,19 @@ var Sockets = []string{
 // other word it prints counts as down.
 const Active = "active"
 
+// State is what `systemctl is-active` says of unit, and whether systemctl
+// answered at all. It prints the state even when it exits non-zero, so an
+// empty answer is systemctl itself having failed, as is an error alongside
+// "active".
+func State(unit string) (string, bool) {
+	out, err := runcmd.OutputWithin(30*time.Second, "systemctl", "is-active", unit)
+	state := strings.TrimSpace(out)
+	if state == "" || (err != nil && state == Active) {
+		return state, false
+	}
+	return state, true
+}
+
 // Services in restart order. The keeper leads: it decrypts the file list the
 // broker is served, so the other order fetches the old value set again.
 var Services = []string{

@@ -142,28 +142,10 @@ func OmittedFrom(agent string, layout hostlayout.Layout, path string) bool {
 // is systemd's constant rather than an install's choice.
 const stateDirRoot = "/var/lib"
 
-// linkedPaths is the files [[secret.link]] entries name, as literal paths,
-// sorted and deduplicated so two links into one file do not change what is
-// written. An empty entry is dropped rather than rendered: in the plugin
-// hosts' spelling it is a prefix of every path.
-func linkedPaths(layout hostlayout.Layout) []string {
-	seen := make(map[string]bool, len(layout.Links))
-	out := make([]string, 0, len(layout.Links))
-	for _, link := range layout.Links {
-		path := link.Path
-		if path == "" || seen[path] {
-			continue
-		}
-		seen[path] = true
-		out = append(out, path)
-	}
-	sort.Strings(out)
-	return out
-}
-
 // blockedRulePaths is the files and directories [[secret.block]] entries name,
-// as literal paths, sorted and deduplicated the way linkedPaths are. Named for
-// the rules it renders, BlockedPaths being what lists the entries themselves.
+// as literal paths, sorted and deduplicated so two entries naming one file do
+// not change what is written. Named for the rules it renders, BlockedPaths
+// being what lists the entries themselves.
 //
 // Each renders the path and the subtree under it, whether or not it is a
 // directory today, so naming ~/.ssh blocks what is under it rather than only
@@ -276,9 +258,7 @@ func claudeRules(layout hostlayout.Layout) []string {
 		add(dir)
 	}
 	// Every declared path, refused or linked. blockedRulePaths is not read here:
-	// a blocked path is a declared path, so the catalogue has already named it,
-	// and the twin that loop existed to add is what this renderer no longer
-	// writes.
+	// a blocked path is a declared path, so the catalogue has already named it.
 	for _, path := range PerInstallPaths(layout) {
 		add(path)
 	}

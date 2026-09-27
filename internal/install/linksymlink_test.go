@@ -20,12 +20,9 @@ func TestALinkedSymlinkDerivesTheSpellingThatWasTyped(t *testing.T) {
 	link, target := linkedFile(t)
 	dir := layouttest.BlockConfigDir(t, "")
 
-	opts, derived, err := withLinkDerivation(Options{ConfigDir: dir}, dir, link,
+	opts, derived := withLinkDerivation(Options{ConfigDir: dir}, dir, installedBlocked(t, dir), link,
 		config.Link{Ref: "npm/token", Path: target, Type: "text", Strict: true})
 
-	if err != nil {
-		t.Fatal(err)
-	}
 	if !derived.written {
 		t.Fatalf("derived = %+v, want the typed spelling written", derived)
 	}
@@ -63,12 +60,9 @@ func TestALinkNamingTheFileDerivesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opts, derived, err := withLinkDerivation(Options{ConfigDir: dir}, dir, path,
+	opts, derived := withLinkDerivation(Options{ConfigDir: dir}, dir, installedBlocked(t, dir), path,
 		config.Link{Ref: "npm/token", Path: path, Type: "text"})
 
-	if err != nil {
-		t.Fatal(err)
-	}
 	if derived.entry.Path != "" || derived.written {
 		t.Errorf("derived = %+v, want nothing", derived)
 	}
@@ -91,12 +85,9 @@ func TestATypedSpellingInsideAnEnrolledTreeIsNotDerived(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opts, derived, err := withLinkDerivation(Options{ConfigDir: dir}, dir, tree,
+	opts, derived := withLinkDerivation(Options{ConfigDir: dir}, dir, installedBlocked(t, dir), tree,
 		config.Link{Ref: "npm/token", Path: filepath.Join(tree, "npmrc"), Type: "text"})
 
-	if err != nil {
-		t.Fatal(err)
-	}
 	if derived.written {
 		t.Error("an entry was written over an enrolled tree")
 	}
@@ -117,14 +108,10 @@ func TestRemovingALinkTakesTheSpellingItDerived(t *testing.T) {
 	typed := "/home/op/.npmrc"
 	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\npath = \""+typed+"\"\n"+
 		"derived_from = \""+target+"\"\n\n[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
-	configFile := filepath.Join(dir, "config.toml")
 
-	opts, cascaded, _, err := withoutLinkDerivation(Options{ConfigDir: dir}, configFile,
+	opts, cascaded, _ := withoutLinkDerivation(Options{ConfigDir: dir}, installedBlocked(t, dir),
 		config.Link{Ref: "npm/token", Path: target, Type: "text"})
 
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(cascaded) != 1 || cascaded[0].Path != typed {
 		t.Errorf("cascaded = %+v, want the derived entry", cascaded)
 	}
@@ -140,16 +127,12 @@ func TestRemovingALinkTakesTheSpellingItDerived(t *testing.T) {
 // nothing leaves the list as it was.
 func TestRemovingALinkThatDerivedNothingRewritesNothing(t *testing.T) {
 	dir := layouttest.BlockConfigDir(t, "[[secret.block]]\npath = \"/etc/luks/volume.key\"\n")
-	configFile := filepath.Join(dir, "config.toml")
 
 	for _, removed := range []config.Link{
 		{},
 		{Ref: "npm/token", Path: "/home/op/dotfiles/npmrc", Type: "text"},
 	} {
-		opts, cascaded, _, err := withoutLinkDerivation(Options{ConfigDir: dir}, configFile, removed)
-		if err != nil {
-			t.Fatal(err)
-		}
+		opts, cascaded, _ := withoutLinkDerivation(Options{ConfigDir: dir}, installedBlocked(t, dir), removed)
 		if len(cascaded) != 0 {
 			t.Errorf("cascaded = %+v for %+v, want nothing", cascaded, removed)
 		}

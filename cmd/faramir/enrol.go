@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/enrol"
 	"github.com/andornaut/faramir/internal/hostlayout"
 )
@@ -61,7 +61,7 @@ func runEnrol(f enrolFlags, args []string) int {
 
 	opts := enrol.Options{
 		Dir:         firstArg(args),
-		AgentUser:   operatorFromConfig(filepath.Join(dir, "config.toml")),
+		AgentUser:   operatorFromConfig(config.FileIn(dir)),
 		ConfigDir:   dir,
 		ClientGroup: f.clientGroup,
 		Agents:      f.agents,

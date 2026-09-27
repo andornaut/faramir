@@ -310,7 +310,7 @@ func RefuseInstallDirs(dir, configDir string) error {
 // that covers everything. --client-group overrides the group it found, and is
 // not a way to enrol against no config at all.
 func (p *project) resolveGroup() error {
-	configFile := filepath.Join(p.opts.ConfigDir, "config.toml")
+	configFile := config.FileIn(p.opts.ConfigDir)
 	cfg, err := config.Load(configFile)
 	if err != nil {
 		// A dry run writes nothing, so it has no incomplete rules to prevent, and

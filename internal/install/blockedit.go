@@ -1,6 +1,7 @@
 package install
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -29,29 +30,91 @@ import (
 // trade: reading the value to redact it would mean holding it, and these are
 // the files whose value faramir should not hold.
 
-// blockedSteps is what an entry changes: the config it is written into,
-// and the agent rule files rendered from it. No grant, so no step for one.
+// entrySteps is what editing an entry runs: the config it is written into,
+// then afterConfig, then the agent rule files rendered from it. No grant, so no
+// step for one. A block edit runs these alone; a link edit adds its access
+// check between.
 //
 // Named for the entry rather than for the verb. In this package refuseX aborts
 // a run because of X (refuseSymlinks, agentcfg.RefuseUnwritable), so a name built the
 // same way would read as the opposite of what this is.
-func (r *runner) blockedSteps() []steps.Named {
-	return []steps.Named{
+func (r *runner) entrySteps(afterConfig ...steps.Named) []steps.Named {
+	out := []steps.Named{
 		{Name: steps.LabelResolveIDs, Run: r.resolveIDs},
 		{Name: steps.LabelPreconditions, Run: r.stepPreconditions},
 		{Name: steps.LabelConfig, Run: r.stepConfig},
-		{Name: steps.LabelAgentConfig, Run: r.stepAgentConfig},
+	}
+	out = append(out, afterConfig...)
+	return append(out,
+		steps.Named{Name: steps.LabelAgentConfig, Run: r.stepAgentConfig},
 		// And the same rules in every tree already enrolled. An enrolment writes
 		// this set into the tree as well as into the home, so without this the
 		// home carried the new entry and every tree carried the set from before
 		// it.
-		{Name: steps.LabelEnrolledTrees, Run: r.stepEnrolledTrees},
+		steps.Named{Name: steps.LabelEnrolledTrees, Run: r.stepEnrolledTrees},
 		// Both entry points, because an entry feeds both: the agents' rule files
-		// above, and the file the command guard reads here. Without this an add
-		// reported changed while half of what it declared, or all of it for a
+		// above, and the file the command guard reads here. Without this an edit
+		// would report changed while half of what it declared, or all of it for a
 		// command, waited for the next `init`.
-		{Name: "deny patterns", Run: r.stepDenyPatterns},
+		steps.Named{Name: steps.LabelDenyPatterns, Run: r.stepDenyPatterns},
+	)
+}
+
+// configEdit is config.toml as an entry edit found it, read once: the digest
+// the write is checked against and every entry the edit starts from come from
+// the same bytes, so nothing written between two reads can slip in unnoticed.
+type configEdit struct {
+	file string
+	// cfg is nil where there is no file, which is a first install.
+	cfg *config.Config
+}
+
+// openConfigEdit reads the config an entry edit rewrites and remembers it as it
+// stands, so the run can tell whether anything else changed it meanwhile.
+func openConfigEdit(opts *Options) (*configEdit, error) {
+	edit := &configEdit{file: config.FileIn(configDirOr(opts.ConfigDir))}
+	opts.configRead = true
+	body, err := os.ReadFile(edit.file)
+	if errors.Is(err, os.ErrNotExist) {
+		// Nothing there. The digest stays nil, which with configRead set is an
+		// expectation of its own: a file that appears before the write is another
+		// run that got there first.
+		return edit, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(body)
+	opts.configDigest = sum[:]
+	if edit.cfg, err = config.Parse(body, edit.file); err != nil {
+		return nil, err
+	}
+	return edit, nil
+}
+
+// links and blocked are the entries the install declares, none for a first
+// install.
+func (e *configEdit) links() []config.Link {
+	if e.cfg == nil {
+		return nil
+	}
+	return e.cfg.Secret.Links
+}
+
+func (e *configEdit) blocked() []config.BlockedPath {
+	if e.cfg == nil {
+		return nil
+	}
+	return e.cfg.Secret.Blocked
+}
+
+// entryRunner is the runner for an entry edit, carrying the installed sudo
+// grant so that rewriting the config does not drop it.
+func entryRunner(opts Options, edit *configEdit) (*runner, error) {
+	if err := keepInstalledGrant(&opts, edit); err != nil {
+		return nil, err
+	}
+	return newRunner(opts)
 }
 
 // AddBlockedPaths adds entries and re-renders the rule files that name them,
@@ -90,18 +153,11 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 	if err := refuseEnrolledTrees(configDir, blockedPathsOf(refused)); err != nil {
 		return Report{}, nil, err
 	}
-	configFile := filepath.Join(configDir, "config.toml")
-	if err := recordConfigDigest(&opts, configFile); err != nil {
+	edit, err := openConfigEdit(&opts)
+	if err != nil {
 		return Report{}, nil, err
 	}
-	existing, err := config.BaseBlocked(configFile)
-	if err != nil {
-		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
-	}
-	links, err := config.BaseLinks(configFile)
-	if err != nil {
-		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
-	}
+	existing, links := edit.blocked(), edit.links()
 	entries, added := foldBlocked(existing, refused)
 	// The targets of whichever of them are symlinks, folded after the entries
 	// that named them so that a target somebody also declared outright stays
@@ -117,14 +173,11 @@ func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool
 	derived, declared = splitDeclared(entries, derived)
 
 	opts.blocked, opts.blockedSet = entries, true
-	if err := keepInstalledGrant(&opts, configDir); err != nil {
-		return Report{}, nil, err
-	}
-	run, err := newRunner(opts)
+	run, err := entryRunner(opts, edit)
 	if err != nil {
 		return Report{}, nil, err
 	}
-	report, err := run.apply(run.blockedSteps())
+	report, err := run.apply(run.entrySteps())
 	if err != nil {
 		return report, nil, err
 	}
@@ -472,22 +525,15 @@ func sameBlock(a, b config.BlockedPath) bool {
 // holding one of those removes nothing rather than removing what it could and
 // failing halfway.
 func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []config.BlockedPath, error) {
-	configDir := configDirOr(opts.ConfigDir)
-	configFile := filepath.Join(configDir, "config.toml")
 	if len(refused) == 0 {
 		return Report{}, nil, errors.New("name a path or a command to stop refusing")
 	}
-	if err := recordConfigDigest(&opts, configFile); err != nil {
+	configDir := configDirOr(opts.ConfigDir)
+	edit, err := openConfigEdit(&opts)
+	if err != nil {
 		return Report{}, nil, err
 	}
-	existing, err := config.BaseBlocked(configFile)
-	if err != nil {
-		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
-	}
-	links, err := config.BaseLinks(configFile)
-	if err != nil {
-		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
-	}
+	existing, links := edit.blocked(), edit.links()
 	kept, removed, cascaded, retained := withoutBlocked(existing, refused, links)
 	for i, asked := range refused {
 		// Asked before anything is written, and only where no entry matched: an
@@ -502,14 +548,11 @@ func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []c
 	// kept is existing where nothing matched, so the steps below re-render what
 	// is already there and report no change.
 	opts.blocked, opts.blockedSet = kept, true
-	if err := keepInstalledGrant(&opts, configDir); err != nil {
-		return Report{}, nil, err
-	}
-	run, err := newRunner(opts)
+	run, err := entryRunner(opts, edit)
 	if err != nil {
 		return Report{}, nil, err
 	}
-	report, err := run.apply(run.blockedSteps())
+	report, err := run.apply(run.entrySteps())
 	// An install that declared what faramir already refuses has one rule left
 	// after taking its entry back. Said here rather than left to be inferred from
 	// the entry going away, which reads as the file becoming readable.
@@ -727,7 +770,7 @@ func builtInRuleError(configDir string, refused config.BlockedPath) error {
 
 // BlockedPaths is what the install declares, for `faramir block ls`.
 func BlockedPaths(configDir string) ([]config.BlockedPath, error) {
-	return config.BaseBlocked(filepath.Join(configDirOr(configDir), "config.toml"))
+	return config.BaseBlocked(config.FileIn(configDirOr(configDir)))
 }
 
 // blockedPathsOf is the path each entry names, skipping the command entries,

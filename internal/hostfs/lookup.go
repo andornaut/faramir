@@ -68,9 +68,9 @@ func SymlinkTarget(path string) (string, bool) {
 }
 
 // Probe is exists with a third answer: known is false when the question needs
-// more privilege than the caller has, which only happens under a dry run. "not
-// there" for a key behind a 0700 directory would read as a key about to be
-// regenerated.
+// more privilege than the caller has, as under a dry run or an unprivileged
+// listing. "not there" for a key behind a 0700 directory would read as a key
+// about to be regenerated.
 func Probe(path string) (present, known bool) {
 	switch _, err := os.Stat(path); {
 	case err == nil:

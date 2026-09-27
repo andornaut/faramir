@@ -213,7 +213,7 @@ func (o *Options) layout() (hostlayout.Layout, error) {
 		SshAgent: hostfs.LookPathOr("ssh-agent", "/usr/bin/ssh-agent"),
 		SshAdd:   hostfs.LookPathOr("ssh-add", "/usr/bin/ssh-add"),
 	}
-	layout.ConfigFile = filepath.Join(layout.ConfigDir, "config.toml")
+	layout.ConfigFile = config.FileIn(layout.ConfigDir)
 	// Beside the config, even inside the agent account's home: what keeps the
 	// operator out is the key's 0400 keeper ownership, owning the directory being
 	// permission to unlink the file rather than to read it. Following the config

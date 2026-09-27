@@ -25,10 +25,13 @@ func RuleLayout(configDir string) hostlayout.Layout {
 	if configDir == "" {
 		configDir = hostlayout.DefaultConfigDir
 	}
-	layout := hostlayout.Layout{
-		ConfigDir: configDir,
-		Links:     configuredLinks(configDir),
-		Blocked:   ConfiguredBlocked(configDir),
+	layout := hostlayout.Layout{ConfigDir: configDir}
+	// One read of the config for every field it supplies. A config that does not
+	// load leaves them empty, and the check that loads it reports why.
+	cfg, cfgErr := config.Load(config.FileIn(configDir))
+	if cfgErr == nil {
+		layout.Links = cfg.Secret.Links
+		layout.Blocked = cfg.Secret.Blocked
 	}
 	// The service accounts, read off the installed units the way `doctor` reads
 	// them, so a host that renamed one has its state directories rendered at the
@@ -42,8 +45,13 @@ func RuleLayout(configDir string) hostlayout.Layout {
 	// rendered in the spellings a shell expands to it, so a re-render that does
 	// not know the home writes fewer rules than the host carries and reports the
 	// difference as drift. Read from the config the install rendered from rather
-	// than from the caller, so the comparison is against what that file says.
-	layout.AgentUser = configuredAgentUser(configDir)
+	// than from the caller, so the comparison is against what that file says,
+	// and "" where it cannot be read: Dirs and the rule rendering both skip an
+	// empty one, so a home missing from both sides of the comparison is not
+	// drift.
+	if cfgErr == nil {
+		layout.AgentUser = cfg.Server.AgentUser
+	}
 
 	// The rest of what the shipped pattern file names, so a re-render of it can
 	// be compared with the installed one. Taken from the config where the config
@@ -53,7 +61,7 @@ func RuleLayout(configDir string) hostlayout.Layout {
 	// time and have no key of their own.
 	layout.BinDir, layout.LibexecDir = hostlayout.DefaultBinDir, hostlayout.DefaultLibexecDir
 	layout.LogDir = hostlayout.DefaultLogDir
-	if cfg, err := config.Load(filepath.Join(configDir, "config.toml")); err == nil {
+	if cfgErr == nil {
 		if cfg.Audit.LogPath != "" {
 			layout.LogDir = filepath.Dir(cfg.Audit.LogPath)
 		}
@@ -62,33 +70,11 @@ func RuleLayout(configDir string) hostlayout.Layout {
 	return layout
 }
 
-// configuredLinks is every link the install names, or nothing when the config
-// cannot be read: a config that does not load is reported by the check that
-// loads it.
-func configuredLinks(configDir string) []config.Link {
-	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
-	if err != nil {
-		return nil
-	}
-	return cfg.Secret.Links
-}
-
-// configuredBlocked is every blocked path the install names, on the same
-// terms as configuredLinks.
-// configuredAgentUser is [server] agent_user as the installed config records
-// it, and "" where the config cannot be read: Dirs and the rule
-// rendering both skip an empty one, so a home missing from both sides of the
-// comparison is not drift.
-func configuredAgentUser(configDir string) string {
-	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
-	if err != nil {
-		return ""
-	}
-	return cfg.Server.AgentUser
-}
-
+// ConfiguredBlocked is every blocked path the install names, or nothing when the
+// config cannot be read: a config that does not load is reported by the check
+// that loads it.
 func ConfiguredBlocked(configDir string) []config.BlockedPath {
-	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
+	cfg, err := config.Load(config.FileIn(configDir))
 	if err != nil {
 		return nil
 	}
