@@ -31,7 +31,12 @@ func newBrokerCmd() *cobra.Command {
 		Short:   "Run the secrets broker daemon",
 		GroupID: groupInternal,
 		Args:    noArgs,
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runBroker(f)) },
+		RunE: func(c *cobra.Command, args []string) error {
+			if f.check && f.parseOnly || f.check && f.showVersion || f.parseOnly && f.showVersion {
+				return usagef("--check, --parse-only and --version each do one thing; pass one")
+			}
+			return codeErr(runBroker(f))
+		},
 	}
 	c.Flags().BoolVar(&f.check, "check", false, "validate the config and exit")
 	// Whether a config parses, judged by the parser that will judge it later.

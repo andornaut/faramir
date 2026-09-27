@@ -39,7 +39,12 @@ func newAddCmd() *cobra.Command {
 		Long: "Creates NAME in the secrets directory, encrypted to the recipients in\n" +
 			".sops.yaml. The content is written in an editor on a tmpfs.",
 		Args: exactlyArgs(1, "one file name"),
-		RunE: func(c *cobra.Command, args []string) error { return codeErr(runAdd(f, args[0])) },
+		RunE: func(c *cobra.Command, args []string) error {
+			if f.from != "" && f.editor != "" {
+				return usagef("--from and --editor cannot be used together: --from opens no editor")
+			}
+			return codeErr(runAdd(f, args[0]))
+		},
 	}
 	c.Flags().StringVar(&f.editor, "editor", "", editorUsage)
 	c.Flags().StringVar(&f.from, "from", "", "encrypt this plaintext `FILE` instead of opening an editor")

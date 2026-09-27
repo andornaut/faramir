@@ -10,23 +10,18 @@ import (
 	"github.com/andornaut/faramir/internal/install"
 )
 
-type uninstallFlags struct {
-}
-
 func newUninstallCmd() *cobra.Command {
-	var f uninstallFlags
 	c := &cobra.Command{
-		Use:     "uninstall [options]",
+		Use:     "uninstall",
 		Short:   "Remove the install, keeping the age key, the secrets directory and the log",
 		GroupID: groupOperator,
 		Args:    noArgs,
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runUninstall(f)) },
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runUninstall()) },
 	}
 	return c
 }
 
-func runUninstall(f uninstallFlags) int {
-
+func runUninstall() int {
 	if !requireRoot("uninstall") {
 		return 1
 	}

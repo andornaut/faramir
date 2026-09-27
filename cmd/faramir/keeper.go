@@ -30,7 +30,12 @@ func newKeeperCmd() *cobra.Command {
 		Short:   "Run the keeper daemon, which holds the age key",
 		GroupID: groupInternal,
 		Args:    noArgs,
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runKeeper(f)) },
+		RunE: func(c *cobra.Command, args []string) error {
+			if f.check && f.showVersion {
+				return usagef("--check and --version each do one thing; pass one")
+			}
+			return codeErr(runKeeper(f))
+		},
 	}
 	c.Flags().BoolVar(&f.check, "check", false, "decrypt once and exit")
 	c.Flags().BoolVar(&f.showVersion, "version", false, "print the version and exit")

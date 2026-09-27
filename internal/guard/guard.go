@@ -299,12 +299,19 @@ const (
 		"any file on the host."
 )
 
+// emit writes the answer. An answer that could not be written exits 2, the
+// hooks' blocking status, like the other failures above: exiting 0 with nothing
+// on stdout reads as "allow, unchanged", which would pass a denied or unwrapped
+// command through.
 func emit(document map[string]any) int {
 	out, err := json.Marshal(document)
 	if err != nil {
-		return 0
+		fmt.Fprintf(os.Stderr, "faramir guard: %v\n", err)
+		return 2
 	}
-	_, _ = os.Stdout.Write(out)
-	_, _ = os.Stdout.Write([]byte("\n"))
+	if _, err := os.Stdout.Write(append(out, '\n')); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir guard: %v\n", err)
+		return 2
+	}
 	return 0
 }

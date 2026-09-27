@@ -71,7 +71,7 @@ func newReaderAddCmd() *cobra.Command {
 		Short: "Add a key that can decrypt the secret files",
 		Long: "Adds an age or ssh public key to .sops.yaml and re-encrypts every managed\n" +
 			"file to it.",
-		Args: exactlyArgs(1, "one age recipient"),
+		Args: exactlyArgs(1, "one age or ssh public key"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runReaderChange(f, args[0], true))
 		},
@@ -87,7 +87,7 @@ func newReaderRemoveCmd() *cobra.Command {
 		Short: "Remove a key, so it can no longer decrypt the secret files",
 		Long: "Removes the key from .sops.yaml and re-encrypts every managed file without\n" +
 			"it. Copies of the old ciphertext remain readable by that key.",
-		Args: exactlyArgs(1, "one age recipient"),
+		Args: exactlyArgs(1, "one age or ssh public key"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runReaderChange(f, args[0], false))
 		},

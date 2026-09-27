@@ -10,7 +10,7 @@ import "github.com/spf13/cobra"
 // protected credential store, so an agent reading "vault files are off limits"
 // and an operator running `faramir vault edit` mean the same thing by it. Not
 // sops, which is the format underneath; who may read them is `faramir
-// recipient`.
+// reader`.
 //
 // Minting a key is not here: three of the four ways a recipient arises mint
 // nothing -- another operator's key, a second host's own, a plugin's -- and the
