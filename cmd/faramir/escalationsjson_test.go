@@ -66,4 +66,20 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 			t.Errorf("stdout carries a listing for a broker that was not reached: %q", out)
 		}
 	})
+
+	// A broker that refused exits 1, as nothing waiting does, so the listing is
+	// the only thing telling the two apart and a refusal must print none.
+	t.Run("refused", func(t *testing.T) {
+		out, code := testio.CaptureStdout(t, func() int {
+			return listEscalations(socktest.AnsweringBroker(t, map[string]any{
+				"error": map[string]any{"message": "forbidden"},
+			}), true, termui.Palette{})
+		})
+		if code != 1 {
+			t.Errorf("code = %d, want 1 for a refusal", code)
+		}
+		if out != "" {
+			t.Errorf("stdout carries a listing for a refused request: %q", out)
+		}
+	})
 }

@@ -1,56 +1,29 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/andornaut/faramir/internal/brokerclient"
-	"github.com/andornaut/faramir/internal/fserr"
-	"github.com/andornaut/faramir/internal/sockutil"
-	"github.com/andornaut/faramir/internal/version"
 )
 
 // send performs one request/response round trip. prog is the subcommand the
 // caller typed, so a diagnostic reads `faramir <cmd>:` like the rest.
 // Everything on this side of the socket has already been redacted.
 func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) int {
-	wait := brokerclient.ResponseWait(request)
-	request["version"] = version.Version
-	conn, err := (&net.Dialer{Timeout: brokerclient.DialWait}).DialContext(
-		context.Background(), "unix", socketPath)
+	conn, err := brokerclient.Dial(socketPath, brokerclient.DialWait, 1<<26)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, fserr.At(socketPath, err))
-		return brokerclient.ExitUnavailable
-	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(wait))
-
-	if err := sockutil.Send(conn, request); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, err)
-		return brokerclient.ExitUnavailable
+		return brokerclient.FailureCode(err)
 	}
-	// The write half stays open, though nothing more is sent down it. It is what
-	// tells the broker this caller is still here: a run is killed when its
-	// caller's connection goes, and a half-close would read as one, so every
-	// brokered command would die the moment it started.
-	line, err := sockutil.ReadLine(conn, 1<<26)
-	if errors.Is(err, os.ErrDeadlineExceeded) {
-		// Named apart from a close: the socket is listening and nothing behind it
-		// answered, which is a broker that did not come up rather than one that
-		// refused.
-		fmt.Fprintf(os.Stderr, "faramir %s: no answer from the broker within %s\n", prog, wait)
-		return brokerclient.ExitUnavailable
-	}
-	if err != nil || len(line) == 0 {
-		fmt.Fprintf(os.Stderr, "faramir %s: broker closed the connection without responding\n", prog)
-		return brokerclient.ExitUnavailable
+	defer conn.Close()
+	line, err := conn.Exchange(request, brokerclient.ResponseWait(request))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, err)
+		return brokerclient.FailureCode(err)
 	}
 
 	var response struct {

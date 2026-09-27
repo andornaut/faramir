@@ -27,7 +27,7 @@ func (r *Redactor) Feed(text string) string {
 	buf = append(buf, r.rawBytes...)
 	buf = append(buf, text...)
 	r.rawBytes = nil
-	complete, tail := splitIncompleteTail(buf)
+	complete, tail := SplitIncompleteTail(buf)
 	r.rawBytes = tail
 	if len(complete) == 0 {
 		return ""
@@ -59,11 +59,11 @@ func (r *Redactor) Flush() string {
 	return out
 }
 
-// splitIncompleteTail splits buf into the leading bytes that decode to whole
+// SplitIncompleteTail splits buf into the leading bytes that decode to whole
 // runes and a trailing remainder that begins a multibyte rune buf cut short. A
 // lead byte whose sequence does not fit in buf is held; an outright invalid byte
 // is left in complete so it is replaced now rather than held forever.
-func splitIncompleteTail(buf []byte) (complete, tail []byte) {
+func SplitIncompleteTail(buf []byte) (complete, tail []byte) {
 	for i := len(buf) - 1; i >= 0 && i >= len(buf)-utf8.UTFMax; i-- {
 		b := buf[i]
 		if b < utf8.RuneSelf {

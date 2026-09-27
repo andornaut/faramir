@@ -172,6 +172,33 @@ func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 	}
 }
 
+// A chunk boundary never falls inside a character. Each half of a split one is
+// an invalid byte sequence, which the broker decodes as U+FFFD, so a value
+// spelled with that character would match in neither chunk. A run of
+// three-byte characters with no newline puts a character across every cut.
+func TestAChunkIsNeverCutThroughACharacter(t *testing.T) {
+	broker := newStubBroker(t)
+
+	input := strings.Repeat("€", 3*chunkBytes)
+	var out bytes.Buffer
+	if err := RedactStream(broker.path, strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(broker.Sizes()) < 2 {
+		t.Fatalf("expected the input to be split, got %d request(s)", len(broker.Sizes()))
+	}
+	if out.String() != input {
+		t.Fatalf("output differs from input: %d U+FFFD in the output",
+			strings.Count(out.String(), "�"))
+	}
+	for i, size := range broker.Sizes() {
+		if size > chunkBytes {
+			t.Errorf("chunk %d carried %d bytes of text, over the %d-byte budget",
+				i, size, chunkBytes)
+		}
+	}
+}
+
 // Every chunk of one stream goes down one connection, and every chunk but the
 // last says another follows.
 //

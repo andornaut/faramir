@@ -1,12 +1,10 @@
 package doctor
 
 import (
-	"context"
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,14 +12,13 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/asaccount"
+	"github.com/andornaut/faramir/internal/brokerclient"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/runcmd"
-	"github.com/andornaut/faramir/internal/sockutil"
-	"github.com/andornaut/faramir/internal/version"
 )
 
 // diagnoseBrokered asks the broker to run something: the one place the answer
@@ -198,20 +195,14 @@ func diagnoseRedaction(report *Report, opts Options, cfg *config.Config) {
 // refreshStore asks the running broker to re-read the managed store, the same
 // op `faramir vault` sends, and returns why it did not, empty on success.
 func refreshStore(socketPath string) string {
-	conn, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(
-		context.Background(), "unix", socketPath)
+	conn, err := brokerclient.Dial(socketPath, 2*time.Second, 1<<20)
 	if err != nil {
-		return fmt.Sprintf("the broker could not be reached at %s: %v", socketPath, err)
+		return fmt.Sprintf("the broker could not be reached: %v", err)
 	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Minute))
-	if err := sockutil.Send(conn, map[string]any{
-		"op": "refresh", "version": version.Version}); err != nil {
-		return fmt.Sprintf("the refresh could not be sent: %v", err)
-	}
-	line, err := sockutil.ReadLine(conn, 1<<20)
-	if err != nil || len(line) == 0 {
-		return "the broker did not answer the refresh"
+	defer conn.Close()
+	line, err := conn.Exchange(map[string]any{"op": "refresh"}, 10*time.Minute)
+	if err != nil {
+		return fmt.Sprintf("the broker did not answer the refresh: %v", err)
 	}
 	var response struct {
 		Error *struct {

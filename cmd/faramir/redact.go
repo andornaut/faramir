@@ -27,7 +27,7 @@ import (
 // read by nothing said this command had a raw response to show.
 func newRedactCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:     "redact [options] [-- command [args...]]",
+		Use:     "redact [-- command [args...]]",
 		Short:   "Remove secrets from text, or from a command's output",
 		GroupID: groupAgent,
 		RunE: func(c *cobra.Command, child []string) error {
@@ -36,7 +36,7 @@ func newRedactCmd() *cobra.Command {
 			}
 			if err := brokerclient.RedactStreamLive(socketDefault(), os.Stdin, os.Stdout); err != nil {
 				fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
-				return codeErr(streamFailure(err))
+				return codeErr(brokerclient.FailureCode(err))
 			}
 			return nil
 		},
@@ -88,17 +88,7 @@ func redactChild(socketPath string, argv []string) int {
 	// becomes a failure: withheld output must not read as a command that printed
 	// nothing. wrap.sh does the same.
 	if streamErr != nil && code == 0 {
-		code = streamFailure(streamErr)
+		code = brokerclient.FailureCode(streamErr)
 	}
 	return code
-}
-
-// streamFailure is the status a redaction that did not finish exits with:
-// ExitUnavailable for a broker that could not be reached, as `faramir run` and
-// `faramir refs` give, and 1 for anything else.
-func streamFailure(err error) int {
-	if _, ok := errors.AsType[*brokerclient.UnavailableError](err); ok {
-		return brokerclient.ExitUnavailable
-	}
-	return 1
 }

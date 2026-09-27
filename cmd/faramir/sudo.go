@@ -1,8 +1,8 @@
 package main
 
-// faramir sudo ls, approve and deny: the channel an escalation is answered
-// on. Three commands rather than one with flags, mirroring the ops the broker
-// speaks: `escalations` lists, `approve` says yes, `deny` says no.
+// faramir sudo ls, watch, approve and reject: the channel an escalation is
+// answered on. Commands rather than one with flags, over the two ops the
+// broker speaks: `escalations` lists, and `answer` carries a yes or a no.
 //
 // Root, and root only. The coding agent runs as the operator, so an escalation
 // the operator could give is one the agent could give itself; the broker checks
@@ -88,12 +88,12 @@ func newSudoListCmd() *cobra.Command {
 			"broker cannot be reached.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			if !requireRootToAnswer("sudo ls") {
-				return codeErr(1)
-			}
 			paint, bad := termui.PaletteFor("sudo ls", when)
 			if bad != 0 {
 				return codeErr(bad)
+			}
+			if !requireRootToAnswer("sudo ls") {
+				return codeErr(1)
 			}
 			return codeErr(listEscalations(socketDefault(), o.json, paint))
 		},
@@ -116,12 +116,12 @@ func newSudoWatchCmd() *cobra.Command {
 			"and prints how each approved run ended. Run it where the agent cannot type.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			if !requireRootToAnswer("sudo watch") {
-				return codeErr(1)
-			}
 			paint, bad := termui.PaletteFor("sudo watch", when)
 			if bad != 0 {
 				return codeErr(bad)
+			}
+			if !requireRootToAnswer("sudo watch") {
+				return codeErr(1)
 			}
 			return codeErr(watchEscalations(socketDefault(), paint))
 		},
@@ -170,15 +170,15 @@ func newRejectCmd() *cobra.Command {
 		Short: "Refuse one escalation by id, or the one that is waiting",
 		Args:  atMostOneArg("id"),
 		RunE: func(c *cobra.Command, args []string) error {
+			paint, bad := termui.PaletteFor("sudo reject", when)
+			if bad != 0 {
+				return codeErr(bad)
+			}
 			if !requireRootToAnswer("sudo reject") {
 				return codeErr(1)
 			}
 			if len(args) == 1 && args[0] != "" {
 				return codeErr(answer("sudo reject", socketDefault(), args[0], false, o.json))
-			}
-			paint, bad := termui.PaletteFor("sudo reject", when)
-			if bad != 0 {
-				return codeErr(bad)
 			}
 			return codeErr(rejectWaiting(socketDefault(), o.json, paint))
 		},
@@ -192,8 +192,8 @@ func newRejectCmd() *cobra.Command {
 // named. It prints what it refused first, so the scrollback says which command
 // was turned down.
 func rejectWaiting(socketPath string, asJSON bool, paint termui.Palette) int {
-	questions, code := waiting("sudo reject", socketPath, "rejected")
-	if questions == nil {
+	questions, code, _ := waiting("sudo reject", socketPath, "rejected")
+	if len(questions) == 0 {
 		return code
 	}
 	// Not under --json, where the answer is the whole output and a question
@@ -204,30 +204,32 @@ func rejectWaiting(socketPath string, asJSON bool, paint termui.Palette) int {
 	return answer("sudo reject", socketPath, questions[0].ID, false, asJSON)
 }
 
-// waiting is the question outstanding, or nil and the status to exit with: 69
-// for a broker that could not be reached, 1 for nothing waiting. One question,
-// never a queue, so the caller indexes rather than loops.
-func waiting(prog, socketPath, verb string) ([]escalation.Question, int) {
+// waiting is the questions outstanding and the status to exit with: 0, or 1 for
+// nothing waiting. failed is a request that did not succeed, with the status it
+// exits with: 69 for a broker that could not be reached, 1 for one that
+// refused. One question, never a queue, so the caller indexes rather than
+// loops.
+func waiting(prog, socketPath, verb string) (questions []escalation.Question, code int, failed bool) {
 	questions, _, err := brokerclient.Escalations(socketPath, 0, "", "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, err)
-		return nil, brokerclient.ExitUnavailable
+		return nil, brokerclient.FailureCode(err), true
 	}
 	if len(questions) == 0 {
 		fmt.Fprintf(os.Stderr, "nothing waiting to be %s\n", verb)
-		return nil, 1
+		return nil, 1, false
 	}
-	return questions, 0
+	return questions, 0, false
 }
 
 // listEscalations reports what is waiting and returns, for a look rather than a
 // vigil. Non-zero on nothing waiting, so a script can tell the two apart.
 func listEscalations(socketPath string, asJSON bool, paint termui.Palette) int {
-	questions, code := waiting("sudo ls", socketPath, "approved")
+	questions, code, failed := waiting("sudo ls", socketPath, "approved")
 	if asJSON {
-		return listAsJSON(questions, code)
+		return listAsJSON(questions, code, failed)
 	}
-	if questions == nil {
+	if len(questions) == 0 {
 		return code
 	}
 	for _, question := range questions {
@@ -238,11 +240,11 @@ func listEscalations(socketPath string, asJSON bool, paint termui.Palette) int {
 
 // listAsJSON is the listing for a caller parsing stdout, carrying the same
 // status as the text form. Nothing waiting is an empty array rather than an
-// empty stdout, the status saying which it is; a broker that could not be
-// reached prints nothing at all, an empty array there saying the host is
-// quiet.
-func listAsJSON(questions []escalation.Question, code int) int {
-	if code == brokerclient.ExitUnavailable {
+// empty stdout, the status saying which it is. A request that failed, whether
+// the broker could not be reached or refused it, prints nothing at all: an
+// empty array there would say the host is quiet.
+func listAsJSON(questions []escalation.Question, code int, failed bool) int {
+	if failed {
 		return code
 	}
 	if questions == nil {
@@ -283,8 +285,11 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			// The cost is that `faramir init` restarts the broker, so an install ends
 			// a watcher and it has to be started again.
 			fmt.Fprintf(os.Stderr, "faramir sudo watch: %v\n", err)
-			fmt.Fprintln(os.Stderr, "faramir sudo watch: lost the broker; not reconnecting")
-			return brokerclient.ExitUnavailable
+			code := brokerclient.FailureCode(err)
+			if code == brokerclient.ExitUnavailable {
+				fmt.Fprintln(os.Stderr, "faramir sudo watch: lost the broker; not reconnecting")
+			}
+			return code
 		}
 		if finished != nil {
 			sudoprompt.PrintOutcome(*finished, paint)

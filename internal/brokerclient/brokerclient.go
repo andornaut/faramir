@@ -22,19 +22,17 @@ package brokerclient
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"net"
 	"os/exec"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
-	"github.com/andornaut/faramir/internal/sockutil"
-	"github.com/andornaut/faramir/internal/version"
+	"github.com/andornaut/faramir/internal/redact"
 )
 
 // chunkBytes is how much text one redact request carries. Well under the
@@ -42,6 +40,11 @@ import (
 // byte becomes six characters, so this cannot exceed it however badly it
 // encodes.
 const chunkBytes = 32 << 10
+
+// readBytes is the most one read adds to a chunk. Short of chunkBytes by the
+// longest incomplete character a flush can hold back, so a held tail plus a
+// full read still fits in one chunk.
+const readBytes = chunkBytes - utf8.UTFMax
 
 // idleFlushInterval bounds how long buffered output waits when a live stream
 // goes quiet below chunkBytes. Without it a backgrounded command that prints a
@@ -58,7 +61,13 @@ type streamer struct {
 	buf    []byte
 }
 
-func (s *streamer) pending() bool { return len(s.buf) > 0 }
+// pending is whether an idle flush would send anything. An incomplete
+// character alone is held rather than sent, so it arms no timer: a stream that
+// stalls mid-character would otherwise wake every idleFlushInterval for nothing.
+func (s *streamer) pending() bool {
+	complete, _ := redact.SplitIncompleteTail(s.buf)
+	return len(complete) > 0
+}
 
 // flush sends the pending bytes. more false is the last chunk, which releases
 // the tail the broker holds back.
@@ -68,8 +77,19 @@ func (s *streamer) flush(more bool) error {
 	if len(s.buf) == 0 && (more || !s.stream.open()) {
 		return nil
 	}
-	text := string(s.buf)
-	s.buf = s.buf[:0]
+	// A chunk cut through a multibyte character would reach the broker as two
+	// invalid halves, each replaced by U+FFFD, and a value spelled with that
+	// character would match in neither. The incomplete tail waits for the next
+	// chunk; the last one sends it as it is.
+	send, tail := s.buf, []byte(nil)
+	if more {
+		send, tail = redact.SplitIncompleteTail(s.buf)
+		if len(send) == 0 {
+			return nil
+		}
+	}
+	text := string(send)
+	s.buf = append(s.buf[:0], tail...)
 	redacted, err := s.stream.send(text, more)
 	if err != nil {
 		return fmt.Errorf("withheld %d byte(s) that could not be redacted, "+
@@ -151,7 +171,7 @@ func ChildExitCode(err error) int {
 // buffering to be able to withhold them would mean an unbounded buffer and no
 // incremental output. A failure shows as output that stops early.
 func RedactStream(socketPath string, in io.Reader, out io.Writer) error {
-	reader := bufio.NewReaderSize(in, chunkBytes)
+	reader := bufio.NewReaderSize(in, readBytes)
 	s := &streamer{stream: &redactConn{socketPath: socketPath}, out: out}
 	defer s.stream.close()
 
@@ -174,7 +194,7 @@ func RedactStream(socketPath string, in io.Reader, out io.Writer) error {
 // goroutine parked on the send, and one still parked in ReadSlice ends with the
 // process.
 func RedactStreamLive(socketPath string, in io.Reader, out io.Writer) error {
-	reader := bufio.NewReaderSize(in, chunkBytes)
+	reader := bufio.NewReaderSize(in, readBytes)
 	s := &streamer{stream: &redactConn{socketPath: socketPath}, out: out}
 	defer s.stream.close()
 
@@ -227,15 +247,14 @@ func RedactStreamLive(socketPath string, in io.Reader, out io.Writer) error {
 // writes no audit record.
 type redactConn struct {
 	socketPath string
-	conn       net.Conn
-	lines      *sockutil.LineReader
+	conn       *Conn
 }
 
 func (rc *redactConn) open() bool { return rc.conn != nil }
 
 func (rc *redactConn) close() {
 	if rc.conn != nil {
-		_ = rc.conn.Close()
+		rc.conn.Close()
 		rc.conn = nil
 	}
 }
@@ -244,32 +263,21 @@ func (rc *redactConn) close() {
 // pipelined.
 func (rc *redactConn) send(text string, more bool) (string, error) {
 	if rc.conn == nil {
-		conn, err := (&net.Dialer{Timeout: DialWait}).DialContext(
-			context.Background(), "unix", rc.socketPath)
+		conn, err := Dial(rc.socketPath, DialWait, 1<<26)
 		if err != nil {
-			return "", &UnavailableError{err}
+			return "", err
 		}
-		rc.conn, rc.lines = conn, sockutil.NewLineReader(conn, 1<<26)
+		rc.conn = conn
 	}
-	// Per chunk, and refreshed for each: a redact runs no command, so an answer
-	// that has not arrived by now is not coming. The deadline covers the write as
-	// well.
-	_ = rc.conn.SetDeadline(time.Now().Add(quickWait))
-	request := map[string]any{"op": "redact", "text": text, "version": version.Version}
+	request := map[string]any{"op": "redact", "text": text}
 	if more {
 		request["more"] = true
 	}
-	if err := sockutil.Send(rc.conn, request); err != nil {
-		return "", err
-	}
-	line, err := rc.lines.Next()
+	// Per chunk, and refreshed for each: a redact runs no command, so an answer
+	// that has not arrived by now is not coming.
+	line, err := rc.conn.Exchange(request, quickWait)
 	if err != nil {
-		// Named, not flattened: an oversized request and a reset connection want
-		// different fixes.
-		return "", fmt.Errorf("reading the response: %w", err)
-	}
-	if len(line) == 0 {
-		return "", errors.New("broker closed the connection without responding")
+		return "", err
 	}
 	var response struct {
 		Output string `json:"output"`
@@ -359,30 +367,12 @@ func ExitFor(code string) int {
 // open on purpose, and a caller that can proceed without the broker gives up
 // on the dial sooner.
 func roundTrip(socketPath string, request map[string]any, dialWait, timeout time.Duration) ([]byte, error) {
-	request["version"] = version.Version
-	conn, err := (&net.Dialer{Timeout: dialWait}).DialContext(
-		context.Background(), "unix", socketPath)
+	conn, err := Dial(socketPath, dialWait, 1<<20)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", socketPath, err)
-	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(timeout))
-
-	if err := sockutil.Send(conn, request); err != nil {
 		return nil, err
 	}
-	// The write half stays open. The broker reads this connection for the whole
-	// of a run and takes an EOF as the caller having gone, killing the command;
-	// nothing on this socket half-closes, so there is no per-op rule to get
-	// wrong when an op becomes a long one.
-	line, err := sockutil.ReadLine(conn, 1<<20)
-	if err != nil {
-		return nil, fmt.Errorf("reading the response: %w", err)
-	}
-	if len(line) == 0 {
-		return nil, errors.New("the broker closed the connection without answering")
-	}
-	return line, nil
+	defer conn.Close()
+	return conn.Exchange(request, timeout)
 }
 
 // OpRun is the broker operation that runs a command, the one whose answer is
