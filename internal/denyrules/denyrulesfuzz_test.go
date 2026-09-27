@@ -53,8 +53,26 @@ func FuzzARuleRefusesEverySpellingAndNothingWider(f *testing.F) {
 		// A sibling whose name merely begins with this one is somebody else's
 		// file, and a rule that took it would refuse work nobody asked it to.
 		wider := path + "-sibling"
-		if read.MatchString("cat "+wider) && !strings.HasSuffix(path, "-sibling") {
+		if read.MatchString("cat "+wider) && !strings.HasSuffix(path, "-sibling") &&
+			!widerByDesign(home, path, "cat "+wider) {
 			t.Fatalf("the rule for %q also refuses `cat %s`", path, wider)
 		}
 	})
+}
+
+// widerByDesign is whether a rule refuses command for a reason the rules
+// accept rather than for being too wide: a trailing-* entry stands for every
+// name that starts with it, and the home-relative spelling matches its tail
+// under any root, a copy of the tree elsewhere included (see homeSpellings).
+func widerByDesign(home, path, command string) bool {
+	if _, isPrefix := TrailingPrefix(path); isPrefix {
+		return true
+	}
+	for _, spelling := range homeSpellings(home, path) {
+		if strings.HasPrefix(spelling, pathStart) &&
+			regexp.MustCompile(spelling+`(?:/|`+pathEnd+`)`).MatchString(command) {
+			return true
+		}
+	}
+	return false
 }

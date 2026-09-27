@@ -19,5 +19,18 @@ chown -R tester:tester "$cg"
 echo $$ >"$cg/cgroup.procs"
 
 cd /work
-exec setpriv --reuid=tester --regid=tester --init-groups \
-  env HOME=/home/tester GOCACHE=/cache/go-build GOMODCACHE=/go/pkg/mod "$@"
+as_tester=(setpriv --reuid=tester --regid=tester --init-groups
+  env HOME=/home/tester GOCACHE=/cache/go-build GOMODCACHE=/go/pkg/mod)
+[ -d /host-out ] || exec "${as_tester[@]}" "$@"
+
+# /out is written by tester, whose uid need not be the caller's, so it is a
+# directory here and its contents go to the caller's directory afterwards, owned
+# by the caller. Whatever the command's status: a failing fuzz run is the one
+# that wrote a crasher.
+mkdir -p /out
+chown tester:tester /out
+status=0
+"${as_tester[@]}" "$@" || status=$?
+chown -R "$FARAMIR_OUT_OWNER" /out
+cp -a /out/. /host-out/
+exit "$status"

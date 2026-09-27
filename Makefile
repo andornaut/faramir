@@ -9,8 +9,8 @@ PREFIX    ?= /usr/local
 BINPREFIX ?= $(PREFIX)/bin
 BIN := bin
 # One binary. The three daemons and the guard are subcommands of it; what
-# separates them is User= in the units, not main(). Only the guard's deny list
-# and wrap script go to /usr/local/libexec.
+# separates them is User= in the units, not main(). Only the guard's deny list,
+# the wrap script and the PAM helper go to /usr/local/libexec.
 LDFLAGS := -s -w
 # CGO_ENABLED=0 is the point of the port: a static binary with no libc and no
 # interpreter runs on a host whose Python is older than 3.11.
@@ -101,10 +101,13 @@ test: e2e
 
 ## coverage: the suite with the race detector, then the per-function report.
 ## CGO_ENABLED=1 for this recipe only: -race needs cgo, and the export above
-## turns it off for every other one because the shipped binary is static.
+## turns it off for every other one because the shipped binary is static. In
+## the container for the reason `make test` is; the profile is written to
+## $(BIN)/coverage.txt, the one directory the container can write.
 coverage:
-	CGO_ENABLED=1 go test -race -coverprofile=coverage.txt -covermode=atomic ./...
-	go tool cover -func=coverage.txt
+	CGO_ENABLED=1 FARAMIR_TEST_OUT=$(BIN) tests/go/run.sh sh -c \
+	  'go test -race -coverprofile=/out/coverage.txt -covermode=atomic ./... && \
+	   go tool cover -func=/out/coverage.txt'
 
 ## fuzz: run every fuzz target for FUZZTIME each, one package at a time.
 ##
@@ -119,17 +122,17 @@ coverage:
 ## seed nobody chose would stop a push over something the run before it also
 ## would not have found.
 ##
-## -run='^$' so only the fuzzing happens, and one target at a time because
-## `-fuzz` takes a single pattern. A crasher is written under the package's
-## testdata/fuzz, which is a regression seed worth committing.
+## In the container, which runs a copy of the checkout. A crasher comes back
+## through $(BIN)/fuzz and is copied under its package's testdata/fuzz, which is
+## a regression seed worth committing. The copy happens whether the run passed or
+## not, since a failing run is the one that wrote a crasher.
 FUZZTIME ?= 30s
 fuzz:
-	@set -e; \
-	  for target in $$(grep -rho '^func Fuzz[A-Za-z0-9_]*' --include='*_test.go' . | cut -c6-); do \
-	    pkg=$$(grep -rl "func $$target(" --include='*_test.go' . | head -1 | xargs dirname); \
-	    printf '%s %s (%s)\n' "$$pkg" "$$target" "$(FUZZTIME)"; \
-	    go test "$$pkg" -run='^$$' -fuzz="^$$target$$" -fuzztime=$(FUZZTIME) | tail -2; \
-	  done
+	@rm -rf $(BIN)/fuzz; \
+	  FARAMIR_TEST_OUT=$(BIN)/fuzz tests/go/run.sh tests/go/fuzz.sh $(FUZZTIME); \
+	  status=$$?; \
+	  cp -r $(BIN)/fuzz/. .; \
+	  exit $$status
 
 ## fmt: apply the import grouping and gofmt rules CI checks
 fmt:
@@ -150,7 +153,7 @@ lint: shellcheck
 
 ## shellcheck: the same shellcheck run CI does
 shellcheck:
-	shellcheck tests/*.sh tests/agents/*.sh tests/e2e/*.sh tests/go/*.sh agent/hooks/wrap.sh
+	shellcheck tests/agents/*.sh tests/e2e/*.sh tests/go/*.sh agent/hooks/wrap.sh
 
 ## e2e: the functional suites, against a real install in a container: systemd
 ## units, three uids, a sops store and an agent working in a project tree. Go
@@ -172,9 +175,13 @@ e2e:
 ## install: build, then copy the binaries to $(BINPREFIX). Only the copy runs
 ## as root: the build is a prerequisite, so the compiler runs as whoever typed
 ## it. This installs the programs; `faramir init` provisions the host.
+##
+## install rather than cp -p: the copy must be owned by root. The keeper, broker
+## and executor units run this file, so one owned by the builder is one the
+## agent's account can replace with a program that is handed the age key.
 install: build
 	sudo mkdir -p "$(DESTDIR)$(BINPREFIX)"
-	@sudo cp -pf $(BIN)/faramir "$(DESTDIR)$(BINPREFIX)/"
+	@sudo install -m 0755 -o root -g root $(BIN)/faramir "$(DESTDIR)$(BINPREFIX)/"
 
 ## uninstall: remove what install copied
 uninstall:
@@ -182,4 +189,3 @@ uninstall:
 
 clean:
 	rm -rf $(BIN) dist
-	rm -f coverage.txt
