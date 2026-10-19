@@ -18,8 +18,8 @@ func TestClosingDoesNotWaitOutAStreamIdlingBetweenChunks(t *testing.T) {
 	if _, err := s.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	served := make(chan error, 1)
-	go func() { served <- s.Serve() }()
+	served := make(chan struct{})
+	go func() { defer close(served); _ = s.Serve() }()
 	t.Cleanup(func() { _ = s.Close() })
 
 	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", s.Config.Server.SocketPath)
@@ -61,8 +61,8 @@ func TestClosingDoesNotWaitOutASilentPeer(t *testing.T) {
 	if _, err := s.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	served := make(chan error, 1)
-	go func() { served <- s.Serve() }()
+	served := make(chan struct{})
+	go func() { defer close(served); _ = s.Serve() }()
 	t.Cleanup(func() { _ = s.Close() })
 
 	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", s.Config.Server.SocketPath)

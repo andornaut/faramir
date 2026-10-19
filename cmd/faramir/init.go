@@ -66,9 +66,9 @@ func (f *initFlags) tunables() map[string]func() {
 // out means "keep what the install has". Zero is the unset signal, which is
 // why no tunable takes zero as a legal value.
 func clearUnset(c *cobra.Command, f *initFlags) {
-	for name, clear := range f.tunables() {
+	for name, reset := range f.tunables() {
 		if !c.Flags().Changed(name) {
-			clear()
+			reset()
 		}
 	}
 }
