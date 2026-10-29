@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Options is one run. Group is both what the tree is shared with and what is
@@ -56,7 +57,16 @@ type Options struct {
 	Account string
 	// Log receives one line per step, already formatted.
 	Log func(string)
+	// Progress, when set, receives the number of paths Share has walked so far,
+	// once every progressInterval. The walk visits every path in the tree, which
+	// is minutes for one holding agent worktrees, and prints nothing until it
+	// ends.
+	Progress func(walked int)
 }
+
+// progressInterval is how often Share reports how far the walk has got. A
+// variable so a test can report every path.
+var progressInterval = 5 * time.Second
 
 // Resolve is the absolute, symlink-free path of a directory to share. Chmod
 // and Chown follow a symlink while WalkDir does not, so a symlinked argument
@@ -144,7 +154,7 @@ func Share(opts Options) (Result, error) {
 	if err := os.Chmod(dir, rootMode); err != nil {
 		return result, err
 	}
-	changed, err := shareTree(dir, gid, keep, sticky)
+	changed, err := shareTree(dir, gid, keep, sticky, opts.Progress)
 	result.Changed += changed
 	if err != nil {
 		return result, err
@@ -190,17 +200,23 @@ func within(home, dir string) bool {
 //
 // os.Lchown is already symlink-safe; it is inside the root for the confinement
 // rather than for the follow.
-func shareTree(root string, gid int, keep, sticky map[string]bool) (int, error) {
+func shareTree(root string, gid int, keep, sticky map[string]bool, progress func(int)) (int, error) {
 	dir, err := os.OpenRoot(root)
 	if err != nil {
 		return 0, err
 	}
 	defer func() { _ = dir.Close() }()
 
-	changed := 0
+	changed, walked := 0, 0
+	reported := time.Now()
 	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		walked++
+		if progress != nil && time.Since(reported) >= progressInterval {
+			progress(walked)
+			reported = time.Now()
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -217,23 +233,31 @@ func shareTree(root string, gid int, keep, sticky map[string]bool) (int, error) 
 		}
 		// Asked before either operation and counted once: this is one path whether
 		// it needs a regroup, a widen, or both.
-		altered := wouldRegroup(info, gid)
+		regroup := wouldRegroup(info, gid)
 		want := stickyIf(groupShared(info.Mode()), info.IsDir() && sticky[rel])
-		if !keep[rel] && chmodBits(want) != chmodBits(info.Mode()) {
-			altered = true
-		}
-		if altered {
+		widen := !keep[rel] && chmodBits(want) != chmodBits(info.Mode())
+		if regroup || widen {
 			changed++
 		}
-		if err := dir.Lchown(rel, -1, gid); err != nil {
-			return err
+		// A path already right is left alone rather than re-applied: a re-run
+		// over an enrolled tree is then a stat per path instead of three
+		// syscalls.
+		if regroup {
+			if err := dir.Lchown(rel, -1, gid); err != nil {
+				return err
+			}
 		}
 		// Regrouped but not widened: its writer chose that mode, and widening it
 		// here is a mode the writer narrows again on the next run.
 		if keep[rel] {
 			return nil
 		}
-		return dir.Chmod(rel, want)
+		// After a regroup whatever the mode said: chown clears setuid and setgid
+		// on a file, and this chmod is what restores them.
+		if widen || regroup {
+			return dir.Chmod(rel, want)
+		}
+		return nil
 	})
 	return changed, err
 }

@@ -86,6 +86,15 @@ func (r *Report) Skip(name, why string) {
 	}
 }
 
+// Progress logs how far a long step has got, and records nothing: the step
+// records its outcome once it ends. A walk over a large tree runs for minutes,
+// and without this a run in progress reads as one that hung.
+func (r *Report) Progress(name, detail string) {
+	if r.log != nil {
+		r.log(fmt.Sprintf("%-9s %s: %s", "working", name, detail))
+	}
+}
+
 // Warnf records something that installs cleanly and then does not work.
 func (r *Report) Warnf(format string, args ...any) {
 	r.Warnings = append(r.Warnings, fmt.Sprintf(format, args...))

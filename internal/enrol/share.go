@@ -38,6 +38,9 @@ func (p *project) shareTree() error {
 	result, err := sharetree.Share(sharetree.Options{
 		Dir: p.opts.Dir, Operator: p.opts.AgentUser, Group: p.report.ClientGroup,
 		Keep: p.keepModes(),
+		Progress: func(walked int) {
+			p.report.Progress("share tree", fmt.Sprintf("%s, %d path(s) so far", p.opts.Dir, walked))
+		},
 	})
 	if err != nil {
 		return fmt.Errorf("%s: %w", p.opts.Dir, err)

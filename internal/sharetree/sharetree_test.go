@@ -4,7 +4,9 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // "g+rwX": a directory needs group execute to be entered, a file gets it only if
@@ -71,7 +73,7 @@ func TestShareTreeAppliesModesThroughout(t *testing.T) {
 	}
 
 	// -1 keeps the group, so no privilege is needed.
-	if _, err := shareTree(root, -1, map[string]bool{"kept.json": true}, nil); err != nil {
+	if _, err := shareTree(root, -1, map[string]bool{"kept.json": true}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(kept); err != nil {
@@ -180,7 +182,7 @@ func TestASharedPathIsCountedOnceHoweverManyThingsItNeeds(t *testing.T) {
 	}
 	// Both paths need both things: the group is not the one being shared with,
 	// and neither mode carries the group bits.
-	changed, err := shareTree(root, gid, nil, nil)
+	changed, err := shareTree(root, gid, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +198,7 @@ func TestKeepingTheGroupIsNotAChange(t *testing.T) {
 	if err := os.Chmod(root, 0o2770|os.ModeSetgid); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := shareTree(root, -1, nil, nil)
+	changed, err := shareTree(root, -1, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +253,7 @@ func TestDirectoriesHoldingAKeptFileAreSticky(t *testing.T) {
 
 	keep := map[string]bool{".claude/settings.json": true, ".mcp.json": true}
 	sticky := stickyDirs([]string{".claude/settings.json", ".mcp.json"})
-	if _, err := shareTree(root, -1, keep, sticky); err != nil {
+	if _, err := shareTree(root, -1, keep, sticky, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -315,10 +317,10 @@ func TestStickyIsNotAChangeOnASecondRun(t *testing.T) {
 	keep := map[string]bool{".claude/settings.json": true}
 	sticky := stickyDirs([]string{".claude/settings.json"})
 
-	if _, err := shareTree(root, -1, keep, sticky); err != nil {
+	if _, err := shareTree(root, -1, keep, sticky, nil); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := shareTree(root, -1, keep, sticky)
+	changed, err := shareTree(root, -1, keep, sticky, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,5 +366,76 @@ func TestKeptCountsTheFilesFoundNotTheList(t *testing.T) {
 	}
 	if result.Kept != 1 {
 		t.Errorf("Kept = %d, want 1: only settings.json is there to keep", result.Kept)
+	}
+}
+
+// A re-run over a shared tree changes nothing, so it calls nothing that would:
+// chown and chmod update ctime even when they set what is already there, and
+// one of each per path is minutes over a tree holding agent worktrees.
+func TestARerunLeavesASharedPathUntouched(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "notes.txt")
+	if err := os.WriteFile(file, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := shareTree(root, os.Getgid(), nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	before := ctimes(t, root, file)
+	// Past the kernel's coarse timestamp granularity, so a chmod in the second
+	// run shows as a later ctime rather than the same tick.
+	time.Sleep(50 * time.Millisecond)
+	if _, err := shareTree(root, os.Getgid(), nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	after := ctimes(t, root, file)
+	for path, was := range before {
+		if after[path] != was {
+			t.Errorf("%s was re-applied on a second run: ctime %v, then %v",
+				filepath.Base(path), was, after[path])
+		}
+	}
+}
+
+func ctimes(t *testing.T, paths ...string) map[string]time.Time {
+	t.Helper()
+	out := make(map[string]time.Time, len(paths))
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st := info.Sys().(*syscall.Stat_t)
+		out[path] = time.Unix(st.Ctim.Sec, st.Ctim.Nsec)
+	}
+	return out
+}
+
+// Progress counts every path the walk visits, symlinks included, and the last
+// report is the whole tree.
+func TestProgressCountsEveryPathWalked(t *testing.T) {
+	saved := progressInterval
+	progressInterval = 0
+	t.Cleanup(func() { progressInterval = saved })
+
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sub", "notes.txt"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("sub/notes.txt", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	var reported []int
+	if _, err := shareTree(root, -1, nil, nil, func(walked int) {
+		reported = append(reported, walked)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The root, link, sub and sub/notes.txt.
+	if len(reported) != 4 || reported[len(reported)-1] != 4 {
+		t.Errorf("reported %v, want 1 through 4: one per path walked", reported)
 	}
 }

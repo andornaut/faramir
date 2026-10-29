@@ -75,3 +75,20 @@ func TestDetailWithCountNamesOnlyWhatChanged(t *testing.T) {
 		})
 	}
 }
+
+// Progress is how far a step has got, logged while it runs. The step records its
+// own outcome when it ends, so a progress line recorded as well would put one
+// step in the document twice.
+func TestProgressIsLoggedAndNotRecorded(t *testing.T) {
+	var lines []string
+	var report Report
+	report.LogTo(func(line string) { lines = append(lines, line) })
+	report.Progress("share tree", "/tree, 4096 path(s) so far")
+
+	if len(lines) != 1 {
+		t.Fatalf("logged %d lines, want 1: %v", len(lines), lines)
+	}
+	if len(report.Steps) != 0 || report.Changed {
+		t.Errorf("progress was recorded: %+v", report)
+	}
+}
