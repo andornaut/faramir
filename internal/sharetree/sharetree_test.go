@@ -405,7 +405,10 @@ func ctimes(t *testing.T, paths ...string) map[string]time.Time {
 		if err != nil {
 			t.Fatal(err)
 		}
-		st := info.Sys().(*syscall.Stat_t)
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			t.Fatalf("%s: no Stat_t to read a ctime from", path)
+		}
 		out[path] = time.Unix(st.Ctim.Sec, st.Ctim.Nsec)
 	}
 	return out
