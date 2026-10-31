@@ -11,11 +11,8 @@ import (
 	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
-// Codex skips a hook it has not been told to trust and says nothing when it
-// does, so an unguarded Codex is indistinguishable from a guarded one except by
-// asking what it trusts. What these cover is the asking: the identity faramir
-// computes being the one Codex records, and each way a hook ends up loaded and
-// never run.
+// These tests cover Codex's recorded hook identity and each trust state that
+// prevents a configured hook from running.
 
 // The identities Codex 0.151.0 recorded for the two halves of an enrolment, as
 // the shipped assets render them at the default bin directory: matcher "*",

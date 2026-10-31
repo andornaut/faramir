@@ -11,11 +11,8 @@ import (
 	"github.com/andornaut/faramir/internal/hostlayout"
 )
 
-// Codex skips a hook it has not been told to trust and says nothing when it
-// does, so an unguarded Codex is indistinguishable from a guarded one except by
-// asking what it trusts. What these cover is the finding: each way a hook ends
-// up loaded and never run, told apart. The identity Codex records is
-// internal/codextrust's.
+// Codex skips untrusted hooks. These findings distinguish hooks awaiting review,
+// changed definitions and disabled hooks. Internal/codextrust computes identity.
 
 // Every way a hook that is installed does not run, and the one way it does.
 // Each of the three failures leaves Codex working normally and refusing
@@ -38,19 +35,19 @@ func TestReportCodexTrust(t *testing.T) {
 		{
 			name: "never trusted",
 			want: StatusFailed,
-			says: []string{"has not been told to trust", "skips them and says nothing"},
+			says: []string{"has not been told to trust", "skips them", "`/hooks`", "review and trust"},
 		},
 		{
 			name:  "trusted before the hook changed",
 			state: func(string) string { return "trusted_hash = \"sha256:0000\"\n" },
-			want:  StatusFailed, says: []string{"trusts a different hook"},
+			want:  StatusFailed, says: []string{"trusts a different hook", "`/hooks`", "review and trust"},
 		},
 		{
 			name: "trusted and turned off",
 			state: func(hash string) string {
 				return "trusted_hash = \"" + hash + "\"\nenabled = false\n"
 			},
-			want: StatusFailed, says: []string{"turned off", "enabled = false"},
+			want: StatusFailed, says: []string{"turned off", "enabled = false", "`/hooks`"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

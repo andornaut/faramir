@@ -138,22 +138,20 @@ func reportCodexTrust(report *Report, home string, trees []agentcfg.EnrolledTree
 	}
 	if len(untrusted) > 0 {
 		report.addf(label, StatusFailed, "Codex has not been told to trust %d "+
-			"hook(s) this install wrote, so it skips them and says nothing: %s. Nothing "+
-			"in those trees is refused or routed. Start Codex once in each and accept its "+
-			"trust prompt; no flag or config key does this",
+			"hook(s) this install wrote, so it skips them: %s. Open Codex in each affected "+
+			"project, run `/hooks`, and review and trust the listed hooks",
 			len(untrusted), strings.Join(untrusted, ", "))
 	}
 	if len(modified) > 0 {
 		report.addf(label, StatusFailed, "Codex trusts a different hook than "+
-			"the %d installed here, so it skips the one on disk: %s. A release that "+
-			"rewrites the hook causes this. Start Codex once in each and trust the hook "+
-			"again",
+			"the %d installed here, so it skips the changed hooks: %s. Open Codex in each "+
+			"affected project, run `/hooks`, and review and trust the listed hooks again",
 			len(modified), strings.Join(modified, ", "))
 	}
 	if len(disabled) > 0 {
 		report.addf(label, StatusFailed, "%d hook(s) this install wrote are turned "+
 			"off in %s, so Codex loads them and runs nothing: %s. Remove the "+
-			"`enabled = false` entry, or re-enable the hook from Codex",
+			"`enabled = false` entry, or review and re-enable the hook in Codex's `/hooks`",
 			len(disabled), configFile, strings.Join(disabled, ", "))
 	}
 	if len(untrusted) > 0 || len(modified) > 0 || len(disabled) > 0 || len(unread) > 0 {

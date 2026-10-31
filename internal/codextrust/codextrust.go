@@ -1,11 +1,8 @@
 // Package codextrust reads what Codex has been told to trust: the identity
 // Codex computes for a hook, and the state it records against that identity.
 //
-// This is the one thing an enrolment installs that fails with no signal
-// anywhere else. Every other misconfiguration surfaces as a refusal, a failed
-// play or a degraded ref; a hook Codex has not been told to trust is skipped
-// without a word, so an unguarded Codex runs normally and looks like a guarded
-// one from every direction an operator would think to look.
+// Codex skips untrusted hooks and warns at startup to review them in /hooks.
+// The doctor check reports whether this install's hooks are trusted.
 //
 // The trigger is routine. The hook assets are templates: a release that adjusts
 // the guard invocation rewrites them, which changes the identity Codex hashes

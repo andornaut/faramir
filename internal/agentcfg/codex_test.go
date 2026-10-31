@@ -127,12 +127,7 @@ func TestCodexWritesOnePathUnderTwoRoots(t *testing.T) {
 	}
 }
 
-// Two conditions faramir cannot meet on this agent's behalf, and both fail
-// quietly: an untrusted hook is skipped without a word, and a sandboxed Codex
-// is refused the broker socket, which withholds every command's output rather
-// than redacting it. Neither is something a later run can check, so each has to
-// be said. At both scopes: the account-wide hook and a tree's are inert under
-// either.
+// Hook trust and broker socket access require operator action at both scopes.
 func TestCodexSaysWhatItCannotCheck(t *testing.T) {
 	target := Targets["codex"]
 	for _, tc := range []struct {
@@ -143,8 +138,8 @@ func TestCodexSaysWhatItCannotCheck(t *testing.T) {
 			t.Errorf("%s is enrolled without a word about either condition", tc.scope)
 			continue
 		}
-		if !strings.Contains(tc.note, "trust") {
-			t.Errorf("the note for %s does not say the hook has to be trusted: %q", tc.scope, tc.note)
+		if !strings.Contains(tc.note, "/hooks") || !strings.Contains(tc.note, "review and trust") {
+			t.Errorf("the note for %s lacks the native trust review action: %q", tc.scope, tc.note)
 		}
 		if !strings.Contains(tc.note, "sandbox") {
 			t.Errorf("the note for %s does not say Codex must run without its sandbox: %q",

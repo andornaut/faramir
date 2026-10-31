@@ -469,9 +469,9 @@ snap
 dt 'codex hook trust' | grep -qF "$CODEX_HOOK" \
   && ok "  and names the tree whose hook is inert" \
   || bad "  without naming $CODEX_HOOK: $(dt 'codex hook trust' | head -c 160)"
-dt 'codex hook trust' | grep -qi 'says nothing' \
-  && ok "  and says why nothing else would report it" \
-  || bad "  without saying it fails silently: $(dt 'codex hook trust' | head -c 160)"
+dt 'codex hook trust' | grep -qF '/hooks' \
+  && ok "  and directs the operator to /hooks" \
+  || bad "  without the /hooks recovery action: $(dt 'codex hook trust' | head -c 160)"
 
 # Granted, against the identity Codex computes for the hook that is installed.
 # This is the whole claim: faramir's hash of a hook it rendered is the one Codex

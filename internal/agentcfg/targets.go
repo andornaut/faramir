@@ -200,12 +200,11 @@ const (
 // Said on every run rather than only on the one that wrote the files, and left
 // out once Codex trusts every hook the run wrote, at both scopes: see
 // codextrust.NoteStands.
-// Both fail quietly, so neither is safe to leave to be discovered. Trust is
-// reported afterwards as well, `doctor` failing on a hook Codex will not run;
+// Trust is reported afterwards as well, `doctor` failing on a hook Codex will not run;
 // how Codex was started is not something a later run can know, and is said here
 // alone.
-const codexNote = "Codex skips a hook it has not been told to trust, silently, so nothing here is " +
-	"routed or refused until you start Codex once and trust this hook. Codex must also " +
+const codexNote = "Codex skips untrusted hooks. In each affected project, open `/hooks` in Codex " +
+	"to review and trust this hook. Codex must also " +
 	"run without its own sandbox (`codex --dangerously-bypass-approvals-and-sandbox`): " +
 	"sandboxed, it cannot reach the broker socket, and every command's output is " +
 	"withheld instead of redacted"

@@ -80,9 +80,8 @@ owned "$D/AGENTS.md" "codex: its own instructions file"
 grep -q '^# Credentials' "$D/AGENTS.md" \
   && ok "codex: carrying the credentials section" \
   || bad "AGENTS.md carries no credentials section, so the agent that reads it is told nothing"
-# Two conditions faramir cannot meet, and both fail quietly: an untrusted hook
-# is skipped without a word, and a sandboxed Codex is refused the broker socket.
-grep -q 'trust this hook' /tmp/p-codex.log \
+# Hook trust and broker socket access require operator action.
+grep -qF '/hooks' /tmp/p-codex.log && grep -q 'trust this hook' /tmp/p-codex.log \
   && ok "codex: the enrolment says the hook is inert until it is trusted" \
   || bad "nothing said the hook has to be trusted, so an operator believes an inert tree is covered"
 grep -q 'without its own sandbox' /tmp/p-codex.log \
@@ -130,7 +129,7 @@ grep -q -- '--deny-only' "$HOME_OP/.codex/hooks.json" \
 owned "$HOME_OP/.codex/AGENTS.md" "codex: credentials section (from init)"
 # The same two conditions, said by `init` as well: they hold on the account-wide
 # hook exactly as they do in a tree.
-grep -q 'trust this hook' /tmp/p-init.log \
+grep -qF '/hooks' /tmp/p-init.log && grep -q 'trust this hook' /tmp/p-init.log \
   && ok "codex: init says so too, the account-wide hook being inert under the same conditions" \
   || bad "init wrote the account-wide hook without saying it has to be trusted"
 owned "$HOME_OP/.gemini/GEMINI.md" "antigravity: credentials section (from init)"
