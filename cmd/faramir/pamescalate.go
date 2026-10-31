@@ -52,7 +52,7 @@ func newPamEscalateCmd(granted *bool) *cobra.Command {
 	var f pamEscalateFlags
 	c := &cobra.Command{
 		Use:   "pam-escalate",
-		Short: "Ask whether one sudo may proceed, inside a brokered command (run by PAM)",
+		Short: "Request sudo approval for a brokered command (run by PAM)",
 		Args:  noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runPamEscalate(f, granted))

@@ -188,25 +188,16 @@ func SectionFile(f hostfs.FS, path, section, head string, uid, gid int, within s
 func SectionProblem(err error, path, command string) string {
 	switch {
 	case errors.Is(err, errHalfMarked):
-		return path + " has only one of faramir's section markers, so nothing was " +
-			"written. " + SectionBegin + " and " + SectionEnd + ", in that order, delimit " +
-			"the credentials section, and without both the section cannot be found. " +
-			"Restore the markers around the section, or delete the one that is there, " +
+		return path + " has incomplete or misordered section markers; nothing was written. " +
+			"Restore " + SectionBegin + " and " + SectionEnd + ", in that order, " +
+			"around the credentials section, or remove the incomplete markers, " +
 			"and run " + command + " again"
 	case errors.Is(err, errStaleSection):
-		return path + " already carries a credentials section that is not between " +
-			"markers and differs from the current one, so nothing was written: two sets " +
-			"of credentials instructions in one file contradict each other. It may be " +
-			"what an earlier version wrote, or your own notes. Delete it and run " +
-			command + " again, which writes the current section between " +
-			SectionBegin + " and " + SectionEnd + " so later runs can keep it current"
+		return path + " has an outdated credentials section without markers; nothing was written. " +
+			"Remove that section and run " + command + " again"
 	case errors.Is(err, hostfs.ErrNotOperators):
-		return path + " is not the operator's, so nothing was written. Faramir edits " +
-			"this file but does not own it, and " + command + " runs as root: it will " +
-			"not write a file the owner did not ask it to, and changing the owner would " +
-			"take the file from them. A symlink here is followed, so this also covers a " +
-			"link to a file the operator does not own, or to nothing. Give the file to " +
-			"the operator, or point the link at a file they own, and run " + command + " again"
+		return path + " is not owned by the operator or is a broken symlink; nothing was written. " +
+			"Use an operator-owned file or symlink target and run " + command + " again"
 	}
 	return err.Error()
 }

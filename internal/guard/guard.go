@@ -286,17 +286,12 @@ func Run(args []string) int {
 // agent that is told to stop and why can say so, where one that meets a silent
 // refusal retries.
 const (
-	unreadablePayload = "Blocked: faramir's guard could not read this tool call, so it could not decide " +
-		"whether the command discloses a credential.\n\nTell the operator that `faramir " +
-		"guard` did not understand its input. Until that is fixed, nothing this tree runs is " +
-		"redacted."
-	noCommandString = "Blocked: faramir's guard received a shell tool call with no command, so " +
-		"there was nothing to check.\n\nTell the operator: the tool's input is not the " +
-		"shape `faramir guard` reads."
-	unreadablePatch = "Blocked: faramir's guard could not read this patch, so it could not " +
-		"tell which files the patch writes.\n\nTell the operator: the patch tool's input is " +
-		"not the shape `faramir guard` reads. Until that is fixed, this tool could write " +
-		"any file on the host."
+	unreadablePayload = "Blocked: faramir's guard could not parse this tool call. " +
+		"Ask the operator to check the hook's input format. The command did not run."
+	noCommandString = "Blocked: the shell tool call contains no command. " +
+		"Ask the operator to check the hook's input format."
+	unreadablePatch = "Blocked: faramir's guard could not parse this patch or check its target files. " +
+		"Ask the operator to check the patch tool's input format."
 )
 
 // emit writes the answer. An answer that could not be written exits 2, the

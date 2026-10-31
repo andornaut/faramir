@@ -35,7 +35,7 @@ func newDoctorCmd() *cobra.Command {
 	var f doctorFlags
 	c := &cobra.Command{
 		Use:     "doctor [options]",
-		Short:   "Check the install and report what is wrong",
+		Short:   "Check the installation and report problems",
 		GroupID: groupOperator,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runDoctor(f)) },

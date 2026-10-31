@@ -11,7 +11,7 @@ func newStatusCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:     brokerclient.OpStatus,
-		Short:   "Show what the broker loaded and what it can reach",
+		Short:   "Show broker status and loaded secret sources",
 		GroupID: groupAgent,
 		Args:    noArgs,
 		RunE: func(c *cobra.Command, args []string) error {

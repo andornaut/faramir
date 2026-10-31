@@ -102,7 +102,7 @@ func newInitCmd() *cobra.Command {
 	fl.StringVar(&f.configDir, "config-dir", "",
 		"install directory (default: installed, then "+hostlayout.DefaultConfigDir+")")
 	fl.StringVar(&f.sshKey, "ssh-key", "",
-		"SSH identity lent to brokered commands, minted if missing (default: installed, then id_ed25519 beside the age key)")
+		"SSH key for brokered commands; created if missing (default: installed, then id_ed25519 beside the age key)")
 	fl.StringVar(&f.knownHosts, "known-hosts", "",
 		"known_hosts file to copy for the executor (default: none)")
 	fl.StringArrayVar(&f.initAgents, "agent", nil,

@@ -87,9 +87,8 @@ func cwdMissing(cwd string) string {
 		if cwd != private && !strings.HasPrefix(cwd, private+"/") {
 			continue
 		}
-		return "cwd does not exist for this daemon: " + cwd + ". Every faramir unit " +
-			"runs with PrivateTmp=true, so " + private + " here is the daemon's own " +
-			"and holds nothing you put in yours. Name a directory outside " +
+		return "cwd does not exist for this daemon: " + cwd + ". PrivateTmp=true isolates " +
+			private + " from your session. Use a directory outside " +
 			strings.Join(hostlayout.PrivateTmp, " and ") + "."
 	}
 	return "cwd does not exist: " + cwd
@@ -106,9 +105,8 @@ func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
 	}
 	log.Printf("%s refusing %s: the audit log cannot be written: %s", logID, phrase, reason)
 	out := protocol.ErrorResponse("no_audit",
-		"the audit log cannot be written ("+reason+"), so "+phrase+" was refused: "+
-			"a command that cannot be recorded does not run. Free space on that "+
-			"filesystem, or point [audit] log_path at one with room, and retry", logID)
+		phrase+" refused: cannot write the audit log ("+reason+"). "+
+			"Free disk space or change [audit] log_path to a writable location, then retry", logID)
 	return &out
 }
 

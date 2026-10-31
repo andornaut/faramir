@@ -70,7 +70,7 @@ func ResolveEditor(requested string) (string, error) {
 		}
 	}
 	if len(refused) > 0 {
-		return "", fmt.Errorf("no editor here can be run as root: %s",
+		return "", fmt.Errorf("no editor is safe to run as root: %s",
 			strings.Join(refused, "; "))
 	}
 	return "", fmt.Errorf("no editor found; install one of %s, or name one with "+

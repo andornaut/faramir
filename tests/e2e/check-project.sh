@@ -741,7 +741,7 @@ out=$(enrol "$D")
 [ "$(md5sum "$D/AGENTS.md" | cut -d' ' -f1)" = "$sum" ] \
   && ok "a drifted section is left byte-identical" \
   || bad "a drifted instructions file was edited in place"
-grep -q 'already carries a credentials section that is not between markers' <<<"$out" \
+grep -q 'has an outdated credentials section without markers' <<<"$out" \
   && ok "and the drift is reported rather than reconciled" \
   || bad "the drift was not reported: ${out:0:140}"
 grep -q 'not written; see the error' <<<"$out" \

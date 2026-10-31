@@ -10,13 +10,10 @@ import (
 // adviceOperator is for a command that is the operator's to run. The account
 // this agent runs as could not have carried it out, so the refusal saves the
 // detour of finding that out from a permission error.
-const adviceOperator = "Blocked: this is an operator command. It changes the faramir install, so it is " +
-	"refused with or without sudo, and your account could not run it anyway.\n\nAsk the " +
-	"operator to run it. You can run `faramir run`, `faramir refs`, `faramir status`, " +
-	"`faramir redact`, and the commands that only describe the install: `faramir doctor`, " +
-	"`faramir block ls`, `faramir link ls` and `faramir reader ls`.\n\nWhen `faramir doctor` " +
-	"says to run it as root, that line is for the operator. Your account cannot make those " +
-	"checks, and running the command under sudo is refused here."
+const adviceOperator = "Blocked: this is an operator command, refused with or without sudo. " +
+	"Ask the operator to run it.\n\nYou may run `faramir run`, `faramir refs`, `faramir status`, " +
+	"`faramir redact`, `faramir doctor`, `faramir block ls`, `faramir link ls` and " +
+	"`faramir reader ls`. Doctor checks requiring root must be run by the operator."
 
 // The declared-path messages, one per kind of entry, chosen by the named group
 // the rule carries. The rule itself is the same shape in all three: a path
@@ -34,10 +31,8 @@ const adviceOperator = "Blocked: this is an operator command. It changes the far
 // matched against the text of a command cannot tell a name being used from one
 // being quoted, so a heredoc that documents an operator command is refused like
 // the command itself. Saying so here is what saves the turn spent finding out.
-const adviceNamed = ", so any command that names it is refused, in your shell and in your tools, " +
-	"whatever the command would do with it. That includes writing about it: a rule matched " +
-	"against the text of a command cannot tell a name being written from one being used. To " +
-	"write a document that quotes this path, use your editing tool, not a shell heredoc."
+const adviceNamed = ". Shell commands and file tools cannot name this path, even to quote it. " +
+	"To document the path, use your editing tool, not a shell heredoc."
 
 const adviceRefs = "If the value has a `faramir://` ref, `faramir refs` lists it, and " +
 	"`faramir run --env NAME=faramir://<ref>` uses it without naming the file."
@@ -46,21 +41,17 @@ const adviceRefs = "If the value has a `faramir://` ref, `faramir refs` lists it
 // not always: the broker holds the same entries and refuses a command that
 // would read the file. It is worth naming anyway, a command that only uses a
 // credential being the ordinary case.
-const adviceRoute = "\n\nA brokered command is treated differently: `faramir run` refuses the commands " +
-	"that would read the file and allows the rest, so a command that only uses the credential may " +
-	"run there. " + adviceRefs
+const adviceRoute = "\n\n`faramir run` allows credential use but refuses commands that disclose the file. " + adviceRefs
 
 // adviceUnblockPath is the removal spelled as the operator has to type it.
 // Both halves matter and neither is guessable from the other: the command
 // writes the config, so it needs root, and it takes the path as a flag rather
 // than as an operand, so the bare command name is an invocation that fails.
 // Naming it short taught the operator a command they then had to work out.
-const adviceUnblockPath = "`sudo faramir block rm --path <path>`, which needs " +
-	"root because it writes the config."
+const adviceUnblockPath = "`sudo faramir block rm --path <path>` (requires root)."
 
 // adviceUnblockCommand is the same removal for an entry naming a command.
-const adviceUnblockCommand = "`sudo faramir block rm --command <command>`, which " +
-	"needs root because it writes the config."
+const adviceUnblockCommand = "`sudo faramir block rm --command <command>` (requires root)."
 
 // adviceBlockedPath is for a path a [[secret.block]] entry names. The entry
 // exists to refuse and nothing else, so removing it is the whole remedy.
@@ -73,16 +64,15 @@ const adviceBlockedPath = "Blocked: the operator blocked this path on this host"
 // reach for first: it is what the link is for, and it answers without the file
 // being named.
 const adviceLinkedPath = "Blocked: a link reads this file on this host" + adviceNamed + adviceRoute +
-	"\n\nUse the ref instead of the file: that is what the link is for. `faramir link ls` lists the " +
-	"links and the files they read. Only the operator can remove a link, with `faramir link rm`, " +
+	"\n\nUse the ref instead of the file. `faramir link ls` lists links and their files. " +
+	"Only the operator can remove a link, with `faramir link rm`, " +
 	"and that removes the ref too."
 
 // adviceNoRoute is what adviceRoute becomes for a strict entry: the broker
 // holds the same entry and refuses a command that names it at all, so offering
 // the brokered route would spend a turn on a second refusal. The ref is still a
 // route, and is the only one, so it is what this says instead.
-const adviceNoRoute = "\n\nThe broker holds the same entry, and the operator marked it strict: " +
-	"a brokered command that names the path is refused too, whatever it would do with it. " +
+const adviceNoRoute = "\n\nThis entry is strict: brokered commands cannot name the path either. " +
 	adviceRefs
 
 // adviceBlockedStrictPath and adviceLinkedStrictPath are the two entry
@@ -95,8 +85,8 @@ const adviceBlockedStrictPath = "Blocked: the operator blocked this path on this
 	" `faramir block ls` lists the blocked paths and marks the strict ones."
 
 const adviceLinkedStrictPath = "Blocked: a link reads this file on this host" + adviceNamed + adviceNoRoute +
-	"\n\nUse the ref instead of the file: that is what the link is for. `faramir link ls` lists the " +
-	"links and the files they read. Only the operator can remove a link, with `faramir link rm`, " +
+	"\n\nUse the ref instead of the file. `faramir link ls` lists links and their files. " +
+	"Only the operator can remove a link, with `faramir link rm`, " +
 	"and that removes the ref too."
 
 // adviceOwnPath is for a directory this install occupies. No entry declares
@@ -104,10 +94,9 @@ const adviceLinkedStrictPath = "Blocked: a link reads this file on this host" + 
 // every run, so a message offering a removal command would name a remedy that
 // does not exist.
 const adviceOwnPath = "Blocked: this is one of faramir's own directories" + adviceNamed + "\n\n" + adviceRefs +
-	" A brokered command cannot reach the directory either: `faramir run` holds the same rules and " +
-	"runs as an account with less access than yours.\n\nThere is no entry to remove. These rules " +
-	"are rendered from the install's layout on every run: `faramir block ls` shows them under " +
-	"the built-in rules, and `faramir block rm` refuses them. If this is deliberate, ask the operator."
+	" Brokered commands cannot name this directory either. " +
+	"There is no entry to remove: these built-in rules cannot be removed with `faramir block rm`. " +
+	"`faramir block ls` lists them. Ask the operator if access is required."
 
 // adviceDeclared is the safe default, for a rule no marker classified. It says
 // what is true of any declared path and leaves the reader to find which kind
@@ -126,11 +115,10 @@ const adviceDeclared = "Blocked: this path is in the blocks or the links on this
 // adviceCommand is for a `[[secret.block]]` entry naming a command rather than a
 // path. The remedy is the same shape and the subject is not: telling somebody
 // who ran `op read` that a path is declared names nothing they typed.
-const adviceCommand = "Blocked: this command is in the blocks on this host, so neither your shell nor a " +
-	"brokered command may run it.\n\nThe words are matched at the start of a command only, so " +
-	"the same words inside an argument or a path are allowed. A line of a heredoc is read as a " +
-	"command, so to write a document that quotes this command, use your editing tool, not a " +
-	"shell heredoc. If the work needs the command, ask the operator, who can unblock it with " +
+const adviceCommand = "Blocked: this command is blocked in both your shell and brokered commands. " +
+	"Arguments and paths are not matched as commands, but heredoc lines are. " +
+	"To document the command, use your editing tool, not a shell heredoc. " +
+	"Ask the operator to unblock it with " +
 	adviceUnblockCommand
 
 // adviceOwn is for the rules that are not about disclosure. Acting on
@@ -139,10 +127,8 @@ const adviceCommand = "Blocked: this command is in the blocks on this host, so n
 // runs as an account with less reach rather than more.
 const adviceOwnOpening = "Blocked: this is "
 
-const adviceOwn = adviceOwnOpening + "faramir's own file, account or unit. It would disclose nothing, " +
-	"but it would change or stop what keeps credentials out of this conversation. " +
-	"`faramir run` is no way round it: a brokered command has less access than you." +
-	"\n\nIf this is deliberate, ask the operator."
+const adviceOwn = adviceOwnOpening + "faramir's own file, account or unit. " +
+	"Changes are refused, including through `faramir run`. Ask the operator to make the change."
 
 // byKind is the message per catalogue kind, which is the same vocabulary the
 // broker answers from. Two tables rather than one because the two tiers say
@@ -249,9 +235,8 @@ func shortSegment(segment string) string {
 // pathAdvice is what a refused file tool is told. Its own wording rather than
 // the command one's: nothing ran, so "this command" would name something that
 // never happened, and the way through is the same either way.
-const pathAdvice = "Blocked: %s is key material or one of faramir's own files, so this tool call " +
-	"was not made.\n\nA value reaches a command through the broker: use `faramir run`. " +
-	"`faramir refs` lists what exists."
+const pathAdvice = "Blocked: %s is key material or one of faramir's own files. This tool call " +
+	"was not made. Use `faramir run` for managed credentials; `faramir refs` lists available refs."
 
 // fileAdviceFor is what a refused file tool is told: the message its kind
 // carries, with the clause about a command swapped for the call that was
@@ -285,6 +270,5 @@ func fileAdviceFor(pattern, path string) string {
 // The heredoc clause goes with it, an editing tool being what the reader is
 // already holding.
 func adviceFileNamed(path string) string {
-	return ", so this tool call was not made. " + path + " is refused to your file " +
-		"tools and to your shell, whatever either would do with it."
+	return ". This tool call was not made. " + path + " is blocked in file tools and shell commands."
 }

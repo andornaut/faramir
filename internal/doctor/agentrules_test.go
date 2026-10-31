@@ -20,7 +20,7 @@ func finding(t *testing.T, report Report, agent string) Finding {
 			return f
 		}
 		// The failed row leads with the agent and a verb rather than a colon.
-		if f.Name == "agent rules" && strings.HasPrefix(f.Detail, agent+" is in this home") {
+		if f.Name == "agent rules" && strings.HasPrefix(f.Detail, agent+" is installed") {
 			return f
 		}
 	}
@@ -171,7 +171,7 @@ func TestTheMissingRulesFindingClaimsOnlyWhatTheRulesCover(t *testing.T) {
 	}
 	// It still has to say what is at stake, or it names a missing file and no
 	// reason to care.
-	for _, want := range []string{"this install protects", "no uid boundary"} {
+	for _, want := range []string{"file tools", "protected paths"} {
 		if !strings.Contains(got.Detail, want) {
 			t.Errorf("the finding does not say %q: %s", want, got.Detail)
 		}

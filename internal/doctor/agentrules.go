@@ -67,14 +67,12 @@ func reportAgentRules(report *Report, home string, enrolled []string) {
 		// is one it does not rule on, and a message that names one makes the
 		// default look more protective than it is.
 		case slices.Contains(enrolled, name):
-			report.addf("agent rules", StatusFailed, "a tree is enrolled for %s "+
-				"and %s is missing, so nothing refuses its file tools the paths this install "+
-				"protects: no uid boundary applies to them. Run `sudo faramir init --agent "+
+			report.addf("agent rules", StatusFailed, "a tree is enrolled for %s but %s is missing. "+
+				"Its file tools can access protected paths. Run `sudo faramir init --agent "+
 				"%s`", name, strings.Join(missing, ", "), name)
 		case agentInUse(home, target):
-			report.addf("agent rules", StatusFailed, "%s is in this home and %s "+
-				"is missing, so nothing refuses its file tools the paths this install "+
-				"protects: no uid boundary applies to them. Run `sudo faramir init --agent "+
+			report.addf("agent rules", StatusFailed, "%s is installed but %s is missing. "+
+				"Its file tools can access protected paths. Run `sudo faramir init --agent "+
 				"%s`",
 				name, strings.Join(missing, ", "), name)
 		default:

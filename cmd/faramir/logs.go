@@ -44,7 +44,7 @@ func newLogsCmd() *cobra.Command {
 	var f logsFlags
 	c := &cobra.Command{
 		Use:     "logs [options] [LOG-ID]",
-		Short:   "Show the audit log: what ran, against which refs, and how it ended",
+		Short:   "Show command audit records",
 		GroupID: groupOperator,
 		Args:    atMostOneArg("log-id"),
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runLogs(f, args)) },

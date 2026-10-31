@@ -195,7 +195,7 @@ func TestAPatchWithNoReadableEnvelopeIsRefused(t *testing.T) {
 				name, out["permissionDecision"], denyDecision)
 		}
 		reason, _ := out["permissionDecisionReason"].(string)
-		if !strings.Contains(reason, "could not read") {
+		if !strings.Contains(reason, "could not parse") {
 			t.Errorf("%s: the refusal does not say the patch was unreadable: %v",
 				name, reason)
 		}

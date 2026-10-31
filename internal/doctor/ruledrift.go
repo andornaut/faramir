@@ -230,9 +230,8 @@ type coverageCheck struct {
 }
 
 var linkedFilesCheck = coverageCheck{
-	noun: "%d linked file(s)",
-	failure: "a linked file is not refused to the agent's file tools, so its plaintext is one " +
-		"read away: %s. `faramir init` renders the rules again",
+	noun:    "%d linked file(s)",
+	failure: "the agent's file tools can read a linked file: %s. Run `faramir init` to restore the deny rules",
 }
 
 var installRulesCheck = coverageCheck{
@@ -244,9 +243,8 @@ var installRulesCheck = coverageCheck{
 }
 
 var blockedPathsCheck = coverageCheck{
-	noun: "%d blocked path(s)",
-	failure: "a path this install refuses is not refused by the agent's rules, which is the " +
-		"whole of what the entry does: %s. `faramir init` renders them again",
+	noun:    "%d blocked path(s)",
+	failure: "the agent's deny rules do not cover a blocked path: %s. Run `faramir init` to restore them",
 }
 
 // denyRuleCoverage resolves the agent's home and compares the account-wide deny

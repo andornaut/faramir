@@ -53,7 +53,7 @@ func runUninstall() int {
 func newReloadCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "reload",
-		Short:   "Stop the daemons so the next command starts them on the current configuration",
+		Short:   "Stop the daemons; restart with current configuration on the next request",
 		GroupID: groupOperator,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runReload()) },

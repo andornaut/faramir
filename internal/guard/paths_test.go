@@ -295,7 +295,7 @@ func TestAFileToolIsToldWhichKindRefusedIt(t *testing.T) {
 		// one a file tool meets most: an agent's own hook file is one faramir
 		// installs, and the deny list is asked about a write to it.
 		{name: "a file an enrolment installs", kind: denyrules.KindOwnAction,
-			names: []string{"faramir's own file, account or unit", "no way round it"}},
+			names: []string{"faramir's own file, account or unit", "Changes are refused"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rules := denyrules.NamingAs(tc.kind, []string{denyrules.Dir("/srv/keys/luks.key")})
@@ -314,7 +314,7 @@ func TestAFileToolIsToldWhichKindRefusedIt(t *testing.T) {
 			if !strings.Contains(said, "/srv/keys/luks.key") {
 				t.Errorf("the refusal names no path:\n%s", said)
 			}
-			if !strings.Contains(said, "this tool call was not made") {
+			if !strings.Contains(strings.ToLower(said), "this tool call was not made") {
 				t.Errorf("the refusal talks about a command that never ran:\n%s", said)
 			}
 			if strings.Contains(said, "shell heredoc") {

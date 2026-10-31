@@ -65,7 +65,7 @@ func requireRootToAnswer(command string) bool {
 func newSudoCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "sudo",
-		Short:   "Approve or refuse a brokered command's question: may it run sudo",
+		Short:   "Approve or reject sudo requests from brokered commands",
 		GroupID: groupOperator,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
@@ -83,8 +83,8 @@ func newSudoListCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   useLs,
-		Short: "List the escalations waiting for an answer",
-		Long: "Exits 0 when something is waiting, 1 when nothing is, and 69 when the\n" +
+		Short: "List pending escalations",
+		Long: "Exits 0 for pending requests, 1 for none, and 69 when the\n" +
 			"broker cannot be reached.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -167,7 +167,7 @@ func newRejectCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:   "reject [options] [ID]",
-		Short: "Refuse one escalation by id, or the one that is waiting",
+		Short: "Reject an escalation by id, or the pending request",
 		Args:  atMostOneArg("id"),
 		RunE: func(c *cobra.Command, args []string) error {
 			paint, bad := termui.PaletteFor("sudo reject", when)
@@ -216,7 +216,7 @@ func waiting(prog, socketPath, verb string) (questions []escalation.Question, co
 		return nil, brokerclient.FailureCode(err), true
 	}
 	if len(questions) == 0 {
-		fmt.Fprintf(os.Stderr, "nothing waiting to be %s\n", verb)
+		fmt.Fprintf(os.Stderr, "no pending escalation to be %s\n", verb)
 		return nil, 1, false
 	}
 	return questions, 0, false

@@ -58,7 +58,7 @@ func TestEveryRefusalNamesTheFileAndTheCommandToRunAgain(t *testing.T) {
 		says []string
 	}{
 		{"one marker without the other", errHalfMarked, []string{SectionBegin, SectionEnd}},
-		{"an undelimited section", errStaleSection, []string{SectionBegin, SectionEnd}},
+		{"an undelimited section", errStaleSection, []string{"Remove that section"}},
 		{"a file that is not the operator's", hostfs.ErrNotOperators, []string{"symlink"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
