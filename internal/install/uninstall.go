@@ -87,7 +87,7 @@ func uninstall(ops uninstallOps, configDir string) ([]string, error) {
 			_, fileErr := os.Stat(hostunit.Path(unit))
 			// Disabling an absent unit fails on an idempotent re-run. Only a
 			// verified inactive unit makes that failure harmless.
-			if stopErr != nil && !(known && state == "inactive" && os.IsNotExist(fileErr)) {
+			if stopErr != nil && (!known || state != "inactive" || !os.IsNotExist(fileErr)) {
 				failures = append(failures, stopErr)
 			}
 			switch {

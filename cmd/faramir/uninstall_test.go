@@ -15,7 +15,7 @@ func TestUninstallReportsRetainedStateOnFailure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer r.Close()
+			defer func() { _ = r.Close() }()
 			previous := os.Stderr
 			os.Stderr = w
 			code := reportUninstall([]string{"retained config", "retained log"}, failure)

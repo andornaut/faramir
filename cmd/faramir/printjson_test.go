@@ -58,10 +58,14 @@ func TestJSONWatchReportsStdoutFailure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer output.Close()
+			defer func() { _ = output.Close() }()
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
-			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestJSONWatchReportsStdoutFailure$")
+			executable, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.CommandContext(ctx, executable, "-test.run=^TestJSONWatchReportsStdoutFailure$")
 			cmd.Env = append(os.Environ(), "FARAMIR_TEST_JSON_WATCH="+mode, "FARAMIR_TEST_JSON_WATCH_PATH="+path)
 			cmd.Stdout = output
 			stderr, err := cmd.StderrPipe()
