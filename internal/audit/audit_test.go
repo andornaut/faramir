@@ -22,11 +22,11 @@ func TestARecordAfterARotationOpensANewLog(t *testing.T) {
 	atLimit(t, 1<<16)
 	log := NewLog(config.AuditConfig{LogPath: path})
 
-	log.Write(map[string]any{"log_id": "before"}, Output{})
+	writeRecord(t, log, map[string]any{"log_id": "before"}, Output{})
 	if err := os.Rename(path, path+".1"); err != nil {
 		t.Fatal(err)
 	}
-	log.Write(map[string]any{"log_id": "after"}, Output{})
+	writeRecord(t, log, map[string]any{"log_id": "after"}, Output{})
 
 	current, err := os.ReadFile(path)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		log.Write(map[string]any{"log_id": "test"}, Output{Text: raw})
+		writeRecord(t, log, map[string]any{"log_id": "test"}, Output{Text: raw})
 		close(done)
 	}()
 	select {
@@ -120,8 +120,7 @@ func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "audit.log")
 			atLimit(t, limit)
-			NewLog(config.AuditConfig{LogPath: path}).
-				Write(map[string]any{"log_id": "x", "op": "run"}, Output{Text: tc.output})
+			writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), map[string]any{"log_id": "x", "op": "run"}, Output{Text: tc.output})
 
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -152,7 +151,7 @@ func TestAnEnormousArgvStillFitsTheCap(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	atLimit(t, limit)
 	atLimit(t, 64*1024)
-	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
+	writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), map[string]any{
 		"log_id": "x", "op": "run",
 		"cmd": []string{"bash", "-c", strings.Repeat("<", 2_000_000)},
 		"cwd": strings.Repeat("d", 100_000),
@@ -262,7 +261,7 @@ func TestConcurrentWritersLeaveEveryLineParseable(t *testing.T) {
 		wg.Go(func() {
 			log := NewLog(cfg) // its own Log, as another process would have
 			for i := range each {
-				log.Write(map[string]any{
+				writeRecord(t, log, map[string]any{
 					"log_id": NewLogID(), "op": "run",
 					"cmd": []string{"echo", fmt.Sprintf("w%d-i%d", w, i)},
 				}, Output{Text: strings.Repeat("<", 20_000)})
@@ -359,7 +358,7 @@ func TestALargeArgvKeepsTheRestOfTheRecord(t *testing.T) {
 		args = append(args, strings.Repeat("<", 1000))
 	}
 	atLimit(t, 262144)
-	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
+	writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), map[string]any{
 		"log_id": "x", "op": "run", "cmd": args, "cwd": "/srv/work",
 		"exit_code": 0.0,
 	}, Output{Text: "the output of the run\n"})
@@ -398,7 +397,7 @@ func TestManyEntriesAreCutDownToo(t *testing.T) {
 		refs[fmt.Sprintf("VAR_%05d", i)] = "home/router/admin"
 	}
 	atLimit(t, 65536)
-	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
+	writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), map[string]any{
 		"log_id": "x", "op": "run", "cmd": []string{"printenv"}, "env_refs": refs,
 	}, Output{})
 
@@ -451,7 +450,7 @@ func TestUnwritableNoticesALogThatBreaksAfterTheFirstWrite(t *testing.T) {
 		LogPath: filepath.Join(dir, "audit.log"),
 	})
 
-	log.Write(map[string]any{"log_id": "first", "op": "run"}, Output{})
+	writeRecord(t, log, map[string]any{"log_id": "first", "op": "run"}, Output{})
 	if reason := log.Unwritable(); reason != "" {
 		t.Fatalf("a working log reports %q", reason)
 	}
@@ -485,7 +484,7 @@ func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
 	collector := NewCollector(log.OutputBudget())
 	collector.Add(strings.Repeat("ok: [host.example.com]\n", 60_000))
 
-	log.Write(map[string]any{
+	writeRecord(t, log, map[string]any{
 		"log_id": "x", "op": "run", "cmd": args, "cwd": "/srv/ansible",
 		"exit_code": 0.0,
 	}, collector.Output())
@@ -527,7 +526,7 @@ func TestReducingARecordKeepsEveryFieldOfIt(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "audit.log")
 	atLimit(t, 1<<20)
-	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
+	writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), map[string]any{
 		"log_id": "x", "op": "run", "cmd": []string{"ansible-playbook", "site.yml"},
 		"cwd": "/srv/ansible", "exit_code": 0.0, "redactions": counts,
 		"peer": map[string]any{"uid": 1001.0, "pid": 42.0},
@@ -571,11 +570,10 @@ func TestWritingARecordLeavesTheCallersFieldsAlone(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "audit.log")
 	atLimit(t, config.MinRecordBytes)
-	NewLog(config.AuditConfig{LogPath: path}).
-		Write(map[string]any{
-			"log_id": "x", "op": "escalate", "cmd": argv,
-			"env_refs": refs, "peer": peer, "nested": nested,
-		}, Output{Text: strings.Repeat("z", 8*1024)})
+	writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), map[string]any{
+		"log_id": "x", "op": "escalate", "cmd": argv,
+		"env_refs": refs, "peer": peer, "nested": nested,
+	}, Output{Text: strings.Repeat("z", 8*1024)})
 
 	// The record was reduced, or this asserts nothing.
 	data, err := os.ReadFile(path)
@@ -629,14 +627,13 @@ func TestNothingACallerSendsReachesTheStub(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "audit.log")
 	atLimit(t, config.MinRecordBytes)
-	NewLog(config.AuditConfig{LogPath: path}).
-		Write(map[string]any{
-			"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "run",
-			"cmd": args, "cwd": strings.Repeat("<", 100_000), "env_refs": refs,
-			"redactions": counts, "exit_code": 0.0,
-			"peer":  map[string]any{"uid": 1001.0, "pid": 42.0, "gid": 1002.0},
-			"error": strings.Repeat("&", 100_000),
-		}, Output{Text: strings.Repeat("\x01", 500_000)})
+	writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), map[string]any{
+		"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "run",
+		"cmd": args, "cwd": strings.Repeat("<", 100_000), "env_refs": refs,
+		"redactions": counts, "exit_code": 0.0,
+		"peer":  map[string]any{"uid": 1001.0, "pid": 42.0, "gid": 1002.0},
+		"error": strings.Repeat("&", 100_000),
+	}, Output{Text: strings.Repeat("\x01", 500_000)})
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -667,8 +664,7 @@ func TestARecordWithTooManyFieldsIsStillARecord(t *testing.T) {
 	}
 	path := filepath.Join(t.TempDir(), "audit.log")
 	atLimit(t, config.MinRecordBytes)
-	NewLog(config.AuditConfig{LogPath: path}).
-		Write(payload, Output{})
+	writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), payload, Output{})
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -696,7 +692,7 @@ func TestAnUnmarshallableRecordStillWritesALine(t *testing.T) {
 	defer unstrict()()
 	path := filepath.Join(t.TempDir(), "audit.log")
 	atLimit(t, 1<<20)
-	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
+	writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), map[string]any{
 		"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "run",
 		// A channel marshals to an error, whatever else is in the record.
 		"broken": make(chan int),
@@ -782,10 +778,10 @@ func TestEveryRecordCarriesWhenItHappened(t *testing.T) {
 	log := NewLog(config.AuditConfig{LogPath: path})
 
 	// A record with no time of its own: an escalation, a redact, an edit.
-	log.Write(map[string]any{"log_id": NewLogID(), "op": "escalate"}, Output{})
+	writeRecord(t, log, map[string]any{"log_id": NewLogID(), "op": "escalate"}, Output{})
 	// And one that has one: an exec's started_at is its child's, which is not
 	// when this line was written, so it is left alone and no at is added.
-	log.Write(map[string]any{
+	writeRecord(t, log, map[string]any{
 		"log_id": NewLogID(), "op": "run", "started_at": 1786000000,
 	}, Output{})
 

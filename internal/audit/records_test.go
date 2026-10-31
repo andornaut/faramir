@@ -144,8 +144,7 @@ func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
 			// audit.Write adds its own, and they count too.
 			path := filepath.Join(t.TempDir(), "audit.log")
 			atLimit(t, config.MinRecordBytes)
-			NewLog(config.AuditConfig{LogPath: path}).
-				Write(record, Output{Text: strings.Repeat("x", 100_000), Dropped: 900_000})
+			writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), record, Output{Text: strings.Repeat("x", 100_000), Dropped: 900_000})
 
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -200,7 +199,7 @@ func TestAnOrdinaryRecordIsUnreducedAtTheFloor(t *testing.T) {
 	for limit := 256; limit <= 16*config.MinRecordBytes; limit += 64 {
 		path := filepath.Join(t.TempDir(), "audit.log")
 		atLimit(t, limit)
-		NewLog(config.AuditConfig{LogPath: path}).Write(record(), output)
+		writeRecord(t, NewLog(config.AuditConfig{LogPath: path}), record(), output)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)

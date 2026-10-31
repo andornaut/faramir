@@ -30,6 +30,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -228,8 +229,9 @@ func (l *Log) Unwritable() string {
 	return ""
 }
 
-// Write records one invocation together with its redacted output.
-func (l *Log) Write(record map[string]any, output Output) {
+// Write records one invocation together with its redacted output and returns
+// any append failure. A failed rollback may leave a partial record.
+func (l *Log) Write(record map[string]any, output Output) error {
 	payload := make(map[string]any, len(record)+3)
 	maps.Copy(payload, record)
 
@@ -260,44 +262,49 @@ func (l *Log) Write(record map[string]any, output Output) {
 	// with no copytruncate and no signal.
 	fh, err := l.open()
 	if err != nil {
-		// Logging that broke does not fail a request here: it was refused before it
-		// ran, by Unwritable, or it runs nothing.
+		err = fmt.Errorf("cannot open %s: %w", l.config.LogPath, err)
 		log.Printf("audit write failed: %v", err)
-		return
+		return err
 	}
 	defer func() { _ = fh.Close() }()
-	appendLine(fh, line, l.config.LogPath)
+	err = appendLine(fh, line, l.config.LogPath)
+	if err != nil {
+		log.Printf("audit write failed: %v", err)
+	}
+	return err
 }
 
 // appendLine writes one line under an exclusive lock, and takes back a write
 // that landed short. The lock is what makes the truncate safe: every writer
 // takes it, so the end of the file during the write is this record's own end.
-func appendLine(fh *os.File, line []byte, path string) {
+func appendLine(fh *os.File, line []byte, path string) error {
 	if err := unix.Flock(int(fh.Fd()), unix.LOCK_EX); err != nil {
-		log.Printf("audit write failed: cannot lock %s: %v", path, err)
-		return
+		return fmt.Errorf("cannot lock %s: %w", path, err)
 	}
 	// Released by the close in Write; unlocked here to name the window.
 	defer func() { _ = unix.Flock(int(fh.Fd()), unix.LOCK_UN) }()
 
 	end, err := fh.Seek(0, io.SeekEnd)
 	if err != nil {
-		log.Printf("audit write failed: cannot measure %s: %v", path, err)
-		return
+		return fmt.Errorf("cannot measure %s: %w", path, err)
 	}
 	written, err := fh.Write(line)
-	if err == nil {
-		return
+	if err == nil && written == len(line) {
+		return nil
 	}
-	log.Printf("audit write failed: %v", err)
+	if err == nil {
+		err = io.ErrShortWrite
+	}
+	err = fmt.Errorf("cannot append %s: %w", path, err)
 	if written <= 0 {
-		return
+		return err
 	}
 	// What landed is a line with no end on it, and the next record would append
 	// onto it, so one failure would cost two records. Truncating back costs this
 	// one alone.
-	if err := fh.Truncate(end); err != nil {
-		log.Printf("audit could not undo a short write; the next record will "+
-			"append to the torn line and neither will parse: %v", err)
+	if rollbackErr := fh.Truncate(end); rollbackErr != nil {
+		return errors.Join(err, fmt.Errorf("cannot undo partial append to %s; "+
+			"the next record will append to the torn line: %w", path, rollbackErr))
 	}
+	return err
 }
