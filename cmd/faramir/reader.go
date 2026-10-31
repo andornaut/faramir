@@ -228,7 +228,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	}
 	// One record for the rule, before the per-file records the reseal writes, so
 	// the log reads in the order it happened. Public keys only.
-	audit.NewLog(store.cfg.Audit).Write(map[string]any{
+	_ = audit.NewLog(store.cfg.Audit).Write(map[string]any{
 		"op": opReader, "log_id": audit.NewLogID(), "file": store.rulePath,
 		"change": addedOrRemoved(adding), "recipient": recipient, "to": wanted,
 		"uid": os.Getuid(), "sudo": os.Getenv("SUDO_USER"),

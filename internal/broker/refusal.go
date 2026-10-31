@@ -19,15 +19,14 @@ import (
 // daemon down just when `faramir status` and `doctor` would explain why.
 // status and refs stay available, neither producing output that depends on the
 // set.
-func (s *Server) refuseUnreadable(op, phrase, logID string, peer *sockutil.Peer) *protocol.Response {
-	reason := s.Store.Unreadable()
+func (s *Server) refuseUnreadable(op, phrase, logID string, peer *sockutil.Peer, reason string) *protocol.Response {
 	if reason == "" {
 		return nil
 	}
 	log.Printf("%s refusing %s: %s", logID, phrase, reason)
 	// Recorded like a served call: a refusal is what the operator is looking for
 	// when they ask why nothing ran.
-	s.Audit.Write(map[string]any{
+	_ = s.Audit.Write(map[string]any{
 		"log_id": logID, "op": op, "refused": "no_secrets", "reason": reason,
 		// Who was refused, as every other record carries it. Without it this is
 		// the one refusal in the log that says what happened and not to whom, and
@@ -69,7 +68,7 @@ func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
 	if cwd != "" {
 		entry["cwd"] = record.RedactText(cwd)
 	}
-	s.Audit.Write(entry, audit.Output{})
+	_ = s.Audit.Write(entry, audit.Output{})
 	return protocol.ErrorResponse(code, detail, logID)
 }
 

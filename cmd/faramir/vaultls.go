@@ -189,7 +189,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	if err != nil {
 		record["error"] = err.Error()
 	}
-	audit.NewLog(cfg.Audit).Write(record, audit.Output{})
+	_ = audit.NewLog(cfg.Audit).Write(record, audit.Output{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1

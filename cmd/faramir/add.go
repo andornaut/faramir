@@ -97,7 +97,7 @@ func runAdd(f addFlags, name string) int {
 		record["error"] = err.Error()
 	}
 	// The file and where it came from, never what is in it.
-	audit.NewLog(cfg.Audit).Write(record, audit.Output{})
+	_ = audit.NewLog(cfg.Audit).Write(record, audit.Output{})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1

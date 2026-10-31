@@ -28,12 +28,13 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer,
 		stream = &redactStream{}
 	}
 	if stream.redactor == nil {
-		if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID(), peer); refused != nil {
+		secrets := s.Store.Snapshot()
+		if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID(), peer, secrets.Unreadable()); refused != nil {
 			return *refused
 		}
 		// Built once for the whole stream, so every chunk of one command's output
 		// is scanned against one value set.
-		stream.redactor = s.redactor()
+		stream.redactor = secrets.Redactor()
 		stream.logID = audit.NewLogID()
 	}
 	stream.inputBytes += len(request.Text)
@@ -65,7 +66,7 @@ func (st *redactStream) finish(s *Server, peer *sockutil.Peer) {
 		return
 	}
 	st.written = true
-	s.Audit.Write(map[string]any{
+	_ = s.Audit.Write(map[string]any{
 		"log_id": st.logID, "op": "redact", "peer": peer,
 		"input_bytes": st.inputBytes, "redactions": st.redactor.Summary(),
 	}, audit.Output{})

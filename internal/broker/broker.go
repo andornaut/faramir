@@ -89,7 +89,7 @@ func New(ownDirs []string, cfg *config.Config) *Server {
 	// An escalation is recorded where every other op is. The record holds the
 	// command and the answer, not a value: the audit log is written after
 	// redaction.
-	s.Escalation.Record = func(entry map[string]any) { s.Audit.Write(entry, audit.Output{}) }
+	s.Escalation.Record = func(entry map[string]any) { _ = s.Audit.Write(entry, audit.Output{}) }
 	// The kernel's answer to the question the escalation server can only believe:
 	// is anything running as the executor outside the run being approved? Asked
 	// of the executor because ProtectProc=invisible keeps another uid's /proc out

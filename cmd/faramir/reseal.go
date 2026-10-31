@@ -125,7 +125,7 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 			// reseal that covered the whole secrets directory. Not on a dry run,
 			// which does nothing to this host.
 			if !dryRun {
-				log.Write(map[string]any{
+				_ = log.Write(map[string]any{
 					"op": auditview.OpReseal, "log_id": audit.NewLogID(), "file": target,
 					"error": err.Error(),
 					"uid":   os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
@@ -158,7 +158,7 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 		if err != nil {
 			record["error"] = err.Error()
 		}
-		log.Write(record, audit.Output{})
+		_ = log.Write(record, audit.Output{})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", label, target, err)
 			failed++

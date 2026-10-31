@@ -111,7 +111,7 @@ func runEdit(f editFlags, args []string) int {
 		record["changed"] = changed
 	}
 	// The file and whether it changed, never what is in it.
-	audit.NewLog(cfg.Audit).Write(record, audit.Output{})
+	_ = audit.NewLog(cfg.Audit).Write(record, audit.Output{})
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir vault edit: %v\n", err)

@@ -145,7 +145,10 @@ Field | Meaning
 `status_unknown` | Present only where the executor never reported an exit status. The output is kept and `exit_code` is a non-zero stand-in, not the child's own, so a `137` here is not a signal kill. Written to the `run` record as well. A command that failed to start is not this; that is an `error` response: `exec_failed`, `not_found` or `not_executable`.
 `abandoned` | Audit record only: the caller's connection went away and the run was killed rather than left to its timeout. Distinct from `timed_out`, which means the command took too long; an abandoned run was within its time. There is no caller left to send a response to, so the record is the only report.
 
-A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `exit_code` and adds `error`:
+A `redact` response carries no `timed_out` or `duration_sec`. An error adds `error`
+and normally nulls `exit_code`. An `audit_failed` response preserves the command's
+actual outcome and redacted output, but the CLI exits nonzero. The command ran;
+verify its effects before retrying.
 
 ```json
 {"error": {"code": "not_found",
@@ -161,6 +164,7 @@ Code | Meaning
 `escalation_in_progress` | An escalation is being decided or held, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only where `--allow-sudo` was installed
 `not_quiescent` | The answer was yes, but a process of the executor's uid was alive outside the run being approved and could have used the escalation. The `sudo` fails; run the command again once the host is quiet
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `run` only
+`audit_failed` | The audit completion record could not be written. The response preserves the command's output and outcome where known; the CLI reports failure. Verify the command's effects before retrying
 `blocked` | The command would print a file this host holds in the blocks or the links, run a command the blocks name, name one of faramir's own directories, or act on the install rather than through it. **Terminal, not retryable**: nothing about the host will change to make the same command allowed. The message names what matched, which list it is in (the blocks or the links), and the command that removes it; a directory of faramir's own is in neither list and the message says so. A command entry is answered as a command, not as a file. The two kinds follow different rules. A path in the blocks or the links is refused only to the reading commands, so a brokered command that is not one of them may do whatever it does to the file, unless the entry was added with `--strict`, which refuses [every command that names it](configuration.md#refusing-every-mention-of-an-entry). Faramir's own directories may not be named for any reason, and its own commands may not be run by any route. This is the broker's rule, not the guard's: see [the brokered route](configuration.md#the-brokered-route). `run` only
 `no_secrets` | A managed value the redactor should hold is missing: a managed file that matched did not load, or the keeper never answered and no value set was ever loaded. An entry that matched no file is not this: the broker is missing nothing it should hold, and serves. `run` and `redact` both refuse; `status` and `refs` always answer. A `[[secret.link]]` entry that did not load is not this either: it is one ref the broker can name, so that ref alone is refused with `unknown_secret` and the host keeps serving
 `not_found` | Nothing at the path `cmd[0]` names, or nothing by that name on `[command.env] PATH`. The shell's 127, which is what `faramir run` exits with

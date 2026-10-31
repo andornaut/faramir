@@ -16,9 +16,12 @@ import (
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/execclient"
 	"github.com/andornaut/faramir/internal/protocol"
+	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/secretref"
+	"github.com/andornaut/faramir/internal/secretstore"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/termsafe"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // codeExecFailed answers every failure the executor reports, whatever code it
@@ -156,6 +159,23 @@ func execResponse(logID string, judged execEscalation,
 	return response
 }
 
+func auditFailure(redactor *redact.Redactor, response protocol.Response, outcome string, err error) protocol.Response {
+	detail := redactor.RedactText(err.Error())
+	if exitCode, ok := response["exit_code"].(int); ok {
+		if response["status_unknown"] == true {
+			outcome += " (exit status unknown)"
+		} else {
+			outcome += fmt.Sprintf(" (exit status %d)", exitCode)
+		}
+	}
+	message := outcome + "; cannot write the audit completion record: " + detail +
+		". Verify the command's effects before retrying."
+	log.Printf("%s audit completion failed: %s", response["log_id"], message)
+	response["error"] = map[string]string{"code": "audit_failed", "message": message}
+	response["version"] = version.Version
+	return response
+}
+
 // execAudit is what every record about one brokered command carries: which
 // command, run where, against which refs, and when it started. Gathered once
 // and rendered per record, so the pair sharing a log_id cannot disagree.
@@ -167,13 +187,13 @@ type execAudit struct {
 	cwd       string
 	refs      map[string]string
 	started   time.Time
+	secrets   secretstore.Snapshot
 }
 
 // execFields is one record's worth of those, less the op and the outcome, which
-// are the caller's to add. Redacted afresh per record: the value set can change
-// while a command runs.
+// are the caller's to add. Each record uses the command's value set.
 func (s *Server) execFields(a execAudit) map[string]any {
-	record := s.redactor()
+	record := a.secrets.Redactor()
 	return map[string]any{
 		"log_id": a.logID, "peer": a.peer,
 		"cmd":        redactEach(record, a.cmd),
@@ -184,11 +204,36 @@ func (s *Server) execFields(a execAudit) map[string]any {
 	}
 }
 
+func (s *Server) writeRunStart(a execAudit) *protocol.Response {
+	starting := s.execFields(a)
+	starting["op"] = recordRunStarted
+	if err := s.Audit.Write(starting, audit.Output{}); err != nil {
+		detail := a.secrets.Redactor().RedactText(err.Error())
+		log.Printf("%s audit start failed: %s", a.logID, detail)
+		response := protocol.ErrorResponse("no_audit", "command not run: cannot write the audit start record: "+detail, a.logID)
+		return &response
+	}
+	return nil
+}
+
+func (s *Server) recordExecError(a execAudit, captured audit.Output, code, detail string) protocol.Response {
+	record := s.execFields(a)
+	record["op"], record["error"] = recordRun, detail
+	response := protocol.ErrorResponse(code, detail, a.logID)
+	if err := s.Audit.Write(record, captured); err != nil {
+		response["output"] = captured.Text
+		response["truncated"] = captured.Dropped > 0
+		return auditFailure(a.secrets.Redactor(), response, "execution may have started; "+detail, err)
+	}
+	return response
+}
+
 func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	abandoned <-chan struct{}) protocol.Response {
 	execCfg := s.Config.Command
 	logID := audit.NewLogID()
-	if refused := s.refuseUnreadable("run", "this command", logID, peer); refused != nil {
+	secrets := s.Store.Snapshot()
+	if refused := s.refuseUnreadable("run", "this command", logID, peer, secrets.Unreadable()); refused != nil {
 		return *refused
 	}
 	if refused := s.refuseUnauditable("this command", logID); refused != nil {
@@ -231,7 +276,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		// Redacted like every other agent-visible string.
 		record := s.redactor()
 		detail := record.RedactText(err.Error())
-		s.Audit.Write(map[string]any{
+		_ = s.Audit.Write(map[string]any{
 			"log_id": logID, "op": recordRun, "peer": peer,
 			"cmd": redactEach(record, cmd), "cwd": record.RedactText(cwd),
 			"error": detail,
@@ -265,9 +310,8 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	// request is refused rather than answered against a finished command.
 	//
 	// The argv is the redacted one, this reaching a terminal and the log. One
-	// redactor for the whole question; the audit write below builds its own,
-	// against whatever the store holds by then.
-	asked := s.redactor()
+	// redactor for the whole question, using the command's value set.
+	asked := secrets.Redactor()
 	runID, heldBy := s.Escalation.Register(escalation.Run{
 		Argv: redactEach(asked, cmd), Cwd: cwd, LogID: logID,
 		// Who asked, which the executor's own uid does not say: every brokered
@@ -307,14 +351,12 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	if s.Config.Server.AgentUser != "" {
 		env[protocol.OperatorEnv] = s.Config.Server.AgentUser
 	}
-	injected, why := s.inject(env, envRefs)
+	injected, why := inject(secrets, env, envRefs)
 	if why != "" {
 		// inject fills env ref by ref and can fail on a later one, so earlier
 		// values are already in the map: drop them here rather than leave plaintext
 		// referenced until the map is collected, as the post-exec cleanup does.
-		for k := range env {
-			delete(env, k)
-		}
+		clear(env)
 		return s.refuse("unknown_secret", why, logID, peer, cmd, cwd)
 	}
 
@@ -322,22 +364,23 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 
 	// Every known secret, not only the injected ones: a managed host can print one
 	// the broker never injected.
-	redactor := s.redactor()
+	redactor := secrets.Redactor()
 	collector := audit.NewCollector(s.Audit.OutputBudget())
 	started := time.Now()
 
 	audited := execAudit{
 		logID: logID, peer: peer, cmd: cmd, argv0Path: argv0Path,
-		cwd: cwd, refs: injected, started: started,
+		cwd: cwd, refs: injected, started: started, secrets: secrets,
 	}
 
 	// An exec is a pair of records sharing one log_id: this one when the child
 	// starts, and the one below when it ends. Without it a command is absent
 	// from the log for as long as it runs, and a run that never returns leaves
 	// nothing at all. No output: there is none yet.
-	starting := s.execFields(audited)
-	starting["op"] = recordRunStarted
-	s.Audit.Write(starting, audit.Output{})
+	if refused := s.writeRunStart(audited); refused != nil {
+		clear(env)
+		return *refused
+	}
 
 	result, err := s.exec(redactor, collector.Add, execclient.Request{
 		Argv:       append([]string{argv0Path}, cmd[1:]...),
@@ -349,9 +392,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		Abandoned:  abandoned,
 	})
 	// Drop the plaintext as soon as the child has it; the store keeps the values.
-	for k := range env {
-		delete(env, k)
-	}
+	clear(env)
 	if err != nil {
 		// The executor names its own code in the error it returns. Taken off the
 		// front rather than printed twice ("exec_failed: exec_failed:
@@ -359,7 +400,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		// kernel would not run is answered as not_executable, which is what gets
 		// the caller the shell's 126.
 		code, text := splitExecCode(err.Error())
-		detail := s.safeDetail(text)
+		detail := secrets.Redactor().RedactText(text)
 		// Rendered on top of the redaction, which covers values and not control
 		// characters: this string reaches the escalation terminal, where the next
 		// thing printed is a question somebody judges.
@@ -367,10 +408,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		// The child ran whatever failed afterwards, so it is recorded before the
 		// error is returned: otherwise a command that reached a managed host leaves
 		// nothing behind but a daemon-log line.
-		record := s.execFields(audited)
-		record["op"], record["error"] = recordRun, detail
-		s.Audit.Write(record, collector.Output())
-		return protocol.ErrorResponse(code, detail, logID)
+		return s.recordExecError(audited, collector.Output(), code, detail)
 	}
 
 	// Read before the deferred Release drops the run.
@@ -386,7 +424,10 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	record["timed_out"], record["redactions"] = result.TimedOut, result.Redactions
 	addRunConditions(record, result)
 	maps.Copy(record, judged.fields())
-	s.Audit.Write(record, collector.Output())
+	if err := s.Audit.Write(record, collector.Output()); err != nil {
+		return auditFailure(secrets.Redactor(), execResponse(logID, judged, result),
+			"command ran", err)
+	}
 
 	total := 0
 	for _, r := range result.Redactions {
@@ -406,14 +447,14 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 // A failure stops at the ref that caused it, so env may already hold the values
 // named before it. Nothing runs with them: the caller answers a non-empty
 // reason with a refusal, and the map goes no further.
-func (s *Server) inject(env map[string]string, envRefs map[string]string) (map[string]string, string) {
+func inject(secrets secretstore.Snapshot, env map[string]string, envRefs map[string]string) (map[string]string, string) {
 	injected := map[string]string{}
 	for name, uri := range envRefs {
 		ref, err := secretref.Parse(uri)
 		if err != nil {
 			return nil, err.Error()
 		}
-		value, err := s.Store.Value(ref)
+		value, err := secrets.Value(ref)
 		if err != nil {
 			return nil, err.Error()
 		}
