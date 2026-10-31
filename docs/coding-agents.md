@@ -80,9 +80,10 @@ tools reach the deny list. `faramir doctor` reports a Claude Code registration
 that matches less than every tool: a registration matching `Bash` only never
 sends the file tools to the guard.
 
-**Runs a hook only once told to trust it.** Codex only. It skips a hook it has
-not been told to trust and does not say so, so what faramir writes does
-nothing until you start Codex once and trust the hook. `faramir init` and
+**Runs a hook only once told to trust it.** Codex only. It skips new or changed
+untrusted hooks and prints a startup warning directing you to `/hooks`. Open
+Codex in each affected project, open `/hooks`, then review and trust the hooks.
+Re-review changed definitions. `faramir init` and
 `faramir enrol` say so until Codex trusts every hook they wrote.
 
 ## Which agents an install configures
@@ -361,16 +362,15 @@ does.
 Reads need none of this. Codex reads a file by running one of the shell's own
 readers, so the guard covers every read it makes.
 
-**A hook has to be trusted before it runs.** Codex skips a hook it has not
-been told to trust and does not say so, so what `faramir init` and `faramir
-enrol` write does nothing until you start Codex once and trust it. The trust
-is a hash of the hook as Codex parses it, so you must grant it, and grant it
-again after any change. Both commands say so while any hook they wrote is
+**A hook has to be trusted before it runs.** Codex skips new or changed
+untrusted hooks and prints a startup warning directing you to `/hooks`. Open
+Codex in each affected project, open `/hooks`, then review and trust the hooks.
+Trust applies to the exact hook definition, so re-review changed definitions.
+Both `faramir init` and `faramir enrol` say so while any hook they wrote is
 untrusted, the account-wide half and each enrolled tree being trusted
 separately, so a release that rewrites one of them brings the reminder back.
-`faramir doctor` fails on a hook that is still untrusted: it is the only
-misconfiguration here that produces no refusal, no failed play and no degraded
-ref, so nothing else would report it.
+`faramir doctor` fails on a hook that is still untrusted; Codex also reports it
+at startup. See [Codex hook trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
 > [!IMPORTANT]
 > **Codex must run without its own sandbox** (`codex --dangerously-bypass-approvals-and-sandbox`). Sandboxed, it cannot reach the broker socket: `read-only` and `workspace-write` both deny the `AF_UNIX` connect and deny writes to `XDG_RUNTIME_DIR`, and `network_access` governs `AF_INET` only and does not lift it. The wrapper fails closed, so every command's output is withheld rather than redacted.
