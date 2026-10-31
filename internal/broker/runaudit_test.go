@@ -35,6 +35,12 @@ func TestAuditStartFailureDoesNotExecute(t *testing.T) {
 	if err := unix.Getrlimit(unix.RLIMIT_FSIZE, &limit); err != nil {
 		t.Fatal(err)
 	}
+	original := limit
+	t.Cleanup(func() {
+		if err := unix.Setrlimit(unix.RLIMIT_FSIZE, &original); err != nil {
+			t.Errorf("restore file-size limit: %v", err)
+		}
+	})
 	limit.Cur = 0
 	if err := unix.Setrlimit(unix.RLIMIT_FSIZE, &limit); err != nil {
 		t.Fatal(err)

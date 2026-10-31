@@ -105,8 +105,18 @@ func TestAppendLineRollsBackPartialWrite(t *testing.T) {
 	t.Cleanup(func() { _ = fh.Close() })
 	// Limit only this subprocess, allowing part of the next line to land.
 	signal.Ignore(syscall.SIGXFSZ)
-	limit := uint64(len(prefix) + 4)
-	if err := unix.Setrlimit(unix.RLIMIT_FSIZE, &unix.Rlimit{Cur: limit, Max: limit}); err != nil {
+	var original unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_FSIZE, &original); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := unix.Setrlimit(unix.RLIMIT_FSIZE, &original); err != nil {
+			t.Errorf("restore file-size limit: %v", err)
+		}
+	})
+	limited := original
+	limited.Cur = uint64(len(prefix) + 4)
+	if err := unix.Setrlimit(unix.RLIMIT_FSIZE, &limited); err != nil {
 		t.Fatal(err)
 	}
 	if err := appendLine(fh, []byte("a record exceeding the file limit\n"), path); !errors.Is(err, syscall.EFBIG) {
