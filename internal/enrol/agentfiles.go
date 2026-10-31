@@ -224,7 +224,9 @@ func (p *project) instructions() error {
 	return nil
 }
 
-// Adding a harness preserves the harnesses already enrolled for this project.
+// Adding a harness preserves still-enabled enrollments without restoring a
+// routing configuration the operator removed. Global-only harnesses have no
+// project routing file, so their enrollment record remains the evidence.
 func (p *project) enabledTargets() []*agentcfg.Target {
 	byName := map[string]*agentcfg.Target{}
 	for _, target := range p.targets {
@@ -237,6 +239,9 @@ func (p *project) enabledTargets() []*agentcfg.Target {
 			}
 			for _, name := range tree.Agents {
 				if target := agentcfg.Targets[name]; target != nil {
+					if !agentcfg.StillEnrolled(p.opts.Dir, name) {
+						continue
+					}
 					byName[name] = target
 				}
 			}

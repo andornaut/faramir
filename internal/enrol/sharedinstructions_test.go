@@ -12,6 +12,12 @@ import (
 
 func TestReenrolmentCombinesPreviouslyEnabledHarnesses(t *testing.T) {
 	tree, configDir := t.TempDir(), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tree, ".codex"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tree, agentcfg.CodexHooksFile), []byte("{}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
 	if err := agentcfg.RecordEnrolment(configDir, agentcfg.EnrolledTree{
 		Dir: tree, Agents: []string{"codex", "pi"},
 	}); err != nil {
@@ -53,6 +59,46 @@ func TestReenrolmentCombinesPreviouslyEnabledHarnesses(t *testing.T) {
 	records := agentcfg.ReadEnrolled(configDir)
 	if len(records) != 1 || len(records[0].Agents) != 3 {
 		t.Fatalf("project enrollment was split or lost a harness: %+v", records)
+	}
+}
+
+func TestReenrolmentDoesNotRestoreRemovedProjectRouting(t *testing.T) {
+	tree, configDir := t.TempDir(), t.TempDir()
+	// Other harness customizations can remain after its routing hook is removed.
+	if err := os.MkdirAll(filepath.Join(tree, ".claude", "skills"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentcfg.RecordEnrolment(configDir, agentcfg.EnrolledTree{
+		Dir: tree, Agents: []string{"claude", "pi"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	run := &project{
+		opts: Options{Dir: tree, ConfigDir: configDir}, uid: hostfs.Keep, gid: hostfs.Keep,
+		targets: []*agentcfg.Target{agentcfg.Targets["opencode"]},
+	}
+	for _, target := range run.enabledTargets() {
+		if target.Name == "claude" {
+			t.Fatal("re-enrollment would restore removed Claude routing")
+		}
+	}
+	if err := run.instructions(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(tree, "AGENTS.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "- claude") || !strings.Contains(string(body), "- pi") || !strings.Contains(string(body), "- opencode") {
+		t.Fatal("shared instructions do not match enabled harnesses")
+	}
+	if err := agentcfg.RecordEnrolment(configDir, agentcfg.EnrolledTree{Dir: tree, Agents: []string{"opencode"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range agentcfg.ReadEnrolled(configDir)[0].Agents {
+		if name == "claude" {
+			t.Fatal("the registry retained removed routing after the shared section excluded it")
+		}
 	}
 }
 

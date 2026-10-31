@@ -103,21 +103,13 @@ func RecordEnrolment(configDir string, tree EnrolledTree) error {
 		return err
 	}
 	trees := ReadEnrolled(configDir)
-	// Kept from the earlier entry, but only where the tree still shows the agent:
-	// enrolling one by name does not say the others have gone, and dropping them
-	// is a tree `doctor` stops checking those agents' account-wide rules for.
-	//
-	// Bounded by what is there, because an enrolled agent whose rules are missing
-	// from the home is a `doctor` failure: a name that could never leave would
-	// fail the command for ever on an agent the operator had removed. Every
-	// agent this enrols leaves something detect names.
-	present := detect(ScopeTree, tree.Dir)
+	// Use the same enabled-harness rule as the shared instruction write.
 	for _, existing := range trees {
 		if existing.Dir != tree.Dir {
 			continue
 		}
 		for _, name := range existing.Agents {
-			if slices.Contains(tree.Agents, name) || !slices.Contains(present, name) {
+			if slices.Contains(tree.Agents, name) || !StillEnrolled(tree.Dir, name) {
 				continue
 			}
 			tree.Agents = append(tree.Agents, name)
@@ -140,6 +132,25 @@ func RecordEnrolment(configDir string, tree EnrolledTree) error {
 	// enrolment at all.
 	_, err = hostfs.FS{}.WriteFileExpecting(EnrolledPath(configDir), append(body, '\n'), 0o600, before)
 	return err
+}
+
+// StillEnrolled checks previously recorded harnesses. Removing a project
+// routing configuration disables its enrollment. A global-only harness writes
+// no project routing file, so absence there does not revoke its enrollment.
+func StillEnrolled(dir, name string) bool {
+	target := Targets[name]
+	if target == nil {
+		return false
+	}
+	if len(target.Files) == 0 {
+		return true
+	}
+	for _, file := range target.Files {
+		if hostfs.Exists(filepath.Join(dir, file.Path)) {
+			return true
+		}
+	}
+	return false
 }
 
 // recordDigest is the record as it stands, or nil where there is none: a first

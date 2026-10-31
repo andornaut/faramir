@@ -20,8 +20,12 @@ func enrolledTree(t *testing.T, dir string, agents ...string) string {
 		t.Fatal(err)
 	}
 	for _, name := range agents {
-		for _, marker := range Targets[name].Detect {
-			if err := os.MkdirAll(filepath.Join(tree, marker), 0o755); err != nil {
+		for _, file := range Targets[name].Files {
+			path := filepath.Join(tree, file.Path)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("{}\n"), 0o640); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -90,16 +94,16 @@ func TestRecordingAnEnrolmentKeepsTheAgentsATreeStillCarries(t *testing.T) {
 // ever on an agent the operator had removed.
 func TestRecordingAnEnrolmentDropsAnAgentTheTreeNoLongerCarries(t *testing.T) {
 	dir := t.TempDir()
-	tree := enrolledTree(t, dir, "claude", "pi")
+	tree := enrolledTree(t, dir, "claude", "codex")
 
 	if err := RecordEnrolment(dir, EnrolledTree{
-		Dir: tree, AgentUser: "op", Agents: []string{"claude", "pi"},
+		Dir: tree, AgentUser: "op", Agents: []string{"claude", "codex"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// The operator takes pi out of the tree and re-enrols for claude alone.
-	for _, marker := range Targets["pi"].Detect {
-		if err := os.RemoveAll(filepath.Join(tree, marker)); err != nil {
+	// The operator removes Codex routing and re-enrols for Claude alone.
+	for _, file := range Targets["codex"].Files {
+		if err := os.Remove(filepath.Join(tree, file.Path)); err != nil {
 			t.Fatal(err)
 		}
 	}

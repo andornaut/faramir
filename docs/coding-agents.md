@@ -134,8 +134,11 @@ protections, deny rules and automatic routing hooks still apply.
 
 Every project uses `AGENTS.md`. Enrollment writes one managed section per
 physical instruction file, combining the shared credential policy and the notes
-for all enabled harnesses. Adding a harness retains the previously enrolled
-harnesses. Global instruction paths remain specific to each harness.
+for all enabled harnesses. Adding a harness retains previously enrolled harnesses
+that are still enabled. Re-enrolling another harness does not restore removed
+project routing configurations unless their harness is selected again.
+Global-only harnesses remain enrolled without a project routing file. Global
+instruction paths remain specific to each harness.
 
 Use Claude Code 2.1.281 or later with the built-in project-instructions plugin
 enabled and Project instructions set to `claude-md-or-agents-md` (the default)
