@@ -42,8 +42,9 @@ func TestReenrolmentCombinesPreviouslyEnabledHarnesses(t *testing.T) {
 		t.Fatalf("enabled harnesses = %d, want 3", len(got))
 	}
 	// Preflight uses the same union when configuring hooks and recording agents.
-	var names []string
-	for _, target := range run.enabledTargets() {
+	targets := run.enabledTargets()
+	names := make([]string, 0, len(targets))
+	for _, target := range targets {
 		names = append(names, target.Name)
 	}
 	if err := agentcfg.RecordEnrolment(configDir, agentcfg.EnrolledTree{Dir: tree, Agents: names}); err != nil {
@@ -121,5 +122,57 @@ func TestBuiltInHarnessesUseOnlyCanonicalProjectInstructions(t *testing.T) {
 		if got := agentcfg.Targets[name].HomeInstructions; got != want {
 			t.Errorf("%s global target = %s, want %s", name, got, want)
 		}
+	}
+}
+
+func TestMigrationWarnsAboutAncestorOverridesButPreservesGlobalInstructions(t *testing.T) {
+	home := t.TempDir()
+	homeAlias := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(home, homeAlias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	global := filepath.Join(home, ".claude", "CLAUDE.md")
+	ancestor := filepath.Join(home, "CLAUDE.local.md")
+	for _, path := range []string{global, ancestor} {
+		if err := os.WriteFile(path, []byte("User policy\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tree := filepath.Join(home, "project")
+	if err := os.Mkdir(tree, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	// The canonical name may be an existing alias of a legacy instruction file.
+	legacy := filepath.Join(tree, "CLAUDE.md")
+	if err := os.WriteFile(legacy, []byte("Project text\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(legacy, filepath.Join(tree, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	run := &project{
+		opts: Options{Dir: tree}, uid: hostfs.Keep, gid: hostfs.Keep, agentHome: homeAlias,
+		targets: []*agentcfg.Target{agentcfg.Targets["claude"]},
+	}
+	if err := run.instructions(); err != nil {
+		t.Fatal(err)
+	}
+	warnings := strings.Join(run.report.Warnings, "\n")
+	for _, want := range []string{ancestor, legacy, "regular file", "complete user text and managed credentials section"} {
+		if !strings.Contains(warnings, want) {
+			t.Errorf("migration warning omits %q", want)
+		}
+	}
+	if strings.Contains(warnings, global) {
+		t.Fatal("native global instructions were reported as a project override")
+	}
+	if body, err := os.ReadFile(global); err != nil || string(body) != "User policy\n" {
+		t.Fatal("global instructions were changed")
+	}
+	if body, err := os.ReadFile(legacy); err != nil || !strings.Contains(string(body), "Project text") || strings.Count(string(body), agentcfg.SectionBegin) != 1 {
+		t.Fatal("aliased project content was lost or received competing sections")
 	}
 }

@@ -191,9 +191,11 @@ func (p *project) instructions() error {
 	// Shared policy is written once, followed by every enabled harness's notes.
 	targets := p.enabledTargets()
 	if len(targets) > 0 {
-		section += "\n## Enabled harnesses\n\n"
+		var combined strings.Builder
+		combined.WriteString(section)
+		combined.WriteString("\n## Enabled harnesses\n\n")
 		for _, target := range targets {
-			section += "- " + target.Name
+			combined.WriteString("- " + target.Name)
 			var notes []string
 			if target.AutoApprovesBash {
 				notes = append(notes, "Bash routing auto-approves commands except deny-list refusals.")
@@ -202,10 +204,11 @@ func (p *project) instructions() error {
 				notes = append(notes, target.Note)
 			}
 			if len(notes) > 0 {
-				section += ": " + strings.Join(notes, " ")
+				combined.WriteString(": " + strings.Join(notes, " "))
 			}
-			section += "\n"
+			combined.WriteByte('\n')
 		}
+		section = combined.String()
 	}
 	changed, written, stale, err := p.writeSections(section)
 	// Recorded before the failure, so a report says what was written as well as
@@ -239,12 +242,12 @@ func (p *project) enabledTargets() []*agentcfg.Target {
 			}
 		}
 	}
-	var names []string
+	names := make([]string, 0, len(byName))
 	for name := range byName {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	var out []*agentcfg.Target
+	out := make([]*agentcfg.Target, 0, len(names))
 	for _, name := range names {
 		out = append(out, byName[name])
 	}
@@ -254,10 +257,25 @@ func (p *project) enabledTargets() []*agentcfg.Target {
 // Legacy directory entries are retained for operator migration. Only an alias
 // of the canonical file can receive its shared section through the same target.
 func (p *project) warnLegacyInstructions() {
-	for _, rel := range []string{"CLAUDE.md", "CLAUDE.local.md", "GEMINI.md", ".claude/CLAUDE.md", ".agents/rules/faramir.md"} {
-		path := filepath.Join(p.opts.Dir, rel)
-		if _, err := os.Lstat(path); err == nil {
-			p.warnf("legacy project instructions at %s remain in place; preserve user text in AGENTS.md, verify its managed credentials section, then remove the legacy file or symlink. Global harness instructions must stay in place", path)
+	home := p.agentHome
+	if home != "" {
+		if resolved, err := filepath.EvalSymlinks(home); err == nil {
+			home = resolved
+		}
+	}
+	for dir := p.opts.Dir; ; dir = filepath.Dir(dir) {
+		for _, rel := range []string{"CLAUDE.md", "CLAUDE.local.md", "GEMINI.md", ".claude/CLAUDE.md", ".agents/rules/faramir.md"} {
+			// The native user-level Claude file is not a project override.
+			if (dir == home || dir == p.agentHome) && rel == agentcfg.Targets["claude"].HomeInstructions {
+				continue
+			}
+			path := filepath.Join(dir, rel)
+			if _, err := os.Lstat(path); err == nil {
+				p.warnf("legacy project instructions at %s remain in place; before cleanup, make AGENTS.md a regular file containing the complete user text and managed credentials section. Then remove only obsolete project files or symlinks; keep global harness files", path)
+			}
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			break
 		}
 	}
 }

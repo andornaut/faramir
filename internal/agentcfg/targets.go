@@ -244,7 +244,7 @@ var Targets = map[string]*Target{
 		Detect:           []string{".claude"},
 		DetectHome:       []string{".claude", ".claude.json"},
 		HomeInstructions: ".claude/CLAUDE.md",
-		TreeInstructions: treeRules{Path: "AGENTS.md"},
+		TreeInstructions: treeRules{Path: ProjectInstructions},
 		AutoApprovesBash: true,
 	},
 	// Codex reads the same hook contract Claude Code does, and its enrolment is
@@ -274,7 +274,7 @@ var Targets = map[string]*Target{
 		DetectsFromHome: true,
 		// Codex's global instructions, loaded wherever it is working.
 		HomeInstructions: ".codex/AGENTS.md",
-		TreeInstructions: treeRules{Path: "AGENTS.md"},
+		TreeInstructions: treeRules{Path: ProjectInstructions},
 		// Same trade as Claude Code, and only in an enrolled tree: the hook has to
 		// approve the command it rewrote, and that approval covers every command
 		// the deny list does not name.
@@ -432,7 +432,7 @@ func antigravityMember(name string, detectHome []string, ownRules []File) *Targe
 		// The family's global rules, applied in every workspace, under ~/.gemini
 		// rather than a second agent's directory. Both halves read the same file.
 		HomeInstructions: ".gemini/GEMINI.md",
-		TreeInstructions: treeRules{Path: "AGENTS.md"},
+		TreeInstructions: treeRules{Path: ProjectInstructions},
 		// The host does not take the hook's allow as an approval, so no prompt
 		// is suppressed; see docs/coding-agents.md#antigravity.
 		AutoApprovesBash: false,

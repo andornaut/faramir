@@ -288,8 +288,11 @@ func looksManaged(entry, configDir string) bool {
 	return false
 }
 
+// ProjectInstructions is the canonical project instruction filename.
+const ProjectInstructions = "AGENTS.md"
+
 // InstructionFiles contains the canonical project instruction filename.
-var InstructionFiles = []string{"AGENTS.md"}
+var InstructionFiles = []string{ProjectInstructions}
 
 // HomeFor is the account's home directory.
 func HomeFor(name string) (string, error) {

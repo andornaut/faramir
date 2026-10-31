@@ -137,8 +137,9 @@ physical instruction file, combining the shared credential policy and the notes
 for all enabled harnesses. Adding a harness retains the previously enrolled
 harnesses. Global instruction paths remain specific to each harness.
 
-Claude Code 2.1.277 or later supports this filename natively, with the built-in
-plugin enabled. Its default selection requires removing project-level
+Use Claude Code 2.1.281 or later with the built-in project-instructions plugin
+enabled and Project instructions set to `claude-md-or-agents-md` (the default)
+or `claude-md-and-agents-md`. Its default selection requires removing project-level
 `CLAUDE.md`, `.claude/CLAUDE.md` and `CLAUDE.local.md` in the working directory
 and its ancestors. Its global `~/.claude/CLAUDE.md` remains loaded alongside the
 project file. See [Claude Code memory](https://code.claude.com/docs/en/memory#agentsmd).
