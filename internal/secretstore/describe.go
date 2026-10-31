@@ -256,6 +256,10 @@ func (s *Store) Count() int {
 func (s *Store) Unreadable() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.unreadableLocked()
+}
+
+func (s *Store) unreadableLocked() string {
 	switch {
 	// linkState as well as state: an install whose only secrets are linked holds
 	// its whole value set without the keeper contributing anything.

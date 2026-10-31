@@ -377,21 +377,25 @@ func (s *Store) Refs() []string {
 func (s *Store) Value(ref string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if v, ok := s.values[ref]; ok {
+	return value(s.values, s.refused, s.degradedLinks, ref)
+}
+
+func value(values, refused, degradedLinks map[string]string, ref string) (string, error) {
+	if v, ok := values[ref]; ok {
 		return v, nil
 	}
 	// Named separately, so a refused ref does not read as a typo. The reason
 	// carries the remedy: what to do about a value too short to redact is not
 	// what to do about one too large to inject, and a fixed "lengthen the value"
 	// was advice for one of them given to both.
-	if reason, ok := s.refused[ref]; ok {
+	if reason, ok := refused[ref]; ok {
 		return "", fmt.Errorf("secret %s was refused at load: %s. It is neither "+
 			"injected nor redacted. Fix it with `sudo faramir vault edit`",
 			ref, reason)
 	}
 	// Nor does a link that did not load. The path is left out deliberately: it is
 	// the location of a credential, and this answer reaches the caller.
-	if reason, ok := s.degradedLinks[ref]; ok {
+	if reason, ok := degradedLinks[ref]; ok {
 		return "", fmt.Errorf("secret %s is linked and did not load: %s. Other refs "+
 			"are unaffected. `faramir status` names it, and `sudo faramir "+
 			"doctor` says what to do", ref, reason)
