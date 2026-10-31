@@ -144,9 +144,13 @@ func runWatch(path string, f logsFlags, paint termui.Palette) int {
 
 	printer := auditview.Printer{Paint: paint}
 	skipped := 0
+	outputCode := 0
 	// A record on the way past. --json prints one value per record rather than
 	// the listing's array: there is no last record to close an array after.
 	emit := func(line []byte) {
+		if outputCode != 0 {
+			return
+		}
 		record, lost := auditview.ParseLine(line)
 		switch {
 		case record == nil:
@@ -154,7 +158,7 @@ func runWatch(path string, f logsFlags, paint termui.Palette) int {
 				skipped++
 			}
 		case f.asJSON:
-			_ = printJSON("logs", record)
+			outputCode = printJSON("logs", record)
 		default:
 			printer.Row(record)
 		}
@@ -180,7 +184,9 @@ func runWatch(path string, f logsFlags, paint termui.Palette) int {
 	}
 	for _, record := range records {
 		if f.asJSON {
-			_ = printJSON("logs", record)
+			if code := printJSON("logs", record); code != 0 {
+				return code
+			}
 			continue
 		}
 		printer.Row(record)
@@ -191,6 +197,9 @@ func runWatch(path string, f logsFlags, paint termui.Palette) int {
 		if err := follow.Drain(emit); err != nil {
 			fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 			return 1
+		}
+		if outputCode != 0 {
+			return outputCode
 		}
 		// Per pass rather than per line: a run of lines that will not parse is one
 		// report.

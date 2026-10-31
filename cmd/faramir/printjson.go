@@ -20,6 +20,9 @@ func printJSON(label string, v any) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	fmt.Println(string(body))
+	if _, err := fmt.Fprintln(os.Stdout, string(body)); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: writing output: %v\n", label, err)
+		return 1
+	}
 	return 0
 }
