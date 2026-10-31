@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,6 +11,38 @@ import (
 	"github.com/andornaut/faramir/internal/socktest"
 	"github.com/andornaut/faramir/internal/testio"
 )
+
+func TestSendAuditFailureWithUnwritableStdout(t *testing.T) {
+	for _, quiet := range []bool{false, true} {
+		t.Run(fmt.Sprintf("quiet=%t", quiet), func(t *testing.T) {
+			file, err := os.CreateTemp(t.TempDir(), "closed-output")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+			previous := os.Stdout
+			os.Stdout = file
+			t.Cleanup(func() { os.Stdout = previous })
+			socketPath := socktest.AnsweringBroker(t, map[string]any{
+				"exit_code": 0, "output": "command output", "log_id": "audit-test",
+				"error": map[string]any{"code": "audit_failed", "message": "command ran with exit code 0; verify before retry"},
+			})
+			stderr, code := testio.CaptureStderr(t, func() int {
+				return send("run", socketPath, map[string]any{"op": "run"}, false, quiet)
+			})
+			if code != 1 {
+				t.Errorf("exit = %d, want 1", code)
+			}
+			for _, want := range []string{"audit_failed: command ran with exit code 0; verify before retry", "log_id=audit-test", "writing output:"} {
+				if !strings.Contains(stderr, want) {
+					t.Errorf("stderr = %q, want %q", stderr, want)
+				}
+			}
+		})
+	}
+}
 
 func TestSendAuditFailurePreservesExecutedCommand(t *testing.T) {
 	const message = "command ran but audit recording failed; verify before retry"
@@ -68,6 +101,11 @@ func TestSendAuditFailurePreservesExecutedCommand(t *testing.T) {
 					t.Errorf("stdout = %q, want preserved output %q", stdout, response["output"])
 				}
 				wantError := "faramir run: audit_failed: " + message + "\nfaramir run: log_id=audit-test\n"
+				notes := "output truncated; 2 non-text byte(s) replaced; timed out; exit status unknown"
+				if !mode.quiet {
+					notes = "redacted redacted-token×3; " + notes
+				}
+				wantError += "faramir run: " + notes + "\n"
 				if stderr != wantError {
 					t.Errorf("stderr = %q, want %q", stderr, wantError)
 				}

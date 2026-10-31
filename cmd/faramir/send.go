@@ -90,18 +90,13 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 	}
 
 	if response.Error != nil {
-		// An audit failure follows execution, so the command's output is still
-		// part of the answer even though the broker reports failure.
-		if response.Error.Code == "audit_failed" {
-			if _, err := io.WriteString(os.Stdout, response.Output); err != nil {
-				fmt.Fprintf(os.Stderr, "faramir %s: writing output: %v\n", prog, err)
-			}
-		}
 		fmt.Fprintf(os.Stderr, "faramir %s: %s: %s\n", prog, response.Error.Code, response.Error.Message)
 		if response.LogID != "" {
 			fmt.Fprintf(os.Stderr, "faramir %s: log_id=%s\n", prog, response.LogID)
 		}
-		return brokerclient.ExitFor(response.Error.Code)
+		if response.Error.Code != "audit_failed" {
+			return brokerclient.ExitFor(response.Error.Code)
+		}
 	}
 
 	// A failed write to stdout is an error, not something to discard: a broken
@@ -154,13 +149,16 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 	if response.StatusUnknown {
 		notes = append(notes, "exit status unknown")
 	}
-	if !quiet && response.LogID != "" {
+	if !quiet && response.LogID != "" && response.Error == nil {
 		notes = append(notes, "log_id="+response.LogID)
 	}
 	if len(notes) > 0 {
 		fmt.Fprintf(os.Stderr, "faramir %s: %s\n", prog, strings.Join(notes, "; "))
 	}
 
+	if response.Error != nil {
+		return brokerclient.ExitFor(response.Error.Code)
+	}
 	if response.ExitCode != nil {
 		return *response.ExitCode
 	}
