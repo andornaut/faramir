@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,6 +53,22 @@ func uninstallDirs() []string {
 // the config, the secrets directory and the audit log. Deleting the age key
 // would make every managed sops file unreadable, retroactively.
 func Uninstall(configDir string) ([]string, error) {
+	return uninstall(uninstallOps{
+		remove: os.Remove, removeAll: os.RemoveAll,
+		removeBlock: func() error {
+			_, err := hostsudo.RemoveBlock(hostfs.FS{})
+			return err
+		},
+	}, configDir)
+}
+
+type uninstallOps struct {
+	remove      func(string) error
+	removeAll   func(string) error
+	removeBlock func() error
+}
+
+func uninstall(ops uninstallOps, configDir string) ([]string, error) {
 	if configDir == "" {
 		configDir = hostlayout.DefaultConfigDir
 	}
@@ -59,37 +76,42 @@ func Uninstall(configDir string) ([]string, error) {
 	// name them are removed: an adopted account need not have the default name,
 	// and the list below tells the operator what to delete.
 	accounts := installedAccounts(configDir)
-	// What this run could not take back out, reported with everything else it
-	// leaves. Appended to rather than returned early: an uninstall that stopped
-	// here would leave a host with its units gone and no daemon-reload.
-	var leftBehind []string
+	var failures []error
 	if hostunit.Running() {
 		for _, unit := range append(slices.Clone(hostunit.Sockets), hostunit.Services...) {
 			// One unit at a time, so a unit file already gone, which is the state a
 			// re-run after a partial uninstall is in, cannot keep the others from
-			// being stopped. Not fatal for the same reason; what is still running
-			// afterwards is what matters.
-			_, _ = runcmd.Output("systemctl", "disable", "--now", unit)
-			if state, _ := hostunit.State(unit); state == hostunit.Active {
-				leftBehind = append(leftBehind, unit+" -- still running with its unit file "+
-					"removed: systemctl stop "+unit)
+			// being stopped. Verify the result even when disabling failed.
+			_, stopErr := runcmd.Output("systemctl", "disable", "--now", unit)
+			state, known := hostunit.State(unit)
+			_, fileErr := os.Stat(hostunit.Path(unit))
+			// Disabling an absent unit fails on an idempotent re-run. Only a
+			// verified inactive unit makes that failure harmless.
+			if stopErr != nil && !(known && state == "inactive" && os.IsNotExist(fileErr)) {
+				failures = append(failures, stopErr)
+			}
+			switch {
+			case !known:
+				failures = append(failures, fmt.Errorf("%s: could not verify that the unit stopped", unit))
+			case state != "inactive" && state != "failed":
+				failures = append(failures, fmt.Errorf("%s: state %q after stop; run systemctl stop %s", unit, state, unit))
 			}
 		}
 	}
 	for _, name := range agentcfg.UnitNames() {
-		if err := os.Remove(filepath.Join(hostunit.SystemUnitDir, name)); err != nil &&
+		if err := ops.remove(filepath.Join(hostunit.SystemUnitDir, name)); err != nil &&
 			!os.IsNotExist(err) {
-			return nil, err
+			failures = append(failures, err)
 		}
 	}
 	for _, unit := range hostunit.Services {
-		if err := os.RemoveAll(filepath.Join(hostunit.SystemUnitDir, unit+".d")); err != nil {
-			return nil, err
+		if err := ops.removeAll(filepath.Join(hostunit.SystemUnitDir, unit+".d")); err != nil {
+			failures = append(failures, err)
 		}
 	}
 	for _, path := range uninstallPaths() {
-		if err := os.RemoveAll(path); err != nil {
-			return nil, err
+		if err := ops.removeAll(path); err != nil {
+			failures = append(failures, err)
 		}
 	}
 	// The block a sudo-rs host's grant put in the stacks every account's sudo
@@ -98,47 +120,45 @@ func Uninstall(configDir string) ([]string, error) {
 	// install that wrote the block and an operator who has since switched the
 	// `sudo` alternatives group would otherwise keep a branch pointing at a
 	// service this uninstall just deleted.
-	// Reported rather than fatal: by this point the units and the files are gone,
-	// so failing here would leave a half-uninstalled host and no daemon-reload.
+	// Accumulate the error so daemon-reload and independent cleanup still run.
 	// The one case that fails is a stack carrying one marker without the other,
 	// which is an edit somebody made and which this must not guess at.
-	if _, err := hostsudo.RemoveBlock(hostfs.FS{}); err != nil {
-		leftBehind = append(leftBehind, "the faramir block in a shared PAM stack: "+
-			err.Error())
+	if err := ops.removeBlock(); err != nil {
+		failures = append(failures, fmt.Errorf("the faramir block in a shared PAM stack: %w", err))
 	}
 	if hostunit.Running() {
 		if _, err := runcmd.Output("systemctl", "daemon-reload"); err != nil {
-			return nil, err
+			failures = append(failures, err)
 		}
 	}
 	for _, name := range installedBinaries {
-		if err := os.Remove(filepath.Join(hostlayout.DefaultBinDir, name)); err != nil && !os.IsNotExist(err) {
-			return nil, err
+		if err := ops.remove(filepath.Join(hostlayout.DefaultBinDir, name)); err != nil && !os.IsNotExist(err) {
+			failures = append(failures, err)
 		}
 	}
 	for _, dir := range uninstallDirs() {
-		if err := os.RemoveAll(dir); err != nil {
-			return nil, err
+		if err := ops.removeAll(dir); err != nil {
+			failures = append(failures, err)
 		}
 	}
-	return append(leftBehind,
-		filepath.Join(configDir, "age.key")+
+	return []string{
+		filepath.Join(configDir, "age.key") +
 			" -- deleting it makes every managed sops file unreadable",
-		filepath.Join(configDir, "secrets")+"/ -- the managed sops files",
-		config.FileIn(configDir)+" -- the base config",
-		hostlayout.DefaultLogDir+"/ -- the audit log",
+		filepath.Join(configDir, "secrets") + "/ -- the managed sops files",
+		config.FileIn(configDir) + " -- the base config",
+		hostlayout.DefaultLogDir + "/ -- the audit log",
 		fmt.Sprintf("users %s, %s and %s, and the group %s. %s's own password "+
 			"is not cleared: `usermod -L %s`",
 			accounts.broker, accounts.keeper, accounts.exec, accounts.client,
 			accounts.exec, accounts.exec),
 		"a shared tree's group and setgid bits, and the traversal granted to reach it",
-		"an enrolled tree's own agent configuration: for Claude Code, the settings "+
+		"an enrolled tree's own agent configuration: for Claude Code, the settings " +
 			"that name the hook",
-		"each agent's account-wide configuration in the agent account's home: the deny "+
-			"rules, and the credentials section between "+agentcfg.SectionBegin+" and "+
-			agentcfg.SectionEnd+" in the file that agent reads for every project. Both are "+
+		"each agent's account-wide configuration in the agent account's home: the deny " +
+			"rules, and the credentials section between " + agentcfg.SectionBegin + " and " +
+			agentcfg.SectionEnd + " in the file that agent reads for every project. Both are " +
 			"in files the operator owns, so remove those lines by hand",
-	), nil
+	}, errors.Join(failures...)
 }
 
 // serviceAccounts is the names an install runs as.

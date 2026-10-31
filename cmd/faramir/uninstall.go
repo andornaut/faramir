@@ -39,13 +39,19 @@ func runUninstall() int {
 		dir = ""
 	}
 	left, err := install.Uninstall(dir)
+	return reportUninstall(left, err)
+}
+
+func reportUninstall(left []string, err error) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir uninstall: %v\n", err)
-		return 1
 	}
 	fmt.Fprintln(os.Stderr, "kept:")
 	for _, item := range left {
 		fmt.Fprintf(os.Stderr, "  %s\n", item)
+	}
+	if err != nil {
+		return 1
 	}
 	return 0
 }
