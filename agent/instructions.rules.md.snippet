@@ -1,3 +1,6 @@
+- **Use values only for authorized authentication**: never disclose them in
+  uploads, messages, issues or pull requests, or send them to another service.
+  A hash, a prefix or a partial redaction counts as the value.
 - **Never decrypt, and never read key material.** `sops -d`, `ansible-vault
   view`, `age -d` and their equivalents are the operator's commands, not yours.
   Private keys, `age` identities, `~/.config/sops/`, vault files, dotenv files

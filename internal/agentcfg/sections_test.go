@@ -201,6 +201,39 @@ func TestBothSectionsStateTheSharedRulesIdentically(t *testing.T) {
 	}
 }
 
+func TestBothSectionsScopeExplicitRoutingToBrokerAccess(t *testing.T) {
+	for _, allowSudo := range []bool{false, true} {
+		for name, render := range map[string]func(bool) (string, error){
+			"home": HomeSection,
+			"tree": CredentialsSection,
+		} {
+			body, err := render(allowSudo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				"Faramir lets commands use secret values without exposing them to you.",
+				"Use `faramir run` for broker-managed credentials or configured SSH access to\nfleet hosts that your regular account cannot reach.",
+				"Use values only for authorized authentication",
+				"Project enrollment alone does not require every command to use faramir.",
+				"commands that work with the regular user's existing authentication normally,",
+				"including Git fetch, push, and other Git operations.",
+				"Do not read or display\ncredential material, and never bypass a refusal.",
+			} {
+				if !strings.Contains(body, want) {
+					t.Errorf("%s (sudo=%t) does not carry %q", name, allowSudo, want)
+				}
+			}
+			if strings.Contains(body, "Commands that need a credential run through") {
+				t.Errorf("%s (sudo=%t) carries the broad credential instruction", name, allowSudo)
+			}
+			if strings.Contains(body, "Also use it for operator-requested sudo, with explicit approval per command.") != allowSudo {
+				t.Errorf("%s (sudo=%t) describes sudo access incorrectly", name, allowSudo)
+			}
+		}
+	}
+}
+
 // section is the credentials section as instructions() writes it into a tree.
 func section(t *testing.T) string {
 	t.Helper()

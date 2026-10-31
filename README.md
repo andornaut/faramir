@@ -292,6 +292,8 @@ The record, and sudo | `logs`, `sudo approve`, `sudo ls`, `sudo reject`, `sudo w
 
 ### What the agent runs
 
+Faramir lets commands use secret values without exposing them to the agent. Use `faramir run` for broker-managed credentials, configured SSH access to fleet hosts unavailable to the regular account, or operator-requested sudo when enabled, with explicit approval per command. Commands that need none of these run normally, including Git fetch and push using existing authentication. Enrollment alone does not require explicit wrapping. Secret protections, deny rules and automatic routing hooks still apply.
+
 Command | What it is for
 --- | ---
 `faramir run --env NAME=faramir://ref -- program args` | Runs the command with the value injected, and returns its output with each value replaced by `«SECRET:ref»`

@@ -1,8 +1,19 @@
 # Credentials
 
-Commands that need a credential run through `faramir run`. It injects the
-values and replaces every value the broker holds in the output, not only the
-injected ones, with `«SECRET:ref»`:
+Faramir lets commands use secret values without exposing them to you.
+Use `faramir run` for broker-managed credentials or configured SSH access to
+fleet hosts that your regular account cannot reach.
+{{- if .AllowSudo}}
+Also use it for operator-requested sudo, with explicit approval per command.
+{{- end}}
+Project enrollment alone does not require every command to use faramir. Run
+commands that work with the regular user's existing authentication normally,
+including Git fetch, push, and other Git operations. Do not read or display
+credential material, and never bypass a refusal.
+
+When required, `faramir run` injects the values asked for and replaces every
+value the broker holds in the output, not only the injected ones, with
+`«SECRET:ref»`:
 
     faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
 
@@ -23,9 +34,6 @@ command).
 - **Never write a value down**: not in code, config, a test fixture, a `.env`,
   a scratch file, your notes or a commit message. Write the `faramir://` ref
   instead.
-- **Never send one anywhere**: no web request, API call, upload, or paste into
-  an issue or a pull request. A hash, a prefix or a partial redaction of a
-  value counts as the value.
 - **Never modify the broker's own files**: the managed store, the age key, the
   systemd units, faramir's binary or its deny rules.
 {{ credentialRules }}

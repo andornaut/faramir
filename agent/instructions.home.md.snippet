@@ -3,9 +3,19 @@
 Your file tools are refused faramir's own directories on this machine, wherever
 you are working. Being able to reach a file is not permission to open it.
 
-Commands that need a credential run through `faramir run`. It injects the
-values asked for and redacts every value the broker holds from the output, not
-only the injected ones:
+Faramir lets commands use secret values without exposing them to you.
+Use `faramir run` for broker-managed credentials or configured SSH access to
+fleet hosts that your regular account cannot reach.
+{{- if .AllowSudo}}
+Also use it for operator-requested sudo, with explicit approval per command.
+{{- end}}
+Project enrollment alone does not require every command to use faramir. Run
+commands that work with the regular user's existing authentication normally,
+including Git fetch, push, and other Git operations. Do not read or display
+credential material, and never bypass a refusal.
+
+When required, `faramir run` injects the values asked for and redacts every value
+the broker holds from the output, not only the injected ones:
 
     faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
 

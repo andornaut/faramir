@@ -124,6 +124,14 @@ There are two such sections:
   agent may run, and rules on where a value may go and on the broker's own
   files.
 
+Both sections explain how commands use secret values without exposing them to
+the agent: `faramir run` provides broker-managed credentials and configured SSH
+access to fleet hosts unavailable to the regular account. When sudo is enabled,
+both also require operator-requested commands and explicit approval. Commands
+that need none of these run normally, including Git fetch and push using existing
+authentication. Enrollment alone does not require explicit wrapping. Secret
+protections, deny rules and automatic routing hooks still apply.
+
 A tree's own file is whichever of `AGENTS.md` and `CLAUDE.md` it already has,
 `AGENTS.md` when it has both, and a new `AGENTS.md` when it has neither.
 Three agents also read a file of their own beside it and get the section there
