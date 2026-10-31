@@ -312,8 +312,8 @@ decision() {
 # The refusal reaches the model, so it has to say what to tell the operator
 # rather than reading as the command being disallowed.
 echo 'not json at all' | runuser -u op -- "$GUARD" guard 2>/dev/null \
-  | grep -q "could not read this tool call" \
-  && ok "and says the guard could not read the call, not that the command was refused" \
+  | grep -q "could not parse this tool call" \
+  && ok "and says the guard could not parse the call, not that the command was refused" \
   || bad "the refusal does not say why: $(echo 'not json at all' | runuser -u op -- "$GUARD" guard 2>/dev/null | head -c 200)"
 # argv-array clients: the command is in args, not command.
 got=$(echo '{"tool_name":"Bash","tool_input":{"args":["cat","/etc/faramir/age.key"]}}' \
