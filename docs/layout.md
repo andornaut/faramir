@@ -65,17 +65,11 @@ Every one of these refuses a path by asking `faramir guard`. Every one except Cl
 
 The reasons behind each agent's files are in [coding-agents.md](coding-agents.md).
 
-In an enrolled tree, the section goes into the tree's own instructions file: its `AGENTS.md`, its `CLAUDE.md` if that is the only one it has, or a new `AGENTS.md` if it has neither. Three agents also read a file under their own name, and the enrolment writes one:
-
-Agent | File in the tree | Why
---- | --- | ---
-Antigravity | `.agents/rules/faramir.md` | It reads `.agents/rules/*.md` as well as the tree's own file. It does not read `CLAUDE.md`, so a tree whose own file is `CLAUDE.md` would give it nothing
-Claude Code | `CLAUDE.md` | It reads `CLAUDE.md` and not `AGENTS.md`, so a tree whose own file is `AGENTS.md` would give it nothing
-Codex | `AGENTS.md` | It reads `AGENTS.md` and not `CLAUDE.md`. If the tree's own file has that name, the two are one file and the section is written once
+In an enrolled tree, all harnesses share `AGENTS.md`. One managed section combines the credential policy and the notes for every enabled harness. Existing user text outside the section is preserved. Global harness instruction paths in the table above remain unchanged.
 
 Two agents also need a hook in the tree for routing: Claude Code gets `.claude/settings.local.json` and Codex gets `.codex/hooks.json`. Both name paths chosen on this machine, so both belong in git's ignores. An enrolment reports when they are not ignored.
 
-Every instructions file in a tree gets the same section, so you can symlink one to another and the section is written once. An operator who keeps a single file for every agent points `CLAUDE.md` at `AGENTS.md`, and the section goes into the file both names reach.
+No alternate project instruction files, import wrappers or symlinks are generated. Legacy files are reported and preserved for [operator migration](coding-agents.md#migrating-legacy-project-instructions).
 
 The section says what the deny rules cannot: why they refuse, and what to do instead.
 

@@ -56,12 +56,12 @@ grep -q 'faramir guard' "$D/.claude/settings.local.json" \
 grep -q -- '--deny-only' "$D/.claude/settings.local.json" \
   && bad "the tree hook is deny-only, so nothing in this tree is redacted" \
   || ok "claude: and it routes rather than only refusing"
-# CLAUDE.md as well as the tree's own file: this agent reads that name and not
-# AGENTS.md, so a tree carrying only the latter would tell it nothing.
-owned "$D/CLAUDE.md" "claude: its own instructions file"
-grep -q '^# Credentials' "$D/CLAUDE.md" \
+# Claude and Codex share one project instruction file.
+owned "$D/AGENTS.md" "claude: shared project instructions"
+absent "$D/CLAUDE.md" "claude: alternate project instructions"
+grep -q '^# Credentials' "$D/AGENTS.md" \
   && ok "claude: carrying the credentials section" \
-  || bad "CLAUDE.md carries no credentials section, so the agent that reads it is told nothing"
+  || bad "shared project instructions carry no credentials section"
 
 # Codex takes the same trade, into a hook file of its own. Its account-wide
 # half is deny-only for the same reason Claude Code's is.
@@ -101,13 +101,10 @@ for a in antigravity agy opencode kilocode pi; do
   ok "$a: the enrolment writes the tree no agent files"
 done
 
-# Antigravity reads its own rules file rather than the tree's AGENTS.md, so it
-# still gets one, and it has to be headed or the agent may never load it.
+# Antigravity shares the project file too.
 D=/home/op/p-antigravity
-owned "$D/.agents/rules/faramir.md" "antigravity: rules file"
-grep -q 'trigger: always_on' "$D/.agents/rules/faramir.md" \
-  && ok "antigravity: the rules file is headed so the agent loads it" \
-  || bad "the rules file carries no always-on frontmatter, so it may never be read"
+owned "$D/AGENTS.md" "antigravity: shared project instructions"
+absent "$D/.agents/rules/faramir.md" "antigravity: alternate project instructions"
 
 # The account-wide files are `faramir init --agent`'s half of enrolment, not
 # this command's: enrol writes the per-project hook, init writes the deny
@@ -364,9 +361,7 @@ enrol "$D" --agent claude --agent antigravity --agent opencode --agent kilocode 
 [ -e "$D/.claude/settings.local.json" ] \
   && ok "  .claude/settings.local.json" \
   || bad "  .claude/settings.local.json was not written by the multi-agent enrolment"
-[ -e "$D/.agents/rules/faramir.md" ] \
-  && ok "  .agents/rules/faramir.md" \
-  || bad "  .agents/rules/faramir.md was not written by the multi-agent enrolment"
+absent "$D/.agents/rules/faramir.md" "multi-agent: alternate project instructions"
 [ -e "$D/AGENTS.md" ] && ok "  AGENTS.md" || bad "  AGENTS.md was not written"
 
 # --------------------------------------------------------------------------
@@ -748,33 +743,32 @@ grep -q 'not written; see the error' <<<"$out" \
   && ok "  with the step naming the file it did not write" \
   || bad "  the step does not name the file it left: ${out:0:140}"
 
-# CLAUDE.md when that is the file the tree has: the first of the two that
-# exists is the one written into, and the tree's own file is not doubled.
-# Enrolled for claude alone, which reads CLAUDE.md and is given no name beyond
-# it; the agent that does ask for a second name is the case below.
+# Legacy user text is preserved; the shared credentials section is canonical.
 D=$(tree /home/op/p-instr-claude)
 printf '# Notes\n' > "$D/CLAUDE.md"; chown $OP:$OP "$D/CLAUDE.md"
-enrol "$D" --agent claude >/dev/null 2>&1
-grep -q '^# Credentials' "$D/CLAUDE.md" && ok "CLAUDE.md is written into when that is the file the tree has" \
-  || bad "the section did not go into CLAUDE.md"
-absent "$D/AGENTS.md" "a second instructions file"
+out=$(enrol "$D" --agent claude 2>&1)
+grep -q '^# Credentials' "$D/AGENTS.md" && ok "claude receives canonical project credentials" \
+  || bad "the canonical credentials section is missing"
+[ "$(cat "$D/CLAUDE.md")" = '# Notes' ] && ok "legacy user text is unchanged" \
+  || bad "legacy user text was changed"
+grep -q 'legacy project instructions' <<<"$out" && ok "operator migration is reported" \
+  || bad "legacy instructions were not reported"
 
-# Codex is the mirror image: it reads AGENTS.md and not CLAUDE.md, so a tree
-# whose own file is a CLAUDE.md gets an AGENTS.md as well. Not a duplicate --
-# each is the name an agent reads, and both carry the same section.
+# Multiple harnesses share one managed section.
 D=$(tree /home/op/p-instr-codex)
 printf '# Notes\n' > "$D/CLAUDE.md"; chown $OP:$OP "$D/CLAUDE.md"
 enrol "$D" --agent claude --agent codex >/dev/null 2>&1
-grep -q '^# Credentials' "$D/CLAUDE.md" \
-  && ok "the tree's own CLAUDE.md still carries the section" \
-  || bad "the section did not go into CLAUDE.md"
+[ "$(cat "$D/CLAUDE.md")" = '# Notes' ] && ok "multi-agent enrollment preserves legacy text" \
+  || bad "multi-agent enrollment changed legacy text"
 grep -q '^# Credentials' "$D/AGENTS.md" \
-  && ok "and codex gets the name it reads, which CLAUDE.md is not" \
-  || bad "codex was left nothing in a tree whose own file is a CLAUDE.md"
+  && ok "all harnesses receive canonical project credentials" \
+  || bad "the canonical credentials section is missing"
+for harness in claude codex; do
+  grep -q -- "- $harness" "$D/AGENTS.md" && ok "shared section includes $harness" \
+    || bad "shared section omits $harness"
+done
 
-# One file for every agent, which is a CLAUDE.md linked at the tree's AGENTS.md.
-# The two are then one file carrying one section rather than a pair refused as
-# two writes with one survivor.
+# A legacy symlink is preserved for operator cleanup.
 D=$(tree /home/op/p-instr-linked)
 printf '# Notes\n' > "$D/AGENTS.md"
 runuser -u $OP -- ln -s AGENTS.md "$D/CLAUDE.md"

@@ -210,12 +210,7 @@ func TestEditableFilesReportsATreesOwnInstructionsFile(t *testing.T) {
 	configDir := t.TempDir()
 	tree := enrolTree(t, configDir, "claude")
 	path := filepath.Join(tree, "AGENTS.md")
-	// Only the dangling link: with the fixture's CLAUDE.md standing beside it,
-	// the tree's own file would resolve there instead and the link go unasked.
 	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(tree, "CLAUDE.md")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(tree, "nothing-here.md"), path); err != nil {
@@ -278,9 +273,6 @@ func TestEditableFilesAcceptsATreesLinkedClaudeFile(t *testing.T) {
 	if err := os.WriteFile(agents, []byte("# Project\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(tree, "CLAUDE.md")); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Symlink(agents, filepath.Join(tree, "CLAUDE.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -315,14 +307,11 @@ func TestTreeConfigFailsOnARecordItCannotRead(t *testing.T) {
 	}
 }
 
-// The instruction files are part of what an enrolment writes: for the
-// Antigravity family the rules file plus the account hook is the whole tree
-// enrolment, so a tree whose section or frontmatter is gone must not report as
-// carrying what enrol wrote.
+// Every harness requires the shared managed credentials section.
 func TestTreeConfigReportsAStrippedInstructionsFile(t *testing.T) {
 	configDir := t.TempDir()
 	tree := enrolTree(t, configDir, "antigravity")
-	rules := filepath.Join(tree, ".agents", "rules", "faramir.md")
+	rules := agentcfg.TreeInstructionsFile(tree)
 	if err := os.WriteFile(rules, []byte("tidied\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}

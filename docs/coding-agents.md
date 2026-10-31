@@ -132,22 +132,43 @@ that need none of these run normally, including Git fetch and push using existin
 authentication. Enrollment alone does not require explicit wrapping. Secret
 protections, deny rules and automatic routing hooks still apply.
 
-A tree's own file is whichever of `AGENTS.md` and `CLAUDE.md` it already has,
-`AGENTS.md` when it has both, and a new `AGENTS.md` when it has neither.
-Three agents also read a file of their own beside it and get the section there
-as well:
+Every project uses `AGENTS.md`. Enrollment writes one managed section per
+physical instruction file, combining the shared credential policy and the notes
+for all enabled harnesses. Adding a harness retains the previously enrolled
+harnesses. Global instruction paths remain specific to each harness.
 
-Agent | File
---- | ---
-Claude Code | `CLAUDE.md`
-Codex | `AGENTS.md`
-Antigravity | `.agents/rules/faramir.md`
+Claude Code 2.1.277 or later supports this filename natively, with the built-in
+plugin enabled. Its default selection requires removing project-level
+`CLAUDE.md`, `.claude/CLAUDE.md` and `CLAUDE.local.md` in the working directory
+and its ancestors. Its global `~/.claude/CLAUDE.md` remains loaded alongside the
+project file. See [Claude Code memory](https://code.claude.com/docs/en/memory#agentsmd).
 
-Every one of these carries the same section. An operator who keeps a single
-file for every agent can symlink `CLAUDE.md` to `AGENTS.md`, and the section
-is written once into the file both names reach. Two agents' *settings* files
-linked that way are refused: they hold different content, and only the last
-write would survive.
+### Migrating legacy project instructions
+
+Enrollment reports legacy instruction files and symlinks without deleting them.
+It never discards user text or removes a managed credentials block. If the
+canonical filename is a symlink to a legacy file, the shared section is updated
+once in that physical file; replace the canonical symlink with a regular file
+containing its target's complete text before deleting the legacy target.
+
+1. Upgrade the installed binary through the normal operator workflow, then run
+   `sudo faramir enrol PROJECT --agent claude --agent codex` with the project's
+   enabled harnesses. Check `--dry-run` first if needed.
+2. Verify that `PROJECT/AGENTS.md` contains one complete managed credentials
+   section and all enabled harnesses. Resolve any enrollment error before cleanup.
+3. Move user-authored instructions from legacy files into that file, outside its
+   managed section. Remove obsolete imports instead of copying wrappers. For a
+   symlink, preserve any user text in its target before removing only the link.
+4. Remove obsolete project `CLAUDE.md`, `CLAUDE.local.md`, `GEMINI.md`,
+   `.claude/CLAUDE.md` and `.agents/rules/faramir.md` files only after their user
+   text and credential protections are present in the canonical file. Check
+   ancestor and nested project instructions too. Keep global harness files.
+5. Run `sudo faramir doctor`, then start fresh harness sessions. In Claude Code,
+   use `/context` to verify that the canonical project instructions loaded.
+
+The hooks, deny rules, refusal handling and sudo approval requirements are not
+changed by this migration. No project import wrapper or alternate symlink is
+generated.
 
 ### One list, rendered per agent
 

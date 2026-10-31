@@ -167,10 +167,7 @@ func TestCodexSaysWhatItCannotCheck(t *testing.T) {
 	}
 }
 
-// Codex reads AGENTS.md and not CLAUDE.md, the mirror image of Claude Code. A
-// tree whose own file is a CLAUDE.md would otherwise leave this agent nothing:
-// the rules still hold there, and what it would be missing is what they refuse
-// and why.
+// Project instructions are shared; global paths remain harness-specific.
 func TestCodexIsGivenAFileItReads(t *testing.T) {
 	target := Targets["codex"]
 	if got := target.TreeInstructions.Path; got != "AGENTS.md" {

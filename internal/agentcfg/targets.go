@@ -74,10 +74,8 @@ type Target struct {
 	// hold for both. See install's agentInstructions step.
 	HomeInstructions string
 
-	// TreeInstructions is a file of this agent's own inside a tree, for an agent
-	// that may read none of the names at the tree's root: Antigravity loads
-	// .agents/rules, and Claude Code reads CLAUDE.md and not AGENTS.md. Empty for
-	// every other agent, which reads whichever name the tree's own file has.
+	// TreeInstructions is the project instruction target. Built-in harnesses
+	// share the canonical project file; home instructions remain harness-specific.
 	//
 	// It carries the same section as the tree's own file, so two of these
 	// resolving to one file is one write rather than a refusal: see
@@ -246,14 +244,7 @@ var Targets = map[string]*Target{
 		Detect:           []string{".claude"},
 		DetectHome:       []string{".claude", ".claude.json"},
 		HomeInstructions: ".claude/CLAUDE.md",
-		// Claude Code reads CLAUDE.md and not AGENTS.md, so a tree whose own file
-		// is an AGENTS.md leaves this agent nothing. Named here rather than left to
-		// the tree's own file, which is whichever name the tree already has.
-		//
-		// An operator who keeps one file for every agent links CLAUDE.md at
-		// AGENTS.md, and then this and the tree's own file are one file: written
-		// once, the two carrying the same section. See OneSectionPerFile.
-		TreeInstructions: treeRules{Path: "CLAUDE.md"},
+		TreeInstructions: treeRules{Path: "AGENTS.md"},
 		AutoApprovesBash: true,
 	},
 	// Codex reads the same hook contract Claude Code does, and its enrolment is
@@ -283,11 +274,6 @@ var Targets = map[string]*Target{
 		DetectsFromHome: true,
 		// Codex's global instructions, loaded wherever it is working.
 		HomeInstructions: ".codex/AGENTS.md",
-		// Codex reads AGENTS.md and not CLAUDE.md, the mirror image of Claude
-		// Code, so a tree whose own file is a CLAUDE.md would leave this agent
-		// nothing. Named here rather than left to the tree's own file, which is
-		// whichever name the tree already has; where that name is AGENTS.md the
-		// two are one file and the section is written once. See OneSectionPerFile.
 		TreeInstructions: treeRules{Path: "AGENTS.md"},
 		// Same trade as Claude Code, and only in an enrolled tree: the hook has to
 		// approve the command it rewrote, and that approval covers every command
@@ -446,17 +432,7 @@ func antigravityMember(name string, detectHome []string, ownRules []File) *Targe
 		// The family's global rules, applied in every workspace, under ~/.gemini
 		// rather than a second agent's directory. Both halves read the same file.
 		HomeInstructions: ".gemini/GEMINI.md",
-		// A tree's own AGENTS.md is read too, walking up from the file being
-		// worked on, so the section there is what every other agent gets. The
-		// rules file is written as well: it loads whatever the tree's root file is
-		// called, and a tree whose own file is a CLAUDE.md would otherwise leave
-		// this agent nothing.
-		TreeInstructions: treeRules{
-			Path: ".agents/rules/faramir.md",
-			// A rule's activation is frontmatter and always-on is not the default,
-			// so a file without this is one the model may never be shown.
-			Head: "---\ntrigger: always_on\n---\n",
-		},
+		TreeInstructions: treeRules{Path: "AGENTS.md"},
 		// The host does not take the hook's allow as an approval, so no prompt
 		// is suppressed; see docs/coding-agents.md#antigravity.
 		AutoApprovesBash: false,

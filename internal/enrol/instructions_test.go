@@ -36,10 +36,8 @@ func TestEnrolFailsOnAnInstructionsFileItCannotBringUpToDate(t *testing.T) {
 	}
 }
 
-// Claude Code reads CLAUDE.md and not AGENTS.md, so a tree whose own file is an
-// AGENTS.md gets a CLAUDE.md of its own. Without it the agent that most needs
-// the credentials section is the one agent an enrolled tree tells nothing.
-func TestAnEnrolmentWritesClaudeCodeItsOwnFileBesideTheTreesAgentsFile(t *testing.T) {
+// All enabled harnesses share one project section.
+func TestAnEnrolmentWritesOneSharedProjectFile(t *testing.T) {
 	tree := t.TempDir()
 	agents := filepath.Join(tree, "AGENTS.md")
 	if err := os.WriteFile(agents, []byte("# Project\n"), 0o640); err != nil {
@@ -49,14 +47,14 @@ func TestAnEnrolmentWritesClaudeCodeItsOwnFileBesideTheTreesAgentsFile(t *testin
 		opts:    Options{Dir: tree},
 		uid:     hostfs.Keep,
 		gid:     hostfs.Keep,
-		targets: []*agentcfg.Target{agentcfg.Targets["claude"]},
+		targets: []*agentcfg.Target{agentcfg.Targets["claude"], agentcfg.Targets["codex"], agentcfg.Targets["pi"]},
 	}
 
 	if err := run.instructions(); err != nil {
 		t.Fatal(err)
 	}
 
-	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+	for _, name := range []string{"AGENTS.md"} {
 		body, err := os.ReadFile(filepath.Join(tree, name))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -64,13 +62,21 @@ func TestAnEnrolmentWritesClaudeCodeItsOwnFileBesideTheTreesAgentsFile(t *testin
 		if !strings.Contains(string(body), agentcfg.SectionBegin) {
 			t.Errorf("%s carries no credentials section:\n%s", name, body)
 		}
+		for _, want := range []string{"# Project", "- claude", "- codex", "- pi", "without its own sandbox", "Never route around a refusal"} {
+			if !strings.Contains(string(body), want) {
+				t.Errorf("shared section omits %q", want)
+			}
+		}
+		if strings.Count(string(body), agentcfg.SectionBegin) != 1 {
+			t.Fatal("multiple managed sections in one project file")
+		}
+	}
+	if hostfs.Exists(filepath.Join(tree, "CLAUDE.md")) {
+		t.Fatal("created an alternate project instruction file")
 	}
 }
 
-// An operator keeping one file for every agent links CLAUDE.md at AGENTS.md.
-// The two are then one file carrying one section, rather than a pair refused as
-// two writes with one survivor: every instructions file in a tree gets the same
-// section, so the link loses nothing.
+// Legacy symlinks are reported for operator migration, never overwritten.
 func TestALinkedClaudeFileIsOneFileWrittenOnce(t *testing.T) {
 	tree := t.TempDir()
 	agents := filepath.Join(tree, "AGENTS.md")

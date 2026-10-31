@@ -52,6 +52,12 @@ func (p *project) preflight() error {
 		return err
 	}
 	p.targets = targets
+	if p.opts.ConfigDir != "" {
+		if _, err := agentcfg.ReadEnrolledWhy(p.opts.ConfigDir); err != nil {
+			return err
+		}
+	}
+	p.targets = p.enabledTargets()
 	if err := p.resolveGroup(); err != nil {
 		return err
 	}

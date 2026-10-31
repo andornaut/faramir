@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
@@ -177,10 +178,34 @@ func (p *project) isIgnored(rel string) bool {
 // one wrote. Documentation, not enforcement: deleting the block changes
 // nothing about what is reachable.
 func (p *project) instructions() error {
+	if p.opts.ConfigDir != "" {
+		if _, err := agentcfg.ReadEnrolledWhy(p.opts.ConfigDir); err != nil {
+			return err
+		}
+	}
 	// One block for every agent, rendered once.
 	section, err := agentcfg.CredentialsSection(p.allowSudo)
 	if err != nil {
 		return err
+	}
+	// Shared policy is written once, followed by every enabled harness's notes.
+	targets := p.enabledTargets()
+	if len(targets) > 0 {
+		section += "\n## Enabled harnesses\n\n"
+		for _, target := range targets {
+			section += "- " + target.Name
+			var notes []string
+			if target.AutoApprovesBash {
+				notes = append(notes, "Bash routing auto-approves commands except deny-list refusals.")
+			}
+			if target.Note != "" {
+				notes = append(notes, target.Note)
+			}
+			if len(notes) > 0 {
+				section += ": " + strings.Join(notes, " ")
+			}
+			section += "\n"
+		}
 	}
 	changed, written, stale, err := p.writeSections(section)
 	// Recorded before the failure, so a report says what was written as well as
@@ -192,7 +217,49 @@ func (p *project) instructions() error {
 	case len(stale) > 0:
 		return errors.New(strings.Join(stale, "\n"))
 	}
+	p.warnLegacyInstructions()
 	return nil
+}
+
+// Adding a harness preserves the harnesses already enrolled for this project.
+func (p *project) enabledTargets() []*agentcfg.Target {
+	byName := map[string]*agentcfg.Target{}
+	for _, target := range p.targets {
+		byName[target.Name] = target
+	}
+	if p.opts.ConfigDir != "" {
+		for _, tree := range agentcfg.ReadEnrolled(p.opts.ConfigDir) {
+			if tree.Dir != p.opts.Dir {
+				continue
+			}
+			for _, name := range tree.Agents {
+				if target := agentcfg.Targets[name]; target != nil {
+					byName[name] = target
+				}
+			}
+		}
+	}
+	var names []string
+	for name := range byName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var out []*agentcfg.Target
+	for _, name := range names {
+		out = append(out, byName[name])
+	}
+	return out
+}
+
+// Legacy directory entries are retained for operator migration. Only an alias
+// of the canonical file can receive its shared section through the same target.
+func (p *project) warnLegacyInstructions() {
+	for _, rel := range []string{"CLAUDE.md", "CLAUDE.local.md", "GEMINI.md", ".claude/CLAUDE.md", ".agents/rules/faramir.md"} {
+		path := filepath.Join(p.opts.Dir, rel)
+		if _, err := os.Lstat(path); err == nil {
+			p.warnf("legacy project instructions at %s remain in place; preserve user text in AGENTS.md, verify its managed credentials section, then remove the legacy file or symlink. Global harness instructions must stay in place", path)
+		}
+	}
 }
 
 // writeSections writes the section into each file, and reports what it wrote,

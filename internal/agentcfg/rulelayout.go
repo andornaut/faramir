@@ -12,7 +12,6 @@ import (
 
 	faramir "github.com/andornaut/faramir"
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostunit"
 )
@@ -289,9 +288,8 @@ func looksManaged(entry, configDir string) bool {
 	return false
 }
 
-// InstructionFiles are the names an agent reads, most specific first; the
-// first is created when there is none.
-var InstructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
+// InstructionFiles contains the canonical project instruction filename.
+var InstructionFiles = []string{"AGENTS.md"}
 
 // HomeFor is the account's home directory.
 func HomeFor(name string) (string, error) {
@@ -396,17 +394,8 @@ func CredentialsSection(allowSudo bool) (string, error) {
 	return strings.TrimRight(string(body), "\n") + "\n", nil
 }
 
-// TreeInstructionsFile is the file a tree carries the credentials section in:
-// the first name an agent reads that is already there, and the first name when
-// none is. Answered from the tree alone, so `doctor` can ask about a tree it
-// did not enrol.
+// TreeInstructionsFile is the canonical project instruction file.
 func TreeInstructionsFile(dir string) string {
-	for _, name := range InstructionFiles {
-		path := filepath.Join(dir, name)
-		if hostfs.Exists(path) {
-			return path
-		}
-	}
 	return filepath.Join(dir, InstructionFiles[0])
 }
 

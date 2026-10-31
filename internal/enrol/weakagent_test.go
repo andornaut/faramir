@@ -10,16 +10,11 @@ import (
 	"github.com/andornaut/faramir/internal/hostfs"
 )
 
-// Antigravity reads no documented file at the root of a tree, so an enrolment
-// writes it one under the directory it does read. A rules file's activation is
-// frontmatter and always-on is not the default, so a file without the head is
-// one the model may never be shown, which for this agent is the whole of what
-// it was given.
-func TestATreeRulesFileIsHeadedSoTheAgentLoadsIt(t *testing.T) {
+func TestAntigravitySharesTheCanonicalProjectInstructions(t *testing.T) {
 	target := agentcfg.Targets["antigravity"]
 	rules := target.TreeInstructions
-	if rules.Path == "" || rules.Head == "" {
-		t.Fatal("antigravity names no rules file of its own, so this asserts nothing")
+	if rules.Path != "AGENTS.md" || rules.Head != "" {
+		t.Fatal("antigravity does not share the canonical project file")
 	}
 	tree := t.TempDir()
 	run := &project{
@@ -126,12 +121,11 @@ func TestEnrollingAntigravitySaysTheTreeIsInertUntilItIsOpened(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The rules file, which is what this agent reads in a tree.
-	body, err := os.ReadFile(filepath.Join(tree, ".agents/rules/faramir.md"))
+	body, err := os.ReadFile(filepath.Join(tree, "AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"trigger: always_on", "faramir run"} {
+	for _, want := range []string{"- antigravity", "faramir run"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("the tree's rules file does not carry %q:\n%s", want, body)
 		}
@@ -154,14 +148,14 @@ func TestTheDirectoriesTheInstructionsNeedAreSharedAtEveryLevel(t *testing.T) {
 		opts:    Options{Dir: tree, ConfigDir: t.TempDir()},
 		uid:     hostfs.Keep,
 		gid:     hostfs.Keep,
-		targets: []*agentcfg.Target{agentcfg.Targets["antigravity"]},
+		targets: []*agentcfg.Target{nestedInstructionTarget()},
 	}
 
 	if err := run.instructions(); err != nil {
 		t.Fatal(err)
 	}
 
-	rules := agentcfg.Targets["antigravity"].TreeInstructions.Path
+	rules := nestedInstructionTarget().TreeInstructions.Path
 	for dir := filepath.Dir(rules); dir != "."; dir = filepath.Dir(dir) {
 		info, err := os.Stat(filepath.Join(tree, dir))
 		if err != nil {
@@ -220,7 +214,7 @@ func TestTheInstructionsStepReportsWhatItWroteBeforeFailing(t *testing.T) {
 		opts:    Options{Dir: tree, ConfigDir: t.TempDir()},
 		uid:     hostfs.Keep,
 		gid:     hostfs.Keep,
-		targets: []*agentcfg.Target{agentcfg.Targets["antigravity"]},
+		targets: []*agentcfg.Target{nestedInstructionTarget()},
 	}
 
 	err := run.instructions()
@@ -297,7 +291,7 @@ func testNoDirectoryThroughALink(t *testing.T, tree, at, link, made string,
 		uid:  hostfs.Keep,
 		gid:  hostfs.Keep,
 		targets: []*agentcfg.Target{
-			agentcfg.Targets["antigravity"], agentcfg.Targets["opencode"],
+			nestedInstructionTarget(), agentcfg.Targets["opencode"],
 		},
 	}
 
@@ -319,4 +313,11 @@ func testNoDirectoryThroughALink(t *testing.T, tree, at, link, made string,
 	if hostfs.Exists(filepath.Join(at, made)) {
 		t.Errorf("%s was created through the link", filepath.Join(at, made))
 	}
+}
+
+// Exercise directory protections independently of built-in instruction targets.
+func nestedInstructionTarget() *agentcfg.Target {
+	target := *agentcfg.Targets["antigravity"]
+	target.TreeInstructions.Path = ".agents/rules/test.md"
+	return &target
 }

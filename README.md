@@ -22,9 +22,9 @@ Claude Code and Codex differ. They take the hook's decision as the permission de
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
-[Antigravity CLI](https://antigravity.google/docs/cli/) (`agy`) | `PreToolUse` hook in `~/.gemini/config/hooks.json`; deny rules in `~/.gemini/antigravity-cli/settings.json`; credentials section in `.agents/rules/faramir.md`, the tree's `AGENTS.md` and `~/.gemini/GEMINI.md` | None: the permission check runs on the rewritten command and does not take the hook's allow as an approval, so nothing that prompted stops prompting. [What a wrapped command costs](docs/coding-agents.md#antigravity)
+[Antigravity CLI](https://antigravity.google/docs/cli/) (`agy`) | `PreToolUse` hook in `~/.gemini/config/hooks.json`; deny rules in `~/.gemini/antigravity-cli/settings.json`; credentials section in the tree's `AGENTS.md` and `~/.gemini/GEMINI.md` | None: the permission check runs on the rewritten command and does not take the hook's allow as an approval, so nothing that prompted stops prompting. [What a wrapped command costs](docs/coding-agents.md#antigravity)
 [Antigravity IDE](https://antigravity.google/) | The same hook and the same files. No account-wide rule file: the hook refuses its file tools instead | None
-[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; in the tree, the routing hook in `.claude/settings.local.json` and a credentials section in `CLAUDE.md` | Bash no longer prompts in an enrolled tree, except for what the deny list refuses. The list names credential disclosure only. [Cost per permission mode](docs/coding-agents.md#claude-code)
+[Claude Code](https://claude.com/product/claude-code) | Deny rules and a deny-only `PreToolUse` hook in `~/.claude/settings.json`; in the tree, the routing hook in `.claude/settings.local.json` and a shared credentials section in `AGENTS.md` | Bash no longer prompts in an enrolled tree, except for what the deny list refuses. The list names credential disclosure only. [Cost per permission mode](docs/coding-agents.md#claude-code)
 [Codex](https://developers.openai.com/codex/cli/) | A deny-only `PreToolUse` hook in `~/.codex/hooks.json`; in the tree, the routing hook in `.codex/hooks.json` and a credentials section in `AGENTS.md` | Same as Claude Code, when Codex runs with approvals on. Codex has no rule file, so the hook alone refuses its file tools, `apply_patch` included
 [Kilo Code](https://kilo.ai/) | [`tool.execute.before` plugin](https://kilo.ai/docs/automate/extending/plugins) in `~/.config/kilo/plugin/`, loaded by the CLI and the VS Code extension; deny patterns in `~/.config/kilo/kilo.json` | None: a plugin cannot return an allow
 [opencode](https://open-code.ai/) | [The same plugin API](https://open-code.ai/en/docs/plugins) in `~/.config/opencode/plugin/`; deny patterns in `~/.config/opencode/opencode.json` | Same as Kilo Code
@@ -49,7 +49,7 @@ Each agent is also told what the rules refuse and why, in the file it reads for 
 >
 > `faramir init` writes the hook into `~/.gemini/config/hooks.json`, which the CLI and the IDE both read for every workspace, so an unenrolled tree is covered too. No hook goes into a tree.
 >
-> An enrolment writes the credentials section into the tree: `.agents/rules/faramir.md` and the tree's own instructions file. Antigravity loads a tree's customizations only after it has opened that tree as a project. Until then the files are inert, and `enrol` says so. The hook does not depend on them.
+> An enrolment writes one shared credentials section into the tree's `AGENTS.md`. Antigravity loads a tree's customizations only after it has opened that tree as a project. Until then the files are inert, and `enrol` says so. The hook does not depend on them.
 
 Codex needs two things from you before any of this applies.
 
