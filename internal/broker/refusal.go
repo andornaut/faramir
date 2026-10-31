@@ -10,6 +10,7 @@ import (
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/protocol"
+	"github.com/andornaut/faramir/internal/secretstore"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
@@ -54,9 +55,9 @@ func (s *Server) refuseUnreadable(op, phrase, logID string, peer *sockutil.Peer,
 // no record sends somebody to look up nothing. Not for the refusals decided
 // before a request is parsed -- too_large, a forbidden peer, malformed JSON --
 // which carry no id.
-func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
+func (s *Server) refuse(secrets secretstore.Snapshot, code, message, logID string, peer *sockutil.Peer,
 	cmd []string, cwd string) protocol.Response {
-	record := s.redactor()
+	record := secrets.Redactor()
 	detail := record.RedactText(message)
 	entry := map[string]any{
 		"log_id": logID, "op": recordRun, "peer": peer,

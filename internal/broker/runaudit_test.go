@@ -108,3 +108,27 @@ func TestRunUsesCapturedValuesAfterRefresh(t *testing.T) {
 		}
 	}
 }
+
+func TestRunRefusalUsesCapturedValues(t *testing.T) {
+	file := managedFile(t)
+	k := keepertest.New(t, map[string]string{"a/b": goodValue}, file)
+	s := serverWith(t, k, file)
+	secrets := s.Store.Snapshot()
+	k.SetValues(map[string]string{"a/b": "replacement-test-credential"})
+	s.Store.Reload()
+	response := s.refuse(secrets, "bad_request", goodValue, "test-refusal", nil,
+		[]string{"true", goodValue}, "/tmp/"+goodValue)
+	if errorMessage(t, response) != "«SECRET:a/b»" {
+		t.Fatal("refusal did not redact the captured value")
+	}
+	entries := records(t, s)
+	if len(entries) != 1 {
+		t.Fatalf("got %d refusal records, want 1", len(entries))
+	}
+	entry := entries[0]
+	cmd, ok := entry["cmd"].([]any)
+	if !ok || len(cmd) != 2 || cmd[1] != "«SECRET:a/b»" ||
+		entry["cwd"] != "/tmp/«SECRET:a/b»" || entry["error"] != "«SECRET:a/b»" {
+		t.Fatalf("refusal record used a different value set: %v", entry)
+	}
+}

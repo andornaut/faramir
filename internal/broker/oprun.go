@@ -246,7 +246,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	// knows where that is.
 	cwd := request.Cwd
 	if !request.HasCwd || cwd == "" {
-		return s.refuse("bad_request", "no cwd: name the directory to run in.",
+		return s.refuse(secrets, "bad_request", "no cwd: name the directory to run in.",
 			logID, peer, cmd, "")
 	}
 	// Fails early with a clear message; it enforces nothing. Permission is left
@@ -256,11 +256,11 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	info, statErr := os.Stat(cwd)
 	switch {
 	case statErr == nil && !info.IsDir():
-		return s.refuse("bad_request", "cwd is not a directory: "+cwd, logID, peer, cmd, cwd)
+		return s.refuse(secrets, "bad_request", "cwd is not a directory: "+cwd, logID, peer, cmd, cwd)
 	case os.IsPermission(statErr):
 		// The executor decides.
 	case statErr != nil:
-		return s.refuse("bad_request", cwdMissing(cwd), logID, peer, cmd, cwd)
+		return s.refuse(secrets, "bad_request", cwdMissing(cwd), logID, peer, cmd, cwd)
 	}
 
 	// Before the program is resolved and before a slot is taken: this is a
@@ -268,13 +268,13 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	// have run. The agent's own tools are already refused what this host
 	// declares, and the broker is the one route left to the file.
 	if rule, refused := s.declared.refuses(cmd, cwd); refused {
-		return s.refuse(codeBlocked, declaredRefusal(rule), logID, peer, cmd, cwd)
+		return s.refuse(secrets, codeBlocked, declaredRefusal(rule), logID, peer, cmd, cwd)
 	}
 
 	argv0Path, err := resolveProgram(cmd[0], cwd, execCfg)
 	if err != nil {
 		// Redacted like every other agent-visible string.
-		record := s.redactor()
+		record := secrets.Redactor()
 		detail := record.RedactText(err.Error())
 		_ = s.Audit.Write(map[string]any{
 			"log_id": logID, "op": recordRun, "peer": peer,
@@ -297,7 +297,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	case s.slots <- struct{}{}:
 		defer func() { <-s.slots }()
 	default:
-		return s.refuse("busy", fmt.Sprintf(
+		return s.refuse(secrets, "busy", fmt.Sprintf(
 			"broker is at its concurrency limit (%d); retry shortly",
 			s.Config.Command.Concurrency), logID, peer, cmd, cwd)
 	}
@@ -333,7 +333,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		// heldBy is a whole clause, naming the command and which of the two states
 		// it is in: waiting to be approved, or holding an approval already given.
 		// Framing it as a noun phrase spliced a second sentence into the first.
-		return s.refuse("escalation_in_progress", heldBy+
+		return s.refuse(secrets, "escalation_in_progress", heldBy+
 			", and no other brokered command runs while one is: "+
 			"a second could ride it. Not run and not queued; run it again once that "+
 			"one has finished", logID, peer, cmd, cwd)
@@ -357,7 +357,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		// values are already in the map: drop them here rather than leave plaintext
 		// referenced until the map is collected, as the post-exec cleanup does.
 		clear(env)
-		return s.refuse("unknown_secret", why, logID, peer, cmd, cwd)
+		return s.refuse(secrets, "unknown_secret", why, logID, peer, cmd, cwd)
 	}
 
 	timeout := clampTimeout(request.TimeoutSec, execCfg)
