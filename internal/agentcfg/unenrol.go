@@ -3,8 +3,10 @@ package agentcfg
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"reflect"
 )
 
 // WithoutProjectConfig removes routing hooks by the same identity enrolment
@@ -19,10 +21,10 @@ func WithoutProjectConfig(existing []byte) ([]byte, error) {
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return nil, fmt.Errorf("expected exactly one settings object")
+		return nil, errors.New("expected exactly one settings object")
 	}
 	if doc == nil {
-		return nil, fmt.Errorf("expected a settings object")
+		return nil, errors.New("expected a settings object")
 	}
 	changed := false
 	if hooks, ok := doc["hooks"].(map[string]any); ok {
@@ -32,15 +34,13 @@ func WithoutProjectConfig(existing []byte) ([]byte, error) {
 				return nil, fmt.Errorf("hooks.%s: expected a hook list", event)
 			}
 			kept := mergeList(list, nil, nil)
-			before, _ := json.Marshal(list)
-			after, _ := json.Marshal(kept)
-			if !bytes.Equal(before, after) {
+			if !reflect.DeepEqual(list, kept) {
 				hooks[event] = kept
 				changed = true
 			}
 		}
 	} else if value, exists := doc["hooks"]; exists && value != nil {
-		return nil, fmt.Errorf("hooks: expected an object")
+		return nil, errors.New("hooks: expected an object")
 	}
 	if !changed {
 		return existing, nil
