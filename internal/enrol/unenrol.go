@@ -25,6 +25,7 @@ type UnenrolOptions struct {
 	AgentUser string
 	ConfigDir string
 	DryRun    bool
+	Missing   bool
 	Log       func(string)
 }
 
@@ -32,9 +33,12 @@ type UnenrolOptions struct {
 type UnenrolReport struct {
 	steps.Report
 
-	Version string `json:"version"`
-	Dir     string `json:"dir"`
-	DryRun  bool   `json:"dry_run,omitempty"`
+	Version        string   `json:"version"`
+	Dir            string   `json:"dir"`
+	DryRun         bool     `json:"dry_run,omitempty"`
+	Bulk           bool     `json:"bulk,omitempty"`
+	RecordOnly     bool     `json:"record_only,omitempty"`
+	MissingRecords []string `json:"missing_records,omitempty"`
 }
 
 // Unenrol removes project routing, the marked project section and the record
@@ -53,8 +57,25 @@ type unenrolEdit struct {
 }
 
 func unenrolTree(opts UnenrolOptions) (UnenrolReport, error) {
-	report := UnenrolReport{Version: version.Version, DryRun: opts.DryRun}
+	report := UnenrolReport{Version: version.Version, DryRun: opts.DryRun, Bulk: opts.Missing}
 	report.LogTo(opts.Log)
+	if opts.Missing {
+		if opts.Dir != "" {
+			return report, errors.New("--missing cannot be combined with a directory")
+		}
+		return forgetMissingRecords(opts, report)
+	}
+	if opts.Dir != "" {
+		dir, missing, err := resolveUnenrolPath(opts.Dir)
+		if err != nil {
+			return report, err
+		}
+		opts.Dir = dir
+		if missing {
+			report.Dir = dir
+			return forgetMissingRecords(opts, report)
+		}
+	}
 	opts, dir, uid, err := resolveUnenrol(&report, opts)
 	if err != nil {
 		return report, err
@@ -107,8 +128,8 @@ func resolveUnenrol(report *UnenrolReport, opts UnenrolOptions) (UnenrolOptions,
 	if opts.ConfigDir == "" {
 		opts.ConfigDir = hostlayout.DefaultConfigDir
 	}
-	if opts.AgentUser == "" || opts.AgentUser == "root" {
-		return opts, "", 0, errors.New("no agent account: run through sudo, or set --agent-user on init (not root)")
+	if err := refuseUnenrolAgent(opts.AgentUser); err != nil {
+		return opts, "", 0, err
 	}
 	if err := RefuseOversharing(dir, opts.AgentUser); err != nil {
 		return opts, "", 0, err
@@ -123,35 +144,31 @@ func resolveUnenrol(report *UnenrolReport, opts UnenrolOptions) (UnenrolOptions,
 	return opts, dir, uid, nil
 }
 
+func refuseUnenrolAgent(name string) error {
+	if name == "" || name == "root" {
+		return errors.New("no agent account: run through sudo, or set --agent-user on init (not root)")
+	}
+	return nil
+}
+
 type unenrolRecord struct {
 	body     []byte
 	digest   []byte
 	trees    []agentcfg.EnrolledTree
+	entries  []json.RawMessage
 	recorded bool
 }
 
 func readUnenrolRecord(opts UnenrolOptions, dir string) (unenrolRecord, error) {
-	// Snapshot before parsing. The final compare rejects a record changed at
-	// any point during preflight or cleanup, preserving other trees' entries.
-	record, err := os.ReadFile(agentcfg.EnrolledPath(opts.ConfigDir))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return unenrolRecord{}, err
-	}
-	var digest []byte
-	if err == nil {
-		sum := sha256.Sum256(record)
-		digest = sum[:]
-	}
-	trees, err := agentcfg.ReadEnrolledWhy(opts.ConfigDir)
+	state, err := snapshotUnenrolRecord(opts.ConfigDir)
 	if err != nil {
-		return unenrolRecord{}, err
+		return state, err
 	}
-	recorded := false
-	for _, tree := range trees {
+	for _, tree := range state.trees {
 		if tree.Dir != dir {
 			continue
 		}
-		recorded = true
+		state.recorded = true
 		if tree.AgentUser != opts.AgentUser {
 			return unenrolRecord{}, fmt.Errorf("%s was enrolled for %s, not %s", dir, tree.AgentUser, opts.AgentUser)
 		}
@@ -161,7 +178,46 @@ func readUnenrolRecord(opts UnenrolOptions, dir string) (unenrolRecord, error) {
 			}
 		}
 	}
-	return unenrolRecord{body: record, digest: digest, trees: trees, recorded: recorded}, nil
+	return state, nil
+}
+
+func snapshotUnenrolRecord(configDir string) (unenrolRecord, error) {
+	// Snapshot before parsing. The final compare rejects a record changed at
+	// any point during preflight or cleanup, preserving other trees' entries.
+	record, err := os.ReadFile(agentcfg.EnrolledPath(configDir))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return unenrolRecord{}, err
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		if _, statErr := os.Lstat(agentcfg.EnrolledPath(configDir)); statErr == nil {
+			return unenrolRecord{}, fmt.Errorf("%s is an unresolved enrolment record symlink", agentcfg.EnrolledPath(configDir))
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return unenrolRecord{}, statErr
+		}
+	}
+	var digest []byte
+	if err == nil {
+		sum := sha256.Sum256(record)
+		digest = sum[:]
+	}
+	state := unenrolRecord{body: record, digest: digest}
+	if digest == nil {
+		return state, nil
+	}
+	if bytes.Equal(bytes.TrimSpace(record), []byte("null")) {
+		return state, fmt.Errorf("%s must contain an array of enrolment records", agentcfg.EnrolledPath(configDir))
+	}
+	if err := json.Unmarshal(record, &state.entries); err != nil {
+		return state, fmt.Errorf("%s: %w", agentcfg.EnrolledPath(configDir), err)
+	}
+	for _, entry := range state.entries {
+		var tree agentcfg.EnrolledTree
+		if err := json.Unmarshal(entry, &tree); err != nil {
+			return state, fmt.Errorf("%s: %w", agentcfg.EnrolledPath(configDir), err)
+		}
+		state.trees = append(state.trees, tree)
+	}
+	return state, nil
 }
 
 func closeUnenrolEdits(edits []unenrolEdit) {
@@ -273,30 +329,38 @@ func applyUnenrolEdits(fs hostfs.FS, report *UnenrolReport, edits []unenrolEdit)
 }
 
 func finishUnenrolRecord(fs hostfs.FS, report *UnenrolReport, configDir, dir string, state unenrolRecord) error {
-	recorded, trees, digest, record := state.recorded, state.trees, state.digest, state.body
-	if recorded {
-		remaining := slices.DeleteFunc(trees, func(tree agentcfg.EnrolledTree) bool { return tree.Dir == dir })
-		if remaining == nil {
-			remaining = []agentcfg.EnrolledTree{}
+	if state.recorded {
+		remaining := make([]json.RawMessage, 0, len(state.entries))
+		for i, tree := range state.trees {
+			if tree.Dir != dir {
+				remaining = append(remaining, state.entries[i])
+			}
 		}
 		body, err := json.MarshalIndent(remaining, "", "  ")
 		if err != nil {
 			return err
 		}
-		changed, err := fs.WriteFileExpecting(agentcfg.EnrolledPath(configDir), append(body, '\n'), 0o600, digest)
+		changed, err := fs.WriteFileExpecting(agentcfg.EnrolledPath(configDir), append(body, '\n'), 0o600, state.digest)
 		if err != nil {
 			return fmt.Errorf("project configuration cleaned, but the enrolment record was not updated; retry before running init: %w", err)
 		}
 		report.Record(steps.LabelEnrolledTrees, changed, dir)
 	} else {
-		current, readErr := os.ReadFile(agentcfg.EnrolledPath(configDir))
-		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
-			return readErr
-		}
-		if (digest == nil) != errors.Is(readErr, os.ErrNotExist) || !bytes.Equal(current, record) {
-			return errors.New("enrolment record changed during cleanup; retry before running init")
+		if err := checkUnenrolRecord(configDir, state); err != nil {
+			return err
 		}
 		report.Record(steps.LabelEnrolledTrees, false, dir)
+	}
+	return nil
+}
+
+func checkUnenrolRecord(configDir string, state unenrolRecord) error {
+	current, err := os.ReadFile(agentcfg.EnrolledPath(configDir))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if (state.digest == nil) != errors.Is(err, os.ErrNotExist) || !bytes.Equal(current, state.body) {
+		return errors.New("enrolment record changed during cleanup; retry before running init")
 	}
 	return nil
 }

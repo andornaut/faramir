@@ -238,6 +238,20 @@ to the current working directory. `--dry-run` reports changes without writing;
 partial cleanup. It also checks known project routing files when no enrolment
 record exists. Removing the record stops `init` maintaining that tree.
 
+An explicit missing `DIR` removes only its matching enrolment record. To forget
+all confirmed missing project records, run `sudo faramir unenrol --missing`.
+This flag accepts no directory and supports `--dry-run` and `--json`. The JSON
+report keeps `changed` as a boolean and adds `bulk`, `record_only` and
+`missing_records` for record-only cleanup. An empty scan changes nothing.
+
+Missing means a confirmed nonexistent path. Permission errors, other lookup
+failures and dangling symlinks stop cleanup without rewriting the record.
+Relative paths and existing symlink ancestors resolve to the recorded canonical
+path. Missing storage may be unmounted rather than deleted: restore mounts before
+cleanup. `init` retains missing records; this command removes them.
+Every missing candidate is checked again before one guarded record update;
+filesystem changes outside that check are not atomic with the record write.
+
 Unrelated hooks, settings and user text remain. Project permission rules remain:
 an identical rule may have existed before enrolment. Global hooks, deny rules
 and instructions remain. Legacy project instruction files remain, with a warning
