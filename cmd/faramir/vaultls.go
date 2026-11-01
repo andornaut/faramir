@@ -8,6 +8,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,6 +29,8 @@ import (
 // the refs that went with it: the file is gone and the log is what is left of
 // it.
 const opRemove = "remove"
+
+var errRemovalDeclined = errors.New("not removed")
 
 type vaultListFlags struct {
 	json bool
@@ -173,13 +176,17 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 
 	// Read before anything is asked, so the question names what is at stake
 	// rather than a path.
-	refs, refsErr := vault.RefsIn(target)
-	if !f.force && !confirmRemoval(target, refs, refsErr) {
+	snapshot, err := removeVaultFile(confirmRemoval, f.force, target)
+	if snapshot == nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return 1
+	}
+	refs := snapshot.Refs
+	if errors.Is(err, errRemovalDeclined) {
 		fmt.Fprintf(os.Stderr, "faramir %s: not removed\n", label)
 		return 1
 	}
 
-	err = os.Remove(target)
 	// Written whether or not the removal worked, and naming the refs: the file is
 	// gone and this record is what is left of what was in it.
 	record := map[string]any{
@@ -197,6 +204,19 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	fmt.Fprintf(os.Stderr, "removed %s (%d ref(s)); %s\n",
 		termui.Safe(target), len(refs), reReadNote(brokerclient.Refresh(socketDefault())))
 	return 0
+}
+
+// Confirmation uses the same snapshot whose refs the audit records. Force
+// skips that question, and still uses the snapshot's guarded removal.
+func removeVaultFile(confirm func(string, []string, error) bool, force bool, target string) (*vault.RemovalSnapshot, error) {
+	snapshot, err := vault.InspectRemoval(target)
+	if err != nil {
+		return nil, err
+	}
+	if !force && !confirm(target, snapshot.Refs, snapshot.RefsErr) {
+		return snapshot, errRemovalDeclined
+	}
+	return snapshot, snapshot.Remove()
 }
 
 // confirmRemoval puts the question to whoever is at the terminal, and takes the

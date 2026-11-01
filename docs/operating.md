@@ -104,7 +104,7 @@ Command | Does
 `sudo faramir doctor` | Reports whether the install works, and as root what each account can reach. [What it checks](#checking-an-install)
 `sudo faramir vault add NAME` | Writes a new managed file, `NAME` relative to the secrets directory, with `.sops.yml` added for you. Opens an editor on a `0600` file in a tmpfs, so no plaintext reaches a disk. The editor runs as root over the decrypted value, so it must be a program only root can write or replace: `--editor`, `$VISUAL` and `$EDITOR` each name one by absolute path with no arguments, and each is checked. [How the editor is chosen](#choosing-the-editor) `--from FILE` encrypts a file you already have. `NAME` may not contain a byte a terminal acts on: every command that touches the file prints it and passes it to a shell
 `sudo faramir vault ls` | The managed files by name, how many refs each holds, who can read it, and whether it agrees with the rule. Reads the directory rather than asking the broker, so a file the broker refused to load is listed with the reason. Decrypts nothing. `--json`
-`sudo faramir vault rm NAME` | Removes a file from the store. Names the refs it will destroy and asks `[y/n]`; `--force` answers yes for a script. The audit record keeps the refs it held
+`sudo faramir vault rm NAME` | Removes a file from the store. Names the refs it will destroy and asks `[y/n]`; `--force` skips confirmation but still refuses a file changed since inspection. The audit record keeps the inspected refs and any removal error
 `sudo faramir vault edit FILE` | Opens a managed sops file, decrypted to a `0600` file in a root-owned tmpfs, and re-encrypts it on save. `FILE` is any managed file, by name, base name or path. `--editor`, `$VISUAL` and `$EDITOR` name the editor. [How the editor is chosen](#choosing-the-editor)
 `sudo faramir reader add KEY` | Lets one more key decrypt the store: validates it, adds it to `<config-dir>/.sops.yaml`, and re-encrypts every managed file to it, so the rule and the ciphertext agree. `--dry-run` writes neither. [What it refuses](#adding-a-reader)
 `sudo faramir reader rm KEY` | The reverse. Does not reach a copy of the ciphertext somebody already holds
@@ -144,6 +144,20 @@ The daemons read `config.toml` once, at start. The commands that change it reloa
 A reload is not needed for a new or edited managed sops file, which the next refresh picks up ([why](redaction.md#the-value-set-is-everything-the-keeper-manages)), nor after a converge that found the host already correct: that would restart the daemons under a running brokered command.
 
 ## Rules a command does not state
+
+Vault creation publishes without replacement: if another command creates the
+same name while the editor is open, the add fails and leaves that file intact.
+Publication requires filesystem support for no-replace rename; unsupported
+operations fail without falling back to an overwrite.
+
+Vault removal compares the inspected file's identity and ciphertext before
+deleting it. Removal, creation and replacement share a brief advisory lock on
+the parent directory during the final check and publication. No lock is held
+across confirmation, editing or encryption, and no lockfile is created. This
+coordinates Faramir writers; direct privileged tools that do not take the lock
+can still race the operation. An unreadable, missing or replaced file is refused.
+Malformed ref metadata can still be confirmed for removal, without displaying
+values. `--force` skips the question, never the change check.
 
 - **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.
 - **Changing `config.toml` needs all three daemons restarted, keeper first.** None re-reads it while running. [`faramir reload`](#when-a-reload-is-needed) does this.

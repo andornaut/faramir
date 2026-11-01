@@ -76,10 +76,7 @@ func Reencrypt(keyPath, rulePath string, recipients []string, target string) err
 	if err != nil {
 		return fmt.Errorf("encrypt: %w", err)
 	}
-	if err := unchangedSince(target, before); err != nil {
-		return err
-	}
-	return WriteBack(target, sealed)
+	return writeBack(before, target, sealed)
 }
 
 // ErrNoFilesToReseal is errNoManagedFiles said for this command: nothing to

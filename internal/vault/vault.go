@@ -122,10 +122,10 @@ func Edit(keyPath, rulePath, editorPath, target string) (bool, error) {
 		return false, fmt.Errorf("encrypt: %w. The edit was not saved, and the "+
 			"decrypted copy was removed. Make it again once this is fixed", err)
 	}
-	if err := unchangedSince(target, before); err != nil {
+	if err := writeBack(before, target, reencrypted); err != nil {
 		return false, err
 	}
-	return true, WriteBack(target, reencrypted)
+	return true, nil
 }
 
 // digestOf is the file's contents hashed, which is what says whether it is the
@@ -166,30 +166,48 @@ func unchangedSince(path string, before []byte) error {
 // The mode before the owner: the temporary file is created 0600 and root's, so
 // widening it while it is still root:root gives nothing away.
 func WriteBack(target string, data []byte) error {
-	info, err := os.Stat(target)
-	if err != nil {
-		return err
-	}
+	return writeBack(nil, target, data)
+}
+
+// The check and replacement share the removal lock. No lock is held while an
+// operator edits, or while sops decrypts or encrypts a file.
+func writeBack(before []byte, target string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".*")
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
 	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
 		return err
 	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
+	return withPublicationLock(func() error {
+		if before != nil {
+			if err := unchangedSince(target, before); err != nil {
+				return err
+			}
+		}
+		return publishManaged(tmp, target)
+	}, target)
+}
+
+func publishManaged(tmp *os.File, target string) error {
+	info, err := os.Stat(target)
+	if err != nil {
 		return err
 	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), info.Mode().Perm()); err != nil {
+	if err := tmp.Chmod(info.Mode().Perm()); err != nil {
 		return err
 	}
 	if err := chownLike(tmp.Name(), info); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp.Name(), target); err != nil {

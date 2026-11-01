@@ -235,6 +235,10 @@ func RefsIn(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return refsIn(body)
+}
+
+func refsIn(body []byte) ([]string, error) {
 	var doc map[string]any
 	if err := yaml.Unmarshal(body, &doc); err != nil {
 		return nil, fmt.Errorf("does not parse: %w", err)

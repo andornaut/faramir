@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/andornaut/faramir/internal/fserr"
 	"github.com/andornaut/faramir/internal/hostfs"
 )
@@ -90,8 +92,8 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 // createManaged writes a file that was not there before, 0640 like every other
 // managed one. The group comes from the secrets directory, which is setgid to
 // the keeper's, so a new file is readable by the daemon that opens it without
-// this naming an account. Written beside the target and renamed, and made
-// durable, for the reasons writeBack does it.
+// this naming an account. Published with a no-replace rename: another add may
+// have created the target while this run's editor was open.
 func createManaged(target string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".*")
 	if err != nil {
@@ -102,6 +104,12 @@ func createManaged(target string, data []byte) error {
 		_ = tmp.Close()
 		return err
 	}
+	// 0640 rather than tighter: the keeper's group has to open it. Set the mode
+	// before syncing so the contents and their final permissions are durable.
+	if err := tmp.Chmod(0o640); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
 		return err
@@ -109,18 +117,18 @@ func createManaged(target string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	// 0640 rather than tighter: the keeper's group has to open it. The same mode
-	// every other managed file carries.
-	if err := os.Chmod(tmp.Name(), 0o640); err != nil { //nolint:gosec // G302: the keeper's group reads the store
-		return err
-	}
-	if err := os.Rename(tmp.Name(), target); err != nil {
-		return err
-	}
-	if err := hostfs.SyncDir(filepath.Dir(target)); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %s was written, but %s could not be flushed "+
-			"(%v), so it may not survive a power loss until something else syncs that "+
-			"filesystem\n", target, filepath.Dir(target), err)
-	}
-	return nil
+	return withPublicationLock(func() error {
+		if err := unix.Renameat2(unix.AT_FDCWD, tmp.Name(), unix.AT_FDCWD, target, unix.RENAME_NOREPLACE); err != nil {
+			if errors.Is(err, unix.EEXIST) {
+				return fmt.Errorf("%s already exists; nothing was replaced. Use `faramir vault edit`: %w", target, err)
+			}
+			return fmt.Errorf("publishing %s without replacement: %w", target, err)
+		}
+		if err := hostfs.SyncDir(filepath.Dir(target)); err != nil {
+			fmt.Fprintf(os.Stderr, "faramir: %s was written, but %s could not be flushed "+
+				"(%v), so it may not survive a power loss until something else syncs that "+
+				"filesystem\n", target, filepath.Dir(target), err)
+		}
+		return nil
+	}, target)
 }
