@@ -59,17 +59,17 @@ Codex needs two things from you before any of this applies.
 ## What it protects against
 
 > [!IMPORTANT]
-> The broker keeps plaintext out of model context. It does not contain a compromised agent.
+> The broker redacts managed values from command output. It does not contain a compromised agent.
 
-**Acceptance invariant:** if every instruction the agent is given were deleted, no secret could reach the model provider. Every enforcement point is a uid boundary, a file mode, or a hook.
+**Enforced scope:** the broker redacts supported renderings of loaded values from output it processes. Uid boundaries and file modes restrict direct access to key material; hooks refuse matching references to declared paths independently of model instructions. File-tool results are not redacted, and deliberate transforms remain outside this guarantee.
 
 ### Prevented
 
 Failure | How
 --- | ---
-**Accidental disclosure.** `printenv`, a vault read, `-vvv`, a `debug: var=` task | No account can read the key material, yours included. Output is redacted before the agent sees it, whichever command printed it
+**Accidental disclosure.** `printenv`, a vault read, `-vvv`, a `debug: var=` task | The agent and unprivileged executor cannot read the age or broker SSH key files; root and their owning service accounts can. Managed values in broker-processed output are redacted
 **Passive discovery.** Reading an age key, an SSH key, or a daemon's `/proc/<pid>/environ` | Uid separation plus `ProtectProc=invisible`. This holds against the agent. Two brokered commands share one uid and can read each other
-**Casual prompt injection.** Instructions to print or exfiltrate credentials | The agent process never holds them
+**Casual prompt injection.** Instructions to print or exfiltrate credentials | Injected values enter the executor's environment, and broker-processed output is redacted
 **Master key loss.** The master key decrypts every managed file | It is held by a uid that executes nothing but sops. No brokered command can read it, reach the keeper's socket, or receive it in its environment
 
 ### Not prevented
