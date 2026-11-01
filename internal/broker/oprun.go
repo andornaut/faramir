@@ -90,6 +90,15 @@ type execEscalation struct {
 	waited float64
 }
 
+// escalationMetadata copies the command's metadata through its captured
+// redactor before it reaches questions or audit records.
+func escalationMetadata(redactor *redact.Redactor, run escalation.Run) escalation.Run {
+	run.Argv = redactEach(redactor, run.Argv)
+	run.Cwd = redactor.RedactText(run.Cwd)
+	run.Argv0Path = redactor.RedactText(run.Argv0Path)
+	return run
+}
+
 func (s *Server) escalationOf(runID string) execEscalation {
 	code, reason := s.Escalation.Refusal(runID)
 	return execEscalation{code: code, reason: reason, waited: s.Escalation.Waited(runID).Seconds()}
@@ -311,17 +320,16 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	//
 	// The argv is the redacted one, this reaching a terminal and the log. One
 	// redactor for the whole question, using the command's value set.
-	asked := secrets.Redactor()
-	runID, heldBy := s.Escalation.Register(escalation.Run{
-		Argv: redactEach(asked, cmd), Cwd: cwd, LogID: logID,
+	runID, heldBy := s.Escalation.Register(escalationMetadata(secrets.Redactor(), escalation.Run{
+		Argv: cmd, Cwd: cwd, LogID: logID,
 		// Who asked, which the executor's own uid does not say: every brokered
 		// command runs as that one.
 		Caller: callerName(peer),
 		// What root would actually run, which is not always what argv[0] says: a
 		// relative argv[0] resolves against the request's cwd, which is the agent's
 		// working tree. The question names both when they differ.
-		Argv0Path: asked.RedactText(argv0Path),
-	})
+		Argv0Path: argv0Path,
+	}))
 	// Held while an escalation is live or a question is waiting: the two commands
 	// share the executor's uid, so running this one now would give it a route to
 	// the root the other was approved for.
