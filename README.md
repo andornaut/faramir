@@ -120,10 +120,10 @@ Details in [docs/redaction.md](docs/redaction.md).
 
 ### The audit log
 
-Every brokered command is recorded: what ran, against which refs, and what came back. The log holds tokens, not values. Only the broker and root can read it, and logrotate bounds it.
+The audit log records command attempts: what was requested, which refs were used, and the outcome. It holds tokens, not values. Only the broker and root can read it, and logrotate bounds it.
 
-- A brokered command writes two records under one `log_id`: `run_started` before execution, and `run` when it ends or when it never ran.
-- Failure to write the start record refuses execution with `no_audit`. A completion-record failure returns `audit_failed`, preserving output and outcome while the CLI exits nonzero. Verify effects before retrying.
+- Accepted execution normally has two records under one `log_id`: `run_started` before execution and `run` at completion. A pre-execution refusal may have only a `run` record.
+- An unwritable audit log or failed start record refuses execution with `no_audit`, possibly without an audit record. A completion-record failure returns `audit_failed`, preserving output and outcome while the CLI exits nonzero. Verify effects before retrying.
 
 What a record contains, and the rules a command does not state: [docs/operating.md](docs/operating.md).
 
