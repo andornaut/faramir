@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -223,17 +224,42 @@ func TestAWaitIsCountedWhileTheQuestionIsStillOpen(t *testing.T) {
 // another: counted per sudo, two joiners would report twice the seconds that
 // passed.
 func TestJoiningAQuestionDoesNotCountTheWaitTwice(t *testing.T) {
-	s := started(t, baseConfig())
-	token := mustRegister(s, run())
+	synctest.Test(t, func(t *testing.T) {
+		s := started(t, baseConfig())
+		token := mustRegister(s, run())
+		answered := make(chan bool, 2)
+		ask := func() {
+			approved, _, _ := s.Ask(procsFor(token))
+			answered <- approved
+		}
 
-	go func() { _, _, _ = s.Ask(procsFor(token)) }()
-	waitForQuestion(t, s)
-	go func() { _, _, _ = s.Ask(procsFor(token)) }()
-	time.Sleep(300 * time.Millisecond)
+		go ask()
+		synctest.Wait()
+		questions := s.Questions()
+		if len(questions) != 1 {
+			t.Fatalf("got %d questions, want 1", len(questions))
+		}
+		time.Sleep(time.Second)
+		go ask()
+		// Both requests must be blocked on the question before time advances.
+		synctest.Wait()
+		time.Sleep(time.Second)
 
-	if waited := s.Waited(token); waited > 3*time.Second {
-		t.Errorf("waited = %v, which is more time than has passed", waited)
-	}
+		if waited := s.Waited(token); waited != 2*time.Second {
+			t.Errorf("open question waited %v, want 2s across both requests", waited)
+		}
+		if err := s.Answer(questions[0].ID, true, "the test"); err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if !<-answered {
+				t.Error("a request joining the approved question was refused")
+			}
+		}
+		if waited := s.Waited(token); waited != 2*time.Second {
+			t.Errorf("answered question waited %v, want 2s across both requests", waited)
+		}
+	})
 }
 
 // A run's duration is wall time and its child sits inside sudo for the whole

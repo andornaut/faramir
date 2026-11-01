@@ -360,7 +360,11 @@ func TestABareRefThatCannotBeAVariableNameNamesTheLongForm(t *testing.T) {
 	}
 	for _, name := range []string{"", "a b", "_x"} {
 		err := checkEnv(name, "faramir://"+name)
-		if err != nil && strings.Contains(err.Error(), "is a ref") {
+		if err == nil {
+			t.Errorf("checkEnv(%q) accepted a name that is not a usable ref", name)
+			continue
+		}
+		if strings.Contains(err.Error(), "is a ref") {
 			t.Errorf("checkEnv(%q) offered the long form for something that is no ref: %v",
 				name, err)
 		}
