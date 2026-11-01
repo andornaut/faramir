@@ -4,7 +4,7 @@ The code is in [internal/redact](../internal/redact). Each stage below exists fo
 
 ## The value set is everything the keeper manages
 
-`op run`, `chamber exec` and `sops exec-env` mask only the values *they* injected. A credential can reach the output without being injected: a managed host printing its own configuration over `ssh` emits the password from the sops file whether or not that ref was injected, and a grep across a log file finds one written weeks ago.
+A credential can reach the output without being injected: a managed host printing its own configuration over `ssh` emits the password from the sops file whether or not that ref was injected, and a grep across a log file can find the same value.
 
 So the broker holds every managed value, not the subset the current command names. It refetches:
 
@@ -12,14 +12,17 @@ So the broker holds every managed value, not the subset the current command name
 - when a file's fingerprint changes
 - when the previous fetch could not reach the keeper. The files are unchanged in that case, so the poll would never notice, and an empty value set redacts nothing
 
-The fingerprints come from the keeper, not from a stat, because only the keeper can read the secrets directory. The keeper expands the managed store globs on every request, so a file dropped into the secrets directory is picked up within a second without restarting the daemon.
+Each `run` captures one value-set generation for injection, store health and
+redaction. A refresh during execution does not change that run's matcher.
+
+The fingerprints come from the keeper, not from the broker's own stat, because only the keeper can read the secrets directory. The next managed-store check after the one-second refresh interval picks up a new file without restarting the daemon. Checks happen on requests, not on a background timer.
 
 `[[secret.link]]` values are in the same set, on a different clock:
 
 Source | When it is re-read
 --- | ---
 the managed store | At most once a second ([not a key](configuration.md#what-is-not-a-key-at-all)), checked when a command arrives rather than on a timer, so an idle host makes no round trip
-a linked file | **Every** request. The file is the operator's own and this uid can stat it, so waiting saves nothing
+a linked file | Fingerprinted on every refresh check; re-read when its mtime or size changes
 
 The difference is deliberate. A linked file changes when another tool rotates the credential, on a schedule the operator does not control. A value missing from the redactor for up to a second would be a gap the operator did not choose. That is the point of linking: the agent could read the file directly, and a value in the set is one a brokered command cannot print in the clear.
 
@@ -135,7 +138,7 @@ an ANSI escape sequence | removed, the text around it kept
 
 So a command whose output is not text does not come back as written: random bytes expand, and an archive piped through will not open. That is the cost of stage 1, and stage 1 is what catches a value spliced with colour codes.
 
-A caller cannot see this from the output itself, so `run` reports it the way it reports truncation: on stderr, and not suppressed by `--quiet` (only the `log_id` is):
+A caller cannot see this from the output itself, so `run` reports it the way it reports truncation: on stderr, even with `--quiet`, which suppresses the redaction summary and a successful run's `log_id`:
 
 ```text
 faramir run: 1735 non-text byte(s) replaced; log_id=...

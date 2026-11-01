@@ -276,7 +276,7 @@ Left alone | `chmod`, `chown`, `setfacl`, `rm`, `shred`, `truncate`, `echo x > f
 
 This is not the read/write split the agent's own rules use, and the difference is deliberate. What the agent types was not asked for by an operator, so it is refused in both directions: a value it cannot read is one it can still destroy, and an age key replaced makes every managed file unreadable retroactively. A brokered command runs as an account of its own, so managing a declared file is ordinary work: fixing its mode, changing its owner, moving one into place, removing one that is finished. None of that puts a byte of the file into the conversation. Reading it is refused because nothing else can cover it: a declared file is one faramir either never reads or reads a single ref out of, so the redactor holds nothing to replace the output with.
 
-To read the file, run the command outside faramir, or remove the entry with `faramir block rm` or `faramir link rm`.
+Only the operator may read the file directly or remove the entry with `faramir block rm` or `faramir link rm`. An agent must not route around a refusal.
 
 **What that leaves open.** A brokered `mv` or `ln -s` may put a declared file under a name no rule was written for, and the agent may then read that name with its own file tools. The agent invokes `faramir run` itself: only an escalation is approved per command, so no one is asked before this happens. It takes two deliberate steps rather than one accident, and that is the trade-off: a rule against it would also refuse the converge that rotates a keyfile by moving one into place. `--strict` is the per-entry answer for a file that should have the refusal rather than the converge.
 
@@ -348,7 +348,7 @@ An `[sudo] helper` or PAM service file that is missing, or a `notify_command` th
 The bound broker socket having world bits | Every account on the host reaches the broker, whatever `allowed_group` says. Stat'ed rather than read from the config. An unbound socket is reported as unchecked
 An audit log that cannot be written | A command that cannot be recorded is not run
 
-**The daemon holds itself to the same rules, on every request rather than at boot.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only describes the host as it was at install time.
+**The serving gate below applies on every request.** `--check` provides broader install diagnostics and is run by `init` and `doctor`; it does not replace the request-time checks.
 
 ### When the broker refuses to run anything
 

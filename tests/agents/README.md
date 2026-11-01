@@ -123,8 +123,7 @@ in the output is a verdict. An agent's own `FAIL` row is its opinion, and the
 opinions worth reading are the ones nobody has answered yet, which is what the
 "new" section holds.
 
-`settled.txt` is what separates those. It names the behaviours that were found,
-examined and kept, each with the reason, and a row matching one is grouped under
+`settled.txt` lists accepted behaviours and their reasons. A matching row is grouped under
 "already decided" with that reason beside it. Every settled row is still
 printed: grouping is not hiding, and a rule that claims something it should not
 is meant to be arguable from what is on screen. `PROMPT.md` carries its own
@@ -152,17 +151,9 @@ alike and none of them is a finding about faramir:
 | `no output` | The log holds only the runner's own lines, so the agent printed nothing: a broken invocation rather than a failed run |
 | `no rows` | It ran and wrote prose, but no results table this can read |
 
-The runner pins a model per agent rather than taking each agent's own, so that a
-report says something about faramir and not about whichever model that agent was
-set to. A weak model produces a report whose confident rows are not all
-observations, and an agent whose configured model has been withdrawn fails at the
-first call with a provider error that has nothing to do with faramir. Both are
-mistaken for findings.
-
-These are not the strongest models available. Only `claude` carries a frontier
-one, as the anchor the cheaper reports are read against; the rest are chosen for
-what a round costs. That trade is real and runs one way: a cheap model
-confabulates, and the reader pays in verification what the run saved in tokens.
+The runner pins a model per agent to keep rounds comparable. Verify surprising
+claims regardless of the model, and distinguish provider errors from findings
+about faramir.
 
 | Agent | Model | Reached through |
 | --- | --- | --- |
@@ -173,15 +164,10 @@ confabulates, and the reader pays in verification what the run saved in tokens.
 | `opencode` | `openrouter/google/gemini-3.7-flash` | OpenRouter |
 | `pi` | `openrouter/google/gemini-3.7-flash` | OpenRouter |
 
-The names are not interchangeable between agents. `agy` takes a reasoning level
-as part of the name; a ChatGPT account serves `gpt-5.6-terra` and refuses `sol`,
-`sol-pro`, `terra-pro` and `luna-pro`; `pi` reaches a provider only through
-OpenRouter, so its name carries that prefix, and `opencode` and `kilo` are run
-through OpenRouter too. `kilo` holds two sign-ins that are not the same one: its
-own `kilo/` provider answers `PAID_MODEL_AUTH_REQUIRED` while the OpenRouter
-spelling of the same model runs, so `kilo auth list` reporting nothing says less
-than it appears to.
-Override any of them with `FARAMIR_AGENT_MODEL_<SLUG>`.
+These are the defaults pinned in `run.sh`, not a guarantee of provider access.
+`pi`, `opencode` and `kilo` use the OpenRouter model names shown above.
+Override any model with `FARAMIR_AGENT_MODEL_<SLUG>` and verify access through
+that agent and provider before starting a round.
 
 Check a model with a question whose answer is not already in the prompt. Codex
 echoes the prompt it was given, so asking an agent to reply with a fixed word and
@@ -195,17 +181,13 @@ in, and a 402 from OpenRouter where the balance will not cover the request's
 the provider prefix before believing it about the agent: the same model can be
 refused under one prefix and served under another.
 
-Each agent gets `$FARAMIR_AGENT_TIMEOUT`, 30 minutes by default. The runs that
-finished took twelve to twenty, so this is headroom over a working run rather
-than a target: what it is for is an agent that wedges, which otherwise holds its
-slot until something stops it, and in an `all` run six start at once. A run killed
+Each agent gets `$FARAMIR_AGENT_TIMEOUT`, 30 minutes by default. A run killed
 this way says so in its log, which matters because an agent that buffers its
 output prints nothing when killed, leaving a truncated run and a broken one
 looking alike.
 
-An agent's exit code is not the verdict. `agy`, `codex` and `pi` have each
-returned 2 from a run that finished and wrote a full report, so what says a run
-succeeded is a report.
+An agent's exit code is not the verdict. Inspect the report and the collector's
+leak scan; the runner records the exit code separately in the log.
 
 The flags in `run.sh` are not decoration. `opencode` and `kilo` auto-reject every
 permission request without `--auto` and end on their first tool call; `agy` gives

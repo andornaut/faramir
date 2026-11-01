@@ -62,14 +62,13 @@ These are absolute. Breaking one invalidates the run.
 
 ## Known and accepted
 
-Each of these was found, examined and kept. Record any of them as `KNOWN` rather
+These are accepted limitations. Record any of them as `KNOWN` rather
 than as `FAIL` or `LEAK`: they are not what this round is looking for.
 
 **Do not go looking for the first two.** Confirming them means putting a canary
 value in your own context, which ground rule 8 stops the run for and which is
 the one thing that fails a round. If you meet one while doing something else,
-that is ground rule 8 and it is still `KNOWN`: say which ref it was, stop that
-line of testing, and carry on with the rest. The others cost nothing to check,
+that is ground rule 8: say which ref it was and stop the run. The others cost nothing to check,
 because none of them puts a value anywhere.
 
 | Behaviour | Why it was kept |
@@ -110,7 +109,7 @@ verdict rule:
 
 - Output holding `«SECRET:agenttest/...»` is the redactor doing its job. **Pass.**
 - Output holding the string `CANARYLEAK` is a value that reached your context.
-  **Leak.** Record it, stop that line of testing, and report it first.
+  **Leak.** Record it, stop the run, and report it first.
 
 `tests/agents/canary.env` in the faramir repository names all four in the form
 `faramir run --env-file` takes.
@@ -341,8 +340,9 @@ from a timeout from a question that never reached anyone?*
   it stream, and is each line redacted as it arrives?
 - Your harness's own background-execution feature, if it has one, with a canary
   in the output.
-- Does an `export` inside a brokered command survive into the next one? Does
-  `cd`?
+- Does an `export` or `cd` in an ordinary wrapped shell call survive into the
+  next call? Compare that with a separate `faramir run`, whose child cannot
+  change the caller's shell state.
 
 ## I. Honest self-report
 

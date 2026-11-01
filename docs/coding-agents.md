@@ -1,18 +1,17 @@
 # Coding agents
 
-Every agent gets the same treatment: each command is rewritten so that its output is redacted. What differs per agent is the tool that runs a command, the reply format that tool expects, and where the configuration is registered. One program, `faramir guard`, answers in all of these formats.
+Supported agents use the same guard and output-redaction wrapper. The routing scope, command tool, reply format and configuration paths vary by agent. One program, `faramir guard`, answers in all of these formats.
 
 The [README](../README.md#supported-agents) lists the supported agents and what enrolling each costs. [design.md](design.md#how-the-rewrite-works) explains how the rewrite works. [layout.md](layout.md) lists which file each agent reads.
 
 ## What each agent gets
 
-**Yes** means faramir does it and it was verified against the agent. **No**
+**Yes** means faramir supports it. **No**
 means the agent cannot do it. **N/A** means the agent does not need it.
 
 Feature | agy | Antigravity IDE | Claude Code | Codex | Kilo Code | opencode | pi
 --- | --- | --- | --- | --- | --- | --- | ---
-Command routed through the broker | Yes | Yes | Enrolled trees | Enrolled trees | Yes | Yes | Yes
-Its output redacted | Yes | Yes | Enrolled trees | Enrolled trees | Yes | Yes | Yes
+Command output routed for redaction | Yes | Yes | Enrolled trees | Enrolled trees | Yes | Yes | Yes
 Deny list refuses a command | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 A backgrounded command streams rather than buffering | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 File tools refused | Yes | Yes | Yes | Yes | Yes | Yes | Yes
@@ -21,13 +20,13 @@ File tools refused | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 The route reaches the agent | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 Credentials section in the file it reads | Yes | Yes | Yes | Yes | Yes | Yes | Yes
 Enrolment costs a permission prompt | N/A | N/A | Bash | Bash | N/A | N/A | N/A
-Configuration written into a tree | None | None | The routing hook | The routing hook | None | None | None
+Configuration written into a tree | Shared instructions | Shared instructions | Shared instructions and routing hook | Shared instructions and routing hook | Shared instructions | Shared instructions | Shared instructions
 Runs a hook only once told to trust it | No | No | No | Yes | N/A | N/A | N/A
 
 Unless a cell says otherwise, everything in the table is account-wide:
 `faramir init` installs the guard into a home, and it applies in every
 directory the agent works in. An enrolment adds the credentials section and
-shares the tree with the broker's account.
+shares the tree with the executor's account.
 
 Four rows need explanation.
 
@@ -35,7 +34,7 @@ Four rows need explanation.
 what a `[[secret.block]]` entry is for: it describes the host, and the agent
 may work in any directory on it.
 
-**Command routed, and its output redacted.** Applies everywhere except on
+**Command output routed for redaction.** Applies everywhere except on
 Claude Code and Codex, where it applies only in enrolled trees. They take the
 hook's decision as the permission decision, so a hook that rewrites a command
 must also approve it, and that approval covers every command the deny list does
@@ -46,6 +45,10 @@ agents routing suppresses the Bash permission prompt, and the operator accepts
 that per tree, by enrolling it. Account-wide, they run `faramir guard
 --deny-only`, which refuses what the list names and says nothing about any
 other command, so the agent's own permission flow is unchanged.
+
+The wrapper runs in the regular user's shell and sends output to `faramir
+redact`. It does not change the command's uid or inject credentials. Use
+`faramir run` when the command needs the broker's credential or execution access.
 
 **File tools refused.** Faramir refuses them for every agent, through a hook,
 a plugin or an extension installed in a home. All of these ask `faramir
@@ -371,6 +374,10 @@ untrusted, the account-wide half and each enrolled tree being trusted
 separately, so a release that rewrites one of them brings the reminder back.
 `faramir doctor` fails on a hook that is still untrusted; Codex also reports it
 at startup. See [Codex hook trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
+
+After enrollment or a hook-definition change, start a fresh Codex session in
+the project and check `/hooks`. `doctor` compares files and recorded trust on
+disk; a passing check does not prove an already-running thread loaded the hook.
 
 > [!IMPORTANT]
 > **Codex must run without its own sandbox** (`codex --dangerously-bypass-approvals-and-sandbox`). Sandboxed, it cannot reach the broker socket: `read-only` and `workspace-write` both deny the `AF_UNIX` connect and deny writes to `XDG_RUNTIME_DIR`, and `network_access` governs `AF_INET` only and does not lift it. The wrapper fails closed, so every command's output is withheld rather than redacted.

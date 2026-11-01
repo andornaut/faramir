@@ -1,6 +1,6 @@
 # Wire protocol
 
-Three Unix sockets. Each carries newline-delimited JSON: one request and one response per connection, with no framing beyond the newline.
+Three Unix sockets carry newline-delimited JSON, normally one request and one response per connection. A `redact` stream exchanges multiple request/response pairs on one connection.
 
 Socket | Who may connect | What it does | Request limit
 --- | --- | --- | ---

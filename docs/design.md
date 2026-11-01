@@ -10,7 +10,7 @@ Isolation | Uid separation plus systemd hardening. No containers. | Network isol
 How the roles are separated | `User=` in three units, all starting one binary. | The kernel checks the uid against `0400 faramir-keeper` and against a socket's group. Separate executables would add no check.
 Filesystem isolation | None beyond file modes and `ProtectSystem=strict`, which `--allow-sudo` drops. | A home the executor may not read is already refused by its mode. A home it may read, the agent can read directly. Faramir's own directories are refused by rule, not by mode, because an approved escalation runs as root and root ignores modes.
 Where commands run | The agent's working tree, directly. | A promotion gate gives an immutable snapshot and a commit sha. Both defend against a deliberate agent, which is out of scope.
-Who executes | The broker, as its own uid. | If the client execs, plaintext is in a process the agent owns.
+Who executes | The executor, as its own uid, for `faramir run`. | If the client execs with injected values, plaintext is in a process the agent owns. The ordinary shell wrapper only redacts output.
 Who holds the key | A separate uid that executes nothing but sops. | A key the broker can load is a key any brokered command can read.
 Who forks the child | A third uid, given the PTY slave over `SCM_RIGHTS`. | The child can reach anything the forking uid can reach.
 Command allowlist | None. | Any rule that permits an interpreter is reachable in one step through `bash`, and a usable policy must permit `bash`.
@@ -35,12 +35,9 @@ The boundaries are around the secrets, not around the agent:
 
 The secrets directory is `/etc/faramir/secrets`, `2750 root:<secrets-group>`. It is never in a checkout, because a clone or a branch could move it. The keeper is the only account in that group and the only one that opens a managed file, so editing a value is `sudo faramir vault edit`. The broker socket admits a different group: permission to ask for a value by name is not permission to read the file it came from. The broker already holds every decrypted value, so it stays outside the secrets group. It asks the keeper whether a file changed over `get_state`, which uses neither the key nor sops.
 
-`.sops.yaml` sits in the config directory, above the secrets directory, for two reasons:
+`.sops.yaml` sits in the config directory, above the secrets directory. sops looks for that file from the working directory upward, so a parent directory works for the secrets directory and for itself.
 
-- sops looks for that file from the working directory upward, so a parent directory works for the secrets directory and for itself.
-- The managed store globs the secrets directory, and `filepath.Glob` matches dotfiles. A rule file among the ciphertext could be loaded as a managed file that does not decrypt.
-
-`--config-dir` moves the secrets, the config and the age key together. The key and the ciphertext it opens are one placement decision, so no part of an install is left behind at the old path. Where the directory may go is decided by what the units can see, not by the file modes:
+`--config-dir` selects the directory for the secrets, the config and the age key together. Repointing an existing install requires `--repoint-config` and moves no files; the operator must preserve and retire the old directory separately. Where the directory may go is decided by what the units can see, not by the file modes:
 
 Placement | Result
 --- | ---

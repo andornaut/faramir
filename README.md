@@ -16,7 +16,7 @@ faramir run: redacted «SECRET:home/router/admin»×1; log_id=w5vq7dbf00002c
 
 ## Supported agents
 
-For every agent, the command the agent runs is rewritten into a brokered command, and the output comes back with every managed value replaced. `faramir init` installs this in the agent's home, so it applies in every directory.
+For every agent, the guard refuses declared paths and commands. Where routing is enabled, it wraps shell commands so their output passes through the broker's redactor. The command still runs as the regular user; `faramir run` explicitly uses the executor uid for managed credentials, SSH access or approved sudo.
 
 Claude Code and Codex differ. They take the hook's decision as the permission decision, so a hook that rewrites a command must also approve it, and that approval suppresses the Bash permission prompt for every command the deny list does not name. `faramir init` installs only a deny-only hook in their home. `faramir enrol` writes the routing hook into the tree, so the operator gives up the prompt per tree.
 
@@ -122,8 +122,8 @@ Details in [docs/redaction.md](docs/redaction.md).
 
 Every brokered command is recorded: what ran, against which refs, and what came back. The log holds tokens, not values. Only the broker and root can read it, and logrotate bounds it.
 
-- A brokered command writes two records under one `log_id`: `run_started` when the child starts, and `run` when it ends or when it never ran.
-- A command that cannot be recorded does not run. The broker checks that the log is writable before starting anything, and refuses with `no_audit` if it is not.
+- A brokered command writes two records under one `log_id`: `run_started` before execution, and `run` when it ends or when it never ran.
+- Failure to write the start record refuses execution with `no_audit`. A completion-record failure returns `audit_failed`, preserving output and outcome while the CLI exits nonzero. Verify effects before retrying.
 
 What a record contains, and the rules a command does not state: [docs/operating.md](docs/operating.md).
 
@@ -258,12 +258,12 @@ faramir redact -- ./deploy.sh
 
 Exit code | Meaning
 --- | ---
-the child's | The command ran. A run whose exit status was lost keeps its output, reports a non-zero stand-in code, and says so on stderr
+the child's | The command ran and its completion record was written. A run whose exit status was lost keeps its output, reports a non-zero stand-in code, and says so on stderr
 69 (`EX_UNAVAILABLE`) | The broker is not running
 75 (`EX_TEMPFAIL`) | The broker is at its concurrency limit. The one refusal after which the same request may succeed if retried
 126, 127 | The program cannot be run, or is not there, as a shell reports them
 2 | Usage error
-1 | Every other refusal
+1 | Every other refusal, an output write failure, or an audit completion failure after execution
 
 ### Allowing sudo on the controller
 
@@ -299,7 +299,7 @@ Command | What it is for
 `faramir run --env NAME=faramir://ref -- program args` | Runs the command with the value injected, and returns its output with each value replaced by `«SECRET:ref»`
 `faramir refs` | The names that exist, never the values. Where `run`'s `--env` refs come from
 
-These two are how a value reaches a command. `redact`, `status`, `version`, `help` and `completion` are open to the agent as well, and so are the four that only describe the install: `doctor`, `block ls`, `link ls` and `reader ls`. Every other subcommand is the operator's. Nothing is registered per project: the binary is installed for the account, so the route is the same in every directory on the host, enrolled or not. Wire protocol: [docs/protocol.md](docs/protocol.md).
+These two are how a value reaches a command. `redact`, `status`, `version`, `help` and `completion` are open to the agent as well, and so are the four that only describe the install: `doctor`, `block ls`, `link ls` and `reader ls`. Every other subcommand is the operator's. The CLI needs no project registration: the binary reaches the broker from any directory on the host, enrolled or not. Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 ## Configuration
 

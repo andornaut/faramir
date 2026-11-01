@@ -83,7 +83,7 @@ The section says what the deny rules cannot: why they refuse, and what to do ins
 - **The directory directly holding a file the enrolment wrote is sticky as well as setgid**, so only the file's owner can unlink or rename inside it. The tree root is deliberately not sticky. The consequences are in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config).
 - **Every install renders the executor unit with `Delegate=yes`**, so each run gets its own cgroup and is reaped there.
 
-`--config-dir` moves the config, the secrets directory and the age key together. The reason is in [design.md](design.md#the-secrets-live-in-a-directory-not-a-tree). Three things do not follow it: the audit log, which is the broker unit's `ReadWritePaths`, the two sudo files, which are at the paths `sudo` and PAM read, and `sudo-env`, which stays in `/usr/local/libexec/faramir`. `faramir status` reports the config file and the secrets files the broker loaded.
+`--config-dir` sets the location of the config, the secrets directory and the age key; it moves no existing files. The reason is in [design.md](design.md#the-secrets-live-in-a-directory-not-a-tree). Three things do not follow it: the audit log, which is the broker unit's `ReadWritePaths`, the two sudo files, which are at the paths `sudo` and PAM read, and `sudo-env`, which stays in `/usr/local/libexec/faramir`. `faramir status` reports the config file and the secrets files the broker loaded.
 
 ## Sharing a working tree
 
