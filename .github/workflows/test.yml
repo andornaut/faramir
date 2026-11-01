@@ -61,7 +61,7 @@ jobs:
       # node those tests skip, which is a silent loss of the whole plugin suite:
       # pinned here rather than relying on what the runner image happens to ship.
       - name: Set up Node.js
-        uses: actions/setup-node@v7.0.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version-file: .nvmrc
 
@@ -120,7 +120,7 @@ jobs:
           go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage
           path: coverage.txt
@@ -198,7 +198,7 @@ jobs:
       # Dependabot proposes the bump through the github-actions ecosystem. It
       # fetches nothing at run time, so a slow host cannot turn this red.
       - name: Run markdownlint
-        uses: DavidAnson/markdownlint-cli2-action@v24.2.0
+        uses: DavidAnson/markdownlint-cli2-action@v25.0.0
         with:
           # Empty on purpose. The action defaults this to `*.{md,markdown}`,
           # which is the repository root only, and anything passed here outranks
