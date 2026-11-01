@@ -40,6 +40,7 @@ var Operator = []string{
 	"sudo ls",
 	"sudo reject",
 	"sudo watch",
+	"unenrol",
 	"uninstall",
 	"vault add",
 	"vault edit",

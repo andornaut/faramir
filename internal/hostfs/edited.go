@@ -203,3 +203,11 @@ func (f FS) WriteEdited(e *Edited, data []byte, mode os.FileMode, uid, gid int) 
 	}
 	return f.writeInto(e.root, e.name, data, mode, uid, gid, Unread())
 }
+
+// WriteEditedExpecting refuses to replace content changed since it was read.
+func (f FS) WriteEditedExpecting(e *Edited, data []byte, mode os.FileMode, uid, gid int, expect []byte) (bool, error) {
+	if e.root == nil {
+		return f.WriteFileWith(e.path, data, mode, uid, gid, After(expect))
+	}
+	return f.writeInto(e.root, e.name, data, mode, uid, gid, After(expect))
+}

@@ -92,7 +92,7 @@
 # it, so they are the operator's whether or not sudo is in front: refused here so
 # the agent is told that, rather than meeting a permission error it will try to
 # work around.
-{{marked "operator" `\bfaramir[-\s]+(block[ \t]+add|block[ \t]+rm|enrol|init|link[ \t]+add|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b`}}
+{{marked "operator" `\bfaramir[-\s]+(block[ \t]+add|block[ \t]+rm|enrol|init|link[ \t]+add|link[ \t]+rm|logs|reader[ \t]+add|reader[ \t]+reseal|reader[ \t]+rm|reload|sudo[ \t]+approve|sudo[ \t]+ls|sudo[ \t]+reject|sudo[ \t]+watch|unenrol|uninstall|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm)\b`}}
 {{marked "operator" `\bsudo\b.*-u\s+faramir`}}
 
 # The broker's own key is not written here. `--ssh-key` may put it outside the

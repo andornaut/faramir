@@ -229,6 +229,27 @@ What to run in an enrolled tree: [below](#running-commands).
 
 Per-tool recipes, the `faramir link` types and selectors, SSH keys, and a worked Ansible example: [docs/integrations.md](docs/integrations.md).
 
+### Unenrolling a project
+
+Run `sudo faramir unenrol [DIR]` to remove every agent's project routing hooks,
+the marked project credentials section and the enrolment record. `DIR` defaults
+to the current working directory. `--dry-run` reports changes without writing;
+`--json` prints the report. Repeating the command is safe, including after a
+partial cleanup. It also checks known project routing files when no enrolment
+record exists. Removing the record stops `init` maintaining that tree.
+
+Unrelated hooks, settings and user text remain. Project permission rules remain:
+an identical rule may have existed before enrolment. Global hooks, deny rules
+and instructions remain. Legacy project instruction files remain, with a warning
+if they still carry managed credentials text. Malformed managed markers or
+project hook JSON require repair before cleanup proceeds.
+
+Filesystem ownership, groups, modes, setgid/sticky bits and traversal grants
+remain because enrolment stores no previous permissions. Unenrolment does not
+revoke access to the tree or broker. Start fresh agent sessions afterwards;
+loaded sessions may retain project hooks and instructions. Review changed hooks
+in the agent when prompted.
+
 ### Running commands
 
 ```bash
@@ -281,14 +302,14 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 
 Group | Commands
 --- | ---
-The install | `doctor`, `enrol`, `init`, `reload`, `uninstall`
+The install | `doctor`, `enrol`, `init`, `reload`, `unenrol`, `uninstall`
 The managed store | `vault add`, `vault edit`, `vault ls`, `vault rm`
 Who can decrypt it | `reader add`, `reader ls`, `reader reseal`, `reader rm`
 A secret another tool owns | `link add`, `link ls`, `link rm`
 A path, name or command blocked from the agent | `block add`, `block ls`, `block rm`
 The record, and sudo | `logs`, `sudo approve`, `sudo ls`, `sudo reject`, `sudo watch`
 
-`init`, `enrol` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can declare every entry on every run.
+`init`, `enrol`, `unenrol` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can declare every entry on every run.
 
 ### What the agent runs
 
