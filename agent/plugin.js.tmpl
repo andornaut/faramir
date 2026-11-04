@@ -63,8 +63,7 @@ function whyNot(result) {
     if (typeof command !== "string" || command === "") {
       if (SHELL_TOOLS.has(input && input.tool)) {
         throw new Error(
-          `faramir: ${input.tool} was called with no command string, so this ` +
-            "plugin could not guard it and the call was not made",
+          `faramir: ${input.tool} call not made: it carries no command string`,
         )
       }
       // Every other tool runs nothing, so there is no output to redact. It is
@@ -90,7 +89,7 @@ function whyNot(result) {
     // worked. What it says instead is why, where there is a why to give.
     if (result.status !== 0) {
       throw new Error(
-        `faramir: the guard did not answer, so this command was not run (${CLI} guard --host ${HOST})` +
+        `faramir: command not run: the guard did not answer (${CLI} guard --host ${HOST})` +
           whyNot(result),
       )
     }
@@ -104,7 +103,7 @@ function whyNot(result) {
     try {
       decision = JSON.parse(text)
     } catch {
-      throw new Error("faramir: the guard's answer was not JSON, so this command was not run")
+      throw new Error("faramir: command not run: the guard's answer was not JSON")
     }
 
     switch (decision.decision) {
@@ -121,8 +120,7 @@ function whyNot(result) {
         const rewritten = decision.tool_input
         if (!rewritten || typeof rewritten !== "object" || typeof rewritten.command !== "string") {
           throw new Error(
-            "faramir: the guard asked for a rewrite and named no command to run " +
-              "instead, so this command was not run",
+            "faramir: command not run: the guard asked for a rewrite and named no command",
           )
         }
         // Assigned into the object the host handed in, which is how this hook
@@ -132,8 +130,7 @@ function whyNot(result) {
       }
       default:
         throw new Error(
-          "faramir: the guard returned a decision this plugin does not understand, " +
-            "so this command was not run",
+          "faramir: command not run: the guard returned a decision this plugin does not understand",
         )
     }
   },

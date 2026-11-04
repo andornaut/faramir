@@ -93,12 +93,10 @@ func PrintOutcome(outcome escalation.Outcome, paint termui.Palette) {
 func WarnIfTypeable() {
 	var reasons []string
 	if os.Getenv("TMUX") != "" {
-		reasons = append(reasons, "a tmux pane takes `send-keys` from any process "+
-			"running as the account that started tmux")
+		reasons = append(reasons, "tmux: any process of the account that started it can `send-keys` here")
 	}
 	if os.Getenv("STY") != "" {
-		reasons = append(reasons, "a screen window takes `stuff` from any process "+
-			"running as the account that started screen")
+		reasons = append(reasons, "screen: any process of the account that started it can `stuff` here")
 	}
 	if info, err := os.Stdin.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
 		if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != 0 {
@@ -112,12 +110,11 @@ func WarnIfTypeable() {
 	if len(reasons) == 0 {
 		return
 	}
-	fmt.Fprintln(os.Stderr, "\nwarning: an escalation given here may not be yours.")
+	fmt.Fprintln(os.Stderr, "\nwarning: the coding agent may be able to type into this terminal:")
 	for _, reason := range reasons {
-		fmt.Fprintln(os.Stderr, "  - "+reason)
+		fmt.Fprintln(os.Stderr, "  "+reason)
 	}
-	fmt.Fprint(os.Stderr, "The coding agent runs as that account. Watch from somewhere "+
-		"it cannot reach the keyboard: a console, an ssh session on another machine, "+
+	fmt.Fprint(os.Stderr, "  Watch from a console, an ssh session from another machine, "+
 		"or another login.\n\n")
 }
 

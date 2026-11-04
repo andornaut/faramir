@@ -100,8 +100,7 @@ func runPamEscalate(f pamEscalateFlags, granted *bool) int {
 	if len(ancestors) == 0 {
 		// Nothing above this call, which is what a `sudo` typed by hand as the
 		// executor's account looks like once its shell is gone.
-		fmt.Fprintln(os.Stderr, "faramir pam-escalate: no process above this sudo "+
-			"could be read, so the request cannot be attributed to a brokered command")
+		fmt.Fprintln(os.Stderr, "faramir pam-escalate: refused: no process above this sudo could be read")
 		return 1
 	}
 	approved, reason, err := brokerclient.Escalate(pamSocket(), ancestors)

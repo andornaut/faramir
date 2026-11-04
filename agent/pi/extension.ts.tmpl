@@ -57,8 +57,7 @@ export default function faramir(pi) {
         return {
           block: true,
           reason:
-            `faramir: ${event.toolName} was called with no command string, so this ` +
-            "extension could not guard it and the call was not made",
+            `faramir: ${event.toolName} call not made: it carries no command string`,
         }
       }
       // Not a command, so it is a file tool or something like one. pi has no
@@ -86,7 +85,7 @@ export default function faramir(pi) {
       return {
         block: true,
         reason:
-          `faramir: the guard did not answer, so this command was not run (${CLI} guard --host ${HOST})` +
+          `faramir: command not run: the guard did not answer (${CLI} guard --host ${HOST})` +
           whyNot(result),
       }
     }
@@ -102,7 +101,7 @@ export default function faramir(pi) {
     } catch {
       return {
         block: true,
-        reason: "faramir: the guard's answer was not JSON, so this command was not run",
+        reason: "faramir: command not run: the guard's answer was not JSON",
       }
     }
 
@@ -123,8 +122,7 @@ export default function faramir(pi) {
           return {
             block: true,
             reason:
-              "faramir: the guard asked for a rewrite and named no command to run " +
-              "instead, so this command was not run",
+              "faramir: command not run: the guard asked for a rewrite and named no command",
           }
         }
         // event.input is the object pi executes from, so assigning into it is
@@ -136,8 +134,7 @@ export default function faramir(pi) {
         return {
           block: true,
           reason:
-            "faramir: the guard returned a decision this extension does not understand, " +
-            "so this command was not run",
+            "faramir: command not run: the guard returned a decision this extension does not understand",
         }
     }
   })

@@ -460,8 +460,7 @@ func (s *Server) pend(runID string, run Run) (*escalation, bool, string, string)
 	// refuses another command rather than another sudo.
 	if other := s.otherRunLocked(runID); other != "" {
 		return nil, false, CodeOtherCommand, fmt.Sprintf(
-			"%s is also running; root goes only to a command running alone. "+
-				"Run this again once that one has finished", other)
+			"%s is also running. Run this again once it has finished", other)
 	}
 	id := newID()
 	if id == "" {

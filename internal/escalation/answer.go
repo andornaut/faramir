@@ -138,9 +138,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	// starting in that gap is caught by the sole-occupancy check below.
 	if approve {
 		if s.Quiescent == nil {
-			return s.refuseForNoise(id, "this broker has no way to ask whether the host "+
-				"is quiet, and an escalation granted on bookkeeping alone is one nothing "+
-				"checked against the process table")
+			return s.refuseForNoise(id, "the broker cannot check the process table")
 		}
 		if quiet, detail := s.Quiescent(); !quiet {
 			return s.refuseForNoise(id, detail)
@@ -167,8 +165,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	if approve {
 		if other := s.otherRunLocked(pending.runID); other != "" {
 			s.mu.Unlock()
-			return s.refuseForNoise(id, "another brokered command is registered ("+
-				other+") and could ride the escalation")
+			return s.refuseForNoise(id, "another brokered command is running: "+other)
 		}
 		if run, ok := s.runs[pending.runID]; ok {
 			run.approved = true
@@ -195,7 +192,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 // ErrNotQuiescent is what a yes becomes when the host was not quiet enough to
 // take it. Exported so the broker can give it an error code of its own,
 // distinct from an id that had expired.
-var ErrNotQuiescent = errors.New("the host was not quiet, so this was refused")
+var ErrNotQuiescent = errors.New("the host was not quiet")
 
 // refuseForNoise answers a question no, on behalf of an operator who said yes.
 // The question is not held open for another try: that would make the operator
@@ -210,8 +207,7 @@ func (s *Server) refuseForNoise(id, detail string) error {
 	}
 	log.Printf("escalation: %s refused, not approved: %s", id, detail)
 	s.finish(pending, false, CodeNotQuiescent, "the host was not quiet ("+detail+")")
-	return fmt.Errorf("%w: %s. %s is closed; run the command again once the host "+
-		"is quiet", ErrNotQuiescent, detail, id)
+	return fmt.Errorf("%s not approved: %w: %s", id, ErrNotQuiescent, detail)
 }
 
 // find is findLocked for a caller that does not hold the lock.
@@ -226,8 +222,7 @@ func (s *Server) findLocked(id string) (*escalation, error) {
 	if s.waiting != nil && s.waiting.id == id {
 		return s.waiting, nil
 	}
-	return nil, fmt.Errorf("no question %s is waiting: already answered, or its "+
-		"command gave up", id)
+	return nil, fmt.Errorf("no pending question %s: already answered, expired or ended", id)
 }
 
 // Stop releases everything waiting and refuses anything later: a question

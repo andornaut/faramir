@@ -43,10 +43,9 @@ func requireRootToAnswer(command string) bool {
 		return true
 	}
 	// Not "try sudo": reaching root that way from the account the agent runs as
-	// leaves a warm sudo timestamp in a shell the agent can use. The three places
-	// named here are the ones sudoprompt.WarnIfTypeable does not warn about.
-	fmt.Fprintf(os.Stderr, "faramir %s must run as root, and not via sudo from this shell: "+
-		"the cached sudo timestamp would be the agent's to use\n", command)
+	// leaves a warm sudo timestamp in a shell the agent can use.
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root: use a root login, not sudo from this shell\n",
+		command)
 	return false
 }
 
@@ -284,11 +283,12 @@ func watchEscalations(socketPath string, paint termui.Palette) int {
 			//
 			// The cost is that `faramir init` restarts the broker, so an install ends
 			// a watcher and it has to be started again.
-			fmt.Fprintf(os.Stderr, "faramir sudo watch: %v\n", err)
 			code := brokerclient.FailureCode(err)
 			if code == brokerclient.ExitUnavailable {
-				fmt.Fprintln(os.Stderr, "faramir sudo watch: lost the broker; not reconnecting")
+				fmt.Fprintf(os.Stderr, "faramir sudo watch: stopped, broker lost: %v\n", err)
+				return code
 			}
+			fmt.Fprintf(os.Stderr, "faramir sudo watch: %v\n", err)
 			return code
 		}
 		if finished != nil {

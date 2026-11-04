@@ -75,7 +75,7 @@ if [ "${1:-}" = "--stream-state" ]; then
       __frc=1
     fi
   else
-    echo "faramir: the redactor could not be started, so the command was not run" >&2
+    echo "faramir: command not run: the redactor could not be started" >&2
     __frc=1
   fi
   trap - PIPE
@@ -111,9 +111,8 @@ if [ -z "${__frf:-}" ] || [ -z "${__fro:-}" ]; then
   # Nothing private to capture into, so the command does not run: it would print
   # whatever it found straight through.
   rm -f "${__frf:-}" "${__fro:-}"
-  echo "faramir: no private directory to capture output into (XDG_RUNTIME_DIR is" \
-    "unset, not yours, or readable by another account), so the command was not" \
-    "run" >&2
+  echo "faramir: command not run: no private directory for its output" \
+    "(XDG_RUNTIME_DIR is unset, not yours, or readable by another account)" >&2
   __frc=1
 else
   # "exit" in the command ends this shell at the eval below, before the rm at the
@@ -140,7 +139,7 @@ else
   else
     # The command ran, so what it set in this shell is intact; only the output
     # is withheld. A missing or too-old faramir lands here too.
-    echo "faramir: the output was withheld because it could not be redacted" >&2
+    echo "faramir: output withheld: it could not be redacted" >&2
     # A withheld output must not read as a clean success.
     [ "$__frc" -eq 0 ] && __frc=1
   fi

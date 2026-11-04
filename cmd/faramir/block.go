@@ -62,9 +62,7 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 	// With no path to ride on, --strict would change nothing, and the loader
 	// refuses a command entry carrying it for the same reason.
 	if f.strict && len(f.paths) == 0 && len(f.commands) > 0 {
-		return nil, fmt.Errorf("faramir block %s: --strict applies to --path only: it narrows "+
-			"what a brokered command may do to the file. A command entry is already "+
-			"refused to the agent's shell and to brokered commands", verb)
+		return nil, fmt.Errorf("faramir block %s: --strict applies to --path only", verb)
 	}
 	out := make([]config.BlockedPath, 0, len(f.paths)+len(f.commands))
 	// --strict rides on every path the command names, and on no command entry:

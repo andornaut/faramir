@@ -119,9 +119,8 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 		if sharedStackTarget(path) {
 			return false, nil
 		}
-		return false, fmt.Errorf("%s is a symlink, and a block written through "+
-			"it would land on its target. Replace it with a real file, or install without "+
-			"--allow-sudo", path)
+		return false, fmt.Errorf("%s is a symlink; nothing was written. Replace it with "+
+			"a real file, or install without --allow-sudo", path)
 	}
 	current, err := os.ReadFile(path)
 	if err != nil {
@@ -137,8 +136,8 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 	// markers can be read at all.
 	_, _, found, err := placeBlock(current)
 	if err != nil {
-		return false, fmt.Errorf("%s: %w: nothing was written. Delete the stray marker and re-run, or edit by hand: "+
-			"the lines between %q and %q are faramir's", path, err, PamBlockBegin, PamBlockEnd)
+		return false, fmt.Errorf("%s: %w; nothing was written. Delete the stray %q or %q "+
+			"line, then re-run", path, err, PamBlockBegin, PamBlockEnd)
 	}
 	// Always at the top, a replacement included. Leaving a block where it was
 	// found keeps whatever put it below an authenticating line there through every
@@ -164,12 +163,11 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 	// looking, and by putting the file back when the answer is no.
 	if problem := spliceProblem(path, current, block); problem != "" {
 		if _, undo := fs.WriteFile(path, current, info.Mode().Perm(), hostfs.Keep, hostfs.Keep); undo != nil {
-			return false, fmt.Errorf("%s: %s, and restoring the file failed too "+
-				"(%w). Restore it by hand before anything else: until it is back as it was, "+
-				"this host's sudo is not what its operators expect", path, problem, undo)
+			return false, fmt.Errorf("%s: %s, and restoring it failed: %w. Restore it by hand",
+				path, problem, undo)
 		}
-		return false, fmt.Errorf("%s: %s. The file was restored as it was, and "+
-			"nothing was granted", path, problem)
+		return false, fmt.Errorf("%s: %s; the file was restored and nothing was granted",
+			path, problem)
 	}
 	return changed, nil
 }
@@ -184,8 +182,7 @@ func SpliceBlock(fs hostfs.FS, path string, block []byte) (bool, error) {
 func spliceProblem(path string, before, block []byte) string {
 	landed, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Sprintf("it cannot be read back (%v), so what was written is "+
-			"unknown", err)
+		return fmt.Sprintf("cannot be read back: %v", err)
 	}
 	start, end, found, err := placeBlock(landed)
 	switch {
@@ -199,8 +196,7 @@ func spliceProblem(path string, before, block []byte) string {
 		return "the block that landed is not the one this run rendered"
 	}
 	if !bytes.Equal(WithoutBlock(landed), WithoutBlock(before)) {
-		return "the rest of the file is no longer what it was, so the splice " +
-			"changed how every account on this host authenticates"
+		return "the splice changed lines outside the block"
 	}
 	return ""
 }
@@ -250,16 +246,14 @@ func sharedStackTarget(path string) bool {
 func Block(path string) ([]byte, error) {
 	current, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("it cannot be read (%w), so what decides an "+
-			"escalation here went unchecked", err)
+		return nil, fmt.Errorf("cannot be read: %w", err)
 	}
 	start, end, found, err := placeBlock(current)
 	switch {
 	case err != nil:
 		return nil, errHalfMarkedPam
 	case !found:
-		return nil, errors.New("it carries no faramir block, so nothing sends the " +
-			"executor to a stack that asks the broker")
+		return nil, errors.New("carries no faramir block")
 	}
 	return current[start:end], nil
 }

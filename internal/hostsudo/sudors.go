@@ -41,10 +41,8 @@ func VersionNote(visudo string) string {
 	if !older {
 		return ""
 	}
-	return "\nThis host reports " + banner + ". The grant needs " + floor +
-		"or newer, that being where noninteractive_auth arrived: without it `sudo -n` fails " +
-		"before the PAM stack runs, so no question is put. Upgrade sudo, or install without " +
-		"--allow-sudo"
+	return "\n  " + banner + " predates noninteractive_auth, which needs " + floor +
+		" or newer. Upgrade sudo, or install without --allow-sudo"
 }
 
 // olderThanFloor reports whether a version banner names a release without
