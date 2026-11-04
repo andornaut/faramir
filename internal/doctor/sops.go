@@ -128,23 +128,8 @@ func diagnoseSopsRuleCoverage(report *Report, opts Options, rulePath string) {
 			"checked", rulePath)
 		return
 	}
-	// filepath.Glob reports a directory it cannot list as no matches and no
-	// error, so a caller who cannot read one pattern's directory would get a
-	// confident answer about half a store. What did resolve is still checked.
-	unlistable := unlistableDirs(opts.SecretsPatterns)
-	if len(unlistable) > 0 {
-		report.unaskedf("rule coverage", 1, "cannot list %s; run doctor as root",
-			strings.Join(unlistable, ", "))
-	}
-	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
+	managed, complete := resolveStore(report, "rule coverage", opts.SecretsPatterns)
 	if len(managed) == 0 {
-		if len(unlistable) > 0 {
-			// Nothing resolved and a directory was unreadable, so the count above
-			// stands on its own: reporting nothing to cover would read as an empty
-			// store.
-			return
-		}
-		report.addf("rule coverage", StatusNA, "no managed file yet")
 		return
 	}
 	sops, err := exec.LookPath("sops")
@@ -174,7 +159,7 @@ func diagnoseSopsRuleCoverage(report *Report, opts Options, rulePath string) {
 	}
 	// Only where every file was asked about and answered yes: an unreadable
 	// directory would otherwise be claimed as covered.
-	if covered == len(managed) && len(unlistable) == 0 {
+	if covered == len(managed) && complete {
 		report.addf("rule coverage", StatusOK, "%d managed file(s) covered", covered)
 	}
 }
@@ -198,9 +183,8 @@ func diagnoseRecipientDrift(report *Report, opts Options, rulePath string) {
 		report.unaskedf("recipient drift", 1, "%s unreadable\n%v", rulePath, err)
 		return
 	}
-	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
+	managed, complete := resolveStore(report, "recipient drift", opts.SecretsPatterns)
 	if len(managed) == 0 {
-		report.addf("recipient drift", StatusNA, "no managed file yet")
 		return
 	}
 	drifted, checked, sealedToNothing := 0, 0, 0
@@ -227,12 +211,33 @@ func diagnoseRecipientDrift(report *Report, opts Options, rulePath string) {
 			"%s names; run `sudo faramir reader reseal`\nsealed to: %s\nrule names: %s",
 			target, rulePath, strings.Join(was, ", "), strings.Join(wanted, ", "))
 	}
-	// Only where every file sealed to anything was reached and agreed. With none
-	// sealed there is nothing to pass.
-	if drifted == 0 && checked > 0 && checked+sealedToNothing == len(managed) {
+	// Only where every file sealed to anything was reached and agreed, in a store
+	// listed in full. With none sealed there is nothing to pass.
+	if drifted == 0 && checked > 0 && checked+sealedToNothing == len(managed) && complete {
 		report.addf("recipient drift", StatusOK, "%d file(s) sealed as %s names",
 			checked, rulePath)
 	}
+}
+
+// resolveStore resolves the managed files for check and reports what the
+// resolution could not see, returning the files and whether every directory
+// behind the patterns was listed. filepath.Glob reports a directory it cannot
+// list as no matches and no error, so a caller who cannot read one would
+// otherwise get a confident answer about half a store, or call a full one
+// empty. What did resolve is still the caller's to check, and an incomplete
+// store does not pass. A store that lists in full and holds nothing is not
+// applicable.
+func resolveStore(report *Report, check string, patterns []string) ([]string, bool) {
+	unlistable := unlistableDirs(patterns)
+	if len(unlistable) > 0 {
+		report.unaskedf(check, 1, "cannot list %s; run doctor as root",
+			strings.Join(unlistable, ", "))
+	}
+	managed, _, _ := keeper.Resolve(patterns)
+	if len(managed) == 0 && len(unlistable) == 0 {
+		report.addf(check, StatusNA, "no managed file yet")
+	}
+	return managed, len(unlistable) == 0
 }
 
 // unlistableDirs names the directories behind these patterns that this account

@@ -202,8 +202,9 @@ func TestRuleCoverageWithoutThePatternsIsUnasked(t *testing.T) {
 // filepath.Glob reports a directory it cannot list as no matches and no error.
 // So "there are no managed files" and "this account may not see them" arrive
 // here identically, and doctor run without sudo would otherwise report a host
-// full of managed files as having nothing to cover.
-func TestRuleCoverageCannotSeeIntoTheStoreIsUnasked(t *testing.T) {
+// full of managed files as having nothing to cover or compare. Both checks that
+// resolve the store read it the same way.
+func TestStoreThatCannotBeListedIsUnaskedByEveryCheck(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads a directory whatever its mode, so there is no closed door to meet")
 	}
@@ -230,15 +231,18 @@ func TestRuleCoverageCannotSeeIntoTheStoreIsUnasked(t *testing.T) {
 		SecretsPatterns: []string{filepath.Join(secrets, "*.sops.yml")},
 	})
 
-	finding := onlyFinding(t, report, "rule coverage")
-	if finding.Status != StatusWarn {
-		t.Errorf("status = %q, want warn: %s", finding.Status, finding.Detail)
+	checks := []string{"rule coverage", "recipient drift"}
+	for _, check := range checks {
+		finding := onlyFinding(t, report, check)
+		if finding.Status != StatusWarn {
+			t.Errorf("%s: status = %q, want warn: %s", check, finding.Status, finding.Detail)
+		}
+		if !strings.Contains(finding.Detail, "cannot list "+secrets) {
+			t.Errorf("%s: detail does not name the unlistable store: %s", check, finding.Detail)
+		}
 	}
-	if !strings.Contains(finding.Detail, "cannot list") {
-		t.Errorf("detail does not say the store could not be read: %s", finding.Detail)
-	}
-	if report.NotAsked != 1 {
-		t.Errorf("NotAsked = %d, want 1", report.NotAsked)
+	if report.NotAsked != len(checks) {
+		t.Errorf("NotAsked = %d, want %d", report.NotAsked, len(checks))
 	}
 }
 

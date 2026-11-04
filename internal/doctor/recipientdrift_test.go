@@ -107,6 +107,43 @@ func TestRecipientDriftIgnoresAFileSealedToNothing(t *testing.T) {
 	}
 }
 
+// A store this caller can list in part is not a store that agrees: the files
+// behind the unlistable directory are the ones nobody compared, so what did
+// resolve is checked and the check does not pass.
+func TestRecipientDriftDoesNotPassHalfAStore(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a directory whatever its mode, so there is no closed door to meet")
+	}
+	dir := t.TempDir()
+	keeper := mintKey(t, dir)
+	sopstest.WriteRule(t, hostlayout.Layout{ConfigDir: dir}.SopsConfigPath(), keeper)
+	open := filepath.Join(dir, "open")
+	shut := filepath.Join(dir, "shut")
+	for _, path := range []string{open, shut} {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		sealed(t, path, "store.sops.yml", keeper)
+	}
+	if err := os.Chmod(shut, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(shut, 0o700) })
+
+	report := driftReport(t, dir,
+		filepath.Join(open, "*.sops.yml"), filepath.Join(shut, "*.sops.yml"))
+	finding := onlyFinding(t, report, "recipient drift")
+	if finding.Status != StatusWarn {
+		t.Errorf("status = %q, want warn: %s", finding.Status, finding.Detail)
+	}
+	if !strings.Contains(finding.Detail, "cannot list "+shut) {
+		t.Errorf("detail does not name the unlistable directory: %s", finding.Detail)
+	}
+	if report.NotAsked != 1 {
+		t.Errorf("NotAsked = %d, want 1", report.NotAsked)
+	}
+}
+
 // Without the patterns there is nothing to compare the rule against, and a
 // silence here would read as a store confirmed rather than one not examined.
 func TestRecipientDriftWithoutThePatternsIsUnasked(t *testing.T) {
