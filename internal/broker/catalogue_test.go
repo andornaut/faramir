@@ -50,9 +50,8 @@ var blockRemoval = "`" + "faramir block" + " rm`"
 // remedy still reads as a sentence, so prose assertions pass on it and only the
 // phrases somebody thought to list would catch it.
 //
-// The tail is what makes a message about a file, so a kind that is not a path
-// carrying one is a kind that fell through to the path branch. That is how a
-// blocked command came to be told what a reader may still do to a file.
+// The ref is the hint for a path, so a kind that is not a path offering it is
+// a kind that fell through to the path branch.
 func TestEveryKindHasARefusalOfItsOwn(t *testing.T) {
 	for _, kind := range denyrules.Kinds() {
 		entry := denyrules.Rule{Kind: kind, Entry: "/srv/keys/luks.key", Remedy: blockRemoval}
@@ -68,9 +67,9 @@ func TestEveryKindHasARefusalOfItsOwn(t *testing.T) {
 			t.Errorf("kind %q offers no remedy:\n%s", kind, got.text())
 		}
 		isPath := kind.DeclaredPath()
-		if (got.tail != "") != isPath {
+		if (got.remedy == useRef) != isPath {
 			if isPath {
-				t.Errorf("kind %q does not say what its entry leaves alone", kind)
+				t.Errorf("kind %q does not hint the ref:\n%s", kind, got.text())
 			} else {
 				t.Errorf("kind %q falls through to the message written for a path:\n%s",
 					kind, got.text())
@@ -81,16 +80,15 @@ func TestEveryKindHasARefusalOfItsOwn(t *testing.T) {
 		if said := got.text(); strings.Contains(said, "declare") {
 			t.Errorf("the refusal for kind %q says something is declared:\n%s", kind, said)
 		}
-		// Where an entry stands behind the rule, the refusal names both the
-		// listing it is in and the command that takes it back out.
-		if list := kind.List(); list != "" {
-			if !strings.Contains(got.body, list) {
-				t.Errorf("the refusal for kind %q does not name %q:\n%s", kind, list, got.body)
-			}
-			if !strings.Contains(got.remedy, entry.Remedy) {
-				t.Errorf("the refusal for kind %q does not name its removal:\n%s",
-					kind, got.remedy)
-			}
+		// Where an entry stands behind the rule, the refusal names the listing
+		// it is in. A command entry has no ref to offer, so its hint is the
+		// command that takes it back out.
+		if list := kind.List(); list != "" && !strings.Contains(got.body, list) {
+			t.Errorf("the refusal for kind %q does not name %q:\n%s", kind, list, got.body)
+		}
+		if kind == denyrules.KindCommand && !strings.Contains(got.remedy, entry.Remedy) {
+			t.Errorf("the refusal for kind %q does not name its removal:\n%s",
+				kind, got.remedy)
 		}
 	}
 }

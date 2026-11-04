@@ -189,7 +189,7 @@ func TestAFileToolIsRefusedThePathsTheDenyListNames(t *testing.T) {
 			reason, _ := out["reason"].(string)
 			// It names the file and the way round it, so the model has somewhere to
 			// go rather than only a wall.
-			if !strings.Contains(reason, "faramir run") {
+			if !strings.Contains(reason, "Ask the operator") {
 				t.Errorf("the refusal names no way through: %s", reason)
 			}
 			// And not the reader-verb alternation the question was put with, which

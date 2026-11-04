@@ -197,7 +197,7 @@ check_shape kilocode '.decision'                              rewrite "rewrite" 
 # The deny reason has to reach the model with the alternative in it, or the
 # agent retries the same command a different way.
 reason=$(decide 'cat /etc/faramir/age.key' | jq -r '.hookSpecificOutput.permissionDecisionReason')
-echo "$reason" | grep -q 'faramir run' && ok "the refusal names \`faramir run\` as the way to proceed" \
+echo "$reason" | grep -q 'Ask the operator' && ok "the refusal names the way to proceed" \
   || bad "the refusal does not tell the agent what to do instead"
 # What the rule matched, which for a subtree rule is the directory it names
 # rather than the file under it: that is the entry, and it is what the reader

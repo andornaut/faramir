@@ -216,32 +216,28 @@ func resolveArgs(cmd []string, cwd string) string {
 	return strings.Join(out, " ")
 }
 
-// a refusal is what a caller is told, in the parts every one of them has:
-// what matched and why no other answer is available, then what to do instead,
-// and for a path the sentence saying what the entry leaves alone.
+// a refusal is what a caller is told: what matched, then the one hint, the
+// same one the guard gives for the kind.
 //
 // Parts rather than one string, because the remedy is the half a reader can
 // act on and a message that lost it still read as a whole sentence. Asserting
 // prose means listing the phrases somebody thought of; asserting a field means
 // asking whether the message has a remedy at all.
 type refusal struct {
-	// body is what was refused and why this route cannot answer.
+	// body is what was refused.
 	body string
 	// remedy is what to do instead. Never empty: a refusal with nothing to
 	// offer sends its reader looking for a way round it.
 	remedy string
-	// tail says what the entry leaves alone, and is for the path kinds. The
-	// others have no vocabulary to describe.
-	tail string
 }
 
-// text is the body on the first line and each further part indented under it.
+// useRef is the hint for a declared path, as the guard words it: a value
+// reached by ref is reached without the file being named.
+const useRef = "Use the value by ref: `faramir run --env NAME=faramir://<ref>`."
+
+// text is the body on the first line and the remedy indented under it.
 func (r refusal) text() string {
-	out := r.body + "\n  " + r.remedy
-	if r.tail != "" {
-		out += "\n  " + r.tail
-	}
-	return out
+	return r.body + "\n  " + r.remedy
 }
 
 // declaredRefusal is what the caller is told, which reaches a model rather than
@@ -265,7 +261,7 @@ func refusalFor(rule declaredRule) refusal {
 		return refusal{
 			body: "names " + rule.Entry + ", one of faramir's own directories; " +
 				"no brokered command may name it.",
-			remedy: "This built-in rule cannot be removed. Ask the operator.",
+			remedy: "Ask the operator.",
 		}
 	case denyrules.KindOperator:
 		return refusal{
@@ -278,8 +274,6 @@ func refusalFor(rule declaredRule) refusal {
 			remedy: "Ask the operator to make the change.",
 		}
 	case denyrules.KindCommand:
-		// No tail: it is about what a reader may still do to a file, and names
-		// nothing somebody who ran `op read` typed.
 		return refusal{
 			body: rule.Kind.List() + " on this host name the command " + rule.Entry +
 				"; no brokered command may run it.",
@@ -288,30 +282,21 @@ func refusalFor(rule declaredRule) refusal {
 	case denyrules.KindBlocked, denyrules.KindBlockedStrict,
 		denyrules.KindLinked, denyrules.KindLinkedStrict:
 		// Below, the four sharing one message: they differ in the listing they
-		// name, the removal they offer and their strictness, each of which the
-		// rule carries. Named rather than left to a default, so a kind added
-		// later is a case somebody has to write here too.
+		// name and their strictness, each of which the rule carries. Named rather
+		// than left to a default, so a kind added later is a case somebody has to
+		// write here too.
 	}
-	// What the entry leaves alone, which is the sentence that tells a reader
-	// whether another spelling is worth trying. A strict entry leaves nothing
-	// alone, and saying otherwise sends a model back for the same `ls`.
-	//
-	// The entry refuses a fixed set of reading commands wherever the path
-	// appears in the line, so a copy is refused even when the path is only what
-	// it writes to.
-	tail := "Only reading commands are refused; cp, tee and sed count as reading."
-	if rule.Strict {
-		tail = "The entry is strict: no brokered command may name it."
-	}
-	// Only the two path kinds reach here, and both are an entry: they have a
-	// listing to name and a removal to offer, so neither is asked for. The
-	// contents are not redacted, faramir either never reading that file or
+	// A strict entry refuses every brokered command naming the path, a loose
+	// one only a command that would print it, and the first line says which.
+	// The contents are not redacted, faramir either never reading that file or
 	// reading a single ref from it, which is why the value is used by ref.
+	covers := "; a brokered command may not print it."
+	if rule.Strict {
+		covers = "; no brokered command may name it."
+	}
 	return refusal{
-		body: rule.Kind.List() + " on this host name " + declaredSubject(rule) +
-			"; a brokered command may not print it.",
-		remedy: "Use it by ref, or ask the operator to run " + rule.Remedy + ".",
-		tail:   tail,
+		body:   rule.Kind.List() + " on this host name " + declaredSubject(rule) + covers,
+		remedy: useRef,
 	}
 }
 

@@ -173,9 +173,9 @@ func TestNoEntriesRefusesNothing(t *testing.T) {
 }
 
 // The refusal reaches a model rather than the operator, so it says which entry
-// matched, why no other answer was available, and whose the remedy is. Naming
-// the one entry is safe where naming the set would not be: `faramir block ls`
-// is the operator's command for the whole list.
+// matched and the one thing to do instead. Naming the one entry is safe where
+// naming the set would not be: `faramir block ls` is the operator's command for
+// the whole list.
 func TestTheRefusalNamesTheEntryAndTheRemedy(t *testing.T) {
 	rule, _ := blocking(pathEntry("/srv/keys/luks.key")).
 		refuses([]string{"cat", "/srv/keys/luks.key"}, "/tmp")
@@ -183,19 +183,17 @@ func TestTheRefusalNamesTheEntryAndTheRemedy(t *testing.T) {
 	for _, want := range []string{
 		"the path /srv/keys/luks.key", // which entry, and which form it took
 		"by ref",                      // what to do instead
-		"faramir block rm",            // and whose the remedy is
-		"Only reading commands are refused",
 	} {
 		if !strings.Contains(said, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, said)
 		}
 	}
-	// A link's refusal points at the link's own remedy, and names the ref: what
-	// a caller is meant to do with a linked credential is ask for it by name.
+	// A link's refusal names the ref: what a caller is meant to do with a
+	// linked credential is ask for it by name.
 	linkRule, _ := linking(config.Link{Ref: "gh/token", Path: "/home/op/.config/gh/hosts.yml", Type: "yaml", Key: "k"}).
 		refuses([]string{"cat", "/home/op/.config/gh/hosts.yml"}, "/tmp")
 	linkSaid := declaredRefusal(linkRule)
-	for _, want := range []string{"gh/token", "/home/op/.config/gh/hosts.yml", "faramir link rm"} {
+	for _, want := range []string{"gh/token", "/home/op/.config/gh/hosts.yml", "by ref"} {
 		if !strings.Contains(linkSaid, want) {
 			t.Errorf("a link's refusal does not say %q:\n%s", want, linkSaid)
 		}
@@ -404,10 +402,10 @@ func TestAShellStringIsStillReadOneCommandAtATime(t *testing.T) {
 	}
 }
 
-// The refusal reaches a model, so the sentence saying what the entry leaves
-// alone has to be true of the entry that matched. An strict entry leaves
-// nothing alone: telling its reader that changing the file in place is fine
-// sends it back for the same `ls` or `chmod` and a second refusal.
+// The refusal reaches a model, so what it says the entry covers has to be
+// true of the entry that matched. A strict entry covers every mention: telling
+// its reader only a print is refused sends it back for the same `ls` or
+// `chmod` and a second refusal.
 func TestAnStrictRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
 	strict := config.BlockedPath{Path: "/home/op/.private", Strict: true}
 	rule, refused := blocking(strict).refuses([]string{"ls", "-l", "/home/op/.private"}, "/home/op")
@@ -415,18 +413,18 @@ func TestAnStrictRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
 		t.Fatal("a listing of a strict path was allowed")
 	}
 	said := declaredRefusal(rule)
-	if strings.Contains(said, "Only reading commands are refused") {
-		t.Errorf("the refusal for a strict entry says the file can still be "+
-			"changed, having just refused a command that would:\n%s", said)
+	if strings.Contains(said, "may not print it") {
+		t.Errorf("the refusal for a strict entry says only a print is refused, "+
+			"having just refused a command that would not print:\n%s", said)
 	}
 	if !strings.Contains(said, "no brokered command may name it") {
 		t.Errorf("the refusal does not say what the entry actually covers:\n%s", said)
 	}
-	// The looser entry keeps the sentence, that being what it promises.
+	// The looser entry says it refuses a print, that being what it covers.
 	loose, _ := blocking(pathEntry("/srv/keys/luks.key")).
 		refuses([]string{"cat", "/srv/keys/luks.key"}, "/tmp")
-	if !strings.Contains(declaredRefusal(loose), "Only reading commands are refused") {
-		t.Error("an ordinary entry stopped naming what it leaves alone")
+	if !strings.Contains(declaredRefusal(loose), "may not print it") {
+		t.Error("an ordinary entry stopped saying what it covers")
 	}
 }
 
@@ -485,8 +483,8 @@ func TestTheOwnDirectoryRefusalOffersNoRemoval(t *testing.T) {
 		t.Errorf("the refusal names a removal command for a rule no entry stands "+
 			"behind: %s", message)
 	}
-	if !strings.Contains(message, "cannot be removed") {
-		t.Errorf("the refusal does not say why there is nothing to take back: %s", message)
+	if !strings.Contains(message, "Ask the operator.") {
+		t.Errorf("the refusal does not send the reader to the operator: %s", message)
 	}
 }
 
@@ -510,8 +508,8 @@ func TestACommandRefusalIsNotWrittenAboutAPath(t *testing.T) {
 			t.Errorf("the refusal does not say %q:\n%s", want, said)
 		}
 	}
-	// The path tail, which is about a file and has none to be about here.
-	for _, unwanted := range []string{"cp, tee and sed", "Only reading commands"} {
+	// The path hint, which is about a file and has none to be about here.
+	for _, unwanted := range []string{"by ref", "may not print it"} {
 		if strings.Contains(said, unwanted) {
 			t.Errorf("the refusal for a command carries %q, which is a path's sentence:\n%s",
 				unwanted, said)

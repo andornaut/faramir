@@ -295,7 +295,7 @@ sudo faramir block add --path ~/.private --strict
 sudo faramir link add --strict gh/token ~/.config/gh/hosts.yml --type yaml --key github.com/oauth_token
 ```
 
-It changes what a **brokered** command may do, and nothing else. The agent's shell and its file tools already refuse any command naming a declared path, strict or not, so there the flag changes only the wording of the refusal: a strict entry is refused on both tiers, so the message drops the paragraph offering the brokered route and names the ref instead.
+It changes what a **brokered** command may do, and nothing else. The agent's shell and its file tools already refuse any command naming a declared path, strict or not, so there the flag changes only the refusal's first line, which says the entry is strict.
 
 It removes the looser reading the broker uses. Without it a brokered command may do anything to the file that does not put its contents in the output: `chmod`, `chown`, `rm`, `truncate`, a redirect over it, and `mv`, `ln` or `gzip` as well. This route runs what the operator asked for as an account of their own, so it does not defend against a file being moved out from under a rule. What stays refused is anything that prints the contents, whatever program does it: `sed -n p` is a read under another name. With `--strict`, no brokered command may name the path for any reason.
 
@@ -315,7 +315,7 @@ Held away from the executor's uid by the mode | Yes, checked and reported | No, 
 The value is in the redactor, tokenised wherever it appears | Yes | No, faramir never reads it
 Injectable by ref | Yes | No
 
-**A path may carry both, and the link is the entry that stays.** The rule is the same either way and only the message differs, so one path renders one rule, and a refusal names the removal that lifts it rather than one that leaves the other entry refusing. The dropped entry still contributes `--strict`: the two are two readings of one path and the stricter reading applies, so a block written strict keeps that reading when the link beside it was not. Both are still listed, `faramir block ls` and `faramir link ls` each showing their own.
+**A path may carry both, and the link is the entry that stays.** The rule is the same either way and only the message differs, so one path renders one rule, and the refusal names the link. The dropped entry still contributes `--strict`: the two are two readings of one path and the stricter reading applies, so a block written strict keeps that reading when the link beside it was not. Both are still listed, `faramir block ls` and `faramir link ls` each showing their own.
 
 ## The sockets belong to their units
 

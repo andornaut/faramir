@@ -301,35 +301,18 @@ func TestTheListedActionPatternsCarryNoKindMarker(t *testing.T) {
 	}
 }
 
-// A strict entry is refused on both tiers, so its message must not send the
-// reader to the broker: the brokered refusal is the second turn this exists to
-// save. The loose pair keeps the route, which is what makes it worth naming.
-func TestOnlyALooseEntryOffersTheBrokeredRoute(t *testing.T) {
-	const promise = "the credential through `faramir run`"
-	for _, tc := range []struct {
-		kind    denyrules.Kind
-		offered bool
-	}{
-		{denyrules.KindBlocked, true},
-		{denyrules.KindLinked, true},
-		{denyrules.KindBlockedStrict, false},
-		{denyrules.KindLinkedStrict, false},
-	} {
-		t.Run(string(tc.kind), func(t *testing.T) {
-			said := byKind[tc.kind]
-			if strings.Contains(said, promise) != tc.offered {
-				if tc.offered {
-					t.Errorf("the %s message no longer names the brokered route, which "+
-						"is open for it:\n%s", tc.kind, said)
-					return
-				}
-				t.Errorf("the %s message offers a brokered route that the broker "+
-					"refuses, which costs a turn to find out:\n%s", tc.kind, said)
-			}
-			// The ref is the route a strict entry does have, and the one that
-			// needs no path at all.
-			if !strings.Contains(said, "faramir refs") {
-				t.Errorf("the %s message names no way to reach the value:\n%s", tc.kind, said)
+// A declared path gives one hint, the ref, whichever entry declared it and
+// whatever its strictness: it is the route both tiers leave open, and the one
+// that needs no path at all. A strict entry is refused on both tiers, so a
+// message offering the brokered route would cost a turn to find out.
+func TestADeclaredPathHintsTheRefAlone(t *testing.T) {
+	for _, kind := range []denyrules.Kind{denyrules.KindBlocked, denyrules.KindLinked,
+		denyrules.KindBlockedStrict, denyrules.KindLinkedStrict} {
+		t.Run(string(kind), func(t *testing.T) {
+			_, hint, found := strings.Cut(byKind[kind], "\n  ")
+			if !found || hint != useRef {
+				t.Errorf("the %s message's hint is %q, want the ref alone:\n%s",
+					kind, hint, byKind[kind])
 			}
 		})
 	}

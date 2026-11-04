@@ -270,32 +270,27 @@ func TestAFileToolIsRefusedTheFileThatRefusesIt(t *testing.T) {
 	}
 }
 
-// A refused file tool is told what a refused command is told: which list the
-// entry is in and the removal that lifts it. The flat wording it had before
-// said "key material or one of faramir's own files", which is two answers at
-// once and a remedy for neither.
-//
-// The removals are spelled apart from the literal, this file being read by the
-// guard's own rules when anything quotes one.
+// A refused file tool is told what a refused command is told: what kind of
+// entry refused it and the one hint that kind carries. The flat wording it had
+// before said "key material or one of faramir's own files", which is two
+// answers at once and a remedy for neither.
 func TestAFileToolIsToldWhichKindRefusedIt(t *testing.T) {
-	blockRemoval := "faramir block" + " rm"
-	linkRemoval := "faramir link" + " rm"
 	for _, tc := range []struct {
 		name  string
 		kind  denyrules.Kind
 		names []string
 	}{
 		{name: "a blocked path", kind: denyrules.KindBlocked,
-			names: []string{"a path the operator blocked", blockRemoval}},
+			names: []string{"a path the operator blocked", useRef}},
 		{name: "a linked file", kind: denyrules.KindLinked,
-			names: []string{"a file a link reads", linkRemoval}},
+			names: []string{"a file a link reads", useRef}},
 		{name: "one of faramir's own directories", kind: denyrules.KindOwn,
-			names: []string{"faramir's own directories", "cannot be removed"}},
+			names: []string{"faramir's own directories", "Ask the operator."}},
 		// The kind whose message carries no clause about naming a path, and the
 		// one a file tool meets most: an agent's own hook file is one faramir
 		// installs, and the deny list is asked about a write to it.
 		{name: "a file an enrolment installs", kind: denyrules.KindOwnAction,
-			names: []string{"faramir's own file, account or unit", "Changes are refused"}},
+			names: []string{"faramir's own file, account or unit", "Ask the operator to make the change."}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rules := denyrules.NamingAs(tc.kind, []string{denyrules.Dir("/srv/keys/luks.key")})
@@ -314,8 +309,11 @@ func TestAFileToolIsToldWhichKindRefusedIt(t *testing.T) {
 			if !strings.Contains(said, "/srv/keys/luks.key") {
 				t.Errorf("the refusal names no path:\n%s", said)
 			}
-			if !strings.Contains(strings.ToLower(said), "this tool call was not made") {
+			if strings.Contains(said, "this command") {
 				t.Errorf("the refusal talks about a command that never ran:\n%s", said)
+			}
+			if lines := strings.Count(said, "\n"); lines != 1 {
+				t.Errorf("the refusal carries %d hint lines, want one:\n%s", lines, said)
 			}
 			if strings.Contains(said, "shell heredoc") {
 				t.Errorf("the refusal tells a file tool to use an editing tool:\n%s", said)

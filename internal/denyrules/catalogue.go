@@ -28,9 +28,10 @@ type Rule struct {
 	// A refusal names it because asking by ref is what the caller is meant to do
 	// instead.
 	Ref string
-	// Remedy is the command that takes the entry back out, empty where there is
-	// none: the directories this install occupies are rendered from its layout
-	// on every run, and faramir's own commands are not entries.
+	// Remedy is the command that takes a command entry back out, and empty for
+	// every other kind: a refusal of a path hints the ref instead, the
+	// directories this install occupies are rendered from its layout on every
+	// run, and faramir's own commands are not entries.
 	Remedy string
 	// Strict is the entry the operator asked to have refused wherever it is
 	// named rather than only where a command would print it. It reaches the
@@ -192,7 +193,6 @@ func For(home string, ownDirs []string, sshKey string, secret config.SecretConfi
 		out = append(out, Rule{
 			Kind:     blockedKind(entry.Strict),
 			Entry:    entry.Path,
-			Remedy:   "`sudo faramir block rm --path <path>`",
 			Strict:   entry.Strict,
 			Subjects: subjectsUnder(home, entry.Path),
 		})
@@ -202,7 +202,6 @@ func For(home string, ownDirs []string, sshKey string, secret config.SecretConfi
 			Kind:     linkedKind(link.Strict),
 			Entry:    link.Path,
 			Ref:      link.Ref,
-			Remedy:   "`sudo faramir link rm <ref>`",
 			Strict:   link.Strict,
 			Subjects: subjectsUnder(home, link.Path),
 		})
