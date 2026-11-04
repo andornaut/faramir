@@ -52,16 +52,29 @@ func DefaultPolicy() EligibilityPolicy {
 	return EligibilityPolicy{MinLength: config.DefaultMinLength}
 }
 
-// Check returns "" if the value may be redacted, else the reason it may not.
-func (p EligibilityPolicy) Check(value string) string {
+// Refusal is why a value may not be redacted, and the zero value where it may.
+type Refusal struct {
+	// Reason is "" for a value that may be redacted.
+	Reason string
+	// NamesFix is set where Reason ends in its own fix, so a caller that
+	// otherwise appends one leaves it off.
+	NamesFix bool
+}
+
+// Refused reports whether the value may not be redacted.
+func (r Refusal) Refused() bool { return r.Reason != "" }
+
+// Check is whether the value may be redacted, and why not where it may not.
+func (p EligibilityPolicy) Check(value string) Refusal {
 	if len([]rune(value)) < p.MinLength {
-		return fmt.Sprintf("shorter than %d characters", p.MinLength)
+		return Refusal{Reason: fmt.Sprintf("shorter than %d characters", p.MinLength)}
 	}
 	if len(value) >= MaxValueBytes {
 		// A value costs about 15 KB of the broker's memory per byte. A file this
 		// size is one to block rather than hold.
-		return fmt.Sprintf("%d bytes; the limit is %d. Block the file instead "+
-			"with `sudo faramir block add --path`", len(value), MaxValueBytes)
+		return Refusal{Reason: fmt.Sprintf("%d bytes; the limit is %d. Block the file "+
+			"instead with `sudo faramir block add --path`", len(value), MaxValueBytes),
+			NamesFix: true}
 	}
 	// A value that is faramir's own token, guillemets and all. The redactor
 	// emits that shape for another ref, so a stored token in output cannot be
@@ -71,10 +84,10 @@ func (p EligibilityPolicy) Check(value string) string {
 	// cannot represent rather than one it will not hold. No real credential is
 	// this shape; it is faramir's reserved output format.
 	if strings.HasPrefix(value, tokenOpen) && strings.HasSuffix(value, tokenClose) {
-		return "is shaped like faramir's own " + tokenOpen + "…" + tokenClose +
-			" token, which the redactor emits and would re-wrap"
+		return Refusal{Reason: "is shaped like faramir's own " + tokenOpen + "…" +
+			tokenClose + " token, which the redactor emits and would re-wrap"}
 	}
-	return ""
+	return Refusal{}
 }
 
 // The delimiters of the token a secret is replaced with. Named so Check refuses

@@ -47,7 +47,7 @@ func NewValues(secrets []Secret, policy EligibilityPolicy) *Values {
 	seen := map[string]bool{}
 	var kept []Secret
 	for _, s := range secrets {
-		if seen[s.Value] || policy.Check(s.Value) != "" {
+		if seen[s.Value] || policy.Check(s.Value).Refused() {
 			continue
 		}
 		seen[s.Value] = true
@@ -98,7 +98,7 @@ func NewValues(secrets []Secret, policy EligibilityPolicy) *Values {
 // eat the output.
 func renderings(value string, policy EligibilityPolicy) []string {
 	set := variants(value)
-	if stripped := stripANSI(value); stripped != value && policy.Check(stripped) == "" {
+	if stripped := stripANSI(value); stripped != value && !policy.Check(stripped).Refused() {
 		for v := range variants(stripped) {
 			set[v] = true
 		}
@@ -148,7 +148,7 @@ func acrossLines(value string, policy EligibilityPolicy) map[string]bool {
 	}
 	norm := strings.ReplaceAll(value, "\r\n", "\n")
 	for line := range strings.SplitSeq(norm, "\n") {
-		if line == "" || policy.Check(line) != "" {
+		if line == "" || policy.Check(line).Refused() {
 			continue
 		}
 		for v := range variants(line) {
@@ -157,7 +157,7 @@ func acrossLines(value string, policy EligibilityPolicy) map[string]bool {
 	}
 	for _, sep := range lineSeparators {
 		joined := strings.ReplaceAll(norm, "\n", sep)
-		if joined == value || policy.Check(joined) != "" {
+		if joined == value || policy.Check(joined).Refused() {
 			continue
 		}
 		for v := range variants(joined) {

@@ -11,7 +11,7 @@ import (
 type Snapshot struct {
 	values        map[string]string
 	refused       map[string]string
-	tooLarge      map[string]bool
+	namesFix      map[string]bool
 	degradedLinks map[string]string
 	compiled      *redact.Values
 	unreadable    string
@@ -28,7 +28,7 @@ func (s *Store) Snapshot() Snapshot {
 	return Snapshot{
 		values:        maps.Clone(s.values),
 		refused:       maps.Clone(s.refused),
-		tooLarge:      maps.Clone(s.tooLarge),
+		namesFix:      maps.Clone(s.namesFix),
 		degradedLinks: maps.Clone(s.degradedLinks),
 		compiled:      compiled,
 		unreadable:    s.unreadableLocked(),
@@ -37,7 +37,7 @@ func (s *Store) Snapshot() Snapshot {
 
 // Value returns one secret using the captured generation's refusal reasons.
 func (s Snapshot) Value(ref string) (string, error) {
-	return value(s.values, s.refused, s.tooLarge, s.degradedLinks, ref)
+	return value(s.values, s.refused, s.namesFix, s.degradedLinks, ref)
 }
 
 // Redactor returns an independent redactor over the captured value set.

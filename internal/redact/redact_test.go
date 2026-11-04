@@ -196,12 +196,12 @@ func TestValueSplitAcrossChunks(t *testing.T) {
 func TestATooShortValueIsRefused(t *testing.T) {
 	policy := DefaultPolicy()
 	for _, value := range []string{"", "abc", "1234567"} {
-		if reason := policy.Check(value); reason == "" {
+		if !policy.Check(value).Refused() {
 			t.Errorf("%q was accepted", value)
 		}
 	}
-	if reason := policy.Check(secret); reason != "" {
-		t.Errorf("a good value was refused: %s", reason)
+	if why := policy.Check(secret); why.Refused() {
+		t.Errorf("a good value was refused: %s", why.Reason)
 	}
 }
 
@@ -211,8 +211,8 @@ func TestATooShortValueIsRefused(t *testing.T) {
 func TestAWeakButLongValueIsCarried(t *testing.T) {
 	policy := DefaultPolicy()
 	for _, value := range []string{"password", "aaaaaaaaaaaa", "ababababababab"} {
-		if reason := policy.Check(value); reason != "" {
-			t.Errorf("%q was refused as %q; strength is the operator's call", value, reason)
+		if why := policy.Check(value); why.Refused() {
+			t.Errorf("%q was refused as %q; strength is the operator's call", value, why.Reason)
 		}
 	}
 }
@@ -375,13 +375,21 @@ func TestAValueTooLargeToHoldIsRefused(t *testing.T) {
 		{"far over it", MaxValueBytes * 2, true},
 	} {
 		why := policy.Check(strings.Repeat("a", tc.size))
-		if refused := why != ""; refused != tc.refused {
+		if refused := why.Refused(); refused != tc.refused {
 			t.Errorf("%s (%d bytes): refused = %v (%q), want %v",
-				tc.name, tc.size, refused, why, tc.refused)
+				tc.name, tc.size, refused, why.Reason, tc.refused)
 		}
 	}
-	// The reason says the size, the limit it exceeds and what to do instead.
-	why := policy.Check(strings.Repeat("a", MaxValueBytes))
+	// The reason says the size, the limit it exceeds and what to do instead,
+	// and says that it does, so a caller adds no fix of its own.
+	refusal := policy.Check(strings.Repeat("a", MaxValueBytes))
+	if !refusal.NamesFix {
+		t.Error("the size refusal names its fix and does not say so")
+	}
+	if policy.Check("abc").NamesFix {
+		t.Error("the length refusal claims a fix it does not name")
+	}
+	why := refusal.Reason
 	for _, want := range []string{fmt.Sprint(MaxValueBytes), "the limit is", "block add --path"} {
 		if !strings.Contains(why, want) {
 			t.Errorf("the reason does not mention %q: %s", want, why)

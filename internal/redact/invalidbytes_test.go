@@ -126,13 +126,13 @@ func TestARefusedValueCompilesToNothing(t *testing.T) {
 // the matcher, so the emitted token is stable.
 func TestATokenShapedValueIsRefused(t *testing.T) {
 	p := DefaultPolicy()
-	if reason := p.Check(TokenFor("api")); reason == "" {
+	if !p.Check(TokenFor("api")).Refused() {
 		t.Error("a value equal to a token was not refused")
 	}
 	// A value that merely mentions the token prefix mid-string is not the token
 	// shape, so it is not refused: only a value that could BE an emitted token is.
-	if reason := p.Check("prefix «SECRET:api» and more text after"); reason != "" {
-		t.Errorf("a value containing but not equal to a token was refused: %s", reason)
+	if why := p.Check("prefix «SECRET:api» and more text after"); why.Refused() {
+		t.Errorf("a value containing but not equal to a token was refused: %s", why.Reason)
 	}
 
 	// End to end: with the token-shaped value refused, redacting the ordinary

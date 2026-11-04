@@ -57,7 +57,7 @@ func FuzzNoRenderingOfAValueSurvives(f *testing.F) {
 		// A value that is not valid UTF-8, and one whose own bytes stage 1
 		// rewrites, are their own cases and are skipped here so this keeps
 		// hunting for the ways a value gets past the matcher itself.
-		if DefaultPolicy().Check(value) != "" || stripANSI(value) != value || !utf8.ValidString(value) {
+		if DefaultPolicy().Check(value).Refused() || stripANSI(value) != value || !utf8.ValidString(value) {
 			t.Skip()
 		}
 		if !isPrintableRun(value) {
@@ -98,7 +98,7 @@ func FuzzTheChunkingDoesNotChangeTheOutput(f *testing.F) {
 	f.Add("hunter2-correct-horse", "line\r\nhunter2-correct-horse\r\n", []byte{2, 2})
 
 	f.Fuzz(func(t *testing.T, value, text string, seed []byte) {
-		if DefaultPolicy().Check(value) != "" || !utf8.ValidString(value) {
+		if DefaultPolicy().Check(value).Refused() || !utf8.ValidString(value) {
 			t.Skip()
 		}
 		one := New([]Secret{{Ref: "a/b", Value: value}}, DefaultPolicy())
@@ -118,7 +118,7 @@ func FuzzNeitherOfTwoOverlappingValuesSurvives(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, short, long, prefix, suffix string, seed []byte) {
 		p := DefaultPolicy()
-		if p.Check(short) != "" || p.Check(long) != "" {
+		if p.Check(short).Refused() || p.Check(long).Refused() {
 			t.Skip()
 		}
 		if !utf8.ValidString(short) || !utf8.ValidString(long) {
