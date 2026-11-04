@@ -230,7 +230,8 @@ func (l *Log) Unwritable() string {
 }
 
 // Write records one invocation together with its redacted output and returns
-// any append failure. A failed rollback may leave a partial record.
+// any append failure, which the caller reports: Write logs nothing itself. A
+// failed rollback may leave a partial record.
 func (l *Log) Write(record map[string]any, output Output) error {
 	payload := make(map[string]any, len(record)+3)
 	maps.Copy(payload, record)
@@ -262,16 +263,10 @@ func (l *Log) Write(record map[string]any, output Output) error {
 	// with no copytruncate and no signal.
 	fh, err := l.open()
 	if err != nil {
-		err = fmt.Errorf("cannot open %s: %w", l.config.LogPath, err)
-		log.Printf("audit write failed: %v", err)
-		return err
+		return fmt.Errorf("cannot open %s: %w", l.config.LogPath, err)
 	}
 	defer func() { _ = fh.Close() }()
-	err = appendLine(fh, line, l.config.LogPath)
-	if err != nil {
-		log.Printf("audit write failed: %v", err)
-	}
-	return err
+	return appendLine(fh, line, l.config.LogPath)
 }
 
 // appendLine writes one line under an exclusive lock, and takes back a write

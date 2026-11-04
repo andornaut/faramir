@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/secretstore"
@@ -27,13 +26,13 @@ func (s *Server) refuseUnreadable(op, outcome, logID string, peer *sockutil.Peer
 	log.Printf("%s %s: %s", logID, outcome, reason)
 	// Recorded like a served call: a refusal is what the operator is looking for
 	// when they ask why nothing ran.
-	_ = s.Audit.Write(map[string]any{
+	s.writeRecord(map[string]any{
 		"log_id": logID, "op": op, "refused": "no_secrets", "reason": reason,
 		// Who was refused, as every other record carries it. Without it this is
 		// the one refusal in the log that says what happened and not to whom, and
 		// a store that cannot be read produces a run of them.
 		"peer": peer,
-	}, audit.Output{})
+	})
 	// The remedies are for the states that reach here, which are a managed file
 	// that was found and did not load, and a keeper that never answered. A store
 	// nobody has written yet is not one of them: Store.Unreadable serves that
@@ -67,7 +66,7 @@ func (s *Server) refuse(secrets secretstore.Snapshot, code, message, logID strin
 	if cwd != "" {
 		entry["cwd"] = record.RedactText(cwd)
 	}
-	_ = s.Audit.Write(entry, audit.Output{})
+	s.writeRecord(entry)
 	return protocol.ErrorResponse(code, detail, logID)
 }
 

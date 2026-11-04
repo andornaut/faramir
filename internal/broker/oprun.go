@@ -285,11 +285,11 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 		// Redacted like every other agent-visible string.
 		record := secrets.Redactor()
 		detail := record.RedactText(err.Error())
-		_ = s.Audit.Write(map[string]any{
+		s.writeRecord(map[string]any{
 			"log_id": logID, "op": recordRun, "peer": peer,
 			"cmd": redactEach(record, cmd), "cwd": record.RedactText(cwd),
 			"error": detail,
-		}, audit.Output{})
+		})
 		return protocol.ErrorResponse(execFailureCode(err), detail, logID)
 	}
 

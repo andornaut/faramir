@@ -229,11 +229,11 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	}
 	// One record for the rule, before the per-file records the reseal writes, so
 	// the log reads in the order it happened. Public keys only.
-	_ = audit.NewLog(store.cfg.Audit).Write(map[string]any{
+	writeAudit(label, audit.NewLog(store.cfg.Audit), map[string]any{
 		"op": opReader, "log_id": audit.NewLogID(), "file": store.rulePath,
 		"change": addedOrRemoved(adding), "recipient": recipient, "to": wanted,
 		"uid": os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
-	}, audit.Output{})
+	})
 
 	// A rule the files are not yet sealed to is the state this command exists to
 	// avoid, so its exit status is the reseal's.

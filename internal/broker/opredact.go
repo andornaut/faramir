@@ -66,8 +66,8 @@ func (st *redactStream) finish(s *Server, peer *sockutil.Peer) {
 		return
 	}
 	st.written = true
-	_ = s.Audit.Write(map[string]any{
+	s.writeRecord(map[string]any{
 		"log_id": st.logID, "op": "redact", "peer": peer,
 		"input_bytes": st.inputBytes, "redactions": st.redactor.Summary(),
-	}, audit.Output{})
+	})
 }
