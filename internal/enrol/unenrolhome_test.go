@@ -11,9 +11,13 @@ import (
 )
 
 const (
-	homePlugin    = ".config/opencode/plugin/faramir.js"
-	homeExtension = ".pi/agent/extensions/faramir.ts"
+	homePlugin      = ".config/opencode/plugin/faramir.js"
+	homeExtension   = ".pi/agent/extensions/faramir.ts"
+	homeKiloRules   = ".kilocode/rules/faramir.md"
+	homeAntigravity = ".gemini/config/hooks.json"
 )
+
+var kiloSection = agentcfg.SectionBegin + "\nmanaged\n" + agentcfg.SectionEnd + "\n"
 
 func unenrolHomeFixture(t *testing.T) string {
 	t.Helper()
@@ -33,7 +37,38 @@ func unenrolHomeFixture(t *testing.T) string {
 		"# Mine\n\nUser prose.\n\n"+agentcfg.SectionBegin+"\nmanaged\n"+agentcfg.SectionEnd+"\n")
 	writeUnenrolFile(t, home, agentcfg.CodexHooksFile,
 		`{"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"command":"/usr/local/bin/faramir guard --host codex --deny-only"}]}]}}`)
+	writeUnenrolFile(t, home, homeKiloRules, kiloSection)
+	writeUnenrolFile(t, home, homeAntigravity,
+		`{"faramir":{"enabled":true,"PreToolUse":[{"matcher":"*","hooks":[{"type":"command","command":"/usr/local/bin/faramir guard --host antigravity"}]}]},"mine":{"enabled":true}}`)
 	return home
+}
+
+// Kilo's rules file is one faramir names: emptied, it goes. Antigravity's hook
+// file is the agent's: faramir's entry goes and the rest stays.
+func TestUnenrolHomeRemovesKiloRulesAndTheAntigravityHook(t *testing.T) {
+	home := unenrolHomeFixture(t)
+	if _, err := UnenrolHome(os.Getuid(), home); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, homeKiloRules)); !os.IsNotExist(err) {
+		t.Errorf("an emptied %s survived: %v", homeKiloRules, err)
+	}
+	body := readUnenrolFile(t, home, homeAntigravity)
+	if bytes.Contains(body, []byte("faramir")) || !bytes.Contains(body, []byte(`"mine"`)) {
+		t.Errorf("%s = %s, want only the operator's entry", homeAntigravity, body)
+	}
+}
+
+// Text of the operator's own in Kilo's file keeps it, without the section.
+func TestUnenrolHomeKeepsKiloRulesHoldingOtherText(t *testing.T) {
+	home := unenrolHomeFixture(t)
+	writeUnenrolFile(t, home, homeKiloRules, "Mine.\n\n"+kiloSection)
+	if _, err := UnenrolHome(os.Getuid(), home); err != nil {
+		t.Fatal(err)
+	}
+	if body := readUnenrolFile(t, home, homeKiloRules); string(body) != "Mine.\n\n\n" {
+		t.Errorf("%s = %q", homeKiloRules, body)
+	}
 }
 
 func TestUnenrolHomeRemovesHooksPluginsAndSection(t *testing.T) {

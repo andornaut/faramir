@@ -43,6 +43,12 @@ for plugin in /home/op/.config/opencode/plugin/faramir.js /home/op/.config/kilo/
               /home/op/.pi/agent/extensions/faramir.ts; do
   [ -e "$plugin" ] && plugins="$plugins $plugin"
 done
+# Kilo's rules file is faramir's own and goes whole; Antigravity's hook file is
+# the agent's, and only faramir's entry in it goes. Each where an init wrote it.
+KILO_RULES=/home/op/.kilocode/rules/faramir.md
+AGY_HOOKS=/home/op/.gemini/config/hooks.json
+kilo_before=no; [ -e $KILO_RULES ] && kilo_before=yes
+agy_before=no; jq -e 'has("faramir")' $AGY_HOOKS >/dev/null 2>&1 && agy_before=yes
 
 # A record to keep: an empty log satisfies "still there" without saying
 # anything, and the log is one of the three things this command must not lose.
@@ -175,6 +181,22 @@ grep -q 'faramir guard' /home/op/.claude/settings.json 2>/dev/null \
 grep -q 'BEGIN faramir' /home/op/.claude/CLAUDE.md 2>/dev/null \
   && bad "the credentials section survived in /home/op/.claude/CLAUDE.md" \
   || ok "and so is the account-wide credentials section"
+if [ $kilo_before = yes ]; then
+  [ -e $KILO_RULES ] && bad "Kilo's rules file survived: $KILO_RULES" || ok "Kilo's rules file is gone"
+else
+  note "no Kilo rules file was installed, so its removal is not checked"
+fi
+if [ $agy_before = yes ]; then
+  if [ ! -f $AGY_HOOKS ]; then
+    bad "the agent's own $AGY_HOOKS was removed"
+  elif jq -e 'has("faramir")' $AGY_HOOKS >/dev/null 2>&1; then
+    bad "the Antigravity hook survived in $AGY_HOOKS"
+  else
+    ok "the Antigravity hook is gone, and the file is kept: $(jq -c . $AGY_HOOKS 2>/dev/null)"
+  fi
+else
+  note "no Antigravity hook was installed, so its removal is not checked"
+fi
 grep -q '^unenrolled /home/op/project$' <<<"$out" && ok "and the report names the tree it unenrolled" \
   || bad "the report does not name the unenrolled tree: $(head -c 200 <<<"$out")"
 

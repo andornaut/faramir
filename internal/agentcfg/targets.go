@@ -74,6 +74,10 @@ type Target struct {
 	// hold for both. See install's agentInstructions step.
 	HomeInstructions string
 
+	// OwnsHomeInstructions says HomeInstructions is a file faramir names and
+	// holds nothing but the section, so removing the section removes the file.
+	OwnsHomeInstructions bool
+
 	// TreeInstructions is the project instruction target. Built-in harnesses
 	// share the canonical project file; home instructions remain harness-specific.
 	//
@@ -140,6 +144,9 @@ type File struct {
 	// and requires the asset to be JSON. True for every shared config; false
 	// only where the path is faramir's own.
 	Merge bool
+	// Without takes out of a merged file what its asset put there, for an asset
+	// whose entries are not hooks under "hooks". Nil means WithoutProjectConfig.
+	Without func(existing []byte) ([]byte, error)
 	// NoRules says this account file carries no path rules, so the checks that
 	// ask whether every protected path is refused skip it. Antigravity's
 	// account-wide hook is the case: it registers a program and names no path,
@@ -187,6 +194,9 @@ const (
 	// The customization directory the whole family reads for every workspace,
 	// enrolled or not.
 	antigravityAccountHooks = ".gemini/config/hooks.json"
+	// antigravityHookKey is the top-level entry the asset writes into that file
+	// and WithoutAntigravityHook removes, the whole of faramir's part of it.
+	antigravityHookKey = "faramir"
 	// CodexHooksFile is Codex's hook file inside a tree. The same name it reads
 	// under a home, which is why the two are named apart: one path, two roots,
 	// and each renders the half of the enrolment that belongs at its own scope.
@@ -352,9 +362,10 @@ var Targets = map[string]*Target{
 		// A file of faramir's own in the global rules directory, every .md in
 		// which is loaded for every project. Kilo Code has no single named home
 		// instructions file to add a section to.
-		HomeInstructions: ".kilocode/rules/faramir.md",
-		AutoApprovesBash: false,
-		Note:             pluginNote("Kilo Code"),
+		HomeInstructions:     ".kilocode/rules/faramir.md",
+		OwnsHomeInstructions: true,
+		AutoApprovesBash:     false,
+		Note:                 pluginNote("Kilo Code"),
 	},
 
 	// The Antigravity family is two agents, not one. They ship a single hook
@@ -419,7 +430,7 @@ func antigravityMember(name string, detectHome []string, ownRules []File) *Targe
 	// The hook both halves read for every workspace, shared: written once, it
 	// holds for whichever half is running.
 	sharedHook := File{Path: antigravityAccountHooks, Asset: "agent/antigravity/hooks.json.tmpl",
-		Mode: 0o640, Merge: true, NoRules: true}
+		Mode: 0o640, Merge: true, NoRules: true, Without: WithoutAntigravityHook}
 	return &Target{
 		Name:         name,
 		Family:       antigravityFamily,

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
@@ -54,6 +53,10 @@ type unenrolEdit struct {
 	spot   *hostfs.Edited
 	before []byte
 	after  []byte
+	// path is the file as named, the link rather than its target, and owned
+	// says it is removed once nothing is left in it.
+	path  string
+	owned bool
 }
 
 func unenrolTree(opts UnenrolOptions) (UnenrolReport, error) {
@@ -231,32 +234,48 @@ func closeUnenrolEdits(edits []unenrolEdit) {
 }
 
 // unenrolFile is one file an unenrolment edits, relative to the tree or home it
-// cleans: either the marked credentials section or the merged hooks.
+// cleans, and what takes faramir's part out of it. owned is a file faramir
+// names, removed once nothing is left in it.
 type unenrolFile struct {
 	rel     string
-	section bool
+	without func([]byte) ([]byte, error)
+	owned   bool
+}
+
+// mergedUnenrolFile is the cleanup for one merged file of the catalogue's.
+func mergedUnenrolFile(file agentcfg.File) unenrolFile {
+	if file.Without != nil {
+		return unenrolFile{rel: file.Path, without: file.Without}
+	}
+	return unenrolFile{rel: file.Path, without: agentcfg.WithoutProjectConfig}
+}
+
+// sortedUnenrolFiles is each path once, in order.
+func sortedUnenrolFiles(byPath map[string]unenrolFile) []unenrolFile {
+	files := make([]unenrolFile, 0, len(byPath))
+	for _, file := range byPath {
+		files = append(files, file)
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })
+	return files
 }
 
 // treeUnenrolFiles is every project file any agent's enrolment writes. Every
 // one is inspected even without a record: an enrolment may have written
 // routing and failed before recording it.
 func treeUnenrolFiles() ([]unenrolFile, error) {
-	paths := []string{agentcfg.ProjectInstructions}
+	byPath := map[string]unenrolFile{agentcfg.ProjectInstructions: {
+		rel: agentcfg.ProjectInstructions, without: agentcfg.WithoutProjectSection,
+	}}
 	for _, target := range agentcfg.Targets {
 		for _, file := range target.Files {
 			if !file.Merge {
 				return nil, fmt.Errorf("no safe cleanup contract for %s", file.Path)
 			}
-			paths = append(paths, file.Path)
+			byPath[file.Path] = mergedUnenrolFile(file)
 		}
 	}
-	sort.Strings(paths)
-	paths = slices.Compact(paths)
-	files := make([]unenrolFile, 0, len(paths))
-	for _, rel := range paths {
-		files = append(files, unenrolFile{rel: rel, section: rel == agentcfg.ProjectInstructions})
-	}
-	return files, nil
+	return sortedUnenrolFiles(byPath), nil
 }
 
 // prepareUnenrolEdits reads and strips each file under dir before anything is
@@ -271,8 +290,8 @@ func prepareUnenrolEdits(uid int, dir, within string, files []unenrolFile) (_ []
 	}()
 	seen := map[string]bool{}
 	for _, file := range files {
-		rel := file.rel
-		spot, err := (hostfs.FS{}).EditedFile(filepath.Join(dir, rel), uid, within)
+		rel, path := file.rel, filepath.Join(dir, file.rel)
+		spot, err := (hostfs.FS{}).EditedFile(path, uid, within)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", rel, err)
 		}
@@ -290,17 +309,14 @@ func prepareUnenrolEdits(uid int, dir, within string, files []unenrolFile) (_ []
 			spot.Close()
 			return nil, nil, err
 		}
-		var after []byte
-		if file.section {
-			after, err = agentcfg.WithoutProjectSection(before)
-		} else {
-			after, err = agentcfg.WithoutProjectConfig(before)
-		}
+		after, err := file.without(before)
 		if err != nil {
 			spot.Close()
 			return nil, nil, fmt.Errorf("%s: %w", rel, err)
 		}
-		edits = append(edits, unenrolEdit{spot: spot, before: before, after: after})
+		edits = append(edits, unenrolEdit{
+			spot: spot, before: before, after: after, path: path, owned: file.owned,
+		})
 	}
 	return edits, seen, nil
 }
@@ -340,6 +356,13 @@ func checkUnenrolLegacy(report *UnenrolReport, seen map[string]bool, uid int, di
 
 func applyUnenrolEdits(fs hostfs.FS, report *UnenrolReport, label string, edits []unenrolEdit) error {
 	for _, edit := range edits {
+		if edit.owned && len(bytes.TrimSpace(edit.after)) == 0 {
+			if err := removeUnenrolEdit(fs, edit); err != nil {
+				return fmt.Errorf("cleanup stopped, earlier files may already be cleaned: %w", err)
+			}
+			report.Record(label, true, edit.path)
+			continue
+		}
 		if bytes.Equal(edit.before, edit.after) {
 			report.Record(label, false, edit.spot.Path())
 			continue
@@ -351,6 +374,26 @@ func applyUnenrolEdits(fs hostfs.FS, report *UnenrolReport, label string, edits 
 			return fmt.Errorf("cleanup stopped, earlier files may already be cleaned: %w", err)
 		}
 		report.Record(label, changed, edit.spot.Path())
+	}
+	return nil
+}
+
+// removeUnenrolEdit removes a file faramir names once nothing is left in it,
+// refusing one changed since it was read, as a write would. The path as named
+// is removed, so a link goes rather than what it names.
+func removeUnenrolEdit(fs hostfs.FS, edit unenrolEdit) error {
+	current, err := edit.spot.Read()
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(current, edit.before) {
+		return fmt.Errorf("%s changed since it was read; nothing was removed", edit.path)
+	}
+	if fs.DryRun {
+		return nil
+	}
+	if err := os.Remove(edit.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	return nil
 }

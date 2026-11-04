@@ -41,27 +41,22 @@ func UnenrolHome(uid int, home string) (UnenrolReport, error) {
 // homeUnenrolFiles is every account file and home instructions file any agent
 // has, each path once: the files faramir edits, and the ones that are its own.
 func homeUnenrolFiles() (edited []unenrolFile, owned []string) {
-	sections := map[string]bool{}
+	byPath := map[string]unenrolFile{}
 	for _, target := range agentcfg.Targets {
-		if target.HomeInstructions != "" {
-			sections[target.HomeInstructions] = true
-		}
 		for _, file := range target.AccountFiles {
 			if !file.Merge {
 				owned = append(owned, file.Path)
 				continue
 			}
-			if _, listed := sections[file.Path]; !listed {
-				sections[file.Path] = false
-			}
+			byPath[file.Path] = mergedUnenrolFile(file)
+		}
+		if target.HomeInstructions != "" {
+			byPath[target.HomeInstructions] = unenrolFile{rel: target.HomeInstructions,
+				without: agentcfg.WithoutProjectSection, owned: target.OwnsHomeInstructions}
 		}
 	}
-	for rel, section := range sections {
-		edited = append(edited, unenrolFile{rel: rel, section: section})
-	}
-	sort.Slice(edited, func(i, j int) bool { return edited[i].rel < edited[j].rel })
 	sort.Strings(owned)
-	return edited, slices.Compact(owned)
+	return sortedUnenrolFiles(byPath), slices.Compact(owned)
 }
 
 // removeOwnedHomeFiles removes each of faramir's own files that is the

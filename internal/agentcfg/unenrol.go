@@ -13,18 +13,9 @@ import (
 // uses when merging them. Permission rules retain the operator's protections:
 // a rendered rule may have existed before enrolment wrote the same string.
 func WithoutProjectConfig(existing []byte) ([]byte, error) {
-	var doc map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(existing))
-	decoder.UseNumber()
-	if err := decoder.Decode(&doc); err != nil {
+	doc, err := decodeSettings(existing)
+	if err != nil {
 		return nil, err
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return nil, errors.New("expected exactly one settings object")
-	}
-	if doc == nil {
-		return nil, errors.New("expected a settings object")
 	}
 	changed := false
 	if hooks, ok := doc["hooks"].(map[string]any); ok {
@@ -45,6 +36,46 @@ func WithoutProjectConfig(existing []byte) ([]byte, error) {
 	if !changed {
 		return existing, nil
 	}
+	return encodeSettings(doc)
+}
+
+// WithoutAntigravityHook removes the account-wide hook the Antigravity family's
+// asset writes, which is the whole of the top-level antigravityHookKey entry,
+// and leaves every other key alone. A file left with nothing in it stays as
+// `{}`: it is the agent's file, not faramir's.
+func WithoutAntigravityHook(existing []byte) ([]byte, error) {
+	doc, err := decodeSettings(existing)
+	if err != nil {
+		return nil, err
+	}
+	if _, present := doc[antigravityHookKey]; !present {
+		return existing, nil
+	}
+	delete(doc, antigravityHookKey)
+	return encodeSettings(doc)
+}
+
+// decodeSettings is one JSON object, numbers kept as written.
+func decodeSettings(existing []byte) (map[string]any, error) {
+	var doc map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(existing))
+	decoder.UseNumber()
+	if err := decoder.Decode(&doc); err != nil {
+		return nil, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return nil, errors.New("expected exactly one settings object")
+	}
+	if doc == nil {
+		return nil, errors.New("expected a settings object")
+	}
+	return doc, nil
+}
+
+// encodeSettings spells a settings object as MergeJSON does, so a file this
+// cleans and one a merge writes compare equal.
+func encodeSettings(doc map[string]any) ([]byte, error) {
 	var out bytes.Buffer
 	encoder := json.NewEncoder(&out)
 	encoder.SetEscapeHTML(false)

@@ -175,7 +175,6 @@ func uninstall(ops uninstallOps, configDir string) (UninstallReport, error) {
 			accounts.exec, accounts.exec),
 		"each shared tree's group, setgid bits and traversal grants",
 		"each enrolled tree's permission rules, and each agent's account-wide deny rules",
-		`the Antigravity hook under "faramir" in ~/.gemini/config/hooks.json (remove by hand)`,
 	}
 	return report, errors.Join(failures...)
 }
