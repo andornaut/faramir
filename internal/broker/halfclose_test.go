@@ -38,6 +38,17 @@ func TestNothingHalfClosesTheBrokerSocket(t *testing.T) {
 			if name := entry.Name(); name == ".git" || name == "node_modules" {
 				return filepath.SkipDir
 			}
+			// A nested checkout, such as a git worktree, is another copy of the
+			// source and not part of this one.
+			if path != base {
+				rel, relErr := filepath.Rel(base, path)
+				if relErr != nil {
+					return relErr
+				}
+				if _, statErr := root.Lstat(filepath.Join(rel, ".git")); statErr == nil {
+					return filepath.SkipDir
+				}
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
