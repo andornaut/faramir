@@ -237,6 +237,8 @@ to the current working directory. `--dry-run` reports changes without writing;
 `--json` prints the report. Repeating the command is safe, including after a
 partial cleanup. It also checks known project routing files when no enrolment
 record exists. Removing the record stops `init` maintaining that tree.
+`sudo faramir uninstall` unenrols every recorded tree the same way before it
+removes the binary.
 
 An explicit missing `DIR` removes only its matching enrolment record. To forget
 all confirmed missing project records, run `sudo faramir unenrol --missing`.

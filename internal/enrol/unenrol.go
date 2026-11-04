@@ -87,7 +87,11 @@ func unenrolTree(opts UnenrolOptions) (UnenrolReport, error) {
 	if !record.recorded {
 		report.Warnf("no enrolment record for %s; cleaning the known project files anyway", dir)
 	}
-	edits, seen, err := prepareUnenrolEdits(uid, dir)
+	files, err := treeUnenrolFiles()
+	if err != nil {
+		return report, err
+	}
+	edits, seen, err := prepareUnenrolEdits(uid, dir, dir, files)
 	if err != nil {
 		return report, err
 	}
@@ -98,7 +102,7 @@ func unenrolTree(opts UnenrolOptions) (UnenrolReport, error) {
 	report.Warnf("filesystem sharing is kept: brokered commands can still reach %s\n"+
 		"  restart agent sessions running there", dir)
 	fs := hostfs.FS{DryRun: opts.DryRun}
-	if err := applyUnenrolEdits(fs, &report, edits); err != nil {
+	if err := applyUnenrolEdits(fs, &report, "project configuration", edits); err != nil {
 		return report, err
 	}
 	if err := finishUnenrolRecord(fs, &report, opts.ConfigDir, dir, record); err != nil {
@@ -226,29 +230,49 @@ func closeUnenrolEdits(edits []unenrolEdit) {
 	}
 }
 
-func prepareUnenrolEdits(uid int, dir string) (_ []unenrolEdit, _ map[string]bool, err error) {
-	var edits []unenrolEdit
-	defer func() {
-		if err != nil {
-			closeUnenrolEdits(edits)
-		}
-	}()
-	// Inspect every current project file even without a record: an enrolment
-	// may have written routing and failed before recording it.
+// unenrolFile is one file an unenrolment edits, relative to the tree or home it
+// cleans: either the marked credentials section or the merged hooks.
+type unenrolFile struct {
+	rel     string
+	section bool
+}
+
+// treeUnenrolFiles is every project file any agent's enrolment writes. Every
+// one is inspected even without a record: an enrolment may have written
+// routing and failed before recording it.
+func treeUnenrolFiles() ([]unenrolFile, error) {
 	paths := []string{agentcfg.ProjectInstructions}
 	for _, target := range agentcfg.Targets {
 		for _, file := range target.Files {
 			if !file.Merge {
-				return nil, nil, fmt.Errorf("no safe cleanup contract for %s", file.Path)
+				return nil, fmt.Errorf("no safe cleanup contract for %s", file.Path)
 			}
 			paths = append(paths, file.Path)
 		}
 	}
 	sort.Strings(paths)
 	paths = slices.Compact(paths)
-	seen := map[string]bool{}
+	files := make([]unenrolFile, 0, len(paths))
 	for _, rel := range paths {
-		spot, err := (hostfs.FS{}).EditedFile(filepath.Join(dir, rel), uid, dir)
+		files = append(files, unenrolFile{rel: rel, section: rel == agentcfg.ProjectInstructions})
+	}
+	return files, nil
+}
+
+// prepareUnenrolEdits reads and strips each file under dir before anything is
+// written. within bounds where a followed link may land, empty in a home as
+// for `init`'s own writes there.
+func prepareUnenrolEdits(uid int, dir, within string, files []unenrolFile) (_ []unenrolEdit, _ map[string]bool, err error) {
+	var edits []unenrolEdit
+	defer func() {
+		if err != nil {
+			closeUnenrolEdits(edits)
+		}
+	}()
+	seen := map[string]bool{}
+	for _, file := range files {
+		rel := file.rel
+		spot, err := (hostfs.FS{}).EditedFile(filepath.Join(dir, rel), uid, within)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: %w", rel, err)
 		}
@@ -267,7 +291,7 @@ func prepareUnenrolEdits(uid int, dir string) (_ []unenrolEdit, _ map[string]boo
 			return nil, nil, err
 		}
 		var after []byte
-		if rel == agentcfg.ProjectInstructions {
+		if file.section {
 			after, err = agentcfg.WithoutProjectSection(before)
 		} else {
 			after, err = agentcfg.WithoutProjectConfig(before)
@@ -311,10 +335,10 @@ func checkUnenrolLegacy(report *UnenrolReport, seen map[string]bool, uid int, di
 	return nil
 }
 
-func applyUnenrolEdits(fs hostfs.FS, report *UnenrolReport, edits []unenrolEdit) error {
+func applyUnenrolEdits(fs hostfs.FS, report *UnenrolReport, label string, edits []unenrolEdit) error {
 	for _, edit := range edits {
 		if bytes.Equal(edit.before, edit.after) {
-			report.Record("project configuration", false, edit.spot.Path())
+			report.Record(label, false, edit.spot.Path())
 			continue
 		}
 		owner, group := hostfs.OwnerOf(edit.spot.Info())
@@ -323,7 +347,7 @@ func applyUnenrolEdits(fs hostfs.FS, report *UnenrolReport, edits []unenrolEdit)
 		if err != nil {
 			return fmt.Errorf("cleanup stopped, earlier files may already be cleaned: %w", err)
 		}
-		report.Record("project configuration", changed, edit.spot.Path())
+		report.Record(label, changed, edit.spot.Path())
 	}
 	return nil
 }

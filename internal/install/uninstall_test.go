@@ -110,7 +110,7 @@ esac
 					return nil
 				},
 			}
-			left, err := uninstall(ops, dir)
+			report, err := uninstall(ops, dir)
 			if len(tc.want) == 0 && err != nil {
 				t.Fatalf("successful uninstall: %v", err)
 			}
@@ -119,8 +119,8 @@ esac
 					t.Errorf("error = %v, want %q", err, want)
 				}
 			}
-			kept := strings.Join(left, "\n")
-			for _, want := range []string{dir, "age.key", "secrets", "audit log", "users ", "agent configuration", "account-wide configuration"} {
+			kept := strings.Join(report.Kept, "\n")
+			for _, want := range []string{dir, "age.key", "secrets", "audit log", "users ", "permission rules", "account-wide deny rules"} {
 				if !strings.Contains(kept, want) {
 					t.Errorf("retained state omits %q: %s", want, kept)
 				}

@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/install"
 )
 
 func TestUninstallReportsRetainedStateOnFailure(t *testing.T) {
@@ -18,7 +20,11 @@ func TestUninstallReportsRetainedStateOnFailure(t *testing.T) {
 			defer func() { _ = r.Close() }()
 			previous := os.Stderr
 			os.Stderr = w
-			code := reportUninstall([]string{"retained config", "retained log"}, failure)
+			code := reportUninstall(install.UninstallReport{
+				Unenrolled: []string{"/srv/tree"},
+				Warnings:   []string{"enrolled tree /srv/gone not unenrolled"},
+				Kept:       []string{"retained config", "retained log"},
+			}, failure)
 			os.Stderr = previous
 			_ = w.Close()
 			out, err := io.ReadAll(r)
@@ -37,8 +43,9 @@ func TestUninstallReportsRetainedStateOnFailure(t *testing.T) {
 			if code != wantCode {
 				t.Errorf("exit = %d, want %d", code, wantCode)
 			}
-			if !strings.HasSuffix(string(out), "kept:\n  retained config\n  retained log\n") {
-				t.Errorf("missing retained state: %q", out)
+			if !strings.HasSuffix(string(out), "warning: enrolled tree /srv/gone not unenrolled\n"+
+				"unenrolled /srv/tree\nkept:\n  retained config\n  retained log\n") {
+				t.Errorf("missing warnings, unenrolled trees or retained state: %q", out)
 			}
 		})
 	}

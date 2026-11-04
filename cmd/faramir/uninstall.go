@@ -13,7 +13,7 @@ import (
 func newUninstallCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "uninstall",
-		Short:   "Remove the install, keeping the age key, the secrets directory and the log",
+		Short:   "Unenrol every tree and remove the install, keeping the age key, the secrets and the log",
 		GroupID: groupOperator,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runUninstall()) },
@@ -29,25 +29,32 @@ func runUninstall() int {
 	// A first run removes the units before the sudoers grant, the PAM service and
 	// the binaries, so a run that failed partway leaves exactly the host that
 	// answers nothing, and that is the host the re-run is for. Uninstall removes
-	// at fixed paths and wants the directory only to name what it left in place,
-	// where the compiled-in default is a guess about wording rather than about
-	// what gets deleted.
+	// at fixed paths and wants the directory only for the enrolment record and
+	// the agent account, and to name what it left in place: the compiled-in
+	// default is a guess about which trees to unenrol rather than about what
+	// gets deleted.
 	dir, err := resolveConfigDir(socketDefault())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "faramir uninstall: no install found; removing the default paths under "+
 			hostlayout.DefaultConfigDir)
 		dir = ""
 	}
-	left, err := install.Uninstall(dir)
-	return reportUninstall(left, err)
+	report, err := install.Uninstall(dir)
+	return reportUninstall(report, err)
 }
 
-func reportUninstall(left []string, err error) int {
+func reportUninstall(report install.UninstallReport, err error) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir uninstall: %v\n", err)
 	}
+	for _, warning := range report.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+	}
+	for _, dir := range report.Unenrolled {
+		fmt.Fprintf(os.Stderr, "unenrolled %s\n", dir)
+	}
 	fmt.Fprintln(os.Stderr, "kept:")
-	for _, item := range left {
+	for _, item := range report.Kept {
 		fmt.Fprintf(os.Stderr, "  %s\n", item)
 	}
 	if err != nil {

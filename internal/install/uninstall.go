@@ -9,6 +9,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agentcfg"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/enrol"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostsudo"
@@ -48,15 +49,35 @@ func uninstallDirs() []string {
 	return []string{hostlayout.DefaultLibexecDir, hostlayout.DefaultDocDir}
 }
 
-// Uninstall removes the broker and returns what it left behind: the accounts,
+// UninstallReport is what an uninstall took faramir out of before removing the
+// install, what it could not clean, and what it left behind on purpose.
+type UninstallReport struct {
+	Unenrolled []string
+	Warnings   []string
+	Kept       []string
+}
+
+// Uninstall removes the broker and reports what it left behind: the accounts,
 // the config, the secrets directory and the audit log. Deleting the age key
 // would make every managed sops file unreadable, retroactively.
-func Uninstall(configDir string) ([]string, error) {
+func Uninstall(configDir string) (UninstallReport, error) {
 	return uninstall(uninstallOps{
 		remove: os.Remove, removeAll: os.RemoveAll,
 		removeBlock: func() error {
 			_, err := hostsudo.RemoveBlock(hostfs.FS{})
 			return err
+		},
+		unenrol: enrol.Unenrol,
+		unenrolHome: func(account string) (enrol.UnenrolReport, error) {
+			uid, err := hostfs.LookupUser(account)
+			if err != nil {
+				return enrol.UnenrolReport{}, err
+			}
+			home, err := homeDir(account)
+			if err != nil {
+				return enrol.UnenrolReport{}, err
+			}
+			return enrol.UnenrolHome(uid, home)
 		},
 	}, configDir)
 }
@@ -65,9 +86,11 @@ type uninstallOps struct {
 	remove      func(string) error
 	removeAll   func(string) error
 	removeBlock func() error
+	unenrol     func(enrol.UnenrolOptions) (enrol.UnenrolReport, error)
+	unenrolHome func(account string) (enrol.UnenrolReport, error)
 }
 
-func uninstall(ops uninstallOps, configDir string) ([]string, error) {
+func uninstall(ops uninstallOps, configDir string) (UninstallReport, error) {
 	if configDir == "" {
 		configDir = hostlayout.DefaultConfigDir
 	}
@@ -75,6 +98,8 @@ func uninstall(ops uninstallOps, configDir string) ([]string, error) {
 	// name them are removed: an adopted account need not have the default name,
 	// and the list below tells the operator what to delete.
 	accounts := installedAccounts(configDir)
+	var report UninstallReport
+	unenrolAgents(ops, &report, configDir, accounts.agent)
 	var failures []error
 	if hostunit.Running() {
 		for _, unit := range append(slices.Clone(hostunit.Sockets), hostunit.Services...) {
@@ -140,7 +165,7 @@ func uninstall(ops uninstallOps, configDir string) ([]string, error) {
 			failures = append(failures, err)
 		}
 	}
-	return []string{
+	report.Kept = []string{
 		filepath.Join(configDir, "age.key") + " (the only key to the managed files)",
 		filepath.Join(configDir, "secrets") + "/",
 		config.FileIn(configDir),
@@ -149,18 +174,65 @@ func uninstall(ops uninstallOps, configDir string) ([]string, error) {
 			accounts.broker, accounts.keeper, accounts.exec, accounts.client,
 			accounts.exec, accounts.exec),
 		"each shared tree's group, setgid bits and traversal grants",
-		"each enrolled tree's agent configuration",
-		"each agent's account-wide configuration: deny rules, and the section between " +
-			agentcfg.SectionBegin + " and " + agentcfg.SectionEnd + " (remove by hand)",
-	}, errors.Join(failures...)
+		"each enrolled tree's permission rules, and each agent's account-wide deny rules",
+		`the Antigravity hook under "faramir" in ~/.gemini/config/hooks.json (remove by hand)`,
+	}
+	return report, errors.Join(failures...)
 }
 
-// serviceAccounts is the names an install runs as.
-type serviceAccounts struct{ broker, keeper, exec, client string }
+// unenrolAgents takes faramir out of every enrolled tree and the agent
+// account's home, before anything else is removed. A hook or plugin left
+// behind execs the binary this uninstall deletes, and the plugins fail closed:
+// every shell command in every project would be refused. A tree or home that
+// cannot be cleaned is a warning naming it rather than a reason to keep the
+// broker.
+//
+// A missing tree keeps its record, which is in the config directory an
+// uninstall keeps: storage that is not mounted is not a tree to forget.
+func unenrolAgents(ops uninstallOps, report *UninstallReport, configDir, agent string) {
+	warnf := func(format string, args ...any) {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(format, args...))
+	}
+	trees, err := agentcfg.ReadEnrolledWhy(configDir)
+	if err != nil {
+		warnf("enrolled trees not unenrolled: %v\n  remove their agent configuration by hand", err)
+	}
+	for _, tree := range trees {
+		if !hostfs.Exists(tree.Dir) {
+			warnf("enrolled tree %s not unenrolled: no directory there\n"+
+				"  remove its agent configuration by hand if it comes back", tree.Dir)
+			continue
+		}
+		result, err := ops.unenrol(enrol.UnenrolOptions{
+			Dir: tree.Dir, AgentUser: tree.AgentUser, ConfigDir: configDir,
+		})
+		if err != nil {
+			warnf("enrolled tree %s not unenrolled: %v", tree.Dir, err)
+			continue
+		}
+		report.Warnings = append(report.Warnings, result.Warnings...)
+		report.Unenrolled = append(report.Unenrolled, result.Dir)
+	}
+	if agent == "" {
+		warnf("account-wide agent configuration not removed: no agent account in %s", config.FileIn(configDir))
+		return
+	}
+	result, err := ops.unenrolHome(agent)
+	if err != nil {
+		warnf("account-wide agent configuration of %s not removed: %v", agent, err)
+		return
+	}
+	report.Unenrolled = append(report.Unenrolled, result.Dir+" (account-wide)")
+}
+
+// serviceAccounts is the names an install runs as, and the agent account it
+// was installed for.
+type serviceAccounts struct{ broker, keeper, exec, client, agent string }
 
 // installedAccounts reads the accounts off the units' own User= and the client
-// group off the config, as init adopts them, each falling back to the default
-// where the install does not say.
+// group and agent account off the config, as init adopts them, each service
+// name falling back to the default where the install does not say. The agent
+// account has no default.
 func installedAccounts(configDir string) serviceAccounts {
 	named := func(unit, fallback string) string {
 		if account, err := hostunit.User(unit); err == nil && account != "" {
@@ -174,9 +246,11 @@ func installedAccounts(configDir string) serviceAccounts {
 		exec:   named(hostunit.ExecUnit, hostlayout.DefaultExecUser),
 		client: hostlayout.DefaultClientGroup,
 	}
-	if cfg, err := config.Load(config.FileIn(configDir)); err == nil &&
-		cfg.Server.AllowedGroup != "" {
-		accounts.client = cfg.Server.AllowedGroup
+	if cfg, err := config.Load(config.FileIn(configDir)); err == nil {
+		if cfg.Server.AllowedGroup != "" {
+			accounts.client = cfg.Server.AllowedGroup
+		}
+		accounts.agent = cfg.Server.AgentUser
 	}
 	return accounts
 }

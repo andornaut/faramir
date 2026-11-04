@@ -29,6 +29,21 @@ if ! grep -q '^\[sudo\]' $CFGDIR/config.toml; then
   waitfor 15 answers op
 fi
 
+# The tree enrolled again: the doctor suite's uninstall unenrolled it, and
+# section 5 is about what an uninstall takes out of an enrolled tree.
+faramir enrol --agent claude $PROJECT >/tmp/u-enrol.log 2>&1 \
+  || { echo "could not enrol $PROJECT"; tail -3 /tmp/u-enrol.log; exit 1; }
+HOOKS=$PROJECT/.claude/settings.local.json
+grep -q 'faramir guard' $HOOKS 2>/dev/null \
+  || { echo "$HOOKS carries no hook, so section 5 would prove nothing"; exit 1; }
+# The plugins the plugin suite's installs left in the agent account's home.
+# They fail closed, so one left behind refuses every shell command anywhere.
+plugins=""
+for plugin in /home/op/.config/opencode/plugin/faramir.js /home/op/.config/kilo/plugin/faramir.js \
+              /home/op/.pi/agent/extensions/faramir.ts; do
+  [ -e "$plugin" ] && plugins="$plugins $plugin"
+done
+
 # A record to keep: an empty log satisfies "still there" without saying
 # anything, and the log is one of the three things this command must not lose.
 runuser -u op -- faramir run --quiet -t 20 -C $PROJECT -- /bin/echo before-uninstall >/dev/null 2>&1
@@ -117,31 +132,51 @@ systemctl list-unit-files 'faramir-*' 2>/dev/null | grep -q faramir \
   && bad "systemd still lists faramir units" || ok "systemd lists no faramir unit"
 
 # --------------------------------------------------------------------------
-head_ "5. an enrolled working tree"
+head_ "5. an enrolled working tree, and the agent account's home"
 #
-# enrol shares a tree with the executor. Uninstall does not walk the
-# operator's directories, so what it leaves is worth stating: the grant on the
-# tree outlives the broker, and the account it names still exists.
+# Every hook and plugin faramir wrote execs the binary this removed, so
+# uninstall unenrols every recorded tree and the agent account's home first.
+# The sharing stays: the grant on the tree outlives the broker, and the account
+# it names still exists.
 
 if [ -d $PROJECT ]; then
   # Shared by setgid group ownership rather than by an ACL, so that is what is
   # left behind: the tree stays open to the client group, and every account in
   # it still exists because uninstall keeps the accounts.
   owner=$(stat -c '%a %U:%G' $PROJECT)
-  [ "$owner" = "2770 op:faramir-client" ] && ok "the enrolled tree is still $owner, which uninstall does not walk" \
+  [ "$owner" = "2770 op:faramir-client" ] && ok "the enrolled tree is still $owner: unenrol keeps the sharing" \
     || bad "the tree is $owner, want 2770 op:faramir-client"
   getent group faramir-client >/dev/null && ok "and the group it is shared with still exists" \
     || bad "the client group was removed, orphaning the tree's group"
   id -nG faramir-exec 2>/dev/null | grep -qw dev \
     && note "so faramir-exec, which is kept, can still enter it" \
     || note "and faramir-exec is not in that group"
-  # The agent's own config, which now names a binary that is gone.
-  f=.claude/settings.local.json
-  [ -e "$PROJECT/$f" ] && ok "  $f is left, naming a broker that is not there" \
-    || bad "  $f was removed from the operator's tree"
+  # The tree's hook, its credentials section and its record. The deny rules
+  # beside the hook stay, as unenrol keeps them.
+  grep -q 'faramir guard' $HOOKS 2>/dev/null && bad "the tree's hook survived in $HOOKS" \
+    || ok "the tree's hook is gone from .claude/settings.local.json"
+  grep -q 'BEGIN faramir' $PROJECT/AGENTS.md 2>/dev/null \
+    && bad "the credentials section survived in $PROJECT/AGENTS.md" \
+    || ok "and so is its credentials section"
+  grep -q "\"$PROJECT\"" $CFGDIR/enrolled.json 2>/dev/null \
+    && bad "the enrolment record still names $PROJECT" || ok "and its enrolment record"
 else
   bad "no enrolled tree to examine"
 fi
+# The agent account's home: the plugins go, and so do the account-wide hook and
+# the credentials section.
+[ -n "$plugins" ] || bad "no plugin was installed before the uninstall, so nothing here is proved"
+for plugin in $plugins; do
+  [ -e "$plugin" ] && bad "a plugin that fails closed survived: $plugin" || ok "the plugin is gone: $plugin"
+done
+grep -q 'faramir guard' /home/op/.claude/settings.json 2>/dev/null \
+  && bad "the account-wide hook survived in /home/op/.claude/settings.json" \
+  || ok "the account-wide hook is gone from ~/.claude/settings.json"
+grep -q 'BEGIN faramir' /home/op/.claude/CLAUDE.md 2>/dev/null \
+  && bad "the credentials section survived in /home/op/.claude/CLAUDE.md" \
+  || ok "and so is the account-wide credentials section"
+grep -q '^unenrolled /home/op/project$' <<<"$out" && ok "and the report names the tree it unenrolled" \
+  || bad "the report does not name the unenrolled tree: $(head -c 200 <<<"$out")"
 
 # --------------------------------------------------------------------------
 head_ "6. running it again"
