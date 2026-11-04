@@ -58,16 +58,15 @@ func BranchProblem(execUser, helper string) string {
 		}
 		checked++
 		if err != nil {
-			return fmt.Sprintf("the faramir block went unchecked: %v. Run doctor as root", err)
+			return problem("faramir block went unchecked; run doctor as root", err.Error())
 		}
 		start, _, found, err := placeBlock(current)
 		switch {
 		case err != nil:
-			return fmt.Sprintf("%s carries one faramir marker without the other. "+
-				"Fix the markers by hand, then re-run `sudo faramir init --allow-sudo`", path)
+			return problem("faramir block has one marker without the other; delete the "+
+				"stray marker line, then "+reinit, path)
 		case !found:
-			return fmt.Sprintf("%s carries no faramir block, so every escalation fails"+
-				reinit, path)
+			return problem("no faramir block, so every escalation fails; "+reinit, path)
 		}
 		block := string(current[start:])
 		if at := strings.Index(block, PamBlockEnd); at >= 0 {
@@ -75,16 +74,16 @@ func BranchProblem(execUser, helper string) string {
 		}
 		switch {
 		case !strings.Contains(block, "pam_succeed_if.so"):
-			return fmt.Sprintf("%s's faramir block applies to every account, not only %s"+
-				reinit, path, execUser)
+			return problem("faramir block applies to every account, not only "+execUser+
+				"; "+reinit, path)
 		case execUser == "":
-			return fmt.Sprintf("%s's faramir block went unchecked: the executor's "+
-				"account is not known. Pass --exec-user", path)
+			return problem("faramir block went unchecked: the executor's account is "+
+				"not known; pass --exec-user", path)
 		case !strings.Contains(block, "user = "+execUser):
-			return fmt.Sprintf("%s's faramir block tests for an account other than %s, "+
-				"so every escalation fails"+reinit, path, execUser)
+			return problem("faramir block tests for an account other than "+execUser+
+				", so every escalation fails; "+reinit, path)
 		case helper != "" && !strings.Contains(block, helper):
-			return fmt.Sprintf("%s's faramir block does not exec %s"+reinit, path, helper)
+			return problem("faramir block does not exec "+helper+"; "+reinit, path)
 		}
 		// The jump has to clear every faramir module below it. One short and it
 		// lands on this block's own pam_permit, which authenticates every account
@@ -93,20 +92,27 @@ func BranchProblem(execUser, helper string) string {
 			return problem
 		}
 		if before := FirstAuthLine(current[:start]); before != "" {
-			return fmt.Sprintf("%s has an auth line before the faramir block: %q"+
-				reinit, path, before)
+			return problem("an auth line ahead of the faramir block answers first; "+reinit,
+				path, before)
 		}
 	}
 	if checked == 0 {
-		return fmt.Sprintf("sudo is sudo-rs and neither %s exists, so every escalation "+
-			"falls to %s/other. Install sudo, then re-run `sudo faramir init --allow-sudo`",
-			strings.Join(hostlayout.SudoPamStacks(), " nor "), hostlayout.PamDir)
+		return problem("no PAM stack for sudo-rs, so every escalation falls to "+
+			hostlayout.PamDir+"/other; install sudo, then "+reinit,
+			"missing: "+strings.Join(hostlayout.SudoPamStacks(), ", "))
 	}
 	return ""
 }
 
-// reinit is the fix every branch problem shares.
-const reinit = ". Re-run `sudo faramir init --allow-sudo`"
+// reinit is the fix every arrangement fault shares: init rewrites the whole
+// of it.
+const reinit = "run `sudo faramir init --allow-sudo`"
+
+// problem is a finding as doctor prints it: the problem and its fix on the
+// first line, then one detail per line, which doctor indents under it.
+func problem(first string, detail ...string) string {
+	return strings.Join(append([]string{first}, detail...), "\n")
+}
 
 // branchJumpProblem checks the arithmetic that decides who meets what: the
 // branch's `default=N` must skip every auth line after it inside the block.
@@ -125,8 +131,8 @@ func branchJumpProblem(path, block string) string {
 		if jump < 0 {
 			at := strings.Index(line, "default=")
 			if at < 0 {
-				return fmt.Sprintf("%s's faramir block does not branch on the account, "+
-					"so it applies to every account"+reinit, path)
+				return problem("faramir block does not branch on the account, so it applies "+
+					"to every account; "+reinit, path)
 			}
 			rest := line[at+len("default="):]
 			end := strings.IndexFunc(rest, func(r rune) bool { return r < '0' || r > '9' })
@@ -135,7 +141,7 @@ func branchJumpProblem(path, block string) string {
 			}
 			n, err := strconv.Atoi(rest)
 			if err != nil {
-				return fmt.Sprintf("%s's faramir block has no numeric jump: %q"+reinit, path, line)
+				return problem("faramir block has no numeric jump; "+reinit, path, line)
 			}
 			jump = n
 			continue
@@ -143,8 +149,9 @@ func branchJumpProblem(path, block string) string {
 		after++
 	}
 	if jump >= 0 && jump != after {
-		return fmt.Sprintf("%s's faramir block skips %d module(s) but %d follow the branch, "+
-			"so other accounts authenticate without a password"+reinit, path, jump, after)
+		return problem(fmt.Sprintf("faramir block skips %d module(s) but %d follow the "+
+			"branch, so other accounts authenticate without a password; %s", jump, after, reinit),
+			path)
 	}
 	return ""
 }
@@ -190,9 +197,8 @@ func StackProblem(body, helper string) string {
 			continue
 		}
 		if strings.HasPrefix(line, "@include") {
-			return "an @include ahead of the helper pulls in an auth stack that " +
-				"answers before the broker is asked (" + line + "). Re-run " +
-				"`sudo faramir init --allow-sudo`"
+			return problem("an @include ahead of the helper answers before the broker is "+
+				"asked; "+reinit, line)
 		}
 		fields := strings.Fields(line)
 		if len(fields) == 0 || fields[0] != "auth" {
@@ -207,28 +213,24 @@ func StackProblem(body, helper string) string {
 			if module == "pam_succeed_if.so" && strings.HasPrefix(control, "[success=ok ") {
 				continue
 			}
-			return "an auth line ahead of the helper answers before the broker is " +
-				"asked (" + line + "). Re-run `sudo faramir init --allow-sudo`"
+			return problem("an auth line ahead of the helper answers before the broker is "+
+				"asked; "+reinit, line)
 		}
 		// The helper line, each word matched as the field it is rather than as a
 		// substring anything on the line could carry.
 		switch {
 		case control != "requisite":
-			return "the helper is not `requisite`, so a refusal falls through to whatever permits " +
-				"below and every escalation is granted without asking. Re-run `sudo faramir init " +
-				"--allow-sudo`"
+			return problem("the helper is not `requisite`, so every escalation is granted "+
+				"without asking; "+reinit, line)
 		case !slices.Contains(rest, "seteuid"):
-			return "the helper runs without `seteuid`, so pam_exec runs it as the executor rather " +
-				"than root, and the broker answers the escalate op to root alone: every " +
-				"escalation fails. Re-run `sudo faramir init --allow-sudo`"
+			return problem("the helper runs without `seteuid`, so every escalation fails; "+
+				reinit, line)
 		case helper != "" && !slices.Contains(rest, helper):
-			return "the helper is not " + helper + ", so something other than faramir " +
-				"decides these escalations"
+			return problem("the helper is not "+helper+"; "+reinit, line)
 		}
 		return ""
 	}
-	return "no pam_exec auth line, so nothing asks the broker and whatever else " +
-		"is in this file decides. Re-run `sudo faramir init --allow-sudo`"
+	return "no pam_exec auth line, so nothing asks the broker; " + reinit
 }
 
 // authLine splits one auth entry into its control field, a bracketed spec
