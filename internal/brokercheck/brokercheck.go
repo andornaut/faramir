@@ -137,21 +137,21 @@ func (c CheckReport) Serves() bool {
 func (c CheckReport) StoreHolds() string {
 	switch {
 	case c.Secrets.Links > 0 && c.Secrets.Count > c.Secrets.Links:
-		return fmt.Sprintf("%d ref(s) are served, %d of them from %s",
+		return fmt.Sprintf("%d ref(s) served, %d from %s",
 			c.Secrets.Count, c.Secrets.Links, LinkEntries(c.Secrets.Links))
 	case c.Secrets.Links > 0:
-		return "the whole value set is " + LinkEntries(c.Secrets.Links)
+		return "every ref is from " + LinkEntries(c.Secrets.Links)
 	// A file that loaded and held nothing still opens the gate, which is on a
 	// managed file having been read and not on how many refs came out of it, so
 	// this is neither a store that serves values nor one that refuses the ops.
 	case len(c.Secrets.Files) > 0 && c.Secrets.Count == 0:
-		return fmt.Sprintf("%d file(s) loaded and held no ref, so nothing is "+
-			"injected and nothing is redacted", len(c.Secrets.Files))
+		return fmt.Sprintf("%d file(s) loaded with no refs; nothing is injected "+
+			"or redacted", len(c.Secrets.Files))
 	case len(c.Secrets.Files) > 0:
-		return fmt.Sprintf("%d ref(s) are served from %d file(s)",
+		return fmt.Sprintf("%d ref(s) served from %d file(s)",
 			c.Secrets.Count, len(c.Secrets.Files))
 	}
-	return "nothing is injected and nothing is redacted"
+	return "nothing is injected or redacted"
 }
 
 // LinkNote names the linked share of a value set that also has managed files,
@@ -165,10 +165,9 @@ func (c CheckReport) LinkNote() string {
 
 func LoadErrorDetail(errors []string) string {
 	if len(errors) == 0 {
-		return "The broker reported no load error, so the file parsed and is empty " +
-			"rather than unreadable."
+		return "no load error, so the file(s) are empty"
 	}
-	return "Load errors: " + strings.Join(errors, "; ")
+	return "load errors: " + strings.Join(errors, "; ")
 }
 
 // EveryEntryOnlyMissedAMatch reports whether nothing stopped the search: each

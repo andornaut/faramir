@@ -108,6 +108,30 @@ func TestALongDetailWrapsUnderItself(t *testing.T) {
 	}
 }
 
+// A failure's first line is the problem and the fix; each further line of its
+// detail sits indented under it. A pass is one line whatever its detail holds.
+func TestDetailLinesIndentUnderTheFirstAndAPassKeepsOne(t *testing.T) {
+	t.Setenv("COLUMNS", "200")
+	t.Setenv("LC_ALL", "C")
+	t.Setenv("LC_CTYPE", "")
+	t.Setenv("LANG", "")
+	var out bytes.Buffer
+	printDiagnosis(&out, termui.Palette{}, doctor.Report{Findings: []doctor.Finding{
+		{Name: "age key", Status: doctor.StatusFailed, Detail: "problem; run `fix`\n/etc/a\n/etc/b"},
+		{Name: "config", Status: doctor.StatusOK, Detail: "/etc/faramir/config.toml\nhidden"},
+	}})
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	start := strings.Index(lines[0], "problem")
+	for i, want := range []string{"/etc/a", "/etc/b"} {
+		if got := strings.Index(lines[1+i], want); got != start+2 {
+			t.Errorf("%s is at column %d, want %d:\n%s", want, got, start+2, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "hidden") {
+		t.Errorf("a pass printed more than its first line:\n%s", out.String())
+	}
+}
+
 // The glyph makes the column scannable, the word survives a pipe into a log.
 func TestTheStatusCarriesAGlyphAndTheWord(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")

@@ -13,14 +13,12 @@ import (
 
 // sshAgentRefused is reported both before the probe runs and after the broker
 // refuses it.
-const sshAgentRefused = "not asked: a managed file did not load, so the broker " +
-	"refuses the brokered command this probe runs"
+const sshAgentRefused = "not asked: a managed file did not load"
 
 // sshAgentUnanswered is the other reason the probe cannot be put: a broker that
 // answered nothing when the install was looked up answers a brokered command no
 // better.
-const sshAgentUnanswered = "not asked: the broker did not answer, so the " +
-	"brokered command this probe runs cannot be sent"
+const sshAgentUnanswered = "not asked: the broker did not answer"
 
 // diagnoseSSHAgent asks what a brokered command would actually get, rather than
 // reading the key off disk, and asks as the operator: root is not in the client
@@ -31,8 +29,7 @@ const sshAgentUnanswered = "not asked: the broker did not answer, so the " +
 // which is not a fault. Not skipped for want of root.
 func diagnoseSSHAgent(report *Report, opts Options, cfg *config.Config, serves brokerServes) {
 	if cfg == nil {
-		report.unaskedf("ssh agent", 1, "the config did not load, so which key the "+
-			"broker lends is unknown")
+		report.unaskedf("ssh agent", 1, "not checked: the config did not load")
 		return
 	}
 	// An install always writes one: `init` mints a key whether or not the host
@@ -46,11 +43,8 @@ func diagnoseSSHAgent(report *Report, opts Options, cfg *config.Config, serves b
 		if where == "" {
 			where = "the config"
 		}
-		report.addf("ssh agent", StatusFailed, "no [ssh] key is configured, so "+
-			"the broker lends no identity and a brokered command that reaches a managed "+
-			"host fails with ssh's own error. `faramir init` writes one on every run, so "+
-			"this is an edit to %s. Re-run `sudo faramir init`, with --ssh-key to name a "+
-			"key of your own", where)
+		report.addf("ssh agent", StatusFailed, "no [ssh] key in %s; run `sudo "+
+			"faramir init`, with --ssh-key to name your own", where)
 		return
 	}
 	if reason := skipSSHProbe(serves, opts.BrokerVersion); reason != "" {
@@ -62,8 +56,8 @@ func diagnoseSSHAgent(report *Report, opts Options, cfg *config.Config, serves b
 	// already it; anybody else's answer would be reported as the operator's.
 	if os.Geteuid() != 0 {
 		if current, err := user.Current(); err != nil || current.Username != opts.AgentUser {
-			report.unaskedf("ssh agent", 1, "the probe has to run as %s. Run "+
-				"doctor as that account, or as root", opts.AgentUser)
+			report.unaskedf("ssh agent", 1, "not checked: run doctor as %s or root",
+				opts.AgentUser)
 			return
 		}
 	}
@@ -103,23 +97,20 @@ func reportSSHProbe(report *Report, cfg *config.Config, serves brokerServes, out
 		report.addf("ssh agent", StatusOK, "holds a usable key")
 	case sshProbeRefused:
 		if serves == servesValues {
-			report.addf("ssh agent", StatusFailed, "the broker refuses brokered "+
-				"commands even though --check read every managed file as the broker: the "+
-				"running daemon started before the values were there and has not read them "+
-				"since. Restart faramir-broker")
+			report.addf("ssh agent", StatusFailed, "the running broker refuses "+
+				"brokered commands that --check accepts; run `sudo systemctl restart "+
+				"faramir-broker`")
 			return
 		}
 		report.unaskedf("ssh agent", 1, "%s", sshAgentRefused)
 	case sshProbeEmpty:
-		report.addf("ssh agent", StatusFailed, "the agent holds nothing, though [ssh] "+
-			"key names %s, so every brokered command that reaches a managed host "+
-			"fails to authenticate. Place the key and restart faramir-broker",
-			cfg.Ssh.Key)
+		report.addf("ssh agent", StatusFailed, "the agent holds no key; place %s, "+
+			"then run `sudo systemctl restart faramir-broker`", cfg.Ssh.Key)
 	case sshProbeUnreachable:
 		// Bounded: out is a brokered command's whole output, and a finding is a
 		// line an operator reads, not the record.
-		report.addf("ssh agent", StatusFailed, "could not ask the broker: %v: %s",
-			err, termsafe.Bound(strings.TrimSpace(out), 512))
+		report.addf("ssh agent", StatusFailed, "the broker did not answer the "+
+			"probe\n%s\n%s", childCause(err), termsafe.Bound(strings.TrimSpace(out), 512))
 	}
 }
 

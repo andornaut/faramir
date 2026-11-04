@@ -33,7 +33,7 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 			// Not an error: it just cannot encrypt a new file into the secrets
 			// directory.
 			name: "no rule at all",
-			want: StatusWarn, says: []string{"no ", "refuses to encrypt"},
+			want: StatusWarn, says: []string{"no ", "cannot encrypt"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -124,26 +124,26 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 			// Well-formed, in the right place, naming a key the keeper does not hold.
 			name: "the rule has drifted off the keeper's key",
 			rule: []string{"age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"},
-			want: StatusWarn, says: []string{"none of which", "cannot decrypt", "reader add"},
+			want: StatusWarn, says: []string{"omits", "reader add"},
 		},
 		{
 			name: "a rule listing nobody", rule: nil,
-			want: StatusWarn, says: []string{"no age recipient", "refuses"},
+			want: StatusWarn, says: []string{"no age recipient"},
 		},
 		{
 			// A missing key is a fault, not a privilege problem: the keeper can
 			// decrypt nothing, and "re-run as root" would send root in a circle.
 			name: "the key is missing", rule: []string{"keeper"}, noKey: true,
 			want: StatusFailed, says: []string{"missing", "backup"},
-			saysNot:    []string{"none of which", "root"},
+			saysNot:    []string{"omits", "root"},
 			wantFailed: true,
 		},
 		{
 			// A key that is there and refused is the privilege problem: unchecked,
 			// with root as the remedy.
 			name: "the key cannot be read", rule: []string{"keeper"}, unreadableKey: true,
-			want: StatusWarn, says: []string{"unchecked", "root"},
-			saysNot: []string{"none of which"},
+			want: StatusWarn, says: []string{"not checked", "root"},
+			saysNot: []string{"omits"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -682,18 +682,18 @@ func TestDiagnoseLogRotationAsksWhatIsOnDisk(t *testing.T) {
 			// bounding a path nothing writes.
 			name: "a rule for a log the broker no longer writes",
 			rule: "DIR/moved.log {\n    weekly\n}\n", state: applied,
-			want: StatusFailed, says: []string{"moved.log", "LOG", "log_path"},
+			want: StatusFailed, says: []string{"moved.log", "LOG", "faramir init"},
 		},
 		{
 			name:  "a rule logrotate reads past every run",
 			rule:  "LOG {\n    weekly\n}\n",
 			state: "logrotate state -- version 2\n\"/var/log/syslog\" 2026-8-11-0:0:0\n",
-			want:  StatusWarn, says: []string{"has not applied", "timer or cron"},
+			want:  StatusWarn, says: []string{"has not rotated", "timer or cron"},
 		},
 		{
 			name: "a host logrotate has never run on",
 			rule: "LOG {\n    weekly\n}\n",
-			want: StatusWarn, says: []string{"has not run", "timer or cron"},
+			want: StatusWarn, says: []string{"never run", "timer or cron"},
 		},
 		{
 			name: "a log far past what the rule rotates at",
@@ -978,16 +978,16 @@ func TestBrokerMemoryIsReportedAgainstItsBound(t *testing.T) {
 		says      string
 	}{
 		{name: "no bound at all", haveUsed: true, used: gb,
-			want: StatusWarn, says: "OOM killer"},
+			want: StatusWarn, says: "no MemoryMax"},
 		{name: "room to spare", used: gb, haveUsed: true, limit: 8 * gb, haveLimit: true,
-			want: StatusOK, says: "of the"},
+			want: StatusOK, says: " of "},
 		{name: "close to the bound", used: 7 * gb, haveUsed: true, limit: 8 * gb, haveLimit: true,
-			want: StatusWarn, says: "per byte of secret"},
+			want: StatusWarn, says: "remove secrets from the store"},
 		{name: "at the bound", used: 8 * gb, haveUsed: true, limit: 8 * gb, haveLimit: true,
-			want: StatusWarn, says: "nothing is redacted while it is down"},
+			want: StatusWarn, says: "of its 8.0 GB limit"},
 		// A bound with no reading beside it is still worth stating.
 		{name: "bounded, usage unknown", limit: 8 * gb, haveLimit: true,
-			want: StatusOK, says: "held to"},
+			want: StatusOK, says: "limit 8.0 GB"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var report Report
@@ -1120,7 +1120,7 @@ func TestAnUnboundedExecutorCgroupIsNotOK(t *testing.T) {
 	if finding.Status != StatusWarn {
 		t.Errorf("status = %q, want %q: %s", finding.Status, StatusWarn, finding.Detail)
 	}
-	if !strings.Contains(finding.Detail, "unbounded") {
+	if !strings.Contains(finding.Detail, "no MemoryMax") {
 		t.Errorf("the detail does not say what is missing: %s", finding.Detail)
 	}
 }

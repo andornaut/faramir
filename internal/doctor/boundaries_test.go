@@ -400,7 +400,7 @@ func TestDiagnoseUsernsReportsWhatTheUnitStoppedBounding(t *testing.T) {
 	if len(loose.Findings) != 1 || loose.Findings[0].Status != StatusWarn {
 		t.Fatalf("an open switch on a host that grants an escalation: %v", loose.Findings)
 	}
-	for _, want := range []string{"sysctl -w", "=1", "clone3"} {
+	for _, want := range []string{"sysctl -w", "=1"} {
 		if !strings.Contains(loose.Findings[0].Detail, want) {
 			t.Errorf("the finding does not mention %q: %s", want, loose.Findings[0].Detail)
 		}

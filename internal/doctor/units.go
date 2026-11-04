@@ -35,8 +35,8 @@ func SampleSockets() map[string]string {
 // activated, so an inactive service is ordinary.
 func diagnoseUnits(report *Report, opts Options) {
 	if !hostunit.Running() {
-		report.unaskedf("sockets", len(hostunit.Sockets), "systemd is not "+
-			"running here, so whether %d socket unit(s) are listening was not checked", len(hostunit.Sockets))
+		report.unaskedf("sockets", len(hostunit.Sockets), "systemd not running; "+
+			"%d socket unit(s) not checked", len(hostunit.Sockets))
 		return
 	}
 	// What the caller saw before it opened the broker socket. Reading the state
@@ -55,12 +55,11 @@ func diagnoseUnits(report *Report, opts Options) {
 		// socket known to be down: failing would point an operator at a
 		// journalctl that fails the same way.
 		if state == unitUnreportable {
-			report.unaskedf("sockets", 1, "systemctl could not report %s, so its "+
-				"state was not checked", socket)
+			report.unaskedf("sockets", 1, "systemctl could not report %s", socket)
 			continue
 		}
 		if state != hostunit.Active {
-			report.addf("sockets", StatusFailed, "%s is %s; check journalctl -u %s",
+			report.addf("sockets", StatusFailed, "%s is %s; check `journalctl -u %s`",
 				socket, state, socket)
 			continue
 		}
@@ -84,13 +83,13 @@ func diagnoseSocketEnablement(report *Report) {
 		if state == "" {
 			if err != nil {
 				report.unaskedf("sockets", 1, "systemctl could not report whether "+
-					"%s is enabled, so what happens at the next boot was not checked", socket)
+					"%s is enabled", socket)
 			}
 			continue
 		}
 		if state != "enabled" {
-			report.addf("sockets", StatusWarn, "%s is %s, so it does not come back "+
-				"at the next boot: `sudo systemctl enable %s`", socket, state, socket)
+			report.addf("sockets", StatusWarn, "%s is %s, not enabled at boot; "+
+				"run `sudo systemctl enable %s`", socket, state, socket)
 		}
 	}
 }
@@ -114,9 +113,8 @@ func diagnoseDropIns(report *Report) {
 		report.addf("unit drop-ins", StatusOK, "no drop-in overrides a faramir unit")
 		return
 	}
-	report.addf("unit drop-ins", StatusWarn, "%d faramir unit(s) carry a "+
-		"drop-in, so what runs is not what the installed unit says: %s. The other "+
-		"checks read the resolved values", len(dropIns), strings.Join(dropIns, "; "))
+	report.addf("unit drop-ins", StatusWarn, "%d faramir unit(s) overridden by a drop-in\n%s",
+		len(dropIns), strings.Join(dropIns, "\n"))
 }
 
 // gib renders a byte count the way an operator sizes one of these: the config
@@ -142,8 +140,7 @@ func gib(bytes int64) string {
 func diagnoseMemoryBounds(report *Report) {
 	const check = "memory bounds"
 	if !hostunit.Running() {
-		report.unaskedf(check, 1, "systemd is not running here, so what the "+
-			"executor's memory limits resolve to was not checked")
+		report.unaskedf(check, 1, "systemd not running; executor limits not checked")
 		return
 	}
 	maxMemory, haveMax := hostunit.Int(hostunit.ExecUnit, "MemoryMax")
@@ -158,29 +155,23 @@ func reportMemoryBounds(report *Report, perProcess int64, havePer bool,
 	const check = "memory bounds"
 	switch {
 	case !haveMax && !havePer:
-		report.addf(check, StatusWarn, "%s bounds neither the executor's memory "+
-			"nor one process's, so a runaway brokered command is bounded by the machine. "+
-			"`sudo faramir init` writes both", hostunit.ExecUnit)
+		report.addf(check, StatusWarn, "%s sets no MemoryMax or LimitDATA; "+
+			"run `sudo faramir init` to write both", hostunit.ExecUnit)
 	case !havePer:
-		report.addf(check, StatusWarn, "%s bounds the executor at %s and one "+
-			"process not at all, so a runaway is stopped by the OOM killer instead of by "+
-			"an allocation failure it can report", hostunit.ExecUnit, gib(maxMemory))
+		report.addf(check, StatusWarn, "%s sets MemoryMax %s and no LimitDATA; "+
+			"run `sudo faramir init` to write it", hostunit.ExecUnit, gib(maxMemory))
 	case !haveMax:
 		// The cgroup total is the half that catches fan-out, which no per-process
 		// bound sees, so its absence is the condition this check exists for.
-		report.addf(check, StatusWarn, "one brokered process may allocate %s, and "+
-			"the executor as a whole is unbounded, so fan-out is bounded by the "+
-			"machine. `sudo faramir init` writes MemoryMax back", gib(perProcess))
+		report.addf(check, StatusWarn, "%s sets LimitDATA %s and no MemoryMax; "+
+			"run `sudo faramir init` to write it", hostunit.ExecUnit, gib(perProcess))
 	case perProcess >= maxMemory:
-		report.addf(check, StatusWarn, "one process may allocate %s while the "+
-			"executor as a whole is held to %s, so the per-process bound is out of "+
-			"reach and a runaway meets the OOM killer. Lower [command] "+
-			"max_process_memory_mb below %d, or raise [command] max_memory_percent, "+
-			"then `sudo faramir init`",
+		report.addf(check, StatusWarn, "per-process limit %s is not below the "+
+			"executor's %s; set [command] max_process_memory_mb below %d, then run "+
+			"`sudo faramir init`",
 			gib(perProcess), gib(maxMemory), maxMemory/(1<<20))
 	default:
-		report.addf(check, StatusOK, "one brokered process may allocate %s, and "+
-			"every brokered command together %s",
+		report.addf(check, StatusOK, "%s per process, %s in all",
 			gib(perProcess), gib(maxMemory))
 	}
 }
@@ -197,8 +188,7 @@ func reportMemoryBounds(report *Report, perProcess int64, havePer bool,
 func diagnoseBrokerMemory(report *Report) {
 	const check = "broker memory"
 	if !hostunit.Running() {
-		report.unaskedf(check, 1, "systemd is not running here, so what the "+
-			"broker's memory limit resolves to was not checked")
+		report.unaskedf(check, 1, "systemd not running; broker limit not checked")
 		return
 	}
 	limit, haveLimit := hostunit.Int(hostunit.BrokerUnit, "MemoryMax")
@@ -219,25 +209,17 @@ func reportBrokerMemory(report *Report, used int64, haveUsed bool,
 	// that may hold nothing. Answered before the share below, which would
 	// divide by it.
 	case haveLimit && limit == 0:
-		report.addf(check, StatusFailed, "%s holds the broker to nothing, so it "+
-			"is killed as soon as it loads the value set. Remove the MemoryMax=0 drop-in, "+
-			"or run `sudo faramir init` to write the bound faramir renders",
-			hostunit.BrokerUnit)
+		report.addf(check, StatusFailed, "%s sets MemoryMax=0; remove that "+
+			"drop-in, or run `sudo faramir init`", hostunit.BrokerUnit)
 	case !haveLimit:
-		report.addf(check, StatusWarn, "%s puts no bound on the broker's "+
-			"memory, so a value set that outgrows the machine is answered by the host's "+
-			"OOM killer, which may kill something else. `sudo faramir init` writes the "+
-			"bound", hostunit.BrokerUnit)
+		report.addf(check, StatusWarn, "%s sets no MemoryMax; run `sudo faramir "+
+			"init` to write it", hostunit.BrokerUnit)
 	case !haveUsed:
-		report.addf(check, StatusOK, "the broker is held to %s", gib(limit))
+		report.addf(check, StatusOK, "limit %s", gib(limit))
 	case used*100/limit >= crowded:
-		report.addf(check, StatusWarn, "the broker holds %s of the %s it is "+
-			"allowed, and its memory is the size of the value set: roughly 15 KB per byte "+
-			"of secret. Past the bound it is killed and restarted, and nothing is "+
-			"redacted while it is down. Take secrets out of the store, or add memory to "+
-			"the machine", gib(used), gib(limit))
+		report.addf(check, StatusWarn, "broker uses %s of its %s limit; remove "+
+			"secrets from the store, or add memory", gib(used), gib(limit))
 	default:
-		report.addf(check, StatusOK, "the broker holds %s of the %s it is allowed",
-			gib(used), gib(limit))
+		report.addf(check, StatusOK, "%s of %s", gib(used), gib(limit))
 	}
 }

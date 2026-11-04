@@ -34,18 +34,16 @@ func diagnoseAgeKey(report *Report, opts Options, cfg *config.Config) {
 	accounts, skipped := opts.askable(opts.AgentUser, opts.BrokerUser, opts.ExecUser)
 	for _, account := range accounts {
 		if asaccount.CanRead(account, path) {
-			report.addf("age key", StatusFailed, "%s can read %s, so it can read "+
-				"every file this install has ever encrypted", account, path)
+			report.addf("age key", StatusFailed, "%s can read %s", account, path)
 			return
 		}
 	}
 	if skipped {
-		report.unaskedf("age key", 1, "%s, and %s cannot read it. The operator "+
-			"account is not named, so whether it can was not checked",
-			want, strings.Join(accounts, " or "))
+		report.unaskedf("age key", 1, "%s, unreadable by %s; agent account "+
+			"unknown, so not checked for it", want, strings.Join(accounts, " or "))
 		return
 	}
-	report.addf("age key", StatusOK, "%s, and only %s can read it", want, opts.KeeperUser)
+	report.addf("age key", StatusOK, "%s", want)
 }
 
 // diagnoseOperatorKeys checks what enrolling a tree granted. enrol
@@ -58,32 +56,27 @@ func diagnoseOperatorKeys(report *Report, opts Options) {
 	// No name to ask about is how doctor was invoked -- a root login shell, a cron
 	// job, a timer -- rather than anything wrong with the install.
 	if opts.AgentUser == "" {
-		report.unaskedf("agent keys", 1, "no agent account to check. Run doctor "+
-			"through sudo (SUDO_USER names the account), or record it with `sudo faramir init "+
-			"--agent-user`")
+		report.unaskedf("agent keys", 1, "agent account unknown; not checked\n"+agentUnknown)
 		return
 	}
 	// A name that was given and does not resolve is different: every finding here
 	// is about it, so a pass below would be about nobody.
 	entry, err := user.Lookup(opts.AgentUser)
 	if err != nil || entry.HomeDir == "" {
-		report.addf("agent keys", StatusFailed, "%s does not resolve to an "+
-			"account with a home (%v), and every check here is about that account. Record "+
-			"it with `sudo faramir init --agent-user`", opts.AgentUser, err)
+		report.addf("agent keys", StatusFailed, "%s has no home (%v); record the "+
+			"agent's account with `sudo faramir init --agent-user`", opts.AgentUser, err)
 		return
 	}
 	home := filepath.Clean(entry.HomeDir)
 	if !hostfs.Exists(home) {
 		// An encrypted home is absent until its owner logs in, which is a state
 		// this install is designed for rather than a fault.
-		report.unaskedf("agent keys", 1, "%s does not exist, so what a brokered "+
-			"command can read in it was not checked", home)
+		report.unaskedf("agent keys", 1, "%s does not exist", home)
 		return
 	}
 	if asaccount.CanRead(opts.ExecUser, home) {
-		report.addf("agent keys", StatusFailed, "%s can list %s: the home "+
-			"itself was enrolled instead of a tree inside it, so every credential in "+
-			"it is shared with the group. Enrolment grants traversal, not read", opts.ExecUser, home)
+		report.addf("agent keys", StatusFailed, "%s can list %s; enrol a tree "+
+			"inside the home, not the home itself", opts.ExecUser, home)
 		return
 	}
 	// Asked rather than assumed, the OK below claiming traversal: a home is
@@ -98,15 +91,12 @@ func diagnoseOperatorKeys(report *Report, opts Options) {
 		// home rather than the home, BlockingDir walking the way to a path and
 		// leaving that path's own mode to whoever opens it.
 		if blocked := asaccount.BlockingDir(opts.ExecUser, filepath.Join(home, "tree")); blocked != "" {
-			report.addf("agent keys", StatusFailed, "%s cannot traverse %s "+
-				"because it cannot enter %s, so no brokered command reaches an enrolled tree "+
-				"under it. `faramir enrol` grants the group execute bit this needs",
-				opts.ExecUser, home, blocked)
+			report.addf("agent keys", StatusFailed, "%s cannot enter %s, so not "+
+				"%s; run `faramir enrol` on the tree", opts.ExecUser, blocked, home)
 			return
 		}
-		report.addf("agent keys", StatusFailed, "%s cannot traverse %s, so no "+
-			"brokered command reaches an enrolled tree under it. `faramir enrol` grants "+
-			"it again", opts.ExecUser, home)
+		report.addf("agent keys", StatusFailed, "%s cannot traverse %s; run "+
+			"`faramir enrol` on the tree", opts.ExecUser, home)
 		return
 	}
 	// Named individually: traversal makes the home passable while its own mode
@@ -117,12 +107,11 @@ func diagnoseOperatorKeys(report *Report, opts Options) {
 			continue
 		}
 		if asaccount.CanRead(opts.ExecUser, path) {
-			report.addf("agent keys", StatusFailed, "%s can read %s, so a brokered "+
-				"command holds whatever is in it", opts.ExecUser, path)
+			report.addf("agent keys", StatusFailed, "%s can read %s", opts.ExecUser, path)
 			return
 		}
 	}
-	report.addf("agent keys", StatusOK, "%s can traverse %s and read nothing in it",
+	report.addf("agent keys", StatusOK, "%s traverses %s, reads nothing in it",
 		opts.ExecUser, home)
 }
 
@@ -134,8 +123,7 @@ func diagnoseAuditLog(report *Report, opts Options, cfg *config.Config) {
 	}
 	path := cfg.Audit.LogPath
 	if !hostfs.Exists(path) {
-		report.addf("audit log", StatusWarn, "%s does not exist yet; nothing has been "+
-			"brokered on this host", path)
+		report.addf("audit log", StatusWarn, "%s does not exist yet", path)
 		return
 	}
 	want := "0600 " + opts.BrokerUser
@@ -145,18 +133,16 @@ func diagnoseAuditLog(report *Report, opts Options, cfg *config.Config) {
 	accounts, skipped := opts.askable(opts.AgentUser, opts.ExecUser)
 	for _, account := range accounts {
 		if asaccount.CanRead(account, path) {
-			report.addf("audit log", StatusFailed, "%s can read %s, so it can "+
-				"also truncate it", account, path)
+			report.addf("audit log", StatusFailed, "%s can read %s", account, path)
 			return
 		}
 	}
 	if skipped {
-		report.unaskedf("audit log", 1, "%s, and %s cannot read it. The "+
-			"operator account is not named, so whether it can was not checked",
-			want, strings.Join(accounts, " or "))
+		report.unaskedf("audit log", 1, "%s, unreadable by %s; agent account "+
+			"unknown, so not checked for it", want, strings.Join(accounts, " or "))
 		return
 	}
-	report.addf("audit log", StatusOK, "%s, readable by nobody else", want)
+	report.addf("audit log", StatusOK, "%s", want)
 }
 
 // diagnoseSSHKey covers what the agent is for: the executor authenticates and
@@ -172,36 +158,29 @@ func diagnoseSSHKey(report *Report, opts Options, cfg *config.Config) {
 	operator, skipped := opts.askable(opts.AgentUser)
 	if key := cfg.Ssh.Key; hostfs.Exists(key) {
 		if asaccount.CanRead(opts.ExecUser, key) {
-			report.addf("ssh key", StatusFailed, "%s can read %s, so the agent gains "+
-				"nothing: a brokered command can take the key itself", opts.ExecUser, key)
+			report.addf("ssh key", StatusFailed, "%s can read %s", opts.ExecUser, key)
 			return
 		}
 		for _, account := range operator {
 			if asaccount.CanRead(account, key) {
-				report.addf("ssh key", StatusFailed, "%s can read %s, and the "+
-					"coding agent runs as that account, so the key is readable by the agent it "+
-					"was meant to be kept from", account, key)
+				report.addf("ssh key", StatusFailed, "%s (the agent) can read %s",
+					account, key)
 				return
 			}
 		}
 	}
 	if private := cfg.Ssh.AgentSocket + ".private"; hostfs.Exists(private) &&
 		asaccount.CanWrite(opts.ExecUser, private) {
-		report.addf("ssh key", StatusFailed, "%s can open %s, which is "+
-			"ssh-agent's own socket, so it bypasses the relay and reaches the whole agent "+
-			"protocol",
+		report.addf("ssh key", StatusFailed, "%s can open ssh-agent's own socket %s",
 			opts.ExecUser, private)
 		return
 	}
 	if skipped {
-		report.unaskedf("ssh key", 1, "%s can use the agent and read no key it "+
-			"holds. The agent account is not named, so whether it can read %s was not "+
-			"checked", opts.ExecUser, cfg.Ssh.Key)
+		report.unaskedf("ssh key", 1, "%s uses the agent, reads no key; agent "+
+			"account unknown, so %s not checked for it", opts.ExecUser, cfg.Ssh.Key)
 		return
 	}
 	// The executor alone, which is the account the probes above put the question
 	// to; naming the operator would claim a boundary nothing asked about.
-	report.addf("ssh key", StatusOK, "%s can use the agent and read no key it "+
-		"holds",
-		opts.ExecUser)
+	report.addf("ssh key", StatusOK, "%s uses the agent, reads no key", opts.ExecUser)
 }

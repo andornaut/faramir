@@ -32,7 +32,7 @@ func TestDoctorLinkedAccessIsUnaskedWithoutBothAccounts(t *testing.T) {
 		t.Errorf("status = %v, want neither a pass nor a verdict: %s",
 			finding.Status, finding.Detail)
 	}
-	if !strings.Contains(finding.Detail, "not asked") {
+	if !strings.Contains(finding.Detail, "not checked") {
 		t.Errorf("the finding does not say the question went unasked: %s", finding.Detail)
 	}
 }

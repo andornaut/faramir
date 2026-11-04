@@ -94,18 +94,16 @@ func Diagnose(opts Options) Report {
 	// examination of a host rather than of a name nothing on it has.
 	if opts.AgentUser != "" {
 		if _, err := hostfs.LookupUser(opts.AgentUser); err != nil {
-			report.addf("identities", StatusFailed, "there is no account %q on "+
-				"this host, so what the agent can reach was not examined. Name the account "+
-				"the coding agent runs as with `sudo faramir init --agent-user`", opts.AgentUser)
-			abandoned(&report, "the agent account does not resolve")
+			report.addf("identities", StatusFailed, "no account %q on this host; "+
+				"name the agent's account with `sudo faramir init --agent-user`", opts.AgentUser)
+			abandoned(&report, "no agent account")
 			return report
 		}
 	}
 
 	if !hostfs.Exists(configFile) {
-		report.addf(checkConfig, StatusFailed, "%s is missing; the daemons read "+
-			"it at startup and exit without it", configFile)
-		abandoned(&report, "there is no config to examine against")
+		report.addf(checkConfig, StatusFailed, "%s is missing", configFile)
+		abandoned(&report, "no config")
 		return report
 	}
 	report.addf(checkConfig, StatusOK, "%s", configFile)
@@ -114,7 +112,7 @@ func Diagnose(opts Options) Report {
 	// sockets moved is examined at addresses nothing uses.
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		report.addf(checkConfig, StatusFailed, "%s does not load: %v", configFile, err)
+		report.addf(checkConfig, StatusFailed, "%s does not load\n%v", configFile, err)
 		abandoned(&report, "the config did not load")
 		return report
 	}
@@ -128,7 +126,7 @@ func Diagnose(opts Options) Report {
 	// would be repeated as a confident answer by all of them.
 	opts, ok := resolveIdentities(&report, opts, cfg)
 	if !ok {
-		abandoned(&report, "the install's identities did not resolve")
+		abandoned(&report, "identities did not resolve")
 		return report
 	}
 
@@ -231,14 +229,10 @@ func diagnoseVersion(report *Report, opts Options) {
 		// A broker that is running answers this even when it refuses the
 		// request for naming another version, every error naming the build
 		// that answered, so nothing here is a broker that is not up.
-		report.unaskedf("version", 1, "the broker did not answer, so which build "+
-			"is running is unknown; this binary is %s", version.Version)
+		report.unaskedf("version", 1, "broker did not answer; this binary is %s", version.Version)
 	case opts.BrokerVersion != version.Version:
-		report.addf("version", StatusFailed, "the broker is running %s and this "+
-			"binary is %s, so the daemons were never restarted after the install, and "+
-			"every check against the broker describes the wrong build. Run `sudo faramir "+
-			"reload`",
-			opts.BrokerVersion, version.Version)
+		report.addf("version", StatusFailed, "broker runs %s, this binary is %s; "+
+			"run `sudo faramir reload`", opts.BrokerVersion, version.Version)
 	// Same version, different build. Every unstamped binary reports "dev", so
 	// the comparison above passes between two of them and this is what catches
 	// a daemon left on the binary it was started from. Both sides have to name
@@ -246,16 +240,14 @@ func diagnoseVersion(report *Report, opts Options) {
 	// neither does a broker older than the field.
 	case version.Build != "" && opts.BrokerBuild != "" &&
 		opts.BrokerBuild != version.Build:
-		report.addf("version", StatusFailed, "the broker and this binary are "+
-			"both %s but are different builds, %s against %s, so the daemons were never "+
-			"restarted after the install, and every check against the broker describes "+
-			"the wrong build. Run `sudo faramir reload`",
+		report.addf("version", StatusFailed, "broker runs %s build %s, this binary "+
+			"is build %s; run `sudo faramir reload`",
 			version.Version, opts.BrokerBuild, version.Build)
 	case version.Build != "":
-		report.addf("version", StatusOK, "broker and binary are both %s (%s)",
+		report.addf("version", StatusOK, "%s (%s)",
 			version.Version, version.Build)
 	default:
-		report.addf("version", StatusOK, "broker and binary are both %s", version.Version)
+		report.addf("version", StatusOK, "%s", version.Version)
 	}
 }
 
@@ -267,9 +259,8 @@ func diagnoseVersion(report *Report, opts Options) {
 // keeper socket, the SSH keys and the secrets files itself.
 func diagnoseBroker(report *Report, configFile, brokerUser string) brokerServes {
 	if os.Geteuid() != 0 {
-		report.unaskedf("broker", 1, "--check was not run: it has to run as %s, "+
-			"and any other account gets an answer that is not the broker's. Run doctor as "+
-			"root", brokerUser)
+		report.unaskedf("broker", 1, "--check not run: it runs as %s; "+
+			"run doctor as root", brokerUser)
 		return servesUnknown
 	}
 	// Read the report before the exit code is judged. --check exits non-zero on
@@ -283,10 +274,10 @@ func diagnoseBroker(report *Report, configFile, brokerUser string) brokerServes 
 	var check brokercheck.CheckReport
 	if err := json.Unmarshal([]byte(out), &check); err != nil {
 		if checkErr != nil {
-			report.addf("broker", StatusFailed, "--check failed as %s: %v", brokerUser, checkErr)
+			report.addf("broker", StatusFailed, "--check failed as %s\n%s", brokerUser, childCause(checkErr))
 			return servesUnknown
 		}
-		report.addf("broker", StatusFailed, "could not read the --check report: %v", err)
+		report.addf("broker", StatusFailed, "--check report unreadable\n%v", err)
 		return servesUnknown
 	}
 	return judgeBrokerCheck(report, brokerUser, check, checkErr)
@@ -315,9 +306,8 @@ func judgeBrokerCheck(report *Report, brokerUser string, check brokercheck.Check
 	// over, and doctor saying warn where status says fail would leave the two
 	// describing different hosts.
 	if len(check.Secrets.NotRedactable) > 0 {
-		report.addf("refused refs", StatusFailed, "%d ref(s) cannot be "+
-			"redacted, so they are never injected and never redacted: %s. Fix each with "+
-			"`sudo faramir vault edit`; the reason beside each says what to change",
+		report.addf("refused refs", StatusFailed, "%d ref(s) cannot be redacted and "+
+			"are not served; fix each with `sudo faramir vault edit`\n%s",
 			len(check.Secrets.NotRedactable), check.RefusedRefs())
 		explained = true
 	}
@@ -327,10 +317,9 @@ func judgeBrokerCheck(report *Report, brokerUser string, check brokercheck.Check
 	// difference is that a short value is knowingly outside the redactor and this
 	// one is not, which is why it is named rather than left to a daemon log line.
 	if len(check.Secrets.ShadowedRefs) > 0 {
-		report.addf("shadowed refs", StatusFailed, "%d ref(s) are defined with "+
-			"different values in more than one managed file, so one of the values is in "+
-			"no redactor and a command that prints it prints it in the clear: %s. Remove "+
-			"the ref from one file with `sudo faramir vault edit`",
+		report.addf("shadowed refs", StatusFailed, "%d ref(s) are defined differently "+
+			"in more than one managed file, one value not redacted; remove each from one "+
+			"file with `sudo faramir vault edit`\n%s",
 			len(check.Secrets.ShadowedRefs), brokercheck.RefsWithReasons(check.Secrets.ShadowedRefs))
 		explained = true
 	}
@@ -347,10 +336,8 @@ func judgeBrokerCheck(report *Report, brokerUser string, check brokercheck.Check
 	// A failure: the ref answers nothing, and nothing else surfaces that until a
 	// command asks for it.
 	if len(check.Secrets.DegradedLinks) > 0 {
-		report.addf("linked refs", StatusFailed, "%s did not load, so those "+
-			"refs answer nothing while every other ref is served: %s. Fix each file, then "+
-			"`sudo systemctl restart faramir-broker`: the broker fingerprints a linked "+
-			"file by mtime and size, so a repair that changes neither is not noticed",
+		report.addf("linked refs", StatusFailed, "%s did not load; fix each, then "+
+			"run `sudo systemctl restart faramir-broker`\n%s",
 			brokercheck.LinkEntries(len(check.Secrets.DegradedLinks)), check.DegradedRefs())
 		explained = true
 	}
@@ -360,7 +347,7 @@ func judgeBrokerCheck(report *Report, brokerUser string, check brokercheck.Check
 	// failed.
 	if checkErr != nil && !explained {
 		report.addf("broker", StatusFailed, "--check failed as %s for a reason not "+
-			"reported above: %v", brokerUser, checkErr)
+			"reported above\n%s", brokerUser, childCause(checkErr))
 	}
 	// A probe that ran a brokered command against a refusing broker would report
 	// the refusal as whatever it was probing for.

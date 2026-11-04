@@ -27,8 +27,7 @@ func diagnoseKnownHosts(report *Report, opts Options, cfg *config.Config) {
 	layout := hostlayout.Layout{ExecUser: opts.ExecUser}
 	path := layout.ExecKnownHosts()
 	if os.Geteuid() != 0 {
-		report.unaskedf("known hosts", 1, "not asked: reading %s needs root, "+
-			"because the executor's home is 0700", path)
+		report.unaskedf("known hosts", 1, "%s needs root to read", path)
 		return
 	}
 	// Counted as root and read as the executor, which are different questions:
@@ -52,17 +51,14 @@ func diagnoseKnownHosts(report *Report, opts Options, cfg *config.Config) {
 	// whole fleet.
 	ignored := ""
 	if len(unreadable) > 0 {
-		ignored = fmt.Sprintf(". %s cannot read %s, so it verifies nothing; "+
-			"sudo chmod a+r %s", opts.ExecUser, strings.Join(unreadable, " or "),
-			strings.Join(unreadable, " "))
+		ignored = fmt.Sprintf("; %s cannot read %s: run `sudo chmod a+r %s`",
+			opts.ExecUser, strings.Join(unreadable, " or "), strings.Join(unreadable, " "))
 	}
 	if own+global == 0 {
-		report.addf("known hosts", StatusOK, "neither %s nor %s holds a host key the "+
-			"executor can read, so a brokered ssh refuses a managed host before the "+
-			"broker's key is offered. Pin them with `init --known-hosts`, or write %s, "+
-			"which every account reads%s", knownhosts.GlobalFile, path, knownhosts.GlobalFile, ignored)
+		report.addf("known hosts", StatusOK, "no host key in %s or %s; pin them "+
+			"with `init --known-hosts`%s", knownhosts.GlobalFile, path, ignored)
 		return
 	}
-	report.addf("known hosts", StatusOK, "%d host key(s) a brokered ssh verifies against "+
-		"(%d in %s, %d in %s)%s", own+global, global, knownhosts.GlobalFile, own, path, ignored)
+	report.addf("known hosts", StatusOK, "%d host key(s): %d in %s, %d in %s%s",
+		own+global, global, knownhosts.GlobalFile, own, path, ignored)
 }

@@ -31,19 +31,16 @@ func diagnoseBrokered(report *Report, opts Options, cfg *config.Config, serves b
 	// back as a boundary that does not hold.
 	switch serves {
 	case servesNothing:
-		report.unaskedf("brokered command", 1, "not asked: a managed file did "+
-			"not load, so the broker would refuse the command")
+		report.unaskedf("brokered command", 1, "not asked: a managed file did not load")
 		return
 	case servesUnknown:
-		report.unaskedf("brokered command", 1, "not asked: --check did not "+
-			"report, so whether the broker would refuse the command is unknown")
+		report.unaskedf("brokered command", 1, "not asked: --check did not report")
 		return
 	case servesValues:
 		// The command is sent, which is the rest of this function.
 	}
 	if opts.BrokerVersion == "" {
-		report.unaskedf("brokered command", 1, "not asked: the broker did not "+
-			"answer, so the command could not be sent")
+		report.unaskedf("brokered command", 1, "not asked: the broker did not answer")
 		return
 	}
 	faramir := filepath.Join(hostlayout.DefaultBinDir, "faramir")
@@ -58,13 +55,13 @@ func diagnoseBrokered(report *Report, opts Options, cfg *config.Config, serves b
 			report.unaskedf("brokered command", 1, "not asked: %s", why)
 			return
 		}
-		report.addf("brokered command", StatusFailed, "%s could not run one: %v",
-			opts.AgentUser, err)
+		report.addf("brokered command", StatusFailed, "%s could not run one\n%s",
+			opts.AgentUser, childCause(err))
 		return
 	}
 	if got := strings.TrimSpace(out); got != opts.ExecUser {
-		report.addf("brokered command", StatusFailed, "runs as %s, expected %s: it is "+
-			"holding whatever that account can reach", got, opts.ExecUser)
+		report.addf("brokered command", StatusFailed, "runs as %s, expected %s",
+			got, opts.ExecUser)
 		return
 	}
 	// The key arrives through LoadCredential=, so the credential directory and
@@ -89,22 +86,19 @@ func diagnoseBrokered(report *Report, opts Options, cfg *config.Config, serves b
 			// A probe that did not run answered nothing: scoring it clean would
 			// pass the boundary on a broken probe, and scoring it a leak would
 			// fail a healthy host over one.
-			report.unaskedf("brokered command", 1, "the %s probe could not run "+
-				"(%v), so whether the age key reaches a child there was not checked",
-				leak.name, err)
+			report.unaskedf("brokered command", 1, "the %s probe could not run\n%s",
+				leak.name, childCause(err))
 			return
 		case got == "readable":
 			report.addf("brokered command", StatusFailed, "the age key reaches a child "+
-				"through %s; inspect it by hand", leak.name)
+				"through %s", leak.name)
 			return
 		case got != "clean":
-			report.unaskedf("brokered command", 1, "the %s probe answered something "+
-				"other than its own verdict, so it was not read", leak.name)
+			report.unaskedf("brokered command", 1, "the %s probe gave no verdict", leak.name)
 			return
 		}
 	}
-	report.addf("brokered command", StatusOK, "runs as %s, and the age key reaches it "+
-		"through neither the environment nor a credential", opts.ExecUser)
+	report.addf("brokered command", StatusOK, "runs as %s, no age key", opts.ExecUser)
 	diagnoseRedaction(report, opts, cfg)
 }
 
@@ -117,50 +111,48 @@ func diagnoseBrokered(report *Report, opts Options, cfg *config.Config, serves b
 func diagnoseRedaction(report *Report, opts Options, cfg *config.Config) {
 	const name = "redaction"
 	if cfg == nil {
-		report.unaskedf(name, 1, "the config did not load, so no probe value was sealed")
+		report.unaskedf(name, 1, "not exercised: the config did not load")
 		return
 	}
 	sops, err := exec.LookPath("sops")
 	if err != nil {
-		report.unaskedf(name, 1, "sops is not on this PATH, so no probe value "+
-			"could be sealed and redaction was not exercised")
+		report.unaskedf(name, 1, "not exercised: sops not on PATH")
 		return
 	}
 	target := filepath.Join(opts.ConfigDir, "secrets", "doctor-probe.sops.yml")
 	if hostfs.Exists(target) {
-		report.unaskedf(name, 1, "%s already exists, so no probe was written over it", target)
+		report.unaskedf(name, 1, "not exercised: %s already exists; remove it", target)
 		return
 	}
 	value := make([]byte, 16)
 	if _, err := cryptorand.Read(value); err != nil {
-		report.unaskedf(name, 1, "no randomness for a probe value: %v", err)
+		report.unaskedf(name, 1, "not exercised: no randomness\n%v", err)
 		return
 	}
 	plainDir, err := os.MkdirTemp("", "faramir-doctor")
 	if err != nil {
-		report.unaskedf(name, 1, "no directory for the probe's plaintext: %v", err)
+		report.unaskedf(name, 1, "not exercised: no temporary directory\n%v", err)
 		return
 	}
 	defer func() { _ = os.RemoveAll(plainDir) }()
 	plain := filepath.Join(plainDir, "probe.yml")
 	body := "doctor:\n  probe: " + hex.EncodeToString(value) + "\n"
 	if err := os.WriteFile(plain, []byte(body), 0o600); err != nil {
-		report.unaskedf(name, 1, "could not write the probe's plaintext: %v", err)
+		report.unaskedf(name, 1, "not exercised: probe plaintext not written\n%v", err)
 		return
 	}
 	sealed, err := runcmd.OutputWithin(time.Minute, sops,
 		"--config", filepath.Join(opts.ConfigDir, ".sops.yaml"),
 		"--encrypt", "--filename-override", target, plain)
 	if err != nil {
-		report.unaskedf(name, 1, "could not seal a probe value (%v), so "+
-			"redaction was not exercised. The `sops config` and `rule coverage` checks "+
-			"say why", err)
+		report.unaskedf(name, 1, "not exercised: sops refused the probe value\n%s",
+			childCause(err))
 		return
 	}
 	// 0640 into the setgid store, which hands the keeper's group over, exactly
 	// as a managed file is written.
 	if err := os.WriteFile(target, []byte(sealed), 0o640); err != nil { //nolint:gosec // G306: the store's own mode; the file is ciphertext and the keeper's group must read it
-		report.unaskedf(name, 1, "could not write the probe into the store: %v", err)
+		report.unaskedf(name, 1, "not exercised: probe not written to the store\n%v", err)
 		return
 	}
 	// Removed and refreshed out whatever happens below, so the probe never
@@ -170,7 +162,7 @@ func diagnoseRedaction(report *Report, opts Options, cfg *config.Config) {
 		_ = refreshStore(cfg.Server.SocketPath)
 	}()
 	if why := refreshStore(cfg.Server.SocketPath); why != "" {
-		report.unaskedf(name, 1, "the broker did not take the probe value: %s", why)
+		report.unaskedf(name, 1, "not exercised: the broker did not load the probe\n%s", why)
 		return
 	}
 	faramir := filepath.Join(hostlayout.DefaultBinDir, "faramir")
@@ -178,18 +170,17 @@ func diagnoseRedaction(report *Report, opts Options, cfg *config.Config) {
 		"--env", "FARAMIR_DOCTOR_PROBE=faramir://doctor/probe", "--",
 		"printenv", "FARAMIR_DOCTOR_PROBE")
 	if err != nil {
-		report.addf(name, StatusFailed, "could not run the probe: %v", err)
+		report.addf(name, StatusFailed, "probe command failed\n%s", childCause(err))
 		return
 	}
 	// The whole output has to be the probe's own token: a substring match
 	// would pass a value redacted in part.
 	if strings.TrimSpace(probe) != redact.TokenFor("doctor/probe") {
-		report.addf(name, StatusFailed, "a command that printed the sealed "+
-			"probe value did not return its token, so injected values reach output "+
-			"unredacted. The probe value was synthetic and has been removed")
+		report.addf(name, StatusFailed, "a printed probe value came back unredacted "+
+			"(synthetic, now removed)")
 		return
 	}
-	report.addf(name, StatusOK, "a sealed probe value came back as its token")
+	report.addf(name, StatusOK, "probe value came back as its token")
 }
 
 // refreshStore asks the running broker to re-read the managed store, the same
@@ -197,12 +188,12 @@ func diagnoseRedaction(report *Report, opts Options, cfg *config.Config) {
 func refreshStore(socketPath string) string {
 	conn, err := brokerclient.Dial(socketPath, 2*time.Second, 1<<20)
 	if err != nil {
-		return fmt.Sprintf("the broker could not be reached: %v", err)
+		return fmt.Sprintf("broker unreachable: %v", err)
 	}
 	defer conn.Close()
 	line, err := conn.Exchange(map[string]any{"op": "refresh"}, 10*time.Minute)
 	if err != nil {
-		return fmt.Sprintf("the broker did not answer the refresh: %v", err)
+		return fmt.Sprintf("refresh unanswered: %v", err)
 	}
 	var response struct {
 		Error *struct {
@@ -210,7 +201,7 @@ func refreshStore(socketPath string) string {
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(line, &response); err != nil {
-		return "the refresh answer was not readable"
+		return "refresh answer unreadable"
 	}
 	if response.Error != nil {
 		return response.Error.Message

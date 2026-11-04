@@ -22,14 +22,13 @@ import (
 func diagnoseLinkedAccess(report *Report, opts Options, cfg *config.Config) {
 	const name = "linked file access"
 	if len(cfg.Secret.Links) == 0 {
-		report.addf(name, StatusOK, "no [[secret.link]] entries are configured")
+		report.addf(name, StatusOK, "no [[secret.link]] entries")
 		return
 	}
 	accounts, skipped := opts.askable(opts.BrokerUser, opts.ExecUser)
 	if skipped || len(accounts) < 2 {
-		report.unaskedf(name, len(cfg.Secret.Links), "the broker and executor "+
-			"accounts are not both named, so whether the %d linked file(s) are "+
-			"readable was not asked", len(cfg.Secret.Links))
+		report.unaskedf(name, len(cfg.Secret.Links), "broker or executor account "+
+			"unknown; %d linked file(s) not checked", len(cfg.Secret.Links))
 		return
 	}
 	// The question is put by being those accounts, which runuser needs root for.
@@ -38,10 +37,8 @@ func diagnoseLinkedAccess(report *Report, opts Options, cfg *config.Config) {
 	// question that cannot be asked is unasked, not a verdict, which is the
 	// contract every other boundary check keeps.
 	if os.Geteuid() != 0 {
-		report.unaskedf(name, len(cfg.Secret.Links), "whether the %d linked "+
-			"file(s) are readable by %s and not by %s can only be checked as those "+
-			"accounts. Run doctor as root", len(cfg.Secret.Links),
-			opts.BrokerUser, opts.ExecUser)
+		report.unaskedf(name, len(cfg.Secret.Links), "%d linked file(s) not "+
+			"checked; run doctor as root", len(cfg.Secret.Links))
 		return
 	}
 
@@ -55,7 +52,7 @@ func diagnoseLinkedAccess(report *Report, opts Options, cfg *config.Config) {
 			// The directory, where that is what refuses: the remedy below is about
 			// the file's own group and mode, and neither is the problem here.
 			if dir := asaccount.BlockingDir(opts.BrokerUser, link.Path); dir != "" {
-				entry += fmt.Sprintf(", which it cannot enter %s to reach", dir)
+				entry += fmt.Sprintf(": cannot enter %s", dir)
 			}
 			unreadable = append(unreadable, entry)
 		case asaccount.CanRead(opts.ExecUser, link.Path):
@@ -65,25 +62,18 @@ func diagnoseLinkedAccess(report *Report, opts Options, cfg *config.Config) {
 
 	switch {
 	case len(reachable) > 0:
-		report.addf(name, StatusFailed, "%s can read a linked file directly, so "+
-			"a brokered command reaches the plaintext without asking for the ref, and the "+
-			"redactor never sees it: %s", opts.ExecUser,
-			strings.Join(reachable, ", "))
+		report.addf(name, StatusFailed, "%s can read linked file(s) directly\n%s",
+			opts.ExecUser, strings.Join(reachable, "\n"))
 	case len(unreadable) > 0:
-		report.addf(name, StatusFailed, "%s cannot read a linked file, so that "+
-			"ref is refused while the plaintext is still on disk. A tool that rewrites "+
-			"its own file changes the group; `sudo chgrp %s PATH && sudo chmod g+r PATH` "+
-			"puts it back: %s", opts.BrokerUser, asaccount.GroupNameOf(opts.BrokerUser),
-			strings.Join(unreadable, ", "))
+		report.addf(name, StatusFailed, "%s cannot read linked file(s); run "+
+			"`sudo chgrp %s PATH && sudo chmod g+r PATH`\n%s", opts.BrokerUser,
+			asaccount.GroupNameOf(opts.BrokerUser), strings.Join(unreadable, "\n"))
 	case len(absent) > 0:
-		report.addf(name, StatusFailed, "%d linked file(s) are readable by %s "+
-			"alone; %d are missing, so those refs answer nothing. Either the credential "+
-			"has left the machine and the entry should go with `faramir link rm REF`, or "+
-			"the home holding it is not mounted: %s",
-			len(cfg.Secret.Links)-len(absent), opts.BrokerUser, len(absent),
-			strings.Join(absent, ", "))
+		report.addf(name, StatusFailed, "%d linked file(s) missing; mount the "+
+			"home holding them, or run `faramir link rm REF`\n%s",
+			len(absent), strings.Join(absent, "\n"))
 	default:
-		report.addf(name, StatusOK, "%d linked file(s) readable by %s and not by %s",
-			len(cfg.Secret.Links), opts.BrokerUser, opts.ExecUser)
+		report.addf(name, StatusOK, "%d linked file(s), %s only",
+			len(cfg.Secret.Links), opts.BrokerUser)
 	}
 }

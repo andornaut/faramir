@@ -192,6 +192,11 @@ func runDoctor(f doctorFlags) int {
 // printDiagnosis lays the findings out as status, check, detail. The check is
 // named once per run of findings that share it, and the detail wraps under
 // itself rather than being cut at the terminal edge.
+//
+// A detail's first line is the problem and its fix, printed beside the status.
+// Each further line is detail under it, indented two columns past the first.
+// A pass prints its first line only, so a healthy host reads as one line per
+// check; --json carries the whole detail either way.
 func printDiagnosis(w io.Writer, paint termui.Palette, report doctor.Report) {
 	statusWidth := columns(statusColumn(doctor.StatusFailed)) // the longest
 	name := 0
@@ -217,13 +222,26 @@ func printDiagnosis(w io.Writer, paint termui.Palette, report doctor.Report) {
 		// one command an operator runs to find out whether the install is sound.
 		// Escaping first also keeps the wrap honest, the escaped form being what
 		// takes up the width.
+		paragraphs := strings.Split(finding.Detail, "\n")
+		if finding.Status == doctor.StatusOK {
+			paragraphs = paragraphs[:1]
+		}
 		first, rest := "", []string(nil)
-		if lines := termui.Wrap(termsafe.Line(finding.Detail), termui.Width()-indent); len(lines) > 0 {
+		if lines := termui.Wrap(termsafe.Line(paragraphs[0]), termui.Width()-indent); len(lines) > 0 {
 			first, rest = lines[0], lines[1:]
 		}
 		_, _ = fmt.Fprintf(w, "%s  %-*s  %s\n", paintStatus(paint, finding.Status), name, label, first)
 		for _, line := range rest {
 			_, _ = fmt.Fprintf(w, "%*s%s\n", indent, "", line)
+		}
+		for _, paragraph := range paragraphs[1:] {
+			paragraph = strings.TrimSpace(paragraph)
+			if paragraph == "" {
+				continue
+			}
+			for _, line := range termui.Wrap(termsafe.Line(paragraph), termui.Width()-indent-2) {
+				_, _ = fmt.Fprintf(w, "%*s%s\n", indent+2, "", line)
+			}
 		}
 	}
 	if len(report.Findings) == 0 {

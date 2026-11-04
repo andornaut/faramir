@@ -19,10 +19,6 @@ func finding(t *testing.T, report Report, agent string) Finding {
 		if f.Name == "agent rules" && strings.HasPrefix(f.Detail, agent+":") {
 			return f
 		}
-		// The failed row leads with the agent and a verb rather than a colon.
-		if f.Name == "agent rules" && strings.HasPrefix(f.Detail, agent+" is installed") {
-			return f
-		}
 	}
 	t.Fatalf("no row for %s in %+v", agent, report.Findings)
 	return Finding{}
@@ -57,7 +53,7 @@ func TestAgentRulesAreNotAFaultWhereNobodyRunsTheAgent(t *testing.T) {
 	if got.Status != StatusNA {
 		t.Errorf("status = %q, want %q: %s", got.Status, StatusNA, got.Detail)
 	}
-	if !strings.Contains(got.Detail, "nothing here") {
+	if !strings.Contains(got.Detail, "not used") {
 		t.Errorf("detail does not say the agent is absent: %s", got.Detail)
 	}
 }

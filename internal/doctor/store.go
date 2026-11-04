@@ -28,18 +28,19 @@ func storeFinding(c brokercheck.CheckReport) (Status, string) {
 		// First, and on its own: the daemon refuses every redacted op while one
 		// file did not load, whatever else did, so a ref count beside it would
 		// describe a store that is not being served.
-		return StatusFailed, brokercheck.LoadErrorDetail(c.Secrets.Errors)
+		return StatusFailed, "managed file(s) did not load\n" +
+			strings.Join(c.Secrets.Errors, "\n")
 	case len(c.Secrets.Patterns) == 0 && c.Secrets.Links == 0:
-		return StatusWarn, "no managed sops files and no [[secret.link]] entries are configured, so commands " +
-			"run with nothing injected and nothing redacted"
+		return StatusWarn, "no managed sops files or [[secret.link]] entries " +
+			"configured; nothing is injected or redacted"
 	case len(c.Secrets.UnresolvedPatterns) > 0:
 		// A warning rather than a failure, because this cannot tell a host that
 		// keeps no store from one whose store went missing: the pattern is derived
 		// from the config directory, so it is on every install and names nothing
 		// until a first file is written. What is served is reported beside it,
 		// that being what tells an operator which of the two they are looking at.
-		detail := fmt.Sprintf("%s, so %s",
-			strings.Join(c.Secrets.UnresolvedPatterns, "; "), c.StoreHolds())
+		detail := fmt.Sprintf("%s\n%s", c.StoreHolds(),
+			strings.Join(c.Secrets.UnresolvedPatterns, "\n"))
 		// An entry that could not be searched at all is the exception to the
 		// paragraph above: no host waiting for its first secret looks like a
 		// directory this account may not read, so there is nothing here to
@@ -52,20 +53,18 @@ func storeFinding(c brokercheck.CheckReport) (Status, string) {
 		// that names a directory it could not read has already said why, and
 		// being told to go and write a file sends the operator past it.
 		if brokercheck.EveryEntryOnlyMissedAMatch(c.Secrets.UnresolvedPatterns) {
-			detail += ". Either the secrets have not been written yet, or they " +
-				"are on a filesystem that is not mounted"
+			detail += "\nnot written yet, or on a filesystem that is not mounted"
 		}
 		return StatusWarn, detail
 	case c.Secrets.Count == 0 && len(c.Secrets.Files) == 0:
 		// Reachable on an install whose secrets are all linked and whose links have
 		// all gone: nothing was read, so there is no file to name.
-		return StatusWarn, fmt.Sprintf("no managed file was read and %s produced "+
-			"no value, so nothing is injectable and nothing is redacted",
+		return StatusWarn, fmt.Sprintf("no managed file read and %s produced "+
+			"no value; nothing is injected or redacted",
 			brokercheck.LinkEntries(c.Secrets.Links))
 	case c.Secrets.Count == 0:
-		return StatusWarn, fmt.Sprintf("read %s and loaded no refs, so nothing is "+
-			"injectable and nothing is redacted",
-			strings.Join(c.Secrets.Files, ", "))
+		return StatusWarn, fmt.Sprintf("%s loaded no refs; nothing is injected "+
+			"or redacted", strings.Join(c.Secrets.Files, ", "))
 	}
 	return StatusOK, fmt.Sprintf("%d ref(s) from %d file(s)%s",
 		c.Secrets.Count, len(c.Secrets.Files), c.LinkNote())

@@ -1,6 +1,44 @@
 package doctor
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
+)
+
+// agentUnknown is the fix for every check skipped for want of the agent
+// account's name.
+const agentUnknown = "run doctor through sudo (SUDO_USER names the agent " +
+	"account), or record it with `sudo faramir init --agent-user`"
+
+// childCause is a failed child's own words: the stderr runcmd folds into its
+// error after "<argv>: exit status N: ", one detail line per non-blank line.
+// The argv and the exit status are dropped. A child that wrote nothing is its
+// exit status alone, and an error from anything but an exited child is
+// returned whole.
+func childCause(err error) string {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return err.Error()
+	}
+	marker := ": " + exit.Error() + ":"
+	text := err.Error()
+	at := strings.Index(text, marker)
+	if at < 0 {
+		return text
+	}
+	var lines []string
+	for line := range strings.SplitSeq(text[at+len(marker):], "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return exit.Error()
+	}
+	return strings.Join(lines, "\n")
+}
 
 // Status is a finding's verdict.
 //
@@ -73,6 +111,5 @@ func (d *Report) merge(other Report) {
 // off the list rather than kept as a constant beside it: a constant is a second
 // place to change when a check is added, and nothing fails when it is not.
 func abandoned(report *Report, why string) {
-	report.unaskedf("examination", len(checks), "every other check was not "+
-		"run: %s", why)
+	report.unaskedf("examination", len(checks), "every other check not run: %s", why)
 }

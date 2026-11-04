@@ -39,10 +39,8 @@ func diagnoseGroup(report *Report, opts Options) {
 	// behind, and the remedy printed would be the one change that shuts the agent
 	// out of the broker socket.
 	if opts.AgentUser == "" {
-		report.unaskedf("client group", len(groups), "the agent account is not "+
-			"named, so a member of %s cannot be told from an account left behind. Run "+
-			"doctor through sudo (SUDO_USER names the account), or record it with "+
-			"`sudo faramir init --agent-user`", opts.ClientGroup)
+		report.unaskedf("client group", len(groups), "agent account unknown; %s "+
+			"not checked\n"+agentUnknown, opts.ClientGroup)
 		return
 	}
 	// The agent's account belongs in the client group and nowhere near the
@@ -67,13 +65,12 @@ func diagnoseGroup(report *Report, opts Options) {
 func diagnoseGroupOutsiders(report *Report, label, name string, known []string, grants string) {
 	gid, members, err := groupEntry(name)
 	if err != nil {
-		report.addf(label, StatusFailed, "no group %q, so nothing can %s", name, grants)
+		report.addf(label, StatusFailed, "no group %q", name)
 		return
 	}
 	primary, err := primaryMembers(gid)
 	if err != nil {
-		report.addf(label, StatusFailed, "could not read which accounts have %s "+
-			"as their primary group (%v), so who can %s went unverified", name, err, grants)
+		report.addf(label, StatusFailed, "primary members of %s unreadable\n%v", name, err)
 		return
 	}
 	var outsiders []string
@@ -84,13 +81,12 @@ func diagnoseGroupOutsiders(report *Report, label, name string, known []string, 
 		}
 	}
 	if len(outsiders) == 0 {
-		report.addf(label, StatusOK, "%s has no unexpected members", name)
+		report.addf(label, StatusOK, "%s", name)
 		return
 	}
-	report.addf(label, StatusWarn, "%s has members this install does not use: "+
-		"%s. Membership lets them %s. Drop one with: gpasswd -d <account> %s, or "+
-		"usermod -g <other> <account> where it is the primary group",
-		name, strings.Join(outsiders, ", "), grants, name)
+	report.addf(label, StatusWarn, "%s has members that can %s; run `gpasswd -d "+
+		"<account> %s`, or `usermod -g` where it is the primary group\n%s",
+		name, grants, name, strings.Join(outsiders, ", "))
 }
 
 // passwdFile is where the accounts are. A variable so a test can point at one
@@ -166,9 +162,8 @@ func resolveIdentities(report *Report, opts Options, cfg *config.Config) (Option
 		}
 		account, err := hostunit.User(role.unit)
 		if err != nil {
-			report.addf("identities", StatusFailed, "cannot tell which account "+
-				"runs %s (%v), so the checks below have no account to ask about. Reinstall, "+
-				"or pass %s", role.unit, err, role.flag)
+			report.addf("identities", StatusFailed, "account running %s unknown; "+
+				"pass %s\n%v", role.unit, role.flag, err)
 			return opts, false
 		}
 		*role.into = account
@@ -176,9 +171,8 @@ func resolveIdentities(report *Report, opts Options, cfg *config.Config) (Option
 
 	if opts.ClientGroup == "" {
 		if cfg.Server.AllowedGroup == "" {
-			report.addf("identities", StatusFailed, "[server] allowed_group is unset, so "+
-				"the broker admits nobody but root and itself. Run `sudo faramir init "+
-				"--client-group NAME`, or pass --client-group to examine anyway")
+			report.addf("identities", StatusFailed, "[server] allowed_group is unset; "+
+				"run `sudo faramir init --client-group NAME`")
 			return opts, false
 		}
 		opts.ClientGroup = cfg.Server.AllowedGroup
@@ -187,9 +181,8 @@ func resolveIdentities(report *Report, opts Options, cfg *config.Config) (Option
 		dir := filepath.Join(opts.ConfigDir, "secrets")
 		group, err := asaccount.GroupOf(dir)
 		if err != nil {
-			report.addf("identities", StatusFailed, "cannot read the group "+
-				"owning %s (%v). That group keeps every account but the keeper out of the "+
-				"ciphertext. Reinstall, or pass --secrets-group", dir, err)
+			report.addf("identities", StatusFailed, "group owning %s unreadable; "+
+				"pass --secrets-group\n%v", dir, err)
 			return opts, false
 		}
 		opts.SecretsGroup = group

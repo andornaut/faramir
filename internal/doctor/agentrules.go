@@ -22,15 +22,12 @@ import (
 // from a directory. Only rules missing from an agent in use is a fault.
 func diagnoseAgentRules(report *Report, opts Options) {
 	if opts.AgentUser == "" {
-		report.unaskedf("agent rules", 1, "the agent account is not named, so "+
-			"the agent files in its home were not checked. Run doctor through sudo "+
-			"(SUDO_USER names the account), or record it with `sudo faramir init --agent-user`")
+		report.unaskedf("agent rules", 1, "agent account unknown; not checked\n"+agentUnknown)
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)
 	if err != nil || home == "" {
-		report.unaskedf("agent rules", 1, "could not read %s's home, so the "+
-			"agent files in it were not checked", opts.AgentUser)
+		report.unaskedf("agent rules", 1, "%s's home unreadable; not checked", opts.AgentUser)
 		return
 	}
 	enrolled, stale := agentcfg.EnrolledAgents(opts.ConfigDir)
@@ -38,9 +35,8 @@ func diagnoseAgentRules(report *Report, opts Options) {
 	// A tree that has moved or been deleted since it was enrolled. Reported
 	// rather than removed: an unmounted tree is not a deleted one.
 	for _, tree := range stale {
-		report.addf("agent rules", StatusWarn, "%s was enrolled for %s and no "+
-			"longer exists. Re-run `faramir enrol` where the tree is now, or ignore this",
-			tree.Dir, strings.Join(tree.Agents, ", "))
+		report.addf("agent rules", StatusWarn, "enrolled tree %s (%s) no longer "+
+			"exists; run `faramir enrol` where it is now", tree.Dir, strings.Join(tree.Agents, ", "))
 	}
 }
 
@@ -67,17 +63,15 @@ func reportAgentRules(report *Report, home string, enrolled []string) {
 		// is one it does not rule on, and a message that names one makes the
 		// default look more protective than it is.
 		case slices.Contains(enrolled, name):
-			report.addf("agent rules", StatusFailed, "a tree is enrolled for %s but %s is missing. "+
-				"Its file tools can access protected paths. Run `sudo faramir init --agent "+
-				"%s`", name, strings.Join(missing, ", "), name)
+			report.addf("agent rules", StatusFailed, "%s: file tools can reach "+
+				"protected paths; run `sudo faramir init --agent %s`\nmissing: %s",
+				name, name, strings.Join(missing, "\n"))
 		case agentInUse(home, target):
-			report.addf("agent rules", StatusFailed, "%s is installed but %s is missing. "+
-				"Its file tools can access protected paths. Run `sudo faramir init --agent "+
-				"%s`",
-				name, strings.Join(missing, ", "), name)
+			report.addf("agent rules", StatusFailed, "%s: file tools can reach "+
+				"protected paths; run `sudo faramir init --agent %s`\nmissing: %s",
+				name, name, strings.Join(missing, "\n"))
 		default:
-			report.addf("agent rules", StatusNA, "%s: nothing here; not used "+
-				"from this account", name)
+			report.addf("agent rules", StatusNA, "%s: not used from this account", name)
 		}
 	}
 }
@@ -181,22 +175,17 @@ func diagnoseHookReach(report *Report, opts Options) {
 	// registration and an unreadable one look identical from here, and reporting
 	// the second as the first is how a host that needs re-enrolling reads as done.
 	if len(unread) > 0 && len(narrow) == 0 {
-		report.unaskedf("hook reach", len(unread), "could not read %s, so which "+
-			"tools reach the guard was not checked. Run doctor through sudo, or as the "+
-			"account that owns them", strings.Join(unread, ", "))
+		report.unaskedf("hook reach", len(unread), "not checked; run doctor through "+
+			"sudo\nunreadable: %s", strings.Join(unread, ", "))
 		return
 	}
 	if len(narrow) == 0 {
-		report.addf("hook reach", StatusOK, "every registration of the guard "+
-			"covers all tools, so a file tool reaches it in every permission mode")
+		report.addf("hook reach", StatusOK, "the guard covers every tool")
 		return
 	}
-	report.addf("hook reach", StatusFailed, "the guard is registered for only "+
-		"some tools in %s, so file tools reach it only through the deny rules in the "+
-		"same file, leaving one enforcement where there should be two. "+
-		"Re-run `sudo faramir init` for the account-wide file and `faramir enrol` in "+
-		"each tree for the rest",
-		strings.Join(narrow, ", "))
+	report.addf("hook reach", StatusFailed, "the guard covers only some tools; "+
+		"run `sudo faramir init` for the account-wide file and `faramir enrol` in "+
+		"each tree\n%s", strings.Join(narrow, "\n"))
 }
 
 // agentInUse reports whether this agent is present in the home at all: its own

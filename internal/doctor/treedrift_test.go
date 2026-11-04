@@ -302,7 +302,7 @@ func TestTreeConfigFailsOnARecordItCannotRead(t *testing.T) {
 	if len(got) != 1 || got[0].Status != StatusFailed {
 		t.Fatalf("findings = %+v, want one failure", got)
 	}
-	if !strings.Contains(got[0].Detail, "unknown") {
+	if !strings.Contains(got[0].Detail, "unreadable") {
 		t.Errorf("the failure does not say the enrolments are unknown: %s", got[0].Detail)
 	}
 }

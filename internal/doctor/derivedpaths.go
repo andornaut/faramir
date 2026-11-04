@@ -48,24 +48,23 @@ func diagnoseDerivedPaths(report *Report, cfg *config.Config) {
 		if slices.ContainsFunc(cfg.Secret.Links, func(link config.Link) bool {
 			return link.Path == entry.DerivedFrom
 		}) {
-			drift += fmt.Sprintf(" (`sudo faramir block rm --path %s` removes the entry)",
+			drift += fmt.Sprintf("; run `sudo faramir block rm --path %s`",
 				config.Shown(entry.Path))
 		} else {
-			drift += fmt.Sprintf(" (`sudo faramir block add --path %s` replaces it)",
+			drift += fmt.Sprintf("; run `sudo faramir block add --path %s`",
 				config.Shown(entry.DerivedFrom))
 		}
 		drifted = append(drifted, drift)
 	}
 	switch {
 	case len(drifted) > 0:
-		report.addf(name, StatusFailed, "%d derived entr%s no longer name what "+
-			"the symlink resolves to: %s",
-			len(drifted), plural(len(drifted), "y", "ies"), strings.Join(drifted, "; "))
+		report.addf(name, StatusFailed, "%d derived entr%s out of date\n%s",
+			len(drifted), plural(len(drifted), "y", "ies"), strings.Join(drifted, "\n"))
 	case checked > 0:
-		report.addf(name, StatusOK, "%d derived entr%s still name%s what the symlink "+
-			"resolves to", checked, plural(checked, "y", "ies"), plural(checked, "s", ""))
+		report.addf(name, StatusOK, "%d derived entr%s current", checked,
+			plural(checked, "y", "ies"))
 	default:
-		report.addf(name, StatusOK, "no derived [[secret.block]] entries are configured")
+		report.addf(name, StatusOK, "no derived [[secret.block]] entries")
 	}
 }
 
@@ -82,17 +81,14 @@ func derivedDrift(entry config.BlockedPath) string {
 	}
 	switch {
 	case sourceIsLink:
-		return fmt.Sprintf("%s now resolves to %s, and the entry derived from it "+
-			"names %s", config.Shown(entry.DerivedFrom), config.Shown(source),
-			config.Shown(entry.Path))
+		return fmt.Sprintf("%s now resolves to %s, entry names %s",
+			config.Shown(entry.DerivedFrom), config.Shown(source), config.Shown(entry.Path))
 	case spellingIsLink:
-		return fmt.Sprintf("%s now resolves to %s, not to %s, which it was derived "+
-			"from", config.Shown(entry.Path), config.Shown(spelling),
-			config.Shown(entry.DerivedFrom))
+		return fmt.Sprintf("%s now resolves to %s, not %s",
+			config.Shown(entry.Path), config.Shown(spelling), config.Shown(entry.DerivedFrom))
 	}
-	return fmt.Sprintf("neither %s nor %s is a symlink any more, and the entry for "+
-		"the first was derived from the second", config.Shown(entry.Path),
-		config.Shown(entry.DerivedFrom))
+	return fmt.Sprintf("neither %s nor %s is a symlink any more",
+		config.Shown(entry.Path), config.Shown(entry.DerivedFrom))
 }
 
 // plural is the suffix a count takes.

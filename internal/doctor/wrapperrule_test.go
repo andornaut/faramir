@@ -56,7 +56,7 @@ func TestARuleForTheWrapperDirectoryFails(t *testing.T) {
 	if finding.Status != StatusFailed {
 		t.Fatalf("status = %v, want Failed: %s", finding.Status, finding.Detail)
 	}
-	for _, want := range []string{layout.LibexecDir, "~/.claude/settings.json", "Remove it"} {
+	for _, want := range []string{layout.LibexecDir, "~/.claude/settings.json", "remove it"} {
 		if !strings.Contains(finding.Detail, want) {
 			t.Errorf("the finding does not say %q: %s", want, finding.Detail)
 		}

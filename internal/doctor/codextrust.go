@@ -46,15 +46,12 @@ func codexHookFiles(home string, trees []agentcfg.EnrolledTree) []string {
 func diagnoseCodexTrust(report *Report, opts Options) {
 	const label = "codex hook trust"
 	if opts.AgentUser == "" {
-		report.unaskedf(label, 1, "the agent account is not named, so what "+
-			"Codex trusts was not checked. Run doctor through sudo (SUDO_USER names the "+
-			"account), or record it with `sudo faramir init --agent-user`")
+		report.unaskedf(label, 1, "agent account unknown; not checked\n"+agentUnknown)
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)
 	if err != nil || home == "" {
-		report.unaskedf(label, 1, "could not read %s's home, so what Codex "+
-			"trusts was not checked", opts.AgentUser)
+		report.unaskedf(label, 1, "%s's home unreadable; not checked", opts.AgentUser)
 		return
 	}
 
@@ -62,8 +59,8 @@ func diagnoseCodexTrust(report *Report, opts Options) {
 	// The record is `tree config`'s to fail on. Said here so a report naming
 	// only the account-wide hook does not read as a host with no enrolled trees.
 	if err != nil {
-		report.unaskedf(label, 1, "%s, so which trees are enrolled for Codex is "+
-			"unknown and only the account-wide hook was examined", err)
+		report.unaskedf(label, 1, "enrolled trees not checked, only the "+
+			"account-wide hook\n%v", err)
 	}
 	reportCodexTrust(report, home, trees)
 }
@@ -75,8 +72,7 @@ func reportCodexTrust(report *Report, home string, trees []agentcfg.EnrolledTree
 	const label = "codex hook trust"
 	files := codexHookFiles(home, trees)
 	if len(files) == 0 {
-		report.addf(label, StatusNA, "no Codex hook is installed, so there is "+
-			"nothing for Codex to trust")
+		report.addf(label, StatusNA, "no Codex hook installed")
 		return
 	}
 
@@ -84,13 +80,10 @@ func reportCodexTrust(report *Report, home string, trees []agentcfg.EnrolledTree
 	state, err := codextrust.State(configFile)
 	if err != nil {
 		if os.IsPermission(err) {
-			report.unaskedf(label, 1, "%s could not be read, so what Codex "+
-				"trusts was not checked. Re-run doctor through sudo", configFile)
+			report.unaskedf(label, 1, "%s unreadable; run doctor through sudo", configFile)
 			return
 		}
-		report.addf(label, StatusFailed, "%s does not parse, so whether Codex "+
-			"runs the %d hook(s) this install wrote is unknown: %v",
-			configFile, len(files), err)
+		report.addf(label, StatusFailed, "%s does not parse\n%v", configFile, err)
 		return
 	}
 
@@ -99,8 +92,7 @@ func reportCodexTrust(report *Report, home string, trees []agentcfg.EnrolledTree
 		hooks, err := codextrust.GuardHooks(path)
 		switch {
 		case err != nil && os.IsPermission(err):
-			report.unaskedf(label, 1, "%s could not be read, so whether Codex "+
-				"runs it was not checked. Re-run doctor through sudo", path)
+			report.unaskedf(label, 1, "%s unreadable; run doctor through sudo", path)
 			continue
 		case err != nil:
 			unread = append(unread, fmt.Sprintf("%s (%v)", path, err))
@@ -132,27 +124,21 @@ func reportCodexTrust(report *Report, home string, trees []agentcfg.EnrolledTree
 	sort.Strings(unread)
 
 	if len(unread) > 0 {
-		report.addf(label, StatusFailed, "%d Codex hook file(s) could not be "+
-			"read, so whether Codex runs them is unknown: %s",
-			len(unread), strings.Join(unread, ", "))
+		report.addf(label, StatusFailed, "%d Codex hook file(s) unreadable\n%s",
+			len(unread), strings.Join(unread, "\n"))
 	}
 	if len(untrusted) > 0 {
-		report.addf(label, StatusFailed, "Codex has not been told to trust %d "+
-			"hook(s) this install wrote, so it skips them: %s. Open Codex in each affected "+
-			"project, run `/hooks`, and review and trust the listed hooks",
-			len(untrusted), strings.Join(untrusted, ", "))
+		report.addf(label, StatusFailed, "Codex skips %d untrusted hook(s); "+
+			"open Codex in each project and trust them in `/hooks`\n%s", len(untrusted), strings.Join(untrusted, "\n"))
 	}
 	if len(modified) > 0 {
-		report.addf(label, StatusFailed, "Codex trusts a different hook than "+
-			"the %d installed here, so it skips the changed hooks: %s. Open Codex in each "+
-			"affected project, run `/hooks`, and review and trust the listed hooks again",
-			len(modified), strings.Join(modified, ", "))
+		report.addf(label, StatusFailed, "Codex trusts a different hook than %d "+
+			"installed here; open Codex in each project and trust them in `/hooks`\n%s", len(modified), strings.Join(modified, "\n"))
 	}
 	if len(disabled) > 0 {
-		report.addf(label, StatusFailed, "%d hook(s) this install wrote are turned "+
-			"off in %s, so Codex loads them and runs nothing: %s. Remove the "+
-			"`enabled = false` entry, or review and re-enable the hook in Codex's `/hooks`",
-			len(disabled), configFile, strings.Join(disabled, ", "))
+		report.addf(label, StatusFailed, "%d hook(s) turned off in %s; remove "+
+			"`enabled = false`, or re-enable them in Codex's `/hooks`\n%s",
+			len(disabled), configFile, strings.Join(disabled, "\n"))
 	}
 	if len(untrusted) > 0 || len(modified) > 0 || len(disabled) > 0 || len(unread) > 0 {
 		return
@@ -164,11 +150,9 @@ func reportCodexTrust(report *Report, home string, trees []agentcfg.EnrolledTree
 	// `agent code`'s and `tree config`'s finding; this one says only that it has
 	// no subject left.
 	if len(trusted) == 0 {
-		report.addf(label, StatusFailed, "%d Codex hook file(s) are installed "+
-			"and none carries the guard hook, so nothing is routed or refused and there "+
-			"is nothing for Codex to trust. Re-run the enrolment that wrote them", len(files))
+		report.addf(label, StatusFailed, "none of %d Codex hook file(s) carries "+
+			"the guard hook; run the enrolment that wrote them again", len(files))
 		return
 	}
-	report.addf(label, StatusOK, "Codex trusts the %d hook(s) this install wrote",
-		len(trusted))
+	report.addf(label, StatusOK, "%d hook(s) trusted", len(trusted))
 }

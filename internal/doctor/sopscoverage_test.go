@@ -77,7 +77,7 @@ func TestTheKeeperInTheIgnoredShorthandIsNotAReader(t *testing.T) {
 		t.Errorf("status = %q, want warn: sops seals to the key groups alone, so "+
 			"the keeper is not a reader here: %s", finding.Status, finding.Detail)
 	}
-	if !strings.Contains(finding.Detail, "none of which") {
+	if !strings.Contains(finding.Detail, "omits") {
 		t.Errorf("detail does not say the keeper is missing: %s", finding.Detail)
 	}
 }
@@ -126,7 +126,7 @@ func TestRuleCoverageIsCheckedAgainstTheManagedFiles(t *testing.T) {
 		{
 			name:      "the rule the installer writes",
 			pathRegex: `\.sops\.ya?ml$`,
-			want:      StatusOK, says: "covers all",
+			want:      StatusOK, says: "covered",
 		},
 		{
 			name:      "narrowed to somewhere the store is not",
@@ -228,7 +228,7 @@ func TestRuleCoverageCannotSeeIntoTheStoreIsUnasked(t *testing.T) {
 	if finding.Status != StatusWarn {
 		t.Errorf("status = %q, want warn: %s", finding.Status, finding.Detail)
 	}
-	if !strings.Contains(finding.Detail, "cannot be listed") {
+	if !strings.Contains(finding.Detail, "cannot list") {
 		t.Errorf("detail does not say the store could not be read: %s", finding.Detail)
 	}
 	if report.NotAsked != 1 {
@@ -277,7 +277,7 @@ func TestRuleCoverageNamesAClosedDoorEvenWhenSomethingResolved(t *testing.T) {
 	if finding.Status != StatusWarn {
 		t.Errorf("status = %q, want warn: %s", finding.Status, finding.Detail)
 	}
-	if !strings.Contains(finding.Detail, "cannot be listed") {
+	if !strings.Contains(finding.Detail, "cannot list") {
 		t.Errorf("detail does not name the closed directory: %s", finding.Detail)
 	}
 	if report.NotAsked != 1 {

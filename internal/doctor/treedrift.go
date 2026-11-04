@@ -41,18 +41,15 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 	// than as a failure advising a repair.
 	switch {
 	case errors.Is(err, os.ErrPermission):
-		report.unaskedf("tree config", 1, "the record of enrolled trees is "+
-			"readable only by the operator, so which trees are enrolled was not checked "+
-			"and none were examined. Run doctor as root")
+		report.unaskedf("tree config", 1, "enrolled trees not checked; run doctor as root")
 		return
 	case err != nil:
-		report.addf("tree config", StatusFailed, "%s, so which trees are enrolled "+
-			"is unknown and none were examined. Restore the record, or re-run "+
-			"`sudo faramir enrol` in each tree to rewrite it", err)
+		report.addf("tree config", StatusFailed, "enrolment record unreadable; "+
+			"restore it, or run `sudo faramir enrol` in each tree\n%v", err)
 		return
 	}
 	if len(trees) == 0 {
-		report.addf("tree config", StatusOK, "no tree is recorded as enrolled")
+		report.addf("tree config", StatusOK, "no tree enrolled")
 		return
 	}
 	checked := 0
@@ -125,39 +122,32 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 	// not something re-running `enrol` takes out, the merge keeping what its
 	// record does not name, so this is the only thing that reports one.
 	if len(stale) > 0 {
-		report.addf("tree config", StatusWarn, "%d enrolled tree file(s) carry a rule "+
-			"faramir no longer writes, which a re-enrolment does not remove. They were "+
-			"left because yours would look the same. Remove them from the file, and only "+
-			"where they are not yours: %s", len(stale), strings.Join(stale, "; "))
+		report.addf("tree config", StatusWarn, "%d enrolled tree file(s) carry a "+
+			"rule faramir no longer writes; remove the ones that are not yours\n%s",
+			len(stale), strings.Join(stale, "\n"))
 	}
 
 	if len(unguarded) > 0 {
-		report.addf("tree config", StatusWarn, "%d enrolled tree(s) registered "+
-			"no agent, so they are shared with the client group and nothing they run is "+
-			"redacted: %s. Enrol one with `sudo faramir enrol --agent NAME` in the tree, "+
-			"or undo the enrolment",
-			len(unguarded), strings.Join(unguarded, ", "))
+		report.addf("tree config", StatusWarn, "%d enrolled tree(s) register no "+
+			"agent; run `sudo faramir enrol --agent NAME` in each, or undo the "+
+			"enrolment\n%s", len(unguarded), strings.Join(unguarded, "\n"))
 	}
 
 	if len(drifted) == 0 && len(prose) == 0 && len(unread) == 0 {
 		if len(unguarded) > 0 || len(stale) > 0 {
 			return
 		}
-		report.addf("tree config", StatusOK, "%d enrolled tree(s) carry what "+
-			"`faramir enrol` wrote", checked)
+		report.addf("tree config", StatusOK, "%d enrolled tree(s)", checked)
 		return
 	}
 	if len(prose) > 0 {
-		report.addf("tree config", StatusWarn, "%d instructions file(s) an "+
-			"enrolment wrote no longer carry the credentials section or the frontmatter "+
-			"that loads it, so an agent refused a path is not told the route: %s. Re-run "+
-			"`sudo faramir enrol` in the tree",
-			len(prose), strings.Join(prose, ", "))
+		report.addf("tree config", StatusWarn, "%d instructions file(s) lost the "+
+			"credentials section; run `sudo faramir enrol` in each tree\n%s",
+			len(prose), strings.Join(prose, "\n"))
 	}
 	if len(unread) > 0 {
-		report.unaskedf("tree config", len(unread), "could not read %s, so they "+
-			"were not compared with what `faramir enrol` writes",
-			strings.Join(unread, ", "))
+		report.unaskedf("tree config", len(unread), "%d file(s) unreadable, not "+
+			"checked\n%s", len(unread), strings.Join(unread, "\n"))
 	}
 	if len(drifted) > 0 {
 		// What drifted is not said, only that something did: this compares a merge
@@ -165,11 +155,9 @@ func diagnoseTreeConfig(report *Report, opts Options) {
 		// everything an enrolment writes and not which part. Saying "nothing is
 		// redacted" was wrong whenever the hook was intact and only the deny rules
 		// had gone, which is what declaring a blocked path leaves behind.
-		report.addf("tree config", StatusWarn, "%d file(s) an enrolment wrote "+
-			"no longer carry all of it, so the hook that redacts, the rules that refuse a "+
-			"path, or the registration that reaches the broker is missing: %s. Re-run "+
-			"`sudo faramir enrol` in the tree, which writes all three again",
-			len(drifted), strings.Join(drifted, ", "))
+		report.addf("tree config", StatusWarn, "%d file(s) lost part of what "+
+			"enrolment wrote; run `sudo faramir enrol` in each tree\n%s",
+			len(drifted), strings.Join(drifted, "\n"))
 	}
 }
 
@@ -313,17 +301,13 @@ func diagnoseTreeModes(report *Report, opts Options) {
 	switch {
 	case len(writable) > 0:
 		report.addf("tree modes", StatusFailed, "%d enrolment-written file(s) are "+
-			"group- or world-writable, so the accounts the tree is shared with can "+
-			"rewrite what refuses them: %s. `chmod go-w` each, or re-run `sudo "+
-			"faramir enrol` in the tree", len(writable), strings.Join(writable, "; "))
+			"group- or world-writable; run `chmod go-w` on each\n%s",
+			len(writable), strings.Join(writable, "\n"))
 	case len(unsticky) > 0:
-		report.addf("tree modes", StatusWarn, "%d directory(ies) holding an "+
-			"enrolment-written file lost the sticky bit, so a brokered command may "+
-			"rename the file aside whatever its mode: %s. `chmod +t` each",
-			len(unsticky), strings.Join(unsticky, "; "))
+		report.addf("tree modes", StatusWarn, "%d directory(ies) lost the sticky "+
+			"bit; run `chmod +t` on each\n%s", len(unsticky), strings.Join(unsticky, "\n"))
 	case examined > 0:
-		report.addf("tree modes", StatusOK, "%d enrolled tree(s) keep their agent "+
-			"files closed to group write, in sticky directories", examined)
+		report.addf("tree modes", StatusOK, "%d enrolled tree(s)", examined)
 	}
 }
 
@@ -346,22 +330,20 @@ func treeInstructionsRel(dir string) []string {
 // update.
 func diagnoseEditableFiles(report *Report, opts Options) {
 	if opts.AgentUser == "" {
-		report.unaskedf("agent file ownership", 1, "the agent account is not "+
-			"named, so who owns the files an install edits was not checked. Run doctor "+
-			"through sudo (SUDO_USER names the account), or record it with `sudo faramir init "+
-			"--agent-user`")
+		report.unaskedf("agent file ownership", 1, "agent account unknown; not "+
+			"checked\n"+agentUnknown)
 		return
 	}
 	home, err := agentcfg.HomeFor(opts.AgentUser)
 	if err != nil || home == "" {
-		report.unaskedf("agent file ownership", 1, "could not read %s's home, "+
-			"so who owns the files an install edits was not checked", opts.AgentUser)
+		report.unaskedf("agent file ownership", 1, "%s's home unreadable; not checked",
+			opts.AgentUser)
 		return
 	}
 	uid, err := hostfs.LookupUser(opts.AgentUser)
 	if err != nil {
-		report.unaskedf("agent file ownership", 1, "could not resolve %s: %v",
-			opts.AgentUser, err)
+		report.unaskedf("agent file ownership", 1, "%s does not resolve; not "+
+			"checked\n%v", opts.AgentUser, err)
 		return
 	}
 	reportEditableFiles(report, home, uid, opts)
@@ -393,9 +375,8 @@ func reportEditableFiles(report *Report, home string, uid int, opts Options) {
 			// files to judge.
 			other, err := hostfs.LookupUser(tree.AgentUser)
 			if err != nil {
-				report.unaskedf("agent file ownership", 1, "%s is enrolled for "+
-					"%q, which does not resolve, so who owns its files was not checked",
-					tree.Dir, tree.AgentUser)
+				report.unaskedf("agent file ownership", 1, "%s is enrolled for %q, "+
+					"which does not resolve; not checked", tree.Dir, tree.AgentUser)
 				continue
 			}
 			treeUID = other
@@ -431,11 +412,9 @@ func reportEditableFiles(report *Report, home string, uid int, opts Options) {
 	sort.Strings(refused)
 	if len(refused) == 0 {
 		report.addf("agent file ownership", StatusOK, "every file an install edits "+
-			"is the operator's, or is not there yet")
+			"is the agent's, or absent")
 		return
 	}
-	report.addf("agent file ownership", StatusWarn, "%d file(s) `faramir init` "+
-		"or `faramir enrol` would refuse to write, so the next run stops instead of "+
-		"taking one over or writing one of them twice: %s",
-		len(refused), strings.Join(refused, "; "))
+	report.addf("agent file ownership", StatusWarn, "init and enrol will refuse "+
+		"to write %d file(s)\n%s", len(refused), strings.Join(refused, "\n"))
 }

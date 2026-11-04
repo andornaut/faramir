@@ -24,8 +24,8 @@ func diagnoseSopsConfig(report *Report, opts Options) {
 	layout := hostlayout.Layout{ConfigDir: opts.ConfigDir}
 	current := layout.SopsConfigPath()
 	if !hostfs.Exists(current) {
-		report.addf("sops config", StatusWarn, "no %s, so sops has no creation rule "+
-			"and refuses to encrypt a new file in the secrets directory", current)
+		report.addf("sops config", StatusWarn, "no %s; sops cannot encrypt a new "+
+			"managed file", current)
 		return
 	}
 	diagnoseSopsRecipients(report, opts, current)
@@ -44,17 +44,14 @@ func diagnoseSopsRecipients(report *Report, opts Options, path string) {
 		// An unreadable file and one that does not parse are different faults
 		// with different remedies, and only the second is sops's concern too.
 		if errors.Is(err, fs.ErrPermission) {
-			report.unaskedf("sops config", 1, "%s could not be read (%v), so who "+
-				"can decrypt the secrets directory went unchecked. Run doctor as root", path, err)
+			report.unaskedf("sops config", 1, "%s unreadable; run doctor as root\n%v", path, err)
 			return
 		}
-		report.addf("sops config", StatusFailed, "%s does not parse (%v), so who can "+
-			"decrypt the secrets directory is unknown here. sops has to read this file too", path, err)
+		report.addf("sops config", StatusFailed, "%s does not parse\n%v", path, err)
 		return
 	}
 	if len(listed) == 0 {
-		report.addf("sops config", StatusWarn, "%s lists no age recipient, so sops "+
-			"encrypts a new file in the secrets directory to nobody and refuses", path)
+		report.addf("sops config", StatusWarn, "%s lists no age recipient", path)
 		return
 	}
 	// The file is 0644, so root can edit it directly, and nothing on that path
@@ -74,28 +71,23 @@ func diagnoseSopsRecipients(report *Report, opts Options, path string) {
 		// re-run as root would send the operator in a circle: the keeper can
 		// decrypt nothing until the key is restored.
 		if errors.Is(err, fs.ErrNotExist) {
-			report.addf("sops config", StatusFailed, "%s is missing, so %s can "+
-				"decrypt nothing and every managed value is unreadable. Restore the key from "+
-				"backup; a key the store is sealed to cannot be re-minted",
-				keyPath, opts.KeeperUser)
+			report.addf("sops config", StatusFailed, "%s is missing; restore it "+
+				"from backup", keyPath)
 			return
 		}
-		report.unaskedf("sops config", 1, "%s lists %s, and whether %s is among "+
-			"them went unchecked: %v. Run doctor as root", path, strings.Join(listed, ", "),
-			keyPath, err)
+		report.unaskedf("sops config", 1, "whether %s lists %s not checked; run "+
+			"doctor as root\n%v", path, keyPath, err)
 		return
 	}
 	// Warn, not failed: the values already in the secrets directory still decrypt,
 	// so this is a host that works today and cannot take a new value tomorrow.
 	if !slices.Contains(listed, keeper) {
-		report.addf("sops config", StatusWarn, "%s lists %s, none of which is %s's recipient (%s), so every value encrypted from "+
-			"now on is one %s cannot decrypt. Put it back with `sudo faramir reader add %s`, "+
-			"which re-seals the store to it",
-			path, strings.Join(listed, ", "), keyPath, keeper, opts.KeeperUser, keeper)
+		report.addf("sops config", StatusWarn, "%s omits %s's recipient %s; run "+
+			"`sudo faramir reader add %s`\nlisted: %s",
+			path, keyPath, keeper, keeper, strings.Join(listed, ", "))
 		return
 	}
-	report.addf("sops config", StatusOK, "%s, %d recipient(s) including %s's",
-		path, len(listed), opts.KeeperUser)
+	report.addf("sops config", StatusOK, "%s, %d recipient(s)", path, len(listed))
 }
 
 // recipientsAreWellFormed reports every entry sops would refuse, and whether
@@ -111,8 +103,8 @@ func recipientsAreWellFormed(report *Report, listed []string, path string) bool 
 		ok = false
 		// The error names what to do, including the rotation a private half needs,
 		// so it is carried rather than summarised.
-		report.addf("sops config", StatusFailed, "%s lists something sops will not "+
-			"take as a recipient: %v", path, err)
+		report.addf("sops config", StatusFailed, "%s lists a recipient sops will not "+
+			"take\n%v", path, err)
 	}
 	return ok
 }
@@ -126,8 +118,8 @@ func recipientsAreWellFormed(report *Report, listed []string, path string) bool 
 // that match is free to disagree with sops.
 func diagnoseSopsRuleCoverage(report *Report, opts Options, rulePath string) {
 	if len(opts.SecretsPatterns) == 0 {
-		report.unaskedf("rule coverage", 1, "the managed store could not be read, so "+
-			"which files %s has to cover is unknown here", rulePath)
+		report.unaskedf("rule coverage", 1, "managed store unreadable; %s not "+
+			"checked", rulePath)
 		return
 	}
 	// filepath.Glob reports a directory it cannot list as no matches and no
@@ -135,9 +127,7 @@ func diagnoseSopsRuleCoverage(report *Report, opts Options, rulePath string) {
 	// confident answer about half a store. What did resolve is still checked.
 	unlistable := unlistableDirs(opts.SecretsPatterns)
 	if len(unlistable) > 0 {
-		report.unaskedf("rule coverage", 1, "the directories the managed store "+
-			"names cannot be listed by this account (%s), so the managed files under them "+
-			"went unchecked. Run doctor as root",
+		report.unaskedf("rule coverage", 1, "cannot list %s; run doctor as root",
 			strings.Join(unlistable, ", "))
 	}
 	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
@@ -148,43 +138,38 @@ func diagnoseSopsRuleCoverage(report *Report, opts Options, rulePath string) {
 			// store.
 			return
 		}
-		report.addf("rule coverage", StatusNA, "no managed file matches [secret] "+
-			"patterns yet, so there is nothing for %s to cover", rulePath)
+		report.addf("rule coverage", StatusNA, "no managed file yet")
 		return
 	}
 	sops, err := exec.LookPath("sops")
 	if err != nil {
-		report.unaskedf("rule coverage", 1, "sops is not on this PATH, and it "+
-			"decides which rule governs a file: %v", err)
+		report.unaskedf("rule coverage", 1, "sops not on PATH")
 		return
 	}
 	// The rule's own recipients, named on the command line, so what is asked is
 	// whether a rule matches rather than whether its keys work.
 	recipients, err := sopsrule.AllRecipients(rulePath)
 	if err != nil {
-		report.unaskedf("rule coverage", 1, "%s could not be read, so which files it "+
-			"covers went unchecked: %v", rulePath, err)
+		report.unaskedf("rule coverage", 1, "%s unreadable\n%v", rulePath, err)
 		return
 	}
 	covered := 0
 	for _, target := range managed {
 		switch matched, err := sopsrule.Covers(sops, rulePath, recipients, target); {
 		case err != nil:
-			report.unaskedf("rule coverage", 1, "whether %s covers %s went unchecked: %v",
+			report.unaskedf("rule coverage", 1, "whether %s covers %s not checked\n%v",
 				rulePath, target, err)
 		case matched:
 			covered++
 		default:
-			report.addf("rule coverage", StatusFailed, "%s has no creation rule matching %s, so `faramir vault edit` and `faramir reader "+
-				"reseal` cannot write it back. Widen path_regex to reach it, or keep the store "+
-				"where the rule looks", rulePath, target)
+			report.addf("rule coverage", StatusFailed, "%s has no creation rule "+
+				"matching %s; widen its path_regex", rulePath, target)
 		}
 	}
 	// Only where every file was asked about and answered yes: an unreadable
 	// directory would otherwise be claimed as covered.
 	if covered == len(managed) && len(unlistable) == 0 {
-		report.addf("rule coverage", StatusOK, "%s covers all %d managed file(s)",
-			rulePath, covered)
+		report.addf("rule coverage", StatusOK, "%d managed file(s) covered", covered)
 	}
 }
 
@@ -198,20 +183,18 @@ func diagnoseSopsRuleCoverage(report *Report, opts Options, rulePath string) {
 // only the ability to read the file.
 func diagnoseRecipientDrift(report *Report, opts Options, rulePath string) {
 	if len(opts.SecretsPatterns) == 0 {
-		report.unaskedf("recipient drift", 1, "the managed store could not be read, "+
-			"so which files %s has to agree with is unknown here", rulePath)
+		report.unaskedf("recipient drift", 1, "managed store unreadable; %s not "+
+			"checked", rulePath)
 		return
 	}
 	wanted, err := sopsrule.AllRecipients(rulePath)
 	if err != nil {
-		report.unaskedf("recipient drift", 1, "%s could not be read, so what the "+
-			"store should be sealed to is unknown: %v", rulePath, err)
+		report.unaskedf("recipient drift", 1, "%s unreadable\n%v", rulePath, err)
 		return
 	}
 	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
 	if len(managed) == 0 {
-		report.addf("recipient drift", StatusNA, "no managed file matches [secret] "+
-			"patterns yet, so nothing can disagree with %s", rulePath)
+		report.addf("recipient drift", StatusNA, "no managed file yet")
 		return
 	}
 	drifted, checked, sealedToNothing := 0, 0, 0
@@ -226,8 +209,7 @@ func diagnoseRecipientDrift(report *Report, opts Options, rulePath string) {
 		// Unasked rather than failed: a caller who cannot open the file has learned
 		// nothing about whether it agrees.
 		case err != nil:
-			report.unaskedf("recipient drift", 1, "%s could not be read, so whether "+
-				"it agrees with %s went unchecked: %v", target, rulePath, err)
+			report.unaskedf("recipient drift", 1, "%s unreadable\n%v", target, err)
 			continue
 		}
 		checked++
@@ -235,16 +217,15 @@ func diagnoseRecipientDrift(report *Report, opts Options, rulePath string) {
 			continue
 		}
 		drifted++
-		report.addf("recipient drift", StatusFailed, "%s is sealed to %s while "+
-			"%s names %s, so a key the rule grants may not open it and a key it no longer "+
-			"grants may. Run: sudo faramir reader reseal",
-			target, strings.Join(was, ", "), rulePath, strings.Join(wanted, ", "))
+		report.addf("recipient drift", StatusFailed, "%s is not sealed to what "+
+			"%s names; run `sudo faramir reader reseal`\nsealed to: %s\nrule names: %s",
+			target, rulePath, strings.Join(was, ", "), strings.Join(wanted, ", "))
 	}
 	// Only where every file sealed to anything was reached and agreed. With none
 	// sealed there is nothing to pass.
 	if drifted == 0 && checked > 0 && checked+sealedToNothing == len(managed) {
-		report.addf("recipient drift", StatusOK, "all %d encrypted file(s) are sealed "+
-			"to what %s names", checked, rulePath)
+		report.addf("recipient drift", StatusOK, "%d file(s) sealed as %s names",
+			checked, rulePath)
 	}
 }
 

@@ -143,8 +143,8 @@ func TestEveryWarnThatSaysItDidNotAskCountsItself(t *testing.T) {
 	// The phrasings a check uses when the question was not put. Read from the
 	// findings rather than listed per check, so a new one is covered the day it
 	// is written.
-	didNotAsk := []string{"not asked", "was not checked", "went unchecked",
-		"is not known", "were not made", "was not asked", "went unasked"}
+	didNotAsk := []string{"not asked", "not checked", "not made", "not exercised",
+		"unknown"}
 	for _, probe := range []struct {
 		name string
 		run  func(*Report)

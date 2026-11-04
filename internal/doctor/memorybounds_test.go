@@ -16,9 +16,9 @@ func TestDoctorSaysWhenThePerProcessBoundIsOutOfReach(t *testing.T) {
 		want              Status
 		says              string
 	}{
-		{"a per-process bound under the total", 1 << 30, 4 << 30, StatusOK, "one brokered process may allocate"},
-		{"the two equal", 4 << 30, 4 << 30, StatusWarn, "out of reach"},
-		{"a per-process bound above the total", 4 << 30, 1 << 30, StatusWarn, "out of reach"},
+		{"a per-process bound under the total", 1 << 30, 4 << 30, StatusOK, "per process"},
+		{"the two equal", 4 << 30, 4 << 30, StatusWarn, "is not below"},
+		{"a per-process bound above the total", 4 << 30, 1 << 30, StatusWarn, "is not below"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			report := &Report{}
@@ -43,7 +43,7 @@ func TestDoctorSaysWhenNeitherBoundIsSet(t *testing.T) {
 	if found.Status != StatusWarn {
 		t.Errorf("status = %v, want a warning: %s", found.Status, found.Detail)
 	}
-	if !strings.Contains(found.Detail, "bounded by") {
+	if !strings.Contains(found.Detail, "no MemoryMax or LimitDATA") {
 		t.Errorf("detail = %q, want it to say the machine is the only bound", found.Detail)
 	}
 }

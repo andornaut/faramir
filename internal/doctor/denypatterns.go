@@ -37,14 +37,14 @@ func diagnoseDenyPatterns(report *Report, opts Options) {
 func reportDenyPatterns(report *Report, opts Options, path string) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		report.addf(steps.LabelDenyPatterns, StatusFailed, "%s cannot be read, so the hook "+
-			"refuses faramir's own paths and no declared entry: %v", path, err)
+		report.addf(steps.LabelDenyPatterns, StatusFailed, "%s unreadable; the hook "+
+			"refuses no declared entry\n%v", path, err)
 		return
 	}
 	// Interpolated quoted, so the comparison is against that form.
 	if !strings.Contains(string(body), regexp.QuoteMeta(opts.ConfigDir)) {
-		report.addf(steps.LabelDenyPatterns, StatusFailed, "%s does not name %s, so it "+
-			"was copied from another install and not rendered for this one", path, opts.ConfigDir)
+		report.addf(steps.LabelDenyPatterns, StatusFailed, "%s does not name %s; "+
+			"run `sudo faramir init`", path, opts.ConfigDir)
 		return
 	}
 	// Every declared command, which nothing else asks about. The blocked paths
@@ -63,9 +63,9 @@ func reportDenyPatterns(report *Report, opts Options, path string) {
 		}
 	}
 	if len(missing) > 0 {
-		report.addf(steps.LabelDenyPatterns, StatusFailed, "%s does not carry %d "+
-			"declared command(s), so nothing refuses them: %s. `faramir init` renders the "+
-			"file again", path, len(missing), strings.Join(missing, ", "))
+		report.addf(steps.LabelDenyPatterns, StatusFailed, "%s lacks %d declared "+
+			"command(s); run `sudo faramir init`\n%s", path, len(missing),
+			strings.Join(missing, "\n"))
 		return
 	}
 	// And the rest of it, against a re-render from this install's own layout.
@@ -79,9 +79,8 @@ func reportDenyPatterns(report *Report, opts Options, path string) {
 	// rather than unguarded, and warns.
 	want := ruleLines(renderedDenyPatterns(opts.ConfigDir))
 	if len(want) == 0 {
-		report.addf(steps.LabelDenyPatterns, StatusOK, "%s names this install's "+
-			"directories and every command it declares; the rest of what it should hold "+
-			"could not be rendered for comparison", path)
+		report.addf(steps.LabelDenyPatterns, StatusOK, "%s names every declared "+
+			"command (full render not compared)", path)
 		return
 	}
 	have := ruleLines(string(body))
@@ -91,28 +90,22 @@ func reportDenyPatterns(report *Report, opts Options, path string) {
 	// right answer there and leaves the loss silent: what should have been three
 	// rules is however many of them compiled.
 	if broken := uncompilable(have); len(broken) > 0 {
-		report.addf(steps.LabelDenyPatterns, StatusFailed, "%d of the %d rule(s) in %s "+
-			"will not compile, so the hook skips them and each refuses nothing: %s. A "+
-			"control character in an entry breaks the rule it renders; `faramir block ls "+
-			"--declared` names them",
-			len(broken), len(have), path, firstFew(broken))
+		report.addf(steps.LabelDenyPatterns, StatusFailed, "%d of %d rule(s) in %s "+
+			"will not compile, so each refuses nothing; find the entries with "+
+			"`faramir block ls --declared`\n%s", len(broken), len(have), path, firstFew(broken))
 		return
 	}
 	absent, spare := diffRuleLines(want, have)
 	switch {
 	case len(absent) > 0:
-		report.addf(steps.LabelDenyPatterns, StatusFailed, "%s is missing %d of the %d rule(s) "+
-			"this install renders, so the hook refuses less than the config asks "+
-			"for: %s. `faramir init` renders it again",
+		report.addf(steps.LabelDenyPatterns, StatusFailed, "%s lacks %d of %d "+
+			"rule(s); run `sudo faramir init`\n%s",
 			path, len(absent), len(want), firstFew(absent))
 	case len(spare) > 0:
-		report.addf(steps.LabelDenyPatterns, StatusWarn, "%s carries %d rule(s) this "+
-			"install does not render: %s. They only add refusals, so this is untidy and "+
-			"not unguarded; `faramir init` rewrites the file", path, len(spare), firstFew(spare))
+		report.addf(steps.LabelDenyPatterns, StatusWarn, "%s has %d extra rule(s); "+
+			"run `sudo faramir init`\n%s", path, len(spare), firstFew(spare))
 	default:
-		report.addf(steps.LabelDenyPatterns, StatusOK, "%s is what this install renders: %d "+
-			"rule(s), naming its own directories and every command it declares",
-			path, len(want))
+		report.addf(steps.LabelDenyPatterns, StatusOK, "%s, %d rule(s)", path, len(want))
 	}
 }
 
@@ -168,8 +161,8 @@ func diffRuleLines(want, have []string) (absent, spare []string) {
 func firstFew(rules []string) string {
 	const show = 2
 	if len(rules) <= show {
-		return strings.Join(rules, "; ")
+		return strings.Join(rules, "\n")
 	}
-	return fmt.Sprintf("%s; and %d more", strings.Join(rules[:show], "; "),
+	return fmt.Sprintf("%s\nand %d more", strings.Join(rules[:show], "\n"),
 		len(rules)-show)
 }

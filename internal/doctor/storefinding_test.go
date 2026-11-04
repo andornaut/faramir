@@ -35,23 +35,23 @@ func TestStoreFindingFailsOnlyOnSomethingWrong(t *testing.T) {
 		// The state the fleet hit: no store written, value set entirely linked.
 		{name: "no managed file, one link",
 			patterns: []string{glob}, unresolved: []string{glob}, count: 1, links: 1,
-			want: StatusWarn, says: []string{"the whole value set is 1 [[secret.link]] entry"}},
+			want: StatusWarn, says: []string{"every ref is from 1 [[secret.link]] entry"}},
 		{name: "no managed file and nothing linked, a first install",
 			patterns: []string{glob}, unresolved: []string{glob},
-			want: StatusWarn, says: []string{"nothing is injected and nothing is redacted"}},
+			want: StatusWarn, says: []string{"nothing is injected or redacted"}},
 		// The entry that named nothing is named, and what the entries that did
 		// name something hold is reported beside it: the daemon serves this store,
 		// so a detail saying nothing is served would be false.
 		{name: "one pattern named nothing while another loaded",
 			patterns: []string{glob, "/b/*.sops.yml"}, files: []string{"a.sops.yml"},
 			unresolved: []string{"/b/*.sops.yml"}, count: 3, want: StatusWarn,
-			says: []string{"/b/*.sops.yml", "3 ref(s) are served from 1 file(s)"}},
+			says: []string{"/b/*.sops.yml", "3 ref(s) served from 1 file(s)"}},
 		// The file the other entry named opens the gate and held nothing, so the
 		// ops are not refused and no value is covered either.
 		{name: "one pattern named nothing, the file another named holding no ref",
 			patterns: []string{glob, "/b/*.sops.yml"}, files: []string{"a.sops.yml"},
 			unresolved: []string{"/b/*.sops.yml"}, count: 0, want: StatusWarn,
-			says: []string{"1 file(s) loaded and held no ref"}},
+			says: []string{"1 file(s) loaded with no refs"}},
 
 		// A search that was stopped rather than one that found nothing. No host
 		// waiting for its first secret looks like this, so it is graded with the
@@ -72,7 +72,7 @@ func TestStoreFindingFailsOnlyOnSomethingWrong(t *testing.T) {
 		{name: "an empty directory alone",
 			patterns: []string{glob}, links: 1, count: 1,
 			unresolved: []string{glob + ": " + keeper.NoMatchReason},
-			want:       StatusWarn, says: []string{"have not been written yet"}},
+			want:       StatusWarn, says: []string{"not written yet"}},
 
 		// Faults, which stay failures.
 		{name: "a file that is there and did not load",
@@ -85,9 +85,9 @@ func TestStoreFindingFailsOnlyOnSomethingWrong(t *testing.T) {
 		// An empty value set: the daemon serves these, so they warn.
 		{name: "a file read that held no refs",
 			patterns: []string{glob}, files: []string{"a.sops.yml"}, count: 0,
-			want: StatusWarn, says: []string{"loaded no refs", "nothing is redacted"}},
+			want: StatusWarn, says: []string{"loaded no refs", "nothing is injected or redacted"}},
 		{name: "nothing configured at all",
-			want: StatusWarn, says: []string{"nothing redacted"}},
+			want: StatusWarn, says: []string{"nothing is injected or redacted"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var c brokercheck.CheckReport

@@ -45,10 +45,8 @@ var usernsSwitches = []struct {
 // container and browser sandbox on the host depends on.
 func diagnoseUserns(report *Report, opts Options, cfg *config.Config) {
 	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		report.addf("user namespaces", StatusNA, "no [sudo] section, so the "+
-			"executor unit carries SystemCallFilter=@system-service, which excludes "+
-			"@mount: a user namespace would grant capabilities with nothing to use them "+
-			"on")
+		report.addf("user namespaces", StatusNA, "no [sudo] section; the executor "+
+			"filter excludes @mount")
 		return
 	}
 	for _, control := range usernsSwitches {
@@ -58,22 +56,16 @@ func diagnoseUserns(report *Report, opts Options, cfg *config.Config) {
 		}
 		value := strings.TrimSpace(string(raw))
 		if value != control.open {
-			report.addf("user namespaces", StatusOK, "%s is %s, so %s cannot unshare a "+
-				"user namespace to hold capabilities in", control.path, value, opts.ExecUser)
+			report.addf("user namespaces", StatusOK, "%s is %s", control.path, value)
 			return
 		}
-		report.addf("user namespaces", StatusWarn, "%s is %s, so a brokered "+
-			"command may unshare a user namespace and hold a full capability set inside "+
-			"it. The unit cannot refuse this: RestrictNamespaces= denies clone3, which "+
-			"every run needs. The uid boundaries hold; what the namespace reaches is the "+
-			"mount family. Close it: sysctl -w %s=%s, and a line in /etc/sysctl.d",
-			control.path, value, control.path, control.shut)
+		report.addf("user namespaces", StatusWarn, "%s is %s, so a brokered command "+
+			"may unshare a user namespace; run `sysctl -w %s=%s` and persist it in "+
+			"/etc/sysctl.d", control.path, value, control.path, control.shut)
 		return
 	}
 	report.unaskedf("user namespaces", 1, "this kernel exposes no switch for "+
-		"unprivileged user namespaces, so whether a brokered command may unshare one "+
-		"was not checked. The unit cannot refuse it either: RestrictNamespaces= "+
-		"denies clone3, which every run needs")
+		"unprivileged user namespaces")
 }
 
 // diagnosePtraceScope checks what stands between a brokered command and the
@@ -95,31 +87,23 @@ func diagnoseUserns(report *Report, opts Options, cfg *config.Config) {
 // SystemCallFilter=@system-service, which excludes @ptrace.
 func diagnosePtraceScope(report *Report, cfg *config.Config) {
 	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		report.addf("ptrace scope", StatusNA, "no [sudo] section, so the executor unit carries "+
-			"SystemCallFilter=@system-service, which excludes @ptrace: the syscall is refused "+
-			"whatever %s says",
-			ptraceScopeFile)
+		report.addf("ptrace scope", StatusNA, "no [sudo] section; the executor "+
+			"filter excludes @ptrace")
 		return
 	}
 	raw, err := os.ReadFile(ptraceScopeFile)
 	if err != nil {
-		report.unaskedf("ptrace scope", 1, "%s cannot be read (%v), so whether "+
-			"one process running as %s can ptrace another is unknown. On a host that "+
-			"grants escalation, that decides whether a run's processes are separate",
-			ptraceScopeFile, err, cfg.Sudo.ExecUser)
+		report.unaskedf("ptrace scope", 1, "%s unreadable\n%v", ptraceScopeFile, err)
 		return
 	}
 	scope := strings.TrimSpace(string(raw))
 	if scope == "0" {
-		report.addf("ptrace scope", StatusWarn, "%s is 0, so any process "+
-			"running as %s may ptrace any other process of that uid, and this host grants "+
-			"escalation. Set it to 1 or higher: sysctl -w kernel.yama.ptrace_scope=1, and "+
-			"a line in /etc/sysctl.d", ptraceScopeFile, cfg.Sudo.ExecUser)
+		report.addf("ptrace scope", StatusWarn, "%s is 0, so any %s process may "+
+			"ptrace another; run `sysctl -w kernel.yama.ptrace_scope=1` and persist it "+
+			"in /etc/sysctl.d", ptraceScopeFile, cfg.Sudo.ExecUser)
 		return
 	}
-	report.addf("ptrace scope", StatusOK, "%s is %s, so one process running as %s "+
-		"cannot attach to another that is not its own descendant",
-		ptraceScopeFile, scope, cfg.Sudo.ExecUser)
+	report.addf("ptrace scope", StatusOK, "%s is %s", ptraceScopeFile, scope)
 }
 
 // diagnoseCgroupDelegation checks the reaper every run depends on: the executor
@@ -135,13 +119,11 @@ func diagnoseCgroupDelegation(report *Report, _ Options, _ *config.Config) {
 		// checks already speak to that.
 		return
 	case !delegates:
-		report.addf("cgroup delegation", StatusFailed, "the executor unit does not set Delegate=, so it cannot confine a run and refuses "+
-			"every brokered command. Reinstall with `faramir init` on a host running cgroup v2 "+
-			"(kernel >= 5.14)")
+		report.addf("cgroup delegation", StatusFailed, "the executor unit sets no "+
+			"Delegate=, so every brokered command is refused; run `sudo faramir init` "+
+			"on cgroup v2 (kernel >= 5.14)")
 	default:
-		report.addf("cgroup delegation", StatusOK, "the executor unit is "+
-			"delegated a cgroup subtree, so each run is confined and reaped, and a setsid "+
-			"child cannot outlive it")
+		report.addf("cgroup delegation", StatusOK, "the executor has a cgroup subtree")
 	}
 }
 
@@ -168,14 +150,12 @@ func diagnoseProtectProc(report *Report) {
 		value, ok := hostunit.Property(unit, "ProtectProc")
 		if !ok {
 			report.unaskedf("protectproc", 1, "systemd could not report %s's "+
-				"ProtectProc, so it was not checked", unit)
+				"ProtectProc", unit)
 			continue
 		}
 		if value != "invisible" {
-			report.addf("protectproc", StatusFailed, "%s runs with "+
-				"ProtectProc=%s instead of the invisible the install writes, so that daemon "+
-				"sees every account's /proc. A drop-in or an edit changed it; `sudo faramir "+
-				"init` writes the unit back", unit, value)
+			report.addf("protectproc", StatusFailed, "%s has ProtectProc=%s, not "+
+				"invisible; run `sudo faramir init`", unit, value)
 			continue
 		}
 		report.addf("protectproc", StatusOK, "%s hides other accounts' /proc", unit)

@@ -77,10 +77,8 @@ func diagnoseBoundaries(report *Report, opts Options, cfg *config.Config, serves
 	// is still counted as unasked below.
 	if os.Geteuid() != 0 {
 		noGrant(report, cfg)
-		report.unaskedf("boundaries", len(checks), "%d checks were not made: "+
-			"they ask what %s, %s, %s and %s can reach, and only root can run as those "+
-			"accounts. Run doctor as root", len(checks), opts.AgentUser, opts.BrokerUser, opts.KeeperUser,
-			opts.ExecUser)
+		report.unaskedf("boundaries", len(checks), "%d checks not made; run doctor "+
+			"as root", len(checks))
 		return
 	}
 	// The probe itself, per account: every check below reads a refusal as a
@@ -94,9 +92,8 @@ func diagnoseBoundaries(report *Report, opts Options, cfg *config.Config, serves
 		// As above: this run has root and still cannot ask anything, so the checks
 		// below never run and the one that needs no asking is answered here.
 		noGrant(report, cfg)
-		report.unaskedf("boundaries", len(checks), "runuser is not installed, "+
-			"so %s cannot be asked what it can reach and %d checks were not made",
-			opts.KeeperUser, len(checks))
+		report.unaskedf("boundaries", len(checks), "runuser not installed; %d "+
+			"checks not made", len(checks))
 		return
 	}
 	opts.deadProbers = map[string]bool{}
@@ -106,9 +103,8 @@ func diagnoseBoundaries(report *Report, opts Options, cfg *config.Config, serves
 		}
 	}
 	if len(opts.deadProbers) > 0 {
-		report.unaskedf("boundaries", len(opts.deadProbers), "%s cannot be "+
-			"asked what it can reach: runuser refused the account, or it cannot execute "+
-			"this binary. Its checks below are reported as not asked",
+		report.unaskedf("boundaries", len(opts.deadProbers), "cannot run as %s "+
+			"(runuser refused, or it cannot execute this binary); its checks not made",
 			strings.Join(slices.Sorted(maps.Keys(opts.deadProbers)), " or "))
 	}
 	for _, check := range aboutTheHost {
@@ -119,10 +115,8 @@ func diagnoseBoundaries(report *Report, opts Options, cfg *config.Config, serves
 	// as holding on the strength of a question nobody could ask. An agent
 	// account nothing can ask as is the same bar.
 	if opts.AgentUser == "" || opts.deadProbers[opts.AgentUser] {
-		report.unaskedf("boundaries", len(aboutTheOperator), "the agent account "+
-			"is not named, so %d check(s) of what it can reach were not made. Run doctor "+
-			"through sudo (SUDO_USER names the account), or record it with `sudo faramir init "+
-			"--agent-user`", len(aboutTheOperator))
+		report.unaskedf("boundaries", len(aboutTheOperator), "agent account "+
+			"unknown; %d check(s) not made\n"+agentUnknown, len(aboutTheOperator))
 		return
 	}
 	for _, check := range aboutTheOperator {
@@ -151,14 +145,12 @@ func (opts Options) askable(accounts ...string) (named []string, skipped bool) {
 // because read here would only add files no [secret] list names.
 func diagnoseStore(report *Report, opts Options, cfg *config.Config) {
 	if !asaccount.Holds(opts.KeeperUser, opts.SecretsGroup) {
-		report.addf("secrets", StatusFailed, "%s is not in %s, so it can neither decrypt "+
-			"the secrets directory nor tell when it changed", opts.KeeperUser, opts.SecretsGroup)
+		report.addf("secrets", StatusFailed, "%s is not in %s", opts.KeeperUser, opts.SecretsGroup)
 		return
 	}
 	for _, account := range []string{opts.AgentUser, opts.ExecUser, opts.BrokerUser} {
 		if asaccount.Holds(account, opts.SecretsGroup) {
-			report.addf("secrets", StatusFailed, "%s is in %s, so it can read and replace "+
-				"the managed files. Drop it with: gpasswd -d %s %s",
+			report.addf("secrets", StatusFailed, "%s is in %s; run `gpasswd -d %s %s`",
 				account, opts.SecretsGroup, account, opts.SecretsGroup)
 			return
 		}
@@ -170,18 +162,15 @@ func diagnoseStore(report *Report, opts Options, cfg *config.Config) {
 		dir = filepath.Dir(cfg.Secret.Patterns[0])
 	}
 	if info, err := os.Stat(dir); err == nil && info.Mode().Perm()&0o007 != 0 {
-		report.addf("secrets", StatusFailed, "%s is %04o: every account on this "+
-			"host can read the ciphertext", dir, info.Mode().Perm())
+		report.addf("secrets", StatusFailed, "%s is %04o, open to every account",
+			dir, info.Mode().Perm())
 		return
 	}
 	if asaccount.CanRead(opts.AgentUser, dir) {
-		report.addf("secrets", StatusFailed, "%s can list %s, so it can read "+
-			"the files values come from instead of asking the broker for them",
-			opts.AgentUser, dir)
+		report.addf("secrets", StatusFailed, "%s can list %s", opts.AgentUser, dir)
 		return
 	}
-	report.addf("secrets", StatusOK, "%s is the keeper's, and %s cannot list %s",
-		opts.SecretsGroup, opts.AgentUser, dir)
+	report.addf("secrets", StatusOK, "%s closed to %s", dir, opts.AgentUser)
 }
 
 // diagnoseConfigWritable checks the file that decides what a brokered command
@@ -192,7 +181,7 @@ func diagnoseConfigWritable(report *Report, opts Options) {
 	configFile := config.FileIn(opts.ConfigDir)
 	if hostfs.Exists(configFile) && asaccount.CanWrite(opts.AgentUser, configFile) {
 		report.addf("config ownership", StatusFailed, "%s can write %s, which "+
-			"sets [command.env] PATH, so an edit there chooses what the executor runs", opts.AgentUser, configFile)
+			"chooses what the executor runs", opts.AgentUser, configFile)
 		return
 	}
 	// The creation rule is kept if it already exists, so an operator-created one
@@ -201,11 +190,10 @@ func diagnoseConfigWritable(report *Report, opts Options) {
 	sopsConfig := filepath.Join(opts.ConfigDir, ".sops.yaml")
 	if hostfs.Exists(sopsConfig) && asaccount.CanWrite(opts.AgentUser, sopsConfig) {
 		report.addf("config ownership", StatusFailed, "%s can write %s, which "+
-			"names the age recipients, so an edit there chooses who can decrypt every "+
-			"value written after it", opts.AgentUser, sopsConfig)
+			"names the age recipients", opts.AgentUser, sopsConfig)
 		return
 	}
-	report.addf("config ownership", StatusOK, "%s cannot write the config or the "+
+	report.addf("config ownership", StatusOK, "%s cannot write the config or "+
 		"creation rule", opts.AgentUser)
 }
 
@@ -223,12 +211,11 @@ func diagnoseConfigWritable(report *Report, opts Options) {
 func diagnoseConfigReadable(report *Report, opts Options) {
 	configFile := config.FileIn(opts.ConfigDir)
 	if !hostfs.Exists(configFile) {
-		report.addf("config reach", StatusNA, "%s is not there to be read", configFile)
+		report.addf("config reach", StatusNA, "no %s", configFile)
 		return
 	}
 	if opts.deadProbers[opts.BrokerUser] {
-		report.unaskedf("config reach", 1, "cannot run as %s, so whether it can "+
-			"read the config was not checked", opts.BrokerUser)
+		report.unaskedf("config reach", 1, "cannot run as %s", opts.BrokerUser)
 		return
 	}
 	if asaccount.CanRead(opts.BrokerUser, configFile) {
@@ -239,14 +226,12 @@ func diagnoseConfigReadable(report *Report, opts Options) {
 	// is usually world-readable and the refusal is a parent it cannot enter, so
 	// a report naming the file sends an operator to chmod the wrong thing.
 	if blocked := asaccount.BlockingDir(opts.BrokerUser, configFile); blocked != "" {
-		report.addf("config reach", StatusFailed, "%s cannot read %s because it "+
-			"cannot enter %s. The daemons keep serving what they loaded, and a reload "+
-			"will fail; `faramir init` grants the traversal", opts.BrokerUser, configFile, blocked)
+		report.addf("config reach", StatusFailed, "%s cannot enter %s, so a reload "+
+			"will fail; run `sudo faramir init`\nunreadable: %s", opts.BrokerUser, blocked, configFile)
 		return
 	}
 	report.addf("config reach", StatusFailed, "%s cannot read %s, so a reload "+
-		"will fail and the daemons keep serving what they loaded",
-		opts.BrokerUser, configFile)
+		"will fail", opts.BrokerUser, configFile)
 }
 
 // diagnoseInstalledFiles checks what the deny list protects. The binary is the
@@ -274,14 +259,12 @@ func diagnoseInstalledFiles(report *Report, opts Options) {
 		}
 		// The directory too: write there is permission to replace what is in it.
 		if asaccount.CanWrite(opts.AgentUser, path) {
-			report.addf("installed files", StatusFailed, "%s can write %s, so it "+
-				"can replace what enforces the deny list",
+			report.addf("installed files", StatusFailed, "%s can write %s",
 				opts.AgentUser, path)
 			return
 		}
 	}
-	report.addf("installed files", StatusOK, "%s cannot write the binary, the deny list "+
-		"or the wrapper", opts.AgentUser)
+	report.addf("installed files", StatusOK, "%s cannot write them", opts.AgentUser)
 }
 
 // diagnoseSockets asks who can open each one. The keeper's is the age key by
@@ -298,9 +281,9 @@ func diagnoseSockets(report *Report, opts Options, cfg *config.Config) {
 		cost     string
 	}{
 		{"keeper socket", cfg.Keeper.SocketPath, []string{opts.AgentUser, opts.ExecUser},
-			"asking it for a decrypted value is the age key without reading the file"},
+			"it serves decrypted values"},
 		{"executor socket", cfg.Executor.SocketPath, []string{opts.AgentUser, opts.ExecUser},
-			"a command sent there runs unredacted and unlogged"},
+			"it runs commands unredacted and unlogged"},
 	}
 	for _, socket := range closed {
 		if socket.path == "" || !hostfs.Exists(socket.path) {
@@ -319,13 +302,11 @@ func diagnoseSockets(report *Report, opts Options, cfg *config.Config) {
 			continue
 		}
 		if skipped {
-			report.unaskedf(socket.name, 1, "%s is closed to %s. The operator "+
-				"account is not named, so whether it is closed to that account was not "+
-				"checked",
-				socket.path, strings.Join(accounts, " and "))
+			report.unaskedf(socket.name, 1, "%s closed to %s; agent account "+
+				"unknown, so not checked for it", socket.path, strings.Join(accounts, " and "))
 			continue
 		}
-		report.addf(socket.name, StatusOK, "%s is closed to %s", socket.path,
+		report.addf(socket.name, StatusOK, "%s closed to %s", socket.path,
 			strings.Join(accounts, " and "))
 	}
 	if path := cfg.Server.SocketPath; path != "" && hostfs.Exists(path) {
@@ -334,14 +315,12 @@ func diagnoseSockets(report *Report, opts Options, cfg *config.Config) {
 			// The only claim here is about the operator, so there is nothing left to
 			// check: an unnamed account cannot open a socket, and reporting that as the
 			// grant being absent would fail every install examined from a root shell.
-			report.unaskedf("broker socket", 1, "the agent account is not named, "+
-				"so whether it can open %s was not checked", path)
+			report.unaskedf("broker socket", 1, "agent account unknown; %s not checked", path)
 		case asaccount.CanWrite(opts.AgentUser, path):
 			report.addf("broker socket", StatusOK, "%s can open %s", opts.AgentUser, path)
 		default:
-			report.addf("broker socket", StatusFailed, "%s cannot open %s, so "+
-				"nothing it runs is brokered. Membership of %s grants this",
-				opts.AgentUser, path, opts.ClientGroup)
+			report.addf("broker socket", StatusFailed, "%s cannot open %s; add it "+
+				"to %s", opts.AgentUser, path, opts.ClientGroup)
 		}
 	}
 }
@@ -358,22 +337,19 @@ func diagnoseSocketPolicy(report *Report, opts Options, cfg *config.Config) {
 	for _, socket := range []struct {
 		name    string
 		account string
-		cost    string
 	}{
-		{"keeper socket policy", cfg.Keeper.AllowedUser,
-			"asking it for a decrypted value is the age key without reading the file"},
-		{"executor socket policy", cfg.Executor.AllowedUser,
-			"a command sent there runs unredacted and unlogged"},
+		{"keeper socket policy", cfg.Keeper.AllowedUser},
+		{"executor socket policy", cfg.Executor.AllowedUser},
 	} {
 		switch {
 		case socket.account == "":
-			report.addf(socket.name, StatusWarn, "allowed_user is unset, so only "+
-				"%s's own uid and root are admitted. Set it to %s", opts.BrokerUser, opts.BrokerUser)
+			report.addf(socket.name, StatusWarn, "allowed_user is unset; set it to %s",
+				opts.BrokerUser)
 		case socket.account != opts.BrokerUser:
-			report.addf(socket.name, StatusFailed, "allowed_user names %s rather than "+
-				"%s: %s", socket.account, opts.BrokerUser, socket.cost)
+			report.addf(socket.name, StatusFailed, "allowed_user is %s, not %s",
+				socket.account, opts.BrokerUser)
 		default:
-			report.addf(socket.name, StatusOK, "allowed_user is %s alone", opts.BrokerUser)
+			report.addf(socket.name, StatusOK, "allowed_user is %s", opts.BrokerUser)
 		}
 	}
 }

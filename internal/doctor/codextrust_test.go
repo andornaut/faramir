@@ -30,17 +30,17 @@ func TestReportCodexTrust(t *testing.T) {
 		{
 			name:  "trusted",
 			state: func(hash string) string { return "trusted_hash = \"" + hash + "\"\n" },
-			want:  StatusOK, says: []string{"trusts"},
+			want:  StatusOK, says: []string{"trusted"},
 		},
 		{
 			name: "never trusted",
 			want: StatusFailed,
-			says: []string{"has not been told to trust", "skips them", "`/hooks`", "review and trust"},
+			says: []string{"untrusted", "skips", "`/hooks`", "trust them in"},
 		},
 		{
 			name:  "trusted before the hook changed",
 			state: func(string) string { return "trusted_hash = \"sha256:0000\"\n" },
-			want:  StatusFailed, says: []string{"trusts a different hook", "`/hooks`", "review and trust"},
+			want:  StatusFailed, says: []string{"trusts a different hook", "`/hooks`", "trust them in"},
 		},
 		{
 			name: "trusted and turned off",

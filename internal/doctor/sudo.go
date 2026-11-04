@@ -49,9 +49,8 @@ func noGrant(report *Report, cfg *config.Config) bool {
 	if granted(cfg) {
 		return false
 	}
-	report.addf("sudo grant", StatusNA, "no [sudo] section, so brokered "+
-		"commands cannot sudo. This is the default; `sudo faramir init --allow-sudo` "+
-		"enables it")
+	report.addf("sudo grant", StatusNA, "no [sudo] section; brokered commands cannot "+
+		"sudo. Enable with `sudo faramir init --allow-sudo`")
 	return true
 }
 
@@ -67,39 +66,33 @@ var sudoNoPasswd = passwordlessSudo
 // report an unread file as an absent credential.
 func diagnoseSudoCredential(report *Report, opts Options) {
 	if opts.ExecUser == "" {
-		report.unaskedf("sudo credential", 1, "which account runs the executor is not "+
-			"known here, so a NOPASSWD entry for it went unchecked. Pass --exec-user")
+		report.unaskedf("sudo credential", 1, "executor account unknown; pass --exec-user")
 		return
 	}
 	nopasswd, known := sudoNoPasswd(opts.ExecUser)
 	switch {
 	case !known:
 		report.unaskedf("sudo credential", 1, "`sudo -l` could not list %s's "+
-			"entries, so a NOPASSWD entry went unchecked: a sudoers file this sudo cannot "+
-			"parse looks the same from here as one with no entry", opts.ExecUser)
+			"entries; NOPASSWD not checked", opts.ExecUser)
 		return
 	case nopasswd != "":
-		report.addf("sudo credential", StatusFailed, "%s has a NOPASSWD sudoers "+
-			"entry (%s), so a brokered command can sudo without the broker or a human: "+
-			"NOPASSWD skips PAM, where the question is asked. Remove it", opts.ExecUser, nopasswd)
+		report.addf("sudo credential", StatusFailed, "%s can sudo without the "+
+			"broker; remove this sudoers entry\n%s", opts.ExecUser, nopasswd)
 		return
 	}
 	shadow, err := os.ReadFile(shadowFile)
 	if err != nil {
-		report.unaskedf("sudo credential", 1, "%s cannot be read (%v), so "+
-			"whether %s has a password it could authenticate with went unchecked. Run "+
-			"doctor as root",
-			shadowFile, err, opts.ExecUser)
+		report.unaskedf("sudo credential", 1, "%s unreadable; run doctor as root\n%v",
+			shadowFile, err)
 		return
 	}
 	if shadowUsable(string(shadow), opts.ExecUser) {
-		report.addf("sudo credential", StatusFailed, "%s has a usable password, "+
-			"so it can authenticate without asking the broker. Lock it: usermod -L %s", opts.ExecUser, opts.ExecUser)
+		report.addf("sudo credential", StatusFailed, "%s has a usable password; "+
+			"run `usermod -L %s`", opts.ExecUser, opts.ExecUser)
 		return
 	}
-	report.addf("sudo credential", StatusOK, "%s has no NOPASSWD entry from "+
-		"any source and no password of its own, the two ways it could sudo without "+
-		"the broker", opts.ExecUser)
+	report.addf("sudo credential", StatusOK, "%s has no NOPASSWD entry or password",
+		opts.ExecUser)
 }
 
 // diagnoseSudoArrangement checks what authenticates an escalation and what it
@@ -171,10 +164,8 @@ func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
 	// left over. A failure rather than the crossed case above, because the grant
 	// beside it names settings written for the other sudo.
 	if present, err := hostsudo.BlockPresent(); !sudoRs && !crossed && err == nil && present {
-		report.addf("sudo grant", StatusFailed, "a faramir block is still in "+
-			"%s, but this host's sudo is the original, which selects %s instead. The "+
-			"block is left from an install made when the `sudo` alternatives group "+
-			"pointed elsewhere. Re-run `sudo faramir init --allow-sudo`", strings.Join(hostlayout.SudoPamStacks(), " or "), pamFile)
+		report.addf("sudo grant", StatusFailed, "stale faramir block in %s; this "+
+			"host's original sudo reads %s. "+reRunAllowSudo, strings.Join(hostlayout.SudoPamStacks(), " or "), pamFile)
 		return
 	}
 	// The helper the stack execs, as root. It is named on a requisite line, so a
@@ -183,9 +174,8 @@ func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
 	// this verdict is true on its own terms -- an operator reading the grant line
 	// alone is told the grant works only where it does.
 	if _, err := os.Stat(cfg.Sudo.Helper); err != nil {
-		report.addf("sudo grant", StatusFailed, "%s execs %s, which cannot be "+
-			"read (%v). That line is requisite, so no escalation can be approved on this "+
-			"host. Re-run `sudo faramir init --allow-sudo`",
+		report.addf("sudo grant", StatusFailed, "%s execs %s, which is unreadable; "+
+			"no escalation can be approved. "+reRunAllowSudo+"\n%v",
 			pamFile, cfg.Sudo.Helper, err)
 		return
 	}
@@ -194,8 +184,7 @@ func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
 	for _, account := range accounts {
 		if asaccount.CanWrite(account, cfg.Sudo.Helper) {
 			report.addf("sudo grant", StatusFailed, "%s can write %s, which "+
-				"decides every escalation: it could choose its own answer",
-				account, cfg.Sudo.Helper)
+				"decides every escalation", account, cfg.Sudo.Helper)
 			return
 		}
 	}
@@ -210,22 +199,19 @@ func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
 	sudoEnv := filepath.Join(filepath.Dir(cfg.Sudo.Helper), "sudo-env")
 	names := pamFile + " reads it with pam_env"
 	if !strings.Contains(string(body), "pam_env.so") {
-		report.addf("sudo grant", StatusFailed, "%s has no pam_env line, so %s does not reach a brokered "+
-			"command's sudo: FARAMIR_OPERATOR and [command] env do not survive it. "+
-			"Re-run `sudo faramir init --allow-sudo`",
-			pamFile, sudoEnv)
+		report.addf("sudo grant", StatusFailed, "%s has no pam_env line for %s; "+
+			reRunAllowSudo, pamFile, sudoEnv)
 		return
 	}
 	if _, err := os.Stat(sudoEnv); err != nil {
-		report.addf("sudo grant", StatusFailed, "%s, and it cannot be read (%v): the "+
-			"variables a command is given do not survive its sudo. Re-run "+
-			"`sudo faramir init --allow-sudo`", names, err)
+		report.addf("sudo grant", StatusFailed, "%s, which is unreadable; "+
+			reRunAllowSudo+"\n%v", names, err)
 		return
 	}
 	for _, account := range accounts {
 		if asaccount.CanWrite(account, sudoEnv) {
-			report.addf("sudo grant", StatusFailed, "%s can write %s, and %s: it "+
-				"could choose the environment root is handed", account, sudoEnv, names)
+			report.addf("sudo grant", StatusFailed, "%s can write %s (%s)",
+				account, sudoEnv, names)
 			return
 		}
 	}
@@ -233,30 +219,25 @@ func diagnoseSudoArrangement(report *Report, opts Options, cfg *config.Config) {
 	// permissive `other` would authenticate anything reaching it.
 	if other, err := os.ReadFile(filepath.Join(hostlayout.PamDir, "other")); err == nil {
 		if hostsudo.PermissiveAuth(string(other)) {
-			report.addf("sudo grant", StatusFailed, "%s/other authenticates "+
-				"without asking anything, so removing %s would open this host's escalation, "+
-				"not close it. Make the fallback pam_deny",
-				hostlayout.PamDir, pamFile)
+			report.addf("sudo grant", StatusFailed, "%s/other authenticates without "+
+				"asking; make it pam_deny", hostlayout.PamDir)
 			return
 		}
 	}
 	if skipped {
-		report.unaskedf("sudo grant", 1, "%s asks the broker, and %s cannot "+
-			"write %s. The agent account is not named, so whether it can was not checked",
+		report.unaskedf("sudo grant", 1, "%s asks the broker, %s cannot write %s; "+
+			"agent account unknown, so not checked for it",
 			pamFile, strings.Join(accounts, " or "), cfg.Sudo.Helper)
 		return
 	}
 	if crossed {
-		report.addf("sudo grant", StatusWarn, "%s may ask to sudo and %s asks "+
-			"the broker, so escalation works. The arrangement was written for sudo-rs, "+
-			"but this host's sudo is the original, which reads that file as its default "+
-			"service. Re-run `sudo faramir init --allow-sudo` for the arrangement this sudo "+
-			"expects",
-			opts.ExecUser, pamFile)
+		report.addf("sudo grant", StatusWarn, "escalation works, but %s was "+
+			"written for sudo-rs and this host runs the original sudo; "+reRunAllowSudo,
+			pamFile)
 		return
 	}
-	report.addf("sudo grant", StatusOK, "%s may ask to sudo; %s asks the broker, and "+
-		"root answers, one escalation per command", opts.ExecUser, pamFile)
+	report.addf("sudo grant", StatusOK, "%s may ask to sudo; %s asks the broker",
+		opts.ExecUser, pamFile)
 }
 
 // originalSudoOnRsStack answers the case where this host's sudo is the original
@@ -276,10 +257,9 @@ func originalSudoOnRsStack(execUser, pamFile string, readErr error, cfg *config.
 	body []byte, stack string, crossed bool, problem string) {
 	present, blockErr := hostsudo.BlockPresent()
 	if blockErr != nil || !present {
-		return nil, pamFile, false, fmt.Sprintf("%s is configured to "+
-			"authenticate through %s, which cannot be read (%v), so sudo falls back to "+
-			"%s/other for that account. Re-run `sudo faramir init --allow-sudo`",
-			execUser, pamFile, readErr, hostlayout.PamDir)
+		return nil, pamFile, false, fmt.Sprintf("%s authenticates through %s, "+
+			"which is unreadable, so sudo falls back to %s/other. "+reRunAllowSudo+"\n%v",
+			execUser, pamFile, hostlayout.PamDir, readErr)
 	}
 	if branch := hostsudo.BranchProblem(execUser, cfg.Sudo.Helper); branch != "" {
 		return nil, pamFile, false, branch
@@ -297,18 +277,21 @@ func originalSudoOnRsStack(execUser, pamFile string, readErr error, cfg *config.
 func readSudoStack(cfg *config.Config) (body []byte, stack, problem string) {
 	stack, err := escalation.Stack(hostlayout.PamDir, cfg.Sudo.PamStack, cfg.Sudo.PamService)
 	if err != nil {
-		return nil, stack, fmt.Sprintf("%v. Re-run `sudo faramir init --allow-sudo`", err)
+		return nil, stack, fmt.Sprintf("%v; "+reRunAllowSudo, err)
 	}
 	body, err = hostsudo.Block(stack)
 	if err != nil {
-		return nil, stack, fmt.Sprintf("%s: %v. Re-run `sudo faramir init "+
-			"--allow-sudo`", stack, err)
+		return nil, stack, fmt.Sprintf("%s: %v; "+reRunAllowSudo, stack, err)
 	}
 	return body, stack, ""
 }
 
 // shadowFile is where the hashes are. A variable so a test can point at one it
 // wrote.
+// reRunAllowSudo is the fix for every arrangement fault: init rewrites the
+// whole of it.
+const reRunAllowSudo = "run `sudo faramir init --allow-sudo`"
+
 var shadowFile = "/etc/shadow"
 
 // shadowUsable reports whether an account has a password it could authenticate
