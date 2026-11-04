@@ -305,6 +305,9 @@ func prepareUnenrolEdits(uid int, dir, within string, files []unenrolFile) (_ []
 	return edits, seen, nil
 }
 
+// CLEANUP (added 2026-10-31): the legacy instruction-file migration. Remove
+// once every enrolled tree has been re-enrolled once on a release that carries
+// the migration.
 func checkUnenrolLegacy(report *UnenrolReport, seen map[string]bool, uid int, dir string) error {
 	// Legacy instruction files are retained. An alias of the shared file is
 	// covered by that one edit; an independent managed block needs attention.

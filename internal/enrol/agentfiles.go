@@ -259,6 +259,10 @@ func (p *project) enabledTargets() []*agentcfg.Target {
 
 // Legacy directory entries are retained for operator migration. Only an alias
 // of the canonical file can receive its shared section through the same target.
+//
+// CLEANUP (added 2026-10-31): the legacy instruction-file migration. Remove
+// once every enrolled tree has been re-enrolled once on a release that carries
+// the migration.
 func (p *project) warnLegacyInstructions() {
 	home := p.agentHome
 	if home != "" {
