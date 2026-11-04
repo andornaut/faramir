@@ -3,8 +3,9 @@ package doctor
 import (
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/runcmd"
 )
 
 // agentUnknown is the fix for every check skipped for want of the agent
@@ -12,30 +13,18 @@ import (
 const agentUnknown = "run doctor through sudo (SUDO_USER names the agent " +
 	"account), or record it with `sudo faramir init --agent-user`"
 
-// childCause is a failed child's own words: the stderr runcmd folds into its
-// error after "<argv>: exit status N: ", one detail line per non-blank line.
-// The argv and the exit status are dropped. A child that wrote nothing is its
-// exit status alone, and an error from anything but an exited child is
-// returned whole.
+// childCause is a failed child's own words, one detail line per line runcmd
+// kept, without the command line runcmd puts in front of them. A child that
+// wrote nothing is its exit status alone, and an error that did not come from
+// runcmd is returned whole.
 func childCause(err error) string {
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) {
+	failed, ok := errors.AsType[*runcmd.Error](err)
+	if !ok {
 		return err.Error()
 	}
-	marker := ": " + exit.Error() + ":"
-	text := err.Error()
-	at := strings.Index(text, marker)
-	if at < 0 {
-		return text
-	}
-	var lines []string
-	for line := range strings.SplitSeq(text[at+len(marker):], "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	if len(lines) == 0 {
-		return exit.Error()
+	lines := make([]string, 0, len(failed.Lines))
+	for _, line := range failed.Lines {
+		lines = append(lines, strings.TrimSpace(line))
 	}
 	return strings.Join(lines, "\n")
 }

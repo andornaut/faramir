@@ -123,8 +123,8 @@ func (r *runner) stepSudoGrant() error {
 	// a usable hash would be a second way in that the broker is not asked about.
 	// Re-asserted every run.
 	if _, err := command("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warnf("%s's password not locked: %v\n  run usermod -L %s",
-			r.layout.ExecUser, err, r.layout.ExecUser)
+		r.warnf("%s's password not locked:\n%s\n  run usermod -L %s",
+			r.layout.ExecUser, indent(err.Error()), r.layout.ExecUser)
 	}
 	if granted || authChanged || envChanged || branchChanged {
 		r.restartFor("sudo grant")
@@ -219,8 +219,8 @@ func (r *runner) revokeSudoGrant() error {
 	// Locking rather than clearing: an account with an empty password field is one
 	// some PAM stacks let in without asking.
 	if _, err := command("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warnf("%s's password not locked: %v\n  run usermod -L %s",
-			r.layout.ExecUser, err, r.layout.ExecUser)
+		r.warnf("%s's password not locked:\n%s\n  run usermod -L %s",
+			r.layout.ExecUser, indent(err.Error()), r.layout.ExecUser)
 	}
 	r.restartFor("sudo grant")
 	r.step("sudo grant", true, "revoked: "+hostlayout.SudoersFile+" and the PAM service removed")

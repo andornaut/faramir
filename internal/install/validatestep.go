@@ -161,15 +161,19 @@ func (r *runner) stepValidate() error {
 
 // escalationHeld is the broker's reason when a brokered probe was refused for an
 // escalation another command holds, and empty otherwise. `faramir run` prints a
-// refusal as "faramir run: <code>: <message>" on a line of its own.
+// refusal as "faramir run: <code>: <message>" on a line of its own, which
+// runcmd indents under the command line; a line that only quotes the prefix
+// further along is not one.
 func escalationHeld(err error) string {
 	const prefix = "faramir run: escalation_in_progress: "
-	_, rest, found := strings.Cut(err.Error(), prefix)
-	if !found {
-		return ""
+	for line := range strings.SplitSeq(err.Error(), "\n") {
+		held, found := strings.CutPrefix(strings.TrimSpace(line), prefix)
+		if !found {
+			continue
+		}
+		// The clause naming the command; the rest is the broker's advice.
+		held, _, _ = strings.Cut(held, ". Not run")
+		return strings.TrimSpace(held)
 	}
-	held, _, _ := strings.Cut(rest, "\n")
-	// The clause naming the command; the rest is the broker's reason and advice.
-	held, _, _ = strings.Cut(held, ", and no other brokered command")
-	return strings.TrimSpace(held)
+	return ""
 }
