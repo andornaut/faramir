@@ -91,9 +91,7 @@ func (l *Log) lastResort(payload map[string]any, fields int) []byte {
 		op = op[:32] + "…"
 	}
 	report := fmt.Sprintf("BUG in faramir: a %d-field %q record does not fit "+
-		"the record cap (%d) even after reduction, so only its identity is "+
-		"written. Every record of this shape is affected. Either a field was "+
-		"added without raising config.MinRecordBytes, or a value does not marshal",
+		"the record cap (%d) after reduction; only its identity is written",
 		fields, op, config.MaxRecordBytes)
 	if strict {
 		panic(report)

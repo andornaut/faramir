@@ -58,8 +58,8 @@ func openAuditLog(path string) (*os.File, error) {
 // because it has to tell "not there" from every other reason a file will not
 // open.
 func missingLog(path string) error {
-	return fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
-		"this host yet, or [audit] log_path points elsewhere", path)
+	return fmt.Errorf("no audit log at %s: nothing brokered yet, or [audit] "+
+		"log_path names another file", path)
 }
 
 // ParseLine is one line as a record, and whether losing it means a record was

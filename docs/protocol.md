@@ -22,9 +22,7 @@ There is one binary. The three daemons are that binary under three units, and th
 {"version": "<this daemon's>",
  "error": {"code": "bad_request",
            "message": "the caller names faramir <the caller's> and this is faramir <this daemon's>:
-                       restart it. A daemon that outlived the install which replaced
-                       the binary under it is the usual cause, and `sudo faramir reload`
-                       is what restarts all three"}}
+                       restart it with `sudo faramir reload`"}}
 ```
 
 Every error response from the broker carries `version`, the build that answered. A version refusal is the one case where the caller cannot learn the version from an op, since the refusal comes before the op is read. [`doctor`](operating.md#checking-an-install) uses this to report version skew.

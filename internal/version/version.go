@@ -135,8 +135,6 @@ func Mismatch(caller string) string {
 	if caller == "" {
 		named = "no version"
 	}
-	return fmt.Sprintf("the caller names %s and this is faramir %s: restart it. "+
-		"A daemon that outlived the install which replaced the binary under it is "+
-		"the usual cause, and `sudo faramir reload` is what restarts all three",
-		named, Version)
+	return fmt.Sprintf("the caller names %s and this is faramir %s: restart it "+
+		"with `sudo faramir reload`", named, Version)
 }

@@ -303,8 +303,8 @@ func appendLine(fh *os.File, line []byte, path string) error {
 	// onto it, so one failure would cost two records. Truncating back costs this
 	// one alone.
 	if rollbackErr := fh.Truncate(end); rollbackErr != nil {
-		return errors.Join(err, fmt.Errorf("cannot undo partial append to %s; "+
-			"the next record will append to the torn line: %w", path, rollbackErr))
+		return errors.Join(err, fmt.Errorf("cannot undo partial append to %s: %w",
+			path, rollbackErr))
 	}
 	return err
 }

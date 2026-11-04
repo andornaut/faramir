@@ -132,12 +132,12 @@ func PrintRecord(record map[string]any, paint termui.Palette) {
 		dropped, _ := num(record, "output_dropped")
 		kept, _ := record["output"].(string)
 		printField(paint, "output cut", fmt.Sprintf(
-			"%d byte(s) kept, %d dropped: this is an excerpt, not the whole of it",
+			"%d byte(s) kept, %d dropped",
 			len(kept), int64(dropped)))
 	}
 	if invalid, ok := num(record, "invalid_bytes"); ok && invalid > 0 {
 		printField(paint, "non-text", fmt.Sprintf(
-			"%d byte(s) were not valid UTF-8 and are recorded as U+FFFD", int64(invalid)))
+			"%d byte(s) not valid UTF-8, recorded as U+FFFD", int64(invalid)))
 	}
 	output, _ := record["output"].(string)
 	if output == "" {

@@ -527,7 +527,7 @@ head_ "12. where it reads from"
 
 NOPECFG=$(configFor /var/log/faramir/nope.log nope)
 out=$(logsAt "$NOPECFG"); code=$?
-[ $code -eq 1 ] && grep -q 'Nothing has been brokered' <<<"$out" \
+[ $code -eq 1 ] && grep -q 'nothing brokered yet' <<<"$out" \
   && ok "an absent log says what that means, not 'no such file'" || bad "absent log: exit $code [$out]"
 
 : > /tmp/empty.log
@@ -538,7 +538,7 @@ out=$(logsAt "$(configFor /tmp/empty.log empty)"); code=$?
 # An absent log outranks the count: -n 0 on a host where nothing has been
 # brokered must say that, not answer a question about the count.
 out=$(logsAt "$NOPECFG" -n 0); code=$?
-[ $code -eq 1 ] && grep -q 'Nothing has been brokered' <<<"$out" \
+[ $code -eq 1 ] && grep -q 'nothing brokered yet' <<<"$out" \
   && ok "an absent log is named even when -n asked for nothing" \
   || bad "-n 0 on an absent log: exit $code [$out]"
 
