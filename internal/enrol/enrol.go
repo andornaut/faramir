@@ -83,7 +83,7 @@ func Tree(opts Options) (Report, error) {
 	// chmod and chown and not with its walk. See sharetree.Resolve.
 	dir, err := sharetree.Resolve(named)
 	if err != nil {
-		return Report{}, fmt.Errorf("resolving %s: %w", named, err)
+		return Report{}, fmt.Errorf("%s: %w", named, err)
 	}
 	opts.Dir = dir
 	if opts.ConfigDir == "" {
@@ -102,7 +102,7 @@ func Tree(opts Options) (Report, error) {
 	// resolves to the tree being enrolled tells them nothing. A symlink is what
 	// this is for, where the enrolment lands on a directory they did not type.
 	if abs, err := filepath.Abs(named); err != nil || filepath.Clean(abs) != dir {
-		run.warnf("%s resolves to %s, which is the tree being enrolled", named, dir)
+		run.warnf("%s resolves to %s; enrolling that", named, dir)
 	}
 	if err := run.preflight(); err != nil {
 		return run.report, err
@@ -131,10 +131,8 @@ func Tree(opts Options) (Report, error) {
 		if err := agentcfg.RecordEnrolment(opts.ConfigDir, agentcfg.EnrolledTree{
 			Dir: dir, AgentUser: opts.AgentUser, Agents: names,
 		}); err != nil {
-			return run.report, fmt.Errorf("%s is enrolled, but recording it in %s "+
-				"failed: %w\n`faramir init` will not maintain this tree and `faramir doctor` "+
-				"will not check it until it is recorded. Run this again once nothing "+
-				"else is writing that file", dir, agentcfg.EnrolledPath(opts.ConfigDir), err)
+			return run.report, fmt.Errorf("%s is enrolled but not recorded in %s: %w\n"+
+				"  run this again", dir, agentcfg.EnrolledPath(opts.ConfigDir), err)
 		}
 	}
 	return run.report, nil

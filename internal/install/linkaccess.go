@@ -37,11 +37,8 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	// made after the entry. Refused either way, the chgrp and chmod reported below
 	// landing on the target while the mode read here is the link's.
 	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Sprintf("%s is a symlink. A link must name the file that holds "+
-			"the value, which is the file that has to carry the group and the mode: "+
-			"name %s "+
-			"instead. `faramir link rm %s` removes this entry, and `faramir link "+
-			"add` resolves a symlink for you and blocks the spelling you typed",
+		return fmt.Sprintf("%s is a symlink to %s\n"+
+			"  run `faramir link rm %s`, then `faramir link add` again, which resolves it",
 			link.Path, linkTarget(link.Path), link.Ref), nil
 	}
 	// A directory above it answers for the file whatever the file's own bits say,
@@ -59,8 +56,8 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 		return "", err
 	}
 	if len(blocked) > 0 {
-		return fmt.Sprintf("%s cannot reach %s (%s): it cannot enter %s. Open "+
-			"them:\n%s", r.layout.BrokerUser, config.Shown(link.Path), config.Shown(link.Ref),
+		return fmt.Sprintf("%s cannot reach %s (%s): cannot enter %s\n%s",
+			r.layout.BrokerUser, config.Shown(link.Path), config.Shown(link.Ref),
 			sharetree.Describe(blocked),
 			sharetree.Fix(blocked, r.layout.ClientGroup)), nil
 	}
@@ -85,8 +82,7 @@ func (r *runner) linkFault(link config.Link) (string, error) {
 	if len(fix) == 0 {
 		return "", nil
 	}
-	return fmt.Sprintf("%s (%s) is %s %04o. A linked file must be group %s, group-readable, and "+
-		"not world-readable:\n%s",
+	return fmt.Sprintf("%s (%s) is %s %04o, not group %s, group-readable and not world-readable\n  %s",
 		config.Shown(link.Path), config.Shown(link.Ref), asaccount.GroupName(info), mode, r.brokerGroupName(),
 		strings.Join(fix, " && ")), nil
 }
@@ -130,9 +126,8 @@ func (r *runner) stepLinkAccess() error {
 		}
 	}
 	if len(faults) > 0 {
-		return fmt.Errorf("%d linked file(s) are not usable as they are. "+
-			"faramir does not change a file it does not own; fix them by hand:\n\n%s",
-			len(faults), strings.Join(faults, "\n\n"))
+		return fmt.Errorf("%d linked file(s) not usable; fix them by hand:\n%s",
+			len(faults), indent(strings.Join(faults, "\n")))
 	}
 
 	detail := fmt.Sprintf("%d linked file(s) readable by %s",
@@ -206,8 +201,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	}
 	if link.Path != typed {
 		if err := config.ValidateLink(link); err != nil {
-			return Report{}, false, fmt.Errorf("%s resolves to %s, which cannot be an "+
-				"entry: %w", typed, link.Path, err)
+			return Report{}, false, fmt.Errorf("%s resolves to %s: %w", typed, link.Path, err)
 		}
 	}
 	// A linked path renders the same subject a blocked one does, covering the
@@ -252,8 +246,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	// Blocked rather than recorded: a link nothing could verify may refuse every
 	// brokered command later, at a moment nobody chose.
 	if _, err := os.Stat(link.Path); err != nil {
-		return Report{}, false, fmt.Errorf("%w\nThe file must exist when the link is "+
-			"added. If it is in an encrypted home, mount the home first",
+		return Report{}, false, fmt.Errorf("%w\n  mount the home first if it is encrypted",
 			fserr.At(link.Path, err))
 	}
 	// What the file itself answers, asked before anything is altered: the wrong
@@ -402,9 +395,7 @@ func (r *runner) refuseShadowedRef(edit *configEdit, ref string) error {
 		return fmt.Errorf("config not found: %s", configFile)
 	}
 	if cfg.Server.SocketPath == "" {
-		return fmt.Errorf("%s names no [server] socket_path, so the broker cannot "+
-			"be asked whether it already serves %s. Re-run `sudo faramir init` "+
-			"before adding a link", configFile, ref)
+		return fmt.Errorf("%s names no [server] socket_path\n  run `sudo faramir init` first", configFile)
 	}
 	// The response rather than the exit status: refs exits 1 on a degraded store
 	// with the list still in it, and that is an answer. An error in the response,
@@ -420,17 +411,15 @@ func (r *runner) refuseShadowedRef(edit *configEdit, ref string) error {
 		if err == nil {
 			err = fmt.Errorf("an answer that is not a ref list: %s", strings.TrimSpace(out))
 		}
-		return fmt.Errorf("the broker did not answer, so it could not be asked whether it already serves %s. "+
-			"A link that claims a ref the broker serves would refuse every brokered command. Start the broker "+
-			"and run this again (`systemctl start faramir-broker.socket`): %w", ref, err)
+		return fmt.Errorf("the broker did not answer whether it serves %s: %w\n"+
+			"  run `systemctl start faramir-broker.socket`, then this again", ref, err)
 	}
 	for _, served := range answer.Refs {
 		if served != ref {
 			continue
 		}
-		return fmt.Errorf("the broker already serves %s, and a ref has one definition, so a [[secret.link]] "+
-			"entry cannot claim that name. Choose another name, or remove the value from the managed "+
-			"store with `sudo faramir vault edit` first", ref)
+		return fmt.Errorf("the broker already serves %s from the managed store\n"+
+			"  choose another name, or remove it with `sudo faramir vault edit` first", ref)
 	}
 	return nil
 }
@@ -449,8 +438,9 @@ func linkNamed(existing []config.Link, ref string) (config.Link, bool) {
 // names both sides: which credential a caller of that name receives is the
 // whole of what differs between them, and neither side is visible from the ref.
 func redefinedRef(configFile string, other, link config.Link) error {
-	return fmt.Errorf("%s already defines %s as %s (%s%s), and this run asks for %s (%s%s). A ref has one "+
-		"definition: remove the existing one with `faramir link rm %s`, or choose another name", configFile, link.Ref, other.Path, other.Type, keySuffix(other.Key),
+	return fmt.Errorf("%s already defines %s as %s (%s%s), not %s (%s%s)\n"+
+		"  run `faramir link rm %s` first, or choose another name",
+		configFile, link.Ref, other.Path, other.Type, keySuffix(other.Key),
 		link.Path, link.Type, keySuffix(link.Key), link.Ref)
 }
 
@@ -542,8 +532,9 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 		// it was and reads as it did.
 		if removed.Ref != "" && !stillBlocked(configDirOr(opts.ConfigDir), removed.Path) {
 			report.Warnings = append(report.Warnings, fmt.Sprintf(
-				"%s is no longer refused to the agent; `sudo faramir block add --path %s` "+
-					"refuses it again", config.Shown(removed.Path), config.Shown(removed.Path)))
+				"%s is no longer refused to the agent\n"+
+					"  run `sudo faramir block add --path %s` to refuse it again",
+				config.Shown(removed.Path), config.Shown(removed.Path)))
 		}
 	}
 	return report, removed, err
@@ -618,13 +609,11 @@ func (r *runner) probeLink(link config.Link) error {
 		detail = err.Error()
 	}
 	if dir := asaccount.BlockingDir(r.layout.BrokerUser, link.Path); dir != "" {
-		return fmt.Errorf("%s cannot reach %s at %s: it cannot enter %s, so the "+
-			"file's own mode does not matter. Open that directory to the broker, or move "+
-			"the file somewhere it can already reach:\n"+
-			"sudo chgrp %s %s && sudo chmod g+x %s",
+		return fmt.Errorf("%s cannot reach %s at %s: cannot enter %s\n"+
+			"  sudo chgrp %s %s && sudo chmod g+x %s",
 			r.layout.BrokerUser, link.Ref, link.Path, dir,
 			asaccount.GroupNameOf(r.layout.BrokerUser), dir, dir)
 	}
-	return fmt.Errorf("%s cannot read %s as %s: %s",
+	return fmt.Errorf("%s cannot read %s (%s): %s",
 		r.layout.BrokerUser, link.Ref, link.Path, detail)
 }

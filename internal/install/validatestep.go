@@ -9,7 +9,6 @@ import (
 	"github.com/andornaut/faramir/internal/brokercheck"
 	"github.com/andornaut/faramir/internal/hostunit"
 	"github.com/andornaut/faramir/internal/protocol"
-	"github.com/andornaut/faramir/internal/runcmd"
 )
 
 // stepValidate asks the broker what it can do with what was installed. As the
@@ -25,17 +24,16 @@ func (r *runner) stepValidate() error {
 		return nil
 	}
 	broker := filepath.Join(r.layout.BinDir, "faramir")
-	out, checkErr := runcmd.Output("runuser", "-u", r.layout.BrokerUser, "--",
+	out, checkErr := command("runuser", "-u", r.layout.BrokerUser, "--",
 		"env", "FARAMIR_CONFIG="+r.layout.ConfigFile, broker, "broker", "--check")
 	// Read before the exit code is judged: what the broker could not load decides
 	// whether this is a failure or a host without its secrets yet.
 	var report brokercheck.CheckReport
 	if jsonErr := json.Unmarshal([]byte(out), &report); jsonErr != nil {
 		if checkErr != nil {
-			return fmt.Errorf("the installed config does not work for %s: %w",
-				r.layout.BrokerUser, checkErr)
+			return failed("the installed config does not load as "+r.layout.BrokerUser, checkErr)
 		}
-		return fmt.Errorf("could not read the --check report: %w", jsonErr)
+		return fmt.Errorf("broker --check report unreadable: %w", jsonErr)
 	}
 	if checkErr != nil {
 		// A configured file not yet created is what every first install looks like.
@@ -50,7 +48,7 @@ func (r *runner) stepValidate() error {
 			// What it does is refuse, not run bare. Said that way round: a warning
 			// that reads as an exposure teaches the wrong reflex for the day a value
 			// set really does fail to load.
-			r.warnf("no managed file matches %s yet, so the broker refuses every brokered command",
+			r.warnf("no managed file matches %s yet; the broker refuses every brokered command",
 				strings.Join(absent, ", "))
 			r.step("validate", false, "no secrets yet")
 			return nil
@@ -69,8 +67,7 @@ func (r *runner) stepValidate() error {
 		// anything calls healthy, and the remedies are named here rather than
 		// attempted.
 		if report.OnlyDegradedLinks() {
-			r.warnf("%s did not load, so those refs return nothing: %s; "+
-				"restart faramir-broker after repairing the file",
+			r.warnf("%s did not load: %s\n  repair the file, then restart faramir-broker",
 				brokercheck.LinkEntries(len(report.Secrets.DegradedLinks)), report.DegradedRefs())
 			r.step("validate", false, "installed; linked refs to fix")
 			return nil
@@ -88,12 +85,12 @@ func (r *runner) stepValidate() error {
 		// this and `faramir status` exits non-zero over it, so a host in this state
 		// is not one anything calls healthy.
 		if report.OnlyNotRedactable() {
-			r.warnf("%d ref(s) cannot be redacted, so they are never injected: %s",
+			r.warnf("%d ref(s) cannot be redacted and are never injected: %s",
 				len(report.Secrets.NotRedactable), report.RefusedRefs())
 			r.step("validate", false, "installed; refs to fix")
 			return nil
 		}
-		return fmt.Errorf("the installed config does not work for %s: %w", r.layout.BrokerUser, checkErr)
+		return failed("the installed config does not load as "+r.layout.BrokerUser, checkErr)
 	}
 
 	// A value absent from the set is neither injectable nor redacted, so zero refs
@@ -111,7 +108,7 @@ func (r *runner) stepValidate() error {
 	// injection relies on. Nothing errors.
 	for _, file := range report.Secrets.Files {
 		if strings.Contains(file, "/group_vars/") || strings.Contains(file, "/host_vars/") {
-			return fmt.Errorf("%s is under group_vars/ or host_vars/, which Ansible auto-loads; move it to %s",
+			return fmt.Errorf("%s is under group_vars/ or host_vars/, which Ansible auto-loads\n  move it to %s",
 				file, r.layout.SecretsDir())
 		}
 	}
@@ -130,34 +127,31 @@ func (r *runner) stepValidate() error {
 	// Skipped while the broker is refusing, which a managed file that did not
 	// load is: this probe would report that refusal as an SSH fault.
 	if r.sshKey != "" && !report.Serves() {
-		r.warnf("a managed file did not load, so the broker refuses brokered commands")
+		r.warnf("a managed file did not load; the broker refuses brokered commands")
 		r.step("broker ssh agent", false, "not asked")
 	}
 	if r.sshKey != "" && report.Serves() {
 		// -C /, so the probe asks about the agent rather than about where init was
 		// run from: a brokered command runs in its caller's directory, and one the
 		// daemon cannot see fails the probe rather than answering it.
-		out, agentErr := runcmd.Output(filepath.Join(r.layout.BinDir, "faramir"),
+		out, agentErr := command(filepath.Join(r.layout.BinDir, "faramir"),
 			"run", "-C", "/", "--quiet", "--", "ssh-add", "-l")
 		// The error carries stderr, where the reason is; dropping it reports every
 		// failure as "holds no usable key ()".
 		if agentErr != nil {
 			if why := protocol.NestedRun(); why != "" {
-				return fmt.Errorf("could not ask the broker what its agent holds: %s",
-					why)
+				return fmt.Errorf("broker ssh agent not checked: %s", why)
 			}
 			if held := escalationHeld(agentErr); held != "" {
-				return fmt.Errorf("installed, but the ssh-agent check waits on another "+
-					"escalation (%s). Approve or reject it, then run init again", held)
+				return fmt.Errorf("installed, but the broker ssh agent check waits on another "+
+					"escalation (%s)\n  approve or reject it, then run init again", held)
 			}
-			return fmt.Errorf("could not ask the broker what its agent holds: %w",
-				agentErr)
+			return failed("broker ssh agent not checked", agentErr)
 		}
 		if !strings.Contains(out, "SHA256") {
-			return fmt.Errorf("the broker's ssh-agent holds no usable key (%s), although [ssh] key names %s, "+
-				"so brokered commands cannot reach any managed host. Check that %s can read the key "+
-				"and that it has no passphrase, then restart faramir-broker",
-				strings.TrimSpace(out), r.sshKey, r.layout.BrokerUser)
+			return fmt.Errorf("the broker's ssh agent holds no usable key from %s: %s\n"+
+				"  make the key readable by %s and passphrase-free, then restart faramir-broker",
+				r.sshKey, strings.TrimSpace(out), r.layout.BrokerUser)
 		}
 		r.step("broker ssh agent", false, "holds a usable key")
 	}

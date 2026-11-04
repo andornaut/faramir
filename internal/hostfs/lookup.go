@@ -113,9 +113,26 @@ func deviceOf(info os.FileInfo) uint64 {
 func LookupUser(name string) (int, error) {
 	entry, err := user.Lookup(name)
 	if err != nil {
-		return 0, fmt.Errorf("no such user %q: %w", name, err)
+		return 0, NoSuchUser(name, err)
 	}
 	return strconv.Atoi(entry.Uid)
+}
+
+// NoSuchUser is a failed account lookup. An unknown name is said once, without
+// the os/user wording that repeats it; any other failure keeps its cause.
+func NoSuchUser(name string, err error) error {
+	if errors.As(err, new(user.UnknownUserError)) {
+		return fmt.Errorf("no such user %q", name)
+	}
+	return fmt.Errorf("user %q: %w", name, err)
+}
+
+// NoSuchGroup is NoSuchUser for a group.
+func NoSuchGroup(name string, err error) error {
+	if errors.As(err, new(user.UnknownGroupError)) {
+		return fmt.Errorf("no such group %q", name)
+	}
+	return fmt.Errorf("group %q: %w", name, err)
 }
 
 // LookPathOr resolves a program on PATH, falling back to a conventional path so
@@ -134,7 +151,7 @@ func LookPathOr(program, fallback string) string {
 func PrimaryGroup(account string) (int, string, error) {
 	entry, err := user.Lookup(account)
 	if err != nil {
-		return 0, "", fmt.Errorf("no such user %q: %w", account, err)
+		return 0, "", NoSuchUser(account, err)
 	}
 	gid, err := strconv.Atoi(entry.Gid)
 	if err != nil {
@@ -150,7 +167,7 @@ func PrimaryGroup(account string) (int, string, error) {
 func LookupGroup(name string) (int, error) {
 	entry, err := user.LookupGroup(name)
 	if err != nil {
-		return 0, fmt.Errorf("no such group %q: %w", name, err)
+		return 0, NoSuchGroup(name, err)
 	}
 	return strconv.Atoi(entry.Gid)
 }

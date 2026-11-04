@@ -127,7 +127,7 @@ func TestAdoptInstalledRefusesAConfigItCannotRead(t *testing.T) {
 	if err == nil {
 		t.Fatal("read nothing and carried on, which reverts the install silently")
 	}
-	for _, want := range []string{"does not load", "Fix the file", "remove it to install fresh"} {
+	for _, want := range []string{"does not load", "fix the file", "remove it to install fresh"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal does not say %q: %v", want, err)
 		}

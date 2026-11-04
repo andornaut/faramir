@@ -45,7 +45,7 @@ type UnenrolReport struct {
 // that init maintains. It cannot reconstruct permissions preceding enrolment.
 func Unenrol(opts UnenrolOptions) (UnenrolReport, error) {
 	if os.Geteuid() != 0 && !opts.DryRun {
-		return UnenrolReport{}, errors.New("faramir unenrol must run as root")
+		return UnenrolReport{}, errors.New("must run as root")
 	}
 	return unenrolTree(opts)
 }
@@ -85,7 +85,7 @@ func unenrolTree(opts UnenrolOptions) (UnenrolReport, error) {
 		return report, err
 	}
 	if !record.recorded {
-		report.Warnf("no enrolment record for %s; checking known project routing files and the marked project section", dir)
+		report.Warnf("no enrolment record for %s; cleaning the known project files anyway", dir)
 	}
 	edits, seen, err := prepareUnenrolEdits(uid, dir)
 	if err != nil {
@@ -95,9 +95,8 @@ func unenrolTree(opts UnenrolOptions) (UnenrolReport, error) {
 	if err := checkUnenrolLegacy(&report, seen, uid, dir); err != nil {
 		return report, err
 	}
-	report.Warnf("retained project permission rules, global hooks, global deny rules and global instructions")
-	report.Warnf("retained filesystem sharing: ownership, groups, modes, setgid/sticky bits and traversal grants; unenrolment does not revoke broker access")
-	report.Warnf("start fresh agent sessions after unenrolment; loaded sessions may retain project hooks and instructions")
+	report.Warnf("filesystem sharing is kept: brokered commands can still reach %s\n"+
+		"  restart agent sessions running there", dir)
 	fs := hostfs.FS{DryRun: opts.DryRun}
 	if err := applyUnenrolEdits(fs, &report, edits); err != nil {
 		return report, err
@@ -146,7 +145,7 @@ func resolveUnenrol(report *UnenrolReport, opts UnenrolOptions) (UnenrolOptions,
 
 func refuseUnenrolAgent(name string) error {
 	if name == "" || name == "root" {
-		return errors.New("no agent account: run through sudo, or set --agent-user on init (not root)")
+		return errors.New("no agent account\n  run through sudo, or pass --agent-user (not root) to init")
 	}
 	return nil
 }
@@ -174,7 +173,8 @@ func readUnenrolRecord(opts UnenrolOptions, dir string) (unenrolRecord, error) {
 		}
 		for _, name := range tree.Agents {
 			if agentcfg.Targets[name] == nil {
-				return unenrolRecord{}, fmt.Errorf("%s records unknown agent %q; repair the enrolment record first", dir, name)
+				return unenrolRecord{}, fmt.Errorf("%s: enrolment record names unknown agent %q\n  repair %s first",
+					dir, name, agentcfg.EnrolledPath(opts.ConfigDir))
 			}
 		}
 	}
@@ -190,7 +190,7 @@ func snapshotUnenrolRecord(configDir string) (unenrolRecord, error) {
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		if _, statErr := os.Lstat(agentcfg.EnrolledPath(configDir)); statErr == nil {
-			return unenrolRecord{}, fmt.Errorf("%s is an unresolved enrolment record symlink", agentcfg.EnrolledPath(configDir))
+			return unenrolRecord{}, fmt.Errorf("%s is a dangling symlink", agentcfg.EnrolledPath(configDir))
 		} else if !errors.Is(statErr, os.ErrNotExist) {
 			return unenrolRecord{}, statErr
 		}
@@ -305,7 +305,7 @@ func checkUnenrolLegacy(report *UnenrolReport, seen map[string]bool, uid int, di
 			return fmt.Errorf("%s: %w", rel, sectionErr)
 		}
 		if sectionErr != nil || !bytes.Equal(body, after) {
-			report.Warnf("legacy project instructions at %s retain faramir credentials text; review and remove obsolete text manually", path)
+			report.Warnf("legacy project instructions at %s still hold faramir credentials text\n  remove it by hand", path)
 		}
 	}
 	return nil
@@ -321,7 +321,7 @@ func applyUnenrolEdits(fs hostfs.FS, report *UnenrolReport, edits []unenrolEdit)
 		sum := sha256.Sum256(edit.before)
 		changed, err := fs.WriteEditedExpecting(edit.spot, edit.after, edit.spot.Info().Mode().Perm(), owner, group, sum[:])
 		if err != nil {
-			return fmt.Errorf("project cleanup stopped; earlier changes may have applied, retry after resolving the error: %w", err)
+			return fmt.Errorf("cleanup stopped, earlier files may already be cleaned: %w", err)
 		}
 		report.Record("project configuration", changed, edit.spot.Path())
 	}
@@ -342,7 +342,7 @@ func finishUnenrolRecord(fs hostfs.FS, report *UnenrolReport, configDir, dir str
 		}
 		changed, err := fs.WriteFileExpecting(agentcfg.EnrolledPath(configDir), append(body, '\n'), 0o600, state.digest)
 		if err != nil {
-			return fmt.Errorf("project configuration cleaned, but the enrolment record was not updated; retry before running init: %w", err)
+			return fmt.Errorf("project files cleaned, enrolment record not updated: %w", err)
 		}
 		report.Record(steps.LabelEnrolledTrees, changed, dir)
 	} else {
@@ -360,7 +360,8 @@ func checkUnenrolRecord(configDir string, state unenrolRecord) error {
 		return err
 	}
 	if (state.digest == nil) != errors.Is(err, os.ErrNotExist) || !bytes.Equal(current, state.body) {
-		return errors.New("enrolment record changed during cleanup; retry before running init")
+		return fmt.Errorf("enrolment record %s changed during cleanup\n  run this again before the next init",
+			agentcfg.EnrolledPath(configDir))
 	}
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/andornaut/faramir/internal/asaccount"
+	"github.com/andornaut/faramir/internal/fserr"
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/keygen"
 	"github.com/andornaut/faramir/internal/sopsrule"
@@ -88,17 +89,15 @@ func (r *runner) stepSopsConfig() error {
 	// reaches the same empty string by the key having been lost and would print a
 	// remedy that is nonsense here.
 	if r.opts.DryRun {
-		r.skip("sops config", "dry run: the keeper's recipient is not read, so what "+
-			"would be written to "+path+" is not computed")
+		r.skip("sops config", "dry run: "+path+" not computed")
 		return nil
 	}
 	// Never without the keeper's own recipient: a rule listing only the operator
 	// produces a secrets directory the keeper cannot read, and a broker that
 	// serves nothing.
 	if r.keeperRecipient == "" {
-		r.skip("sops config", "the keeper's recipient is unknown, because "+
-			r.layout.AgeKeyPath+" has been removed. Copy .sops.yaml from a host "+
-			"that has it, or re-seal from the original key")
+		r.skip("sops config", r.layout.AgeKeyPath+" is missing, so the keeper's recipient is unknown; "+
+			"copy .sops.yaml from a host that has it, or re-seal from the original key")
 		return nil
 	}
 	body := "# Which files sops encrypts, and to whom. Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# sops encrypts values and leaves keys readable, so diffs stay per-key and\n# reviewable. 'faramir vault edit' and 'faramir reader reseal' read this file to decide the\n# shape of what they write back, so a key added here governs them too.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n" +
@@ -115,8 +114,7 @@ func (r *runner) stepSopsConfig() error {
 	// key gets in: sealed to this host alone, a backup of the ciphertext opens
 	// with nothing but the key beside it.
 	r.step("sops config", changed, fmt.Sprintf("%s, sealed to %s only; "+
-		"`faramir reader add KEY` adds a recipient that can decrypt it without this host's key",
-		path, r.layout.KeeperUser))
+		"`faramir reader add KEY` adds another recipient", path, r.layout.KeeperUser))
 	return nil
 }
 
@@ -130,7 +128,7 @@ func (r *runner) keepSopsConfig(path string) {
 	if err != nil {
 		// The file is the operator's to edit and sops is what parses it, so a shape
 		// this does not understand is a question that went unasked.
-		r.warnf("%s could not be read (%v); sops cannot encrypt until it parses", path, err)
+		r.warnf("%s does not parse; sops cannot encrypt until it does: %v", path, err)
 		r.step("sops config", false, "keeping "+path)
 		return
 	}
@@ -139,8 +137,8 @@ func (r *runner) keepSopsConfig(path string) {
 	r.report.AgeRecipients = listed
 
 	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
-		r.warnf("%s does not list the keeper's recipient %s, so %s cannot decrypt a new value: "+
-			"faramir reader add %s",
+		r.warnf("%s does not list the keeper's recipient %s, so %s cannot decrypt a new value\n"+
+			"  run `faramir reader add %s`",
 			path, r.keeperRecipient, r.layout.KeeperUser, r.keeperRecipient)
 	}
 
@@ -209,9 +207,8 @@ func (r *runner) checkSSHKey(path string, uid, gid int) error {
 		// Both halves in the remedy, and the group in the chown: this compares uid
 		// and gid, so a remedy naming the owner alone would leave the same refusal
 		// standing.
-		return fmt.Errorf("%s is %s, so %s cannot load the key [ssh] key names, and brokered commands "+
-			"cannot reach any managed host. Give both halves to the broker:\n    chown %s:%s %s %s\n    chmod "+
-			"0600 %s && chmod 0644 %s\nOr unset [ssh] key",
+		return fmt.Errorf("%s is %s, so %s cannot load it\n"+
+			"  chown %s:%s %s %s && chmod 0600 %s && chmod 0644 %s, or unset [ssh] key",
 			half.path, asaccount.OwnsWithGroup(half.path), r.layout.BrokerUser,
 			r.layout.BrokerUser, r.brokerGroupName(), path, path+".pub",
 			path, path+".pub")
@@ -225,9 +222,8 @@ func wrongSSHKeyHalves(path string, uid, gid int, visit func(half sshKeyHalf) er
 	for _, half := range sshKeyHalves(path) {
 		info, err := os.Stat(half.path)
 		if err != nil {
-			return fmt.Errorf("%s: %w\nThe broker needs both halves of the key. "+
-				"Regenerate the public half with: ssh-keygen -y -f %s > %s",
-				half.path, err, path, path+".pub")
+			return fmt.Errorf("%w\n  regenerate the public half: ssh-keygen -y -f %s > %s",
+				fserr.At(half.path, err), path, path+".pub")
 		}
 		wrong, err := hostfs.WrongOwner(info, uid, gid)
 		if err != nil {

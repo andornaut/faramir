@@ -40,11 +40,11 @@ func Traversable(opts Options) ([]Blocker, error) {
 	}
 	owner, err := user.Lookup(opts.Operator)
 	if err != nil {
-		return nil, fmt.Errorf("no such user %q: %w", opts.Operator, err)
+		return nil, noSuchUser(opts.Operator, err)
 	}
 	group, err := user.LookupGroup(opts.Group)
 	if err != nil {
-		return nil, fmt.Errorf("no such group %q: %w", opts.Group, err)
+		return nil, noSuchGroup(opts.Group, err)
 	}
 	gid, _ := strconv.Atoi(group.Gid)
 	// Outside the homes the modes already allow it.
@@ -79,7 +79,7 @@ func groupEntrant(gid int) entrant { return entrant{uid: -1, gids: []int{gid}} }
 func entrantFor(account string, gid int) (entrant, error) {
 	entry, err := user.Lookup(account)
 	if err != nil {
-		return entrant{}, fmt.Errorf("no such user %q: %w", account, err)
+		return entrant{}, noSuchUser(account, err)
 	}
 	uid, _ := strconv.Atoi(entry.Uid)
 	who := entrant{uid: uid, gids: []int{gid}}
@@ -114,17 +114,17 @@ func (e entrant) canEnter(st *syscall.Stat_t, mode os.FileMode) bool {
 }
 
 // Fix is what the operator runs to open the reported directories, one command
-// per line. A directory already in the group needs the execute bit alone; one
+// per line, each indented to sit under the message that names them. A directory already in the group needs the execute bit alone; one
 // in another group is regrouped first, and "g=x" rather than "g+x" because the
 // read and write bits there belonged to the group being replaced.
 func Fix(blocked []Blocker, group string) string {
 	lines := make([]string, 0, len(blocked))
 	for _, b := range blocked {
 		if b.Group == group {
-			lines = append(lines, "sudo chmod g+x "+b.Path)
+			lines = append(lines, "  sudo chmod g+x "+b.Path)
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("sudo chgrp %s %s && sudo chmod g=x %s",
+		lines = append(lines, fmt.Sprintf("  sudo chgrp %s %s && sudo chmod g=x %s",
 			group, b.Path, b.Path))
 	}
 	return strings.Join(lines, "\n")

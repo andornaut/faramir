@@ -49,8 +49,8 @@ func (p *project) shareTree() error {
 	// writable tree, so a tree outside it takes the group and then refuses every
 	// write with EROFS.
 	if hostlayout.HomeOf(p.opts.Dir) == "" {
-		p.warnf("%s is outside /home, so brokered writes there fail with EROFS unless a drop-in "+
-			"extends ReadWritePaths= on faramir-exec.service", p.opts.Dir)
+		p.warnf("%s is outside /home, so brokered writes there fail with EROFS\n"+
+			"  add it to ReadWritePaths= in a faramir-exec.service drop-in", p.opts.Dir)
 	}
 	// What it altered, not whether it ran: the first run rewrites the ownership
 	// and mode of every file in the tree, and reporting that as no change would
@@ -63,8 +63,8 @@ func (p *project) shareTree() error {
 	detail := steps.DetailWithCount(fmt.Sprintf("%s with group %s, setgid, "+
 		"owner %s", p.opts.Dir, p.report.ClientGroup, p.opts.AgentUser), result.Changed)
 	if result.Kept > 0 {
-		detail += fmt.Sprintf("; %d agent file(s) left at their own mode, in %d "+
-			"sticky directory(ies)", result.Kept, result.Sticky)
+		detail += fmt.Sprintf("; %d agent file(s) kept their mode, %d sticky "+
+			"directory(ies)", result.Kept, result.Sticky)
 	}
 	p.step("share tree", result.Changed > 0, detail)
 	return nil

@@ -13,7 +13,6 @@ import (
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostsudo"
 	"github.com/andornaut/faramir/internal/hostunit"
-	"github.com/andornaut/faramir/internal/runcmd"
 )
 
 // uninstallPaths is what is removed before the daemons are reloaded, each with
@@ -82,19 +81,19 @@ func uninstall(ops uninstallOps, configDir string) ([]string, error) {
 			// One unit at a time, so a unit file already gone, which is the state a
 			// re-run after a partial uninstall is in, cannot keep the others from
 			// being stopped. Verify the result even when disabling failed.
-			_, stopErr := runcmd.Output("systemctl", "disable", "--now", unit)
+			_, stopErr := command("systemctl", "disable", "--now", unit)
 			state, known := hostunit.State(unit)
 			_, fileErr := os.Stat(hostunit.Path(unit))
 			// Disabling an absent unit fails on an idempotent re-run. Only a
 			// verified inactive unit makes that failure harmless.
 			if stopErr != nil && (!known || state != "inactive" || !os.IsNotExist(fileErr)) {
-				failures = append(failures, stopErr)
+				failures = append(failures, failed(unit+" not stopped", stopErr))
 			}
 			switch {
 			case !known:
 				failures = append(failures, fmt.Errorf("%s: could not verify that the unit stopped", unit))
 			case state != "inactive" && state != "failed":
-				failures = append(failures, fmt.Errorf("%s: state %q after stop; run systemctl stop %s", unit, state, unit))
+				failures = append(failures, fmt.Errorf("%s: state %q after stop\n  run systemctl stop %s", unit, state, unit))
 			}
 		}
 	}
@@ -124,11 +123,11 @@ func uninstall(ops uninstallOps, configDir string) ([]string, error) {
 	// The one case that fails is a stack carrying one marker without the other,
 	// which is an edit somebody made and which this must not guess at.
 	if err := ops.removeBlock(); err != nil {
-		failures = append(failures, fmt.Errorf("the faramir block in a shared PAM stack: %w", err))
+		failures = append(failures, fmt.Errorf("faramir block not removed from a shared PAM stack: %w", err))
 	}
 	if hostunit.Running() {
-		if _, err := runcmd.Output("systemctl", "daemon-reload"); err != nil {
-			failures = append(failures, err)
+		if _, err := command("systemctl", "daemon-reload"); err != nil {
+			failures = append(failures, failed("systemctl daemon-reload", err))
 		}
 	}
 	for _, name := range installedBinaries {
@@ -142,22 +141,17 @@ func uninstall(ops uninstallOps, configDir string) ([]string, error) {
 		}
 	}
 	return []string{
-		filepath.Join(configDir, "age.key") +
-			" -- deleting it makes every managed sops file unreadable",
-		filepath.Join(configDir, "secrets") + "/ -- the managed sops files",
-		config.FileIn(configDir) + " -- the base config",
-		hostlayout.DefaultLogDir + "/ -- the audit log",
-		fmt.Sprintf("users %s, %s and %s, and the group %s. %s's own password "+
-			"is not cleared: `usermod -L %s`",
+		filepath.Join(configDir, "age.key") + " (the only key to the managed files)",
+		filepath.Join(configDir, "secrets") + "/",
+		config.FileIn(configDir),
+		hostlayout.DefaultLogDir + "/ (the audit log)",
+		fmt.Sprintf("users %s, %s and %s, group %s (lock %s: `usermod -L %s`)",
 			accounts.broker, accounts.keeper, accounts.exec, accounts.client,
 			accounts.exec, accounts.exec),
-		"a shared tree's group and setgid bits, and the traversal granted to reach it",
-		"an enrolled tree's own agent configuration: for Claude Code, the settings " +
-			"that name the hook",
-		"each agent's account-wide configuration in the agent account's home: the deny " +
-			"rules, and the credentials section between " + agentcfg.SectionBegin + " and " +
-			agentcfg.SectionEnd + " in the file that agent reads for every project. Both are " +
-			"in files the operator owns, so remove those lines by hand",
+		"each shared tree's group, setgid bits and traversal grants",
+		"each enrolled tree's agent configuration",
+		"each agent's account-wide configuration: deny rules, and the section between " +
+			agentcfg.SectionBegin + " and " + agentcfg.SectionEnd + " (remove by hand)",
 	}, errors.Join(failures...)
 }
 

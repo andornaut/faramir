@@ -52,11 +52,9 @@ func (r *runner) stepAgentConfig() error {
 		// Not an error and not a silent pass: nothing was written, and the reason
 		// is a home with no agent in it.
 		r.step(steps.LabelAgentConfig, false, fmt.Sprintf(
-			"no coding agent found in %s, so no deny rules were written. "+
-				"`sudo faramir init --agent NAME` writes them anyway (%s)",
+			"no coding agent found in %s; no deny rules written (pass --agent NAME: %s)",
 			r.operatorHome, strings.Join(agentcfg.Known(), ", ")))
-		r.step("agent instructions", false, "no coding agent found, so no credentials "+
-			"section was written")
+		r.step("agent instructions", false, "no coding agent found; no credentials section written")
 		return nil
 	}
 	// Against the same data a tree's files render against, which carries the
@@ -292,9 +290,8 @@ func (r *runner) stepEnrolledTrees() error {
 		// Said rather than reported as an empty record: the trees are enrolled
 		// either way, and nothing here or in doctor will look at them again until
 		// the file is readable.
-		r.step(steps.LabelEnrolledTrees, false, "the record of what is enrolled could not "+
-			"be read, so no enrolled tree was rewritten and `faramir doctor` reports "+
-			"none of them: "+unreadable)
+		r.step(steps.LabelEnrolledTrees, false, "enrolment record unreadable, no tree rewritten: "+
+			unreadable)
 	case len(trees) == 0:
 		r.step(steps.LabelEnrolledTrees, false, "no tree is recorded as enrolled")
 	case len(written) == 0 && len(skipped) == 0:
@@ -306,8 +303,8 @@ func (r *runner) stepEnrolledTrees() error {
 		// A different remedy from the one below: this tree is not one an
 		// enrolment would make now, so re-running enrol in it would be
 		// refused too. The entry is what has to go.
-		r.warnf("%d recorded tree(s) enrol would refuse to enrol were left alone: %s; "+
-			"remove their entries from %s",
+		r.warnf("%d recorded tree(s) left alone, as enrol would refuse to enrol them: %s\n"+
+			"  remove their entries from %s",
 			len(refused), strings.Join(refused, ", "),
 			agentcfg.EnrolledPath(r.layout.ConfigDir))
 	}

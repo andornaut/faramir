@@ -28,11 +28,11 @@ import (
 // tree.
 func (p *project) preflight() error {
 	if p.opts.AgentUser == "" || p.opts.AgentUser == "root" {
-		return fmt.Errorf("no agent account for %s: run through sudo, or pass --agent-user to init (not root)",
+		return fmt.Errorf("no agent account for %s\n  run through sudo, or pass --agent-user (not root) to init",
 			p.opts.Dir)
 	}
 	if os.Geteuid() != 0 && !p.opts.DryRun {
-		return errors.New("faramir enrol must run as root")
+		return errors.New("must run as root")
 	}
 	if err := RefuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {
 		return err
@@ -106,9 +106,8 @@ func (p *project) refuseUnparsableAgentConfig() error {
 			var into any
 			if err := json.Unmarshal(data, &into); err != nil {
 				refused = append(refused, fmt.Sprintf(
-					"%s: the existing file does not parse: %v. faramir merges its keys "+
-						"into this file, so nothing was written and the tree was not "+
-						"shared", path, err))
+					"%s does not parse; nothing was written and the tree was not shared\n  %v",
+					path, err))
 			}
 		}
 	}
@@ -139,10 +138,8 @@ func (p *project) refuseUnreachable() error {
 	if len(blocked) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%s cannot enter %s, so %s would be shared but unreachable. "+
-		"faramir only changes ownership and modes inside the tree it enrols. Open "+
-		"these directories and run this again:\n%s",
-		p.report.ClientGroup, sharetree.Describe(blocked), p.opts.Dir,
+	return fmt.Errorf("%s not shared: %s cannot enter %s\n  open them, then run this again:\n%s",
+		p.opts.Dir, p.report.ClientGroup, sharetree.Describe(blocked),
 		sharetree.Fix(blocked, p.report.ClientGroup))
 }
 
@@ -200,7 +197,7 @@ func (p *project) warnMissingBinary(binary string) {
 	if hostfs.Exists(binary) {
 		return
 	}
-	p.warnf("%s is not installed, so every hook written into %s fails closed until faramir init runs here",
+	p.warnf("%s is not installed; the hooks in %s refuse every command until it is",
 		binary, p.opts.Dir)
 }
 
@@ -212,8 +209,7 @@ func (p *project) warnMissingBinary(binary string) {
 // about, the walk not being reversible.
 func RefuseOversharing(dir, operator string) error {
 	tooBig := func(what string) error {
-		return fmt.Errorf("refusing to enrol %s: it is %s. Enrolling gives the client group read and write "+
-			"on every file in it. Name the project directory instead", dir, what)
+		return fmt.Errorf("refusing to enrol %s: it is %s\n  name the project directory instead", dir, what)
 	}
 	switch dir {
 	case "/":
@@ -297,9 +293,8 @@ func RefuseInstallDirs(dir, configDir string) error {
 		case !holds:
 			relation = "is inside"
 		}
-		return fmt.Errorf("refusing to enrol %s: it %s %s, which is faramir's own. Enrolling gives the "+
-			"client group read and write on every file in it, and faramir-exec is in that "+
-			"group. Name the project directory instead", dir, relation, installed)
+		return fmt.Errorf("refusing to enrol %s: it %s %s, a faramir directory\n  name the project directory instead",
+			dir, relation, installed)
 	}
 	return nil
 }
@@ -323,12 +318,11 @@ func (p *project) resolveGroup() error {
 		// asking about a tree from a host that has not been provisioned yet is what
 		// it is for. The same latitude resolveIDs takes.
 		if p.opts.DryRun {
-			p.warnf("cannot read %s (%v), so this reports on the tree alone",
-				configFile, err)
+			p.warnf("cannot read %s, reporting on the tree alone: %v", configFile, err)
 			p.report.ClientGroup = p.opts.ClientGroup
 			return nil
 		}
-		return fmt.Errorf("cannot read %s: %w; run faramir init or set FARAMIR_CONFIG", configFile, err)
+		return fmt.Errorf("cannot read %s: %w\n  run `sudo faramir init`, or set FARAMIR_CONFIG", configFile, err)
 	}
 	// The grant is this host's, and says nothing about a tree shared with a group
 	// this host's socket does not admit: that names another install, whose
@@ -341,8 +335,7 @@ func (p *project) resolveGroup() error {
 		return nil
 	}
 	if cfg.Server.AllowedGroup == "" {
-		return fmt.Errorf("%s names no allowed group, so no account could reach a shared tree. "+
-			"Run `sudo faramir init --client-group NAME`", configFile)
+		return fmt.Errorf("%s names no allowed group\n  run `sudo faramir init --client-group NAME`", configFile)
 	}
 	p.report.ClientGroup = cfg.Server.AllowedGroup
 	return nil

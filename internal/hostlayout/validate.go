@@ -3,7 +3,9 @@ package hostlayout
 // What a layout is held to before anything is written from it.
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,10 +31,8 @@ func (l Layout) Validate() error {
 		return fmt.Errorf("config dir must not contain '%%': %s", dir)
 	}
 	if under := privateTmpDir(dir); under != "" {
-		return fmt.Errorf("config dir must not be under %s: %s\n"+
-			"Every unit runs with PrivateTmp=true, so each daemon sees its own %s "+
-			"and none of them would find the files this run wrote. Name a directory "+
-			"outside it (the default is %s)", under, dir, under, DefaultConfigDir)
+		return fmt.Errorf("config dir must not be under %s (PrivateTmp): %s\n"+
+			"  pass a --config-dir outside it, such as %s", under, dir, DefaultConfigDir)
 	}
 	// Blocked here rather than left to whatever renders it: these paths are
 	// interpolated into the agents' JSON settings, into config.toml and into the
@@ -87,9 +87,8 @@ func (l Layout) Validate() error {
 		"exec user":   l.ExecUser,
 	} {
 		if other, dup := seen[account]; dup {
-			return fmt.Errorf("%s and %s are both %q. Each daemon needs its own "+
-				"account: separate uids are what keep the age key, the audit log "+
-				"and brokered commands apart", other, name, account)
+			return fmt.Errorf("%s and %s are both %q: each daemon needs its own account",
+				other, name, account)
 		}
 		seen[account] = name
 	}
@@ -110,11 +109,9 @@ func (l Layout) Validate() error {
 			{"executor", ExecUserFlag, l.ExecUser},
 		} {
 			if l.AgentUser == daemon.account {
-				return fmt.Errorf("--agent-user %s is the account the %s runs as. The "+
-					"agent and that daemon would share a uid, so the agent could read "+
-					"everything a brokered command holds. Name a different account, "+
-					"or move the daemon with %s",
-					l.AgentUser, daemon.role, daemon.flag)
+				return fmt.Errorf("--agent-user %s is the account the %s runs as\n"+
+					"  name a different account, or move the %s with %s",
+					l.AgentUser, daemon.role, daemon.role, daemon.flag)
 			}
 		}
 	}
@@ -192,25 +189,20 @@ func (l Layout) validateNotifyCommand() error {
 		return nil
 	}
 	if !l.AllowSudo {
-		return fmt.Errorf("--notify-command announces a pending escalation, but this "+
-			"install grants no sudo, so there is nothing to announce. Pass --allow-sudo "+
-			"as well, or drop --notify-command (%s)",
+		return fmt.Errorf("--notify-command needs --allow-sudo: %s",
 			strings.Join(l.NotifyCommand, " "))
 	}
 	if !slices.ContainsFunc(l.NotifyCommand, func(arg string) bool {
 		return strings.Contains(arg, "{prompt}") || strings.Contains(arg, "{id}")
 	}) {
-		return fmt.Errorf("%s names neither {prompt} nor {id}, so it "+
-			"would announce that something is waiting without saying what: %s",
+		return fmt.Errorf("%s names neither {prompt} nor {id}: %s\n  add one of them to an argument",
 			l.notifySource(), strings.Join(l.NotifyCommand, " "))
 	}
 	// Absolute by the time this runs, Options.layout resolving argv[0] on PATH.
 	// Checked rather than assumed: a name that resolved to nothing would reach
 	// the config as itself and be looked up again by the broker's PATH.
 	if !filepath.IsAbs(l.NotifyCommand[0]) {
-		return fmt.Errorf("%s %q is not on PATH and is not an absolute path. "+
-			"It runs as the account that holds every decrypted value, so name the "+
-			"program by its absolute path",
+		return fmt.Errorf("%s %q is not on PATH\n  name the program by its absolute path",
 			l.notifySource(), l.NotifyCommand[0])
 	}
 	// And it has to be there: a path written out by hand is taken as given, so a
@@ -218,13 +210,15 @@ func (l Layout) validateNotifyCommand() error {
 	// every file was written.
 	info, err := os.Stat(l.NotifyCommand[0])
 	if err != nil {
-		return fmt.Errorf("%s %q does not exist (%v). Install it, or name "+
-			"a program that exists with --notify-command. Without it no pending "+
-			"escalation would be announced", l.notifySource(), l.NotifyCommand[0], err)
+		cause := "does not exist"
+		if !errors.Is(err, fs.ErrNotExist) {
+			cause = err.Error()
+		}
+		return fmt.Errorf("%s %q %s\n  install it, or name another program with --notify-command",
+			l.notifySource(), l.NotifyCommand[0], cause)
 	}
 	if info.IsDir() || info.Mode().Perm()&0o111 == 0 {
-		return fmt.Errorf("%s %q is not an executable file: the broker "+
-			"runs it directly, not through a shell",
+		return fmt.Errorf("%s %q is not an executable file",
 			l.notifySource(), l.NotifyCommand[0])
 	}
 	return nil

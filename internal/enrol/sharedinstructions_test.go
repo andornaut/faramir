@@ -207,7 +207,7 @@ func TestMigrationWarnsAboutAncestorOverridesButPreservesGlobalInstructions(t *t
 		t.Fatal(err)
 	}
 	warnings := strings.Join(run.report.Warnings, "\n")
-	for _, want := range []string{ancestor, legacy, "regular file", "complete user text and managed credentials section"} {
+	for _, want := range []string{ancestor, legacy, "regular file"} {
 		if !strings.Contains(warnings, want) {
 			t.Errorf("migration warning omits %q", want)
 		}

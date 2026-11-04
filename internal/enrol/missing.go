@@ -88,7 +88,7 @@ func forgetMissingRecords(opts UnenrolOptions, report UnenrolReport) (UnenrolRep
 			return report, err
 		}
 		if !absent {
-			return report, fmt.Errorf("%s reappeared while checking missing enrolments; nothing was written", dir)
+			return report, fmt.Errorf("%s exists again; nothing was written", dir)
 		}
 	}
 	if err := checkUnenrolRecord(opts.ConfigDir, state); err != nil {
@@ -108,7 +108,6 @@ func forgetMissingRecords(opts UnenrolOptions, report UnenrolReport) (UnenrolRep
 		return report, fmt.Errorf("missing enrolment records were not removed: %w", err)
 	}
 	report.Record(steps.LabelEnrolledTrees, changed, strings.Join(missing, ", "))
-	report.Warnf("record-only cleanup retains project files, global protections and filesystem access")
 	return report, nil
 }
 
@@ -117,7 +116,8 @@ func selectMissingRecords(opts UnenrolOptions, state unenrolRecord) ([]string, [
 	remaining := make([]json.RawMessage, 0, len(state.entries))
 	for i, tree := range state.trees {
 		if tree.Dir == "" || !filepath.IsAbs(tree.Dir) || filepath.Clean(tree.Dir) != tree.Dir {
-			return nil, nil, errors.New("enrolment record contains an empty, relative or unclean directory; repair it before cleanup")
+			return nil, nil, fmt.Errorf("%s holds an empty, relative or unclean directory; nothing was written\n"+
+				"  repair that entry, then run this again", agentcfg.EnrolledPath(opts.ConfigDir))
 		}
 		if !opts.Missing && tree.Dir != opts.Dir {
 			remaining = append(remaining, state.entries[i])
@@ -129,7 +129,7 @@ func selectMissingRecords(opts UnenrolOptions, state unenrolRecord) ([]string, [
 		}
 		if !absent {
 			if !opts.Missing {
-				return nil, nil, fmt.Errorf("%s reappeared while checking missing enrolments; nothing was written", tree.Dir)
+				return nil, nil, fmt.Errorf("%s exists again; nothing was written", tree.Dir)
 			}
 			remaining = append(remaining, state.entries[i])
 			continue

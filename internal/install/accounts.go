@@ -27,7 +27,6 @@ import (
 	"syscall"
 
 	"github.com/andornaut/faramir/internal/hostfs"
-	"github.com/andornaut/faramir/internal/runcmd"
 )
 
 // serviceAccount is one of the three uids and where its state lives.
@@ -68,8 +67,8 @@ func (r *runner) stepAccounts() error {
 	// shadow refuses to create an account whose group name is taken.
 	if !hostfs.GroupExists(r.layout.ClientGroup) {
 		if !r.opts.DryRun {
-			if _, err := runcmd.Output("groupadd", r.layout.ClientGroup); err != nil {
-				return err
+			if _, err := command("groupadd", r.layout.ClientGroup); err != nil {
+				return failed("group "+r.layout.ClientGroup+" not created", err)
 			}
 		}
 		changed = true
@@ -85,8 +84,8 @@ func (r *runner) stepAccounts() error {
 	// was not named after it. -r puts it in the system range below GID_MIN.
 	if !hostfs.GroupExists(r.layout.SecretsGroup) {
 		if !r.opts.DryRun {
-			if _, err := runcmd.Output("groupadd", "-r", r.layout.SecretsGroup); err != nil {
-				return err
+			if _, err := command("groupadd", "-r", r.layout.SecretsGroup); err != nil {
+				return failed("group "+r.layout.SecretsGroup+" not created", err)
 			}
 		}
 		changed = true
@@ -110,8 +109,8 @@ func (r *runner) stepAccounts() error {
 	// leaves every file owned by the old gid behind.
 	if gid, err := hostfs.LookupGroup(r.layout.SecretsGroup); err == nil {
 		if first := firstLoginGID(); gid >= first {
-			r.warnf("group %s has gid %d, in the login range (system gids are below %d): "+
-				"groupdel %s && groupadd -r %s, then re-run init",
+			r.warnf("group %s has gid %d, in the login range (system gids are below %d)\n"+
+				"  groupdel %s && groupadd -r %s, then run init again",
 				r.layout.SecretsGroup, gid, first, r.layout.SecretsGroup, r.layout.SecretsGroup)
 		}
 	}
@@ -147,8 +146,8 @@ func (r *runner) ensureInGroup(account, group string) (bool, error) {
 		return false, err
 	}
 	if !r.opts.DryRun {
-		if _, err := runcmd.Output("usermod", "-aG", group, account); err != nil {
-			return false, err
+		if _, err := command("usermod", "-aG", group, account); err != nil {
+			return false, failed(account+" not added to "+group, err)
 		}
 	}
 	return true, nil
@@ -164,8 +163,8 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 		}
 		argv = append(argv, "-s", "/usr/sbin/nologin", account.name)
 		if !r.opts.DryRun {
-			if _, err := runcmd.Output(argv[0], argv[1:]...); err != nil {
-				return false, err
+			if _, err := command(argv[0], argv[1:]...); err != nil {
+				return false, failed("user "+account.name+" not created", err)
 			}
 		}
 		changed = true
@@ -177,8 +176,8 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 			}
 			if !in {
 				if !r.opts.DryRun {
-					if _, err := runcmd.Output("usermod", "-aG", r.layout.ClientGroup, account.name); err != nil {
-						return false, err
+					if _, err := command("usermod", "-aG", r.layout.ClientGroup, account.name); err != nil {
+						return false, failed(account.name+" not added to "+r.layout.ClientGroup, err)
 					}
 				}
 				changed = true
@@ -188,8 +187,8 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 		// holds the SSH keys while StateDirectory= names the new one.
 		if current, err := homeDir(account.name); err == nil && current != account.home {
 			if !r.opts.DryRun {
-				if _, err := runcmd.Output("usermod", "-d", account.home, account.name); err != nil {
-					return false, err
+				if _, err := command("usermod", "-d", account.home, account.name); err != nil {
+					return false, failed(account.name+"'s home not moved to "+account.home, err)
 				}
 			}
 			changed = true
@@ -231,8 +230,8 @@ func (r *runner) joinOperatorToGroup() (bool, error) {
 	if r.opts.DryRun {
 		return true, nil
 	}
-	if _, err := runcmd.Output("usermod", "-aG", r.layout.ClientGroup, r.opts.AgentUser); err != nil {
-		return false, err
+	if _, err := command("usermod", "-aG", r.layout.ClientGroup, r.opts.AgentUser); err != nil {
+		return false, failed(r.opts.AgentUser+" not added to "+r.layout.ClientGroup, err)
 	}
 	// New group membership does not reach a session that is already open.
 	r.warnf("%s must log out and back in for membership of %s to take effect",
@@ -261,7 +260,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 	// config and units, so failing the run over a profile would leave the host
 	// with no broker at all.
 	skip := func(format string, args ...any) {
-		r.warnf(format+"; add umask 007 to the shell profile by hand", args...)
+		r.warnf("umask 007 not added to the shell profile: "+format+"\n  add it by hand", args...)
 	}
 	// What it is, before opening it: this runs as root on a path in a directory
 	// the account the agent runs as can write, and a device node there would be
@@ -271,7 +270,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		// The account may not use bash at all.
 		return false, nil
 	case err != nil:
-		skip("could not read %s (%v)", profile, err)
+		skip("%v", err)
 		return false, nil
 	case !resolved.Mode().IsRegular():
 		skip("%s is not a regular file", profile)
@@ -289,18 +288,18 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		skip("could not open %s (%v)", profile, err)
+		skip("%v", err)
 		return false, nil
 	}
 	defer func() { _ = handle.Close() }()
 	info, err := handle.Stat()
 	if err != nil {
-		skip("could not read %s (%v)", profile, err)
+		skip("%v", err)
 		return false, nil
 	}
 	operatorUID, err := hostfs.LookupUser(r.opts.AgentUser)
 	if err != nil {
-		skip("cannot resolve %s (%v)", r.opts.AgentUser, err)
+		skip("%v", err)
 		return false, nil
 	}
 	if !info.Mode().IsRegular() {
@@ -310,13 +309,12 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 	if wrong, err := hostfs.WrongOwner(info, operatorUID, hostfs.Keep); err != nil {
 		return false, err
 	} else if wrong {
-		skip("%s resolves to a file %s does not own, and appending to it as "+
-			"root would write wherever it points", profile, r.opts.AgentUser)
+		skip("%s resolves to a file %s does not own", profile, r.opts.AgentUser)
 		return false, nil
 	}
 	current, err := io.ReadAll(handle)
 	if err != nil {
-		skip("could not read %s (%v)", profile, err)
+		skip("%s: %v", profile, err)
 		return false, nil
 	}
 	for line := range strings.Lines(string(current)) {
@@ -431,7 +429,7 @@ func (r *runner) refuseOpenBoundaries() error {
 			return
 		}
 		named[key] = true
-		open = append(open, fmt.Sprintf("%s is in %s, %s (`gpasswd -d %s %s`)",
+		open = append(open, fmt.Sprintf("%s is in %s, so %s: gpasswd -d %s %s",
 			who, group, why, who, group))
 	}
 	// The secrets group is what makes editing a secret need sudo.
@@ -440,24 +438,21 @@ func (r *runner) refuseOpenBoundaries() error {
 			continue
 		}
 		if in, err := hostfs.InGroup(who, r.layout.SecretsGroup); err == nil && in {
-			add(who, r.layout.SecretsGroup, "which lets it read and replace the "+
-				"managed sops files directly")
+			add(who, r.layout.SecretsGroup, "it can replace the managed files")
 		}
 	}
 	// A command that could read the broker's or the keeper's group holds the
 	// audit log or the age key.
 	for _, forbidden := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
 		if in, err := hostfs.InGroup(r.layout.ExecUser, forbidden); err == nil && in {
-			add(r.layout.ExecUser, forbidden, "which would let a brokered command "+
-				"reach the age key or the audit log")
+			add(r.layout.ExecUser, forbidden, "brokered commands reach the age key or audit log")
 		}
 	}
 	if len(open) == 0 {
 		return nil
 	}
-	return fmt.Errorf("these group memberships break the account separation "+
-		"this install relies on. Remove them, then run this again:\n  %s",
-		strings.Join(open, "\n  "))
+	return fmt.Errorf("group memberships break the account separation; remove them, "+
+		"then run this again:\n  %s", strings.Join(open, "\n  "))
 }
 
 // firstLoginGID is GID_MIN, the bottom of the login-account range and so one
@@ -488,7 +483,7 @@ func firstLoginGID() int {
 func homeDir(name string) (string, error) {
 	entry, err := user.Lookup(name)
 	if err != nil {
-		return "", fmt.Errorf("no such user %q: %w", name, err)
+		return "", hostfs.NoSuchUser(name, err)
 	}
 	return entry.HomeDir, nil
 }

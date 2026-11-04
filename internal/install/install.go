@@ -151,12 +151,16 @@ func newRunner(opts Options) (*runner, error) {
 }
 
 // apply runs the steps given, in order.
-func (r *runner) apply(steps []steps.Named) (Report, error) {
-	for _, step := range steps {
+func (r *runner) apply(named []steps.Named) (Report, error) {
+	for _, step := range named {
 		if err := step.Run(); err != nil {
 			// Named, because a run that stops partway has applied everything before
 			// it and nothing after. The steps that hand a file to an account are all
 			// after stepPreconditions, so a refusal there has changed no ownership.
+			// The preconditions name their own objects, and changed nothing.
+			if step.Name == steps.LabelPreconditions || step.Name == steps.LabelResolveIDs {
+				return r.report, err
+			}
 			return r.report, fmt.Errorf("%s: %w", step.Name, err)
 		}
 	}
@@ -223,7 +227,7 @@ func (r *runner) reportPresence(name, path, wouldCreate string) {
 	present, known := hostfs.Probe(path)
 	switch {
 	case !known:
-		r.skip(name, "cannot tell whether "+path+" is there without root")
+		r.skip(name, "needs root to check "+path)
 	case present:
 		r.step(name, false, "keeping "+path)
 	default:
@@ -245,7 +249,7 @@ func (r *runner) warnLongSudoTimeout() {
 	if !r.opts.AllowSudo || r.opts.SudoTimeoutSec <= r.opts.CommandMaxTimeoutSec {
 		return
 	}
-	r.warnf("--sudo-timeout %ds exceeds --command-max-timeout %ds, so an escalation waits at most %ds",
+	r.warnf("--sudo-timeout %ds exceeds --command-max-timeout %ds; an escalation waits at most %ds",
 		r.opts.SudoTimeoutSec, r.opts.CommandMaxTimeoutSec, r.opts.CommandMaxTimeoutSec)
 }
 

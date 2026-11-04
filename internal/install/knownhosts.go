@@ -29,7 +29,7 @@ func (r *runner) stepKnownHosts() error {
 	// The file is replaced whole, so pinning an empty one removes what is
 	// there.
 	if entries == 0 {
-		r.warnf("%s holds no host keys, so %s pins nothing and ssh verifies against %s alone",
+		r.warnf("%s holds no host keys; %s pins nothing and ssh uses %s alone",
 			r.opts.KnownHosts, path, knownhosts.GlobalFile)
 	}
 	// A dry run runs unprivileged and cannot look inside the executor's 0700

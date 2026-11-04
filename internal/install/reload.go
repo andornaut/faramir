@@ -23,11 +23,11 @@ func (r *runner) stepSystemd() error {
 		r.skip("systemd", "not running")
 		return nil
 	}
-	if _, err := runcmd.Output("systemctl", "daemon-reload"); err != nil {
-		return err
+	if _, err := command("systemctl", "daemon-reload"); err != nil {
+		return failed("systemctl daemon-reload", err)
 	}
-	if _, err := runcmd.Output("systemd-tmpfiles", "--create", "/etc/tmpfiles.d/faramir.conf"); err != nil {
-		return err
+	if _, err := command("systemd-tmpfiles", "--create", "/etc/tmpfiles.d/faramir.conf"); err != nil {
+		return failed("systemd-tmpfiles --create", err)
 	}
 	// The keeper reads the age key at startup and exits without one.
 	if !hostfs.Exists(r.layout.AgeKeyPath) {
@@ -35,8 +35,8 @@ func (r *runner) stepSystemd() error {
 		r.skip("systemd", "no age key")
 		return nil
 	}
-	if _, err := runcmd.Output("systemctl", append([]string{"enable", "--now"}, hostunit.Sockets...)...); err != nil {
-		return err
+	if _, err := command("systemctl", append([]string{"enable", "--now"}, hostunit.Sockets...)...); err != nil {
+		return failed("sockets not started", err)
 	}
 
 	// Only when something the daemons read has changed: a restart kills every
@@ -53,12 +53,12 @@ func (r *runner) stepSystemd() error {
 	if restart {
 		// Restart, not enable --now: an already-active socket keeps whatever
 		// ownership its file was left with.
-		if _, err := runcmd.Output("systemctl", append([]string{"restart"}, hostunit.Sockets...)...); err != nil {
-			return err
+		if _, err := command("systemctl", append([]string{"restart"}, hostunit.Sockets...)...); err != nil {
+			return failed("sockets not restarted", err)
 		}
 		for _, service := range hostunit.Services {
-			if _, err := runcmd.Output("systemctl", "restart", service); err != nil {
-				return err
+			if _, err := command("systemctl", "restart", service); err != nil {
+				return failed(service+" not restarted", err)
 			}
 		}
 	}
@@ -74,9 +74,7 @@ func (r *runner) stepSystemd() error {
 				continue
 			}
 			if strings.Contains(line, "Unknown key name") {
-				return fmt.Errorf("systemd does not recognise a directive in %s and "+
-					"silently ignores it: %s. A dropped hardening or credential "+
-					"setting would leave the daemon running without it",
+				return fmt.Errorf("systemd ignores a directive in %s:\n  %s",
 					service, strings.TrimSpace(line))
 			}
 		}
@@ -111,13 +109,18 @@ func parseInstalledConfig() error {
 	// FARAMIR_CONFIG rather than a flag: no faramir command takes a config path,
 	// and runuser clears the environment, so the variable has to be set on the
 	// far side of it. The same variable the units give the daemons.
-	out, err := runcmd.Output("runuser", "-u", brokerUser, "--",
+	out, err := command("runuser", "-u", brokerUser, "--",
 		"env", "FARAMIR_CONFIG="+configFile,
 		filepath.Join(hostlayout.DefaultBinDir, "faramir"), "broker", "--parse-only")
 	if err != nil {
-		return fmt.Errorf("%s does not load as %s, so nothing was stopped and the "+
-			"daemons are still serving what they already have: %w\n%s",
-			configFile, brokerUser, err, strings.TrimSpace(out))
+		// What the broker printed on stdout is part of the cause too.
+		if detail := causeLines(out); len(detail) > 0 {
+			var cmdErr *commandError
+			if errors.As(err, &cmdErr) {
+				cmdErr.stderr += "\n" + strings.Join(detail, "\n")
+			}
+		}
+		return failed(fmt.Sprintf("%s does not load as %s; nothing was stopped", configFile, brokerUser), err)
 	}
 	return nil
 }
@@ -138,17 +141,17 @@ func Reload() error {
 	if err := parseInstalledConfig(); err != nil {
 		return err
 	}
-	if _, err := runcmd.Output("systemctl", "daemon-reload"); err != nil {
-		return err
+	if _, err := command("systemctl", "daemon-reload"); err != nil {
+		return failed("systemctl daemon-reload", err)
 	}
 	// Stop rather than restart: all three are socket activated, so the next
 	// brokered command starts them on the new config.
-	if _, err := runcmd.Output("systemctl", append([]string{"stop"}, hostunit.Services...)...); err != nil {
-		return err
+	if _, err := command("systemctl", append([]string{"stop"}, hostunit.Services...)...); err != nil {
+		return failed("services not stopped", err)
 	}
 	// The sockets are what activates them again; already listening is a no-op.
-	if _, err := runcmd.Output("systemctl", append([]string{"start"}, hostunit.Sockets...)...); err != nil {
-		return err
+	if _, err := command("systemctl", append([]string{"start"}, hostunit.Sockets...)...); err != nil {
+		return failed("sockets not started", err)
 	}
 	return nil
 }

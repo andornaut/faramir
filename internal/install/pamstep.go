@@ -39,7 +39,7 @@ func (r *runner) writeSudoPamBlock() (bool, error) {
 	// /etc/pam.d/other -- said here rather than left for the broker's own check,
 	// which reports it in a sentence about the broker.
 	if landed == 0 {
-		r.warnf("sudo is sudo-rs and neither %s exists, so every escalation falls to %s/other",
+		r.warnf("sudo is sudo-rs and neither %s exists; every escalation falls to %s/other",
 			strings.Join(r.layout.SudoPamFiles(), " nor "), hostlayout.PamDir)
 	}
 	return changed, nil
@@ -63,6 +63,6 @@ func (r *runner) warnForeignAuthModule(path string) {
 	if module == "" {
 		return
 	}
-	r.warnf("%s authenticates with %q; faramir's branch is above it, so %s reaches root without it",
+	r.warnf("%s authenticates with %q; faramir's branch is above it, so %s skips it",
 		path, module, r.layout.ExecUser)
 }

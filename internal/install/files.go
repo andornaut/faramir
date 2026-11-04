@@ -274,8 +274,7 @@ func (r *runner) stepConfig() error {
 	// live in the loader, and a second copy here would be a second thing to keep
 	// in step.
 	if err := config.Check(body, r.layout.ConfigFile); err != nil {
-		return fmt.Errorf("the config this run would write does not load, so nothing "+
-			"was written: %w", err)
+		return fmt.Errorf("the new config does not load; nothing was written: %w", err)
 	}
 	// root:root wherever it sits: this file decides what the executor runs.
 	//
@@ -351,7 +350,7 @@ func (r *runner) stepLogrotate() error {
 	// "changed" either way, so a host with no logrotate looks installed and has
 	// no ceiling on the log. `faramir doctor` checks it again.
 	if _, err := exec.LookPath("logrotate"); err != nil {
-		r.warnf("logrotate is not installed, so %s is not rotated", r.layout.AuditLogPath())
+		r.warnf("logrotate is not installed; %s is not rotated", r.layout.AuditLogPath())
 	}
 	r.step("logrotate", made, hostlayout.LogrotateConfig)
 	return nil
@@ -382,9 +381,8 @@ func (r *runner) stepReachable() error {
 		return fmt.Errorf("%s: %w", dir, err)
 	}
 	if len(blocked) > 0 {
-		return fmt.Errorf("%s is inside a home and %s cannot enter %s, so the "+
-			"daemons cannot read the config. faramir does not change a directory it "+
-			"does not own. Open these directories and run this again:\n%s",
+		return fmt.Errorf("the daemons cannot reach %s: %s cannot enter %s\n"+
+			"  open them, then run this again:\n%s",
 			dir, r.layout.ClientGroup, sharetree.Describe(blocked),
 			sharetree.Fix(blocked, r.layout.ClientGroup))
 	}

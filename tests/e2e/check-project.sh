@@ -314,7 +314,7 @@ runuser -u $OP -- tee "$B/.claude/settings.local.json" >/dev/null <<'JSON'
 { not json
 JSON
 out=$(enrol "$B" --agent claude 2>&1)
-grep -q 'the existing file does not parse' <<<"$out" \
+grep -q 'settings.local.json does not parse' <<<"$out" \
   && ok "an agent config that does not parse is refused" \
   || bad "an unparseable agent config was not named: ${out:0:120}"
 mode=$(stat -c '%U:%G' "$B")
@@ -428,7 +428,7 @@ for own in /etc/faramir /etc/faramir/secrets /var/log/faramir \
            /var/lib/faramir-broker /var/lib/faramir-keeper /var/lib/faramir-exec; do
   mode=$(stat -c '%U:%G %a' "$own" 2>/dev/null)
   out=$(/usr/local/bin/faramir enrol --agent claude "$own" 2>&1)
-  if grep -q "which is faramir's own" <<<"$out"; then
+  if grep -q "a faramir directory" <<<"$out"; then
     ok "  $own is refused"
   else
     bad "  $own was enrolled: ${out##*$'\n'}"

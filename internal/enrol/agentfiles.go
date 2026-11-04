@@ -41,8 +41,7 @@ func warnMissingAccountRules(p *project, target *agentcfg.Target) {
 	// which renders the same set into the bash deny list. Named that way rather
 	// than by example, a rule for a path faramir did not choose being the thing
 	// that design refuses to compile in.
-	p.warnf("%s has no account-wide deny rules (%s missing); its file tools are unguarded until "+
-		"faramir init --agent %s runs",
+	p.warnf("%s has no account-wide deny rules: %s missing\n  run `sudo faramir init --agent %s`",
 		target.Name, strings.Join(missing, ", "), target.Name)
 }
 
@@ -57,10 +56,9 @@ func (p *project) agentConfig() error {
 		// enrolment leaves the tree shared with the client group and guarded by
 		// nothing. `faramir doctor` reports the same tree for as long as it stays
 		// that way.
-		p.warnf("no coding agent is configured in %s, so nothing it runs is redacted; "+
-			"pass --agent to enrol one (%s)",
+		p.warnf("no coding agent is configured in %s\n  pass --agent to enrol one: %s",
 			p.opts.Dir, strings.Join(agentcfg.Known(), ", "))
-		p.step(steps.LabelAgentConfig, false, "no coding agent is configured in "+p.opts.Dir)
+		p.step(steps.LabelAgentConfig, false, "none")
 		return nil
 	}
 	changed := false
@@ -125,8 +123,8 @@ func (p *project) agentConfig() error {
 		}
 	}
 	if len(unenrolled) > 0 {
-		p.warnf("not enrolled, though configured in this tree: %v; pass --agent to include one",
-			unenrolled)
+		p.warnf("configured in this tree but not enrolled: %s\n  pass --agent to include one",
+			strings.Join(unenrolled, ", "))
 	}
 	return nil
 }
@@ -145,7 +143,7 @@ func (p *project) warnUncommittableFiles(target *agentcfg.Target) {
 		if !file.Local || p.isIgnored(file.Path) {
 			continue
 		}
-		p.warnf("%s is machine-specific and not git-ignored; add it to .gitignore or .git/info/exclude",
+		p.warnf("%s is machine-specific and not git-ignored\n  add it to .gitignore or .git/info/exclude",
 			file.Path)
 	}
 }
@@ -276,7 +274,8 @@ func (p *project) warnLegacyInstructions() {
 			}
 			path := filepath.Join(dir, rel)
 			if _, err := os.Lstat(path); err == nil {
-				p.warnf("legacy project instructions at %s remain in place; before cleanup, make AGENTS.md a regular file containing the complete user text and managed credentials section. Then remove only obsolete project files or symlinks; keep global harness files", path)
+				p.warnf("legacy project instructions at %s remain\n"+
+					"  make AGENTS.md a regular file holding all of their text, then remove %s", path, path)
 			}
 		}
 		if parent := filepath.Dir(dir); parent == dir {

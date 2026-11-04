@@ -31,7 +31,6 @@ import (
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostsudo"
 	"github.com/andornaut/faramir/internal/protocol"
-	"github.com/andornaut/faramir/internal/runcmd"
 	"github.com/andornaut/faramir/internal/secretref"
 )
 
@@ -123,8 +122,8 @@ func (r *runner) stepSudoGrant() error {
 	// The account authenticates through the broker and never with a password, so
 	// a usable hash would be a second way in that the broker is not asked about.
 	// Re-asserted every run.
-	if _, err := runcmd.Output("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warnf("could not lock %s's password (%v): usermod -L %s",
+	if _, err := command("usermod", "-L", r.layout.ExecUser); err != nil {
+		r.warnf("%s's password not locked: %v\n  run usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
 	if granted || authChanged || envChanged || branchChanged {
@@ -213,14 +212,14 @@ func (r *runner) revokeSudoGrant() error {
 		// Reported rather than fatal, and named: the grant's own files are gone by
 		// now, so nothing can sudo either way, but a branch left in a shared stack
 		// is a line pointing at a helper this run deleted.
-		r.warnf("could not remove the faramir block from a shared PAM stack (%v); "+
-			"remove the lines between %q and %q by hand",
+		r.warnf("faramir block not removed from a shared PAM stack: %v\n"+
+			"  remove the lines between %q and %q by hand",
 			err, hostsudo.PamBlockBegin, hostsudo.PamBlockEnd)
 	}
 	// Locking rather than clearing: an account with an empty password field is one
 	// some PAM stacks let in without asking.
-	if _, err := runcmd.Output("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warnf("could not lock %s's password (%v): usermod -L %s",
+	if _, err := command("usermod", "-L", r.layout.ExecUser); err != nil {
+		r.warnf("%s's password not locked: %v\n  run usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
 	r.restartFor("sudo grant")
@@ -237,14 +236,17 @@ func (r *runner) validateSudoers() error {
 		// Reported rather than failed: the file is generated from a template with no
 		// operator input in it, so the risk this covers is a sudo too old for a
 		// directive rather than a typo.
-		r.warnf("visudo is not installed, so %s was not checked", hostlayout.SudoersFile)
+		r.warnf("visudo is not installed; %s was not checked", hostlayout.SudoersFile)
 		return nil //nolint:nilerr // no visudo is a warning, not a failed install
 	}
 	if out, err := exec.CommandContext(context.Background(), path, "-cf", hostlayout.SudoersFile).
 		CombinedOutput(); err != nil {
-		removeErr := os.Remove(hostlayout.SudoersFile)
-		return fmt.Errorf("visudo rejected %s, so it was removed again (%w): %w: %s",
-			hostlayout.SudoersFile, removeErr, err, strings.TrimSpace(string(out)))
+		if removeErr := os.Remove(hostlayout.SudoersFile); removeErr != nil {
+			return fmt.Errorf("visudo rejected %s, and removing it failed: %w\n%s",
+				hostlayout.SudoersFile, removeErr, indent(visudoDetail(out, err, hostlayout.SudoersFile)))
+		}
+		return fmt.Errorf("visudo rejected %s; it was removed again\n%s",
+			hostlayout.SudoersFile, indent(visudoDetail(out, err, hostlayout.SudoersFile)))
 	}
 	return nil
 }

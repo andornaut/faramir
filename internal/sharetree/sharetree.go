@@ -14,6 +14,7 @@
 package sharetree
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -110,11 +111,11 @@ func Share(opts Options) (Result, error) {
 	}
 	owner, err := user.Lookup(opts.Operator)
 	if err != nil {
-		return result, fmt.Errorf("no such user %q: %w", opts.Operator, err)
+		return result, noSuchUser(opts.Operator, err)
 	}
 	group, err := user.LookupGroup(opts.Group)
 	if err != nil {
-		return result, fmt.Errorf("no such group %q: %w", opts.Group, err)
+		return result, noSuchGroup(opts.Group, err)
 	}
 	uid, _ := strconv.Atoi(owner.Uid)
 	gid, _ := strconv.Atoi(group.Gid)
@@ -161,6 +162,23 @@ func Share(opts Options) (Result, error) {
 	}
 	opts.logf("shared %s with %s", dir, opts.Group)
 	return result, nil
+}
+
+// noSuchUser is a failed account lookup. An unknown name is said once, without
+// the os/user wording that repeats it; any other failure keeps its cause.
+func noSuchUser(name string, err error) error {
+	if errors.As(err, new(user.UnknownUserError)) {
+		return fmt.Errorf("no such user %q", name)
+	}
+	return fmt.Errorf("user %q: %w", name, err)
+}
+
+// noSuchGroup is noSuchUser for a group.
+func noSuchGroup(name string, err error) error {
+	if errors.As(err, new(user.UnknownGroupError)) {
+		return fmt.Errorf("no such group %q", name)
+	}
+	return fmt.Errorf("group %q: %w", name, err)
 }
 
 func (o Options) logf(format string, args ...any) {

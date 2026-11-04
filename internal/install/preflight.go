@@ -26,12 +26,12 @@ import (
 // surfacing with the install half applied.
 func (r *runner) preflight() error {
 	if os.Geteuid() != 0 && !r.opts.DryRun {
-		return errors.New("faramir init must run as root")
+		return errors.New("must run as root")
 	}
 	if r.opts.AgentUser == "" || r.opts.AgentUser == "root" {
 		// Reached by `block` and `link` as well, which have no flag of their own:
 		// they read what the config records, and `init` is what records it.
-		return errors.New("no agent account: run through sudo, or pass --agent-user to init (not root)")
+		return errors.New("no agent account\n  run through sudo, or pass --agent-user (not root) to init")
 	}
 	if !hostfs.UserExists(r.opts.AgentUser) {
 		return fmt.Errorf("no such user: %s", r.opts.AgentUser)
@@ -40,10 +40,8 @@ func (r *runner) preflight() error {
 	// alone: a value above it renders a config.toml the daemons then refuse,
 	// which is a host with no broker where the answer is one number.
 	if r.opts.CommandConcurrency > config.MaxConcurrentRuns {
-		return fmt.Errorf("--command-concurrency %d is above the %d commands the executor runs at once. "+
-			"The executor would refuse the surplus after each run is recorded as started. Name %d "+
-			"or fewer",
-			r.opts.CommandConcurrency, config.MaxConcurrentRuns, config.MaxConcurrentRuns)
+		return fmt.Errorf("--command-concurrency %d is above the executor's limit of %d",
+			r.opts.CommandConcurrency, config.MaxConcurrentRuns)
 	}
 	// The same bound from the other side, and negative rather than below 1:
 	// zero is the unset signal every tunable shares, so applyDefaults turns it
@@ -55,8 +53,7 @@ func (r *runner) preflight() error {
 	// error about a file the operator did not type, after preflight has already
 	// passed; named here it is the flag that is wrong.
 	if r.opts.CommandConcurrency < 0 {
-		return fmt.Errorf("--command-concurrency %d is negative. Name 1 or more",
-			r.opts.CommandConcurrency)
+		return fmt.Errorf("--command-concurrency %d is negative", r.opts.CommandConcurrency)
 	}
 	r.warnLongSudoTimeout()
 	// Read before an account or a key exists: reporting a typo at the step would
@@ -70,18 +67,16 @@ func (r *runner) preflight() error {
 	// write lands in the backing directory and is shadowed the moment it mounts.
 	// The config directory answers for the secrets directory and the key too.
 	if home := hostlayout.HomeOf(r.layout.ConfigDir); home != "" && hostfs.LooksEncrypted(home) && !hostfs.HomeIsMounted(home) {
-		return fmt.Errorf("%s is an encrypted home that is not mounted, and %s is inside it. Installing now "+
-			"would write plaintext to the backing directory. Log in as the home's owner first",
-			home, r.layout.ConfigDir)
+		return fmt.Errorf("%s is an encrypted home that is not mounted; nothing was written to %s\n"+
+			"  log in as the home's owner first", home, r.layout.ConfigDir)
 	}
 	// The config directory is the one faramir creates whose parent can belong to
 	// the operator, and ensureDir chowns every ancestor it creates: a ~/.config
 	// made that way is root-owned and breaks every other tool that keeps state
 	// there.
 	if parent := filepath.Dir(r.layout.ConfigDir); !hostfs.Exists(parent) {
-		return fmt.Errorf("%s does not exist, and %s is inside it. Create it with "+
-			"the ownership you want first; this install would create it owned by root",
-			parent, r.layout.ConfigDir)
+		return fmt.Errorf("%s does not exist, so %s cannot be created\n"+
+			"  create it with the ownership you want", parent, r.layout.ConfigDir)
 	}
 	if err := r.refuseRepoint(); err != nil {
 		return err
@@ -92,7 +87,7 @@ func (r *runner) preflight() error {
 	// The binaries are built ahead of time. Checked here rather than at the
 	// install step, which is after the accounts and the age key exist.
 	if r.binaries == "" {
-		return errors.New("cannot find the directory this faramir was run from")
+		return errors.New("cannot find the directory this binary was run from")
 	}
 	var missing []string
 	for _, name := range installedBinaries {
@@ -101,8 +96,8 @@ func (r *runner) preflight() error {
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("not built in %s: %s. Run 'make build', then run the "+
-			"faramir it built", r.binaries, strings.Join(missing, ", "))
+		return fmt.Errorf("not built in %s: %s\n  run 'make build', then the binary it built",
+			r.binaries, strings.Join(missing, ", "))
 	}
 	return nil
 }
@@ -127,12 +122,12 @@ func (r *runner) refuseRepoint() error {
 		// A dry run reports and writes nothing, so this is what it has to report:
 		// refusing here would mean consenting to the change to preview it.
 		if r.opts.DryRun {
-			r.warnf("the daemons load %s, not %s; a real run is refused without --repoint-config",
+			r.warnf("the daemons load %s, not %s; a real run needs --repoint-config",
 				installed, r.layout.ConfigDir)
 			return nil
 		}
-		return fmt.Errorf("the daemons load %s, not %s; pass --repoint-config to move them "+
-			"(the age key and ciphertext in %s are then no longer redacted), or leave --config-dir out",
+		return fmt.Errorf("the daemons load %s, not %s\n"+
+			"  leave --config-dir out, or pass --repoint-config (%s is then no longer redacted)",
 			installed, r.layout.ConfigDir, installed)
 	}
 	// Consented to, and still worth naming: nothing moved, and what is left
@@ -142,8 +137,7 @@ func (r *runner) refuseRepoint() error {
 	// looks at it. That is the reason to name the files and the commands rather
 	// than the directory, since this is the only reading the operator gets.
 	managed, _ := filepath.Glob(filepath.Join(installed, "secrets", "*.sops.yml"))
-	r.warnf("the daemons now load %s; %s and the %d managed file(s) in %s are no longer "+
-		"part of the install and not redacted",
+	r.warnf("the daemons now load %s; no longer redacted: %s and %d managed file(s) in %s",
 		r.layout.ConfigDir, filepath.Join(installed, "age.key"), len(managed),
 		filepath.Join(installed, "secrets"))
 	return nil
@@ -235,11 +229,30 @@ func (r *runner) refuseInvalidSudoers() error {
 	}
 	if out, checkErr := exec.CommandContext(context.Background(), visudo, "-cf", candidate).
 		CombinedOutput(); checkErr != nil {
-		return fmt.Errorf("visudo rejects the grant --allow-sudo would install, so "+
-			"nothing was written: %w: %s%s", checkErr, strings.TrimSpace(string(out)),
-			hostsudo.VersionNote(visudo))
+		return fmt.Errorf("sudo grant not installed, visudo rejected it; nothing was written:\n%s%s",
+			indent(visudoDetail(out, checkErr, candidate)), hostsudo.VersionNote(visudo))
 	}
 	return nil
+}
+
+// visudoDetail is what visudo said about the candidate grant, with the
+// temporary file's name taken out: it names a file the operator never sees.
+// The exit status stands in only when visudo printed nothing.
+func visudoDetail(out []byte, err error, candidate string) string {
+	detail := strings.TrimSpace(strings.ReplaceAll(string(out), candidate, "the grant"))
+	if detail == "" {
+		return err.Error()
+	}
+	return detail
+}
+
+// indent puts every line of text under the line that introduces it.
+func indent(text string) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = "  " + line
+	}
+	return strings.Join(lines, "\n")
 }
 
 // refuseSymlinks fails the run when any path this install asserts a mode or an
@@ -280,9 +293,8 @@ func (r *runner) refuseSymlinks() error {
 			continue
 		}
 		target, _ := os.Readlink(path)
-		return fmt.Errorf("%s is a symlink to %s. faramir sets the mode and owner of that path, which "+
-			"would change the target instead. Nothing has been installed. Replace the symlink "+
-			"with a real file or directory, or move the install with --config-dir",
+		return fmt.Errorf("%s is a symlink to %s; nothing was installed\n"+
+			"  replace it with a real file or directory, or move the install with --config-dir",
 			path, target)
 	}
 	return nil

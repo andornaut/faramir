@@ -41,14 +41,11 @@ func (f FS) writeInto(root *os.Root, name string, data []byte, mode os.FileMode,
 	if errors.Is(err, os.ErrExist) {
 		// O_EXCL, so one already there is not something to truncate: it is either
 		// a run in progress or what a killed one left, and neither is this write's
-		// to overwrite. Named through the root's own path and wrapped: the bare
-		// error says a file exists without saying which, and tmp is a base name
+		// to overwrite. Named through the root's own path: tmp is a base name
 		// whose directory is the one thing an operator cannot guess.
-		return false, fmt.Errorf("%s is already there, so nothing was written: it is "+
-			"the temporary file a write goes through, so another faramir command is "+
-			"writing this file, or one was interrupted. Run them one at a time; "+
-			"delete it if none is running: %w",
-			filepath.Join(root.Name(), tmp), err)
+		return false, fmt.Errorf("%s is already there; nothing was written. "+
+			"Delete it if no other faramir command is running",
+			filepath.Join(root.Name(), tmp))
 	}
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", tmp, err)
@@ -136,18 +133,16 @@ func unchangedFrom(root *os.Root, name string, prior PriorState) error {
 	case prior.digest == nil:
 		// The caller read no file and one is here now: another run created it,
 		// and renaming over it would take whatever it wrote.
-		return fmt.Errorf("%s was created while this was working on it, so nothing "+
-			"was written: another faramir command wrote it first. Run them one at a "+
-			"time, then run this again", filepath.Join(root.Name(), name))
+		return fmt.Errorf("%s was created while this was working on it; nothing was written. "+
+			"Run this again", filepath.Join(root.Name(), name))
 	default:
 		sum := sha256.Sum256(body)
 		if bytes.Equal(sum[:], prior.digest) {
 			return nil
 		}
 	}
-	return fmt.Errorf("%s changed while this was working on it, so nothing was "+
-		"written: another faramir command edited it. Run them one at a time, then "+
-		"run this again", filepath.Join(root.Name(), name))
+	return fmt.Errorf("%s changed while this was working on it; nothing was written. "+
+		"Run this again", filepath.Join(root.Name(), name))
 }
 
 // OwnerOf is a file's uid and gid, or keep for both where they cannot be read.
