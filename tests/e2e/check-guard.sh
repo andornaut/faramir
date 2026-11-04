@@ -203,7 +203,7 @@ echo "$reason" | grep -q 'faramir run' && ok "the refusal names \`faramir run\` 
 # rather than the file under it: that is the entry, and it is what the reader
 # has to stop naming. The rule itself is not printed; subjects are packed into
 # one alternation per kind, so its opening says nothing about which fired.
-echo "$reason" | grep -qE '\(matched: [^)]*faramir' && ok "and names what the rule matched" \
+echo "$reason" | grep -qE '^  matched: .*faramir' && ok "and names what the rule matched" \
   || bad "the refusal does not say what fired the rule"
 # A refusal must not quote the secret it is refusing to disclose.
 echo "$reason" | grep -q 'hunter2\|tok_live' && bad "the refusal text contains a secret value" \

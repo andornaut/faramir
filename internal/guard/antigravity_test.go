@@ -195,7 +195,7 @@ func TestAFileToolIsRefusedThePathsTheDenyListNames(t *testing.T) {
 			// And not the reader-verb alternation the question was put with, which
 			// describes this check rather than the file. A file tool carries no
 			// command, so there is nothing matched to report either.
-			if strings.Contains(reason, "(matched:") {
+			if strings.Contains(reason, "matched:") {
 				t.Errorf("the refusal quotes the pattern the question was asked with: %s", reason)
 			}
 		})

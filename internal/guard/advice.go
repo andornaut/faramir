@@ -7,147 +7,193 @@ import (
 	"github.com/andornaut/faramir/internal/denyrules"
 )
 
-// adviceOperator is for a command that is the operator's to run. The account
-// this agent runs as could not have carried it out, so the refusal saves the
-// detour of finding that out from a permission error.
-const adviceOperator = "Blocked: this is an operator command, refused with or without sudo. " +
-	"Ask the operator to run it.\n\nYou may run `faramir run`, `faramir refs`, `faramir status`, " +
-	"`faramir redact`, `faramir doctor`, `faramir block ls`, `faramir link ls` and " +
-	"`faramir reader ls`. Doctor checks requiring root must be run by the operator."
+// A refusal reaches a coding agent in the middle of a task, so it leads with
+// what was refused and puts each thing it may do instead on an indented line
+// of its own. Why the rule exists is in docs/configuration.md, not here.
+type refusal struct {
+	// head is the command form's first line after "Blocked: ": what the command
+	// did, and where a path kind applies, which tools may not name it.
+	head string
+	// subject is what a refused path is, as a noun phrase, for the file tool
+	// form: "<path> is <subject>". Empty for a kind a file tool cannot meet.
+	subject string
+	// path is a declared path or one of faramir's own directories. The command
+	// form then says how to write about the path, a rule matched against the
+	// text of a command refusing a heredoc that quotes it like the command
+	// itself, and the file tool form says shell commands may not name it either.
+	path bool
+	// instead is what the agent may do, most useful first.
+	instead []string
+}
 
-// The declared-path messages, one per kind of entry, chosen by the named group
-// the rule carries. The rule itself is the same shape in all three: a path
-// named at all is refused, whatever the command would do with it. What differs
-// is how the agent stops being refused, and a message that could not say which
-// had to name two commands and a way to tell them apart.
-//
-// adviceRefs is the half that holds for any declared path, faramir's own
-// directories included: a value reached by ref is reached without the file
-// being named, so no rule about the path is in the way.
-// adviceNamed is what the rule does, which is the half none of the four
-// messages differ on.
-// The escape is in the same sentence as the refusal because the commonest way
-// to meet this rule is to write about the path rather than to read it: a rule
-// matched against the text of a command cannot tell a name being used from one
-// being quoted, so a heredoc that documents an operator command is refused like
-// the command itself. Saying so here is what saves the turn spent finding out.
-const adviceNamed = ". Shell commands and file tools cannot name this path, even to quote it. " +
-	"To document the path, use your editing tool, not a shell heredoc."
+// command is the refusal of a shell command.
+func (r refusal) command() string {
+	lines := r.instead
+	if r.path {
+		lines = append([]string{writeAboutPath}, lines...)
+	}
+	return "Blocked: " + r.head + indented(lines)
+}
 
-const adviceRefs = "If the value has a `faramir://` ref, `faramir refs` lists it, and " +
-	"`faramir run --env NAME=faramir://<ref>` uses it without naming the file."
+// file is the refusal of a file tool call naming path.
+func (r refusal) file(path string) string {
+	said := "Blocked: " + path + " is " + r.subject + ". This tool call was not made."
+	if r.path {
+		said += " Shell commands may not name it either."
+	}
+	return said + indented(r.instead)
+}
 
-// adviceRoute is the brokered route, for the entries where it is open. It is
-// not always: the broker holds the same entries and refuses a command that
-// would read the file. It is worth naming anyway, a command that only uses a
-// credential being the ordinary case.
-const adviceRoute = "\n\n`faramir run` allows credential use but refuses commands that disclose the file. " + adviceRefs
+// indented is lines as the detail under a refusal's first line.
+func indented(lines []string) string {
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString("\n  " + line)
+	}
+	return b.String()
+}
 
-// adviceUnblockPath is the removal spelled as the operator has to type it.
-// Both halves matter and neither is guessable from the other: the command
-// writes the config, so it needs root, and it takes the path as a flag rather
-// than as an operand, so the bare command name is an invocation that fails.
-// Naming it short taught the operator a command they then had to work out.
-const adviceUnblockPath = "`sudo faramir block rm --path <path>` (requires root)."
+// The scope sentences. A loose entry is refused to the agent's shell and file
+// tools; a strict entry and faramir's own directories are refused to brokered
+// commands as well.
+const (
+	scopeLoose  = "Shell commands may not name it, even quoted, and file tools may not open it."
+	scopeStrict = "Shell commands, brokered commands and file tools may not name it, even quoted."
+)
 
-// adviceUnblockCommand is the same removal for an entry naming a command.
-const adviceUnblockCommand = "`sudo faramir block rm --command <command>` (requires root)."
+const writeAboutPath = "To write about the path, use your editing tool, not a shell heredoc."
 
-// adviceBlockedPath is for a path a [[secret.block]] entry names. The entry
-// exists to refuse and nothing else, so removing it is the whole remedy.
-const adviceBlockedPath = "Blocked: the operator blocked this path on this host" + adviceNamed + adviceRoute +
-	"\n\nOtherwise ask the operator, who can unblock it with " + adviceUnblockPath +
-	" `faramir block ls` lists the blocked paths."
+// useRef holds for any declared path: a value reached by ref is reached
+// without the file being named.
+const useRef = "Use the value by ref: `faramir run --env NAME=faramir://<ref>`. " +
+	"`faramir refs` lists refs."
 
-// adviceLinkedPath is for the file a [[secret.link]] entry reads. Removing the
-// entry takes the refusal back and the ref with it, so the ref is the thing to
-// reach for first: it is what the link is for, and it answers without the file
-// being named.
-const adviceLinkedPath = "Blocked: a link reads this file on this host" + adviceNamed + adviceRoute +
-	"\n\nUse the ref instead of the file. `faramir link ls` lists links and their files. " +
-	"Only the operator can remove a link, with `faramir link rm`, " +
-	"and that removes the ref too."
+// useRoute is the brokered route, open for a loose entry only: the broker holds
+// the same entries and refuses a strict one to every brokered command.
+const useRoute = "Use the credential through `faramir run`, which refuses commands that print the file."
 
-// adviceNoRoute is what adviceRoute becomes for a strict entry: the broker
-// holds the same entry and refuses a command that names it at all, so offering
-// the brokered route would spend a turn on a second refusal. The ref is still a
-// route, and is the only one, so it is what this says instead.
-const adviceNoRoute = "\n\nThis entry is strict: brokered commands cannot name the path either. " +
-	adviceRefs
+// The removals spelled as the operator types them: each writes the config, so
+// it needs root, and block rm takes its subject as a flag.
+const (
+	unblockPath    = "To unblock, ask the operator to run `sudo faramir block rm --path <path>`."
+	unblockCommand = "To unblock, ask the operator to run `sudo faramir block rm --command <command>`."
+	// A link's removal takes the ref with it, which is what the agent would use
+	// instead, so the line says so.
+	unlink = "Removing the link also removes its ref. Only the operator can, with `sudo faramir link rm <ref>`."
+)
 
-// adviceBlockedStrictPath and adviceLinkedStrictPath are the two entry
-// messages for an entry written strict. The same wording as the loose pair
-// with the brokered route taken out, rather than a sentence bolted on: an
-// agent that reads "may go through there" spends the turn finding out it may
-// not.
-const adviceBlockedStrictPath = "Blocked: the operator blocked this path on this host" + adviceNamed +
-	adviceNoRoute + "\n\nOtherwise ask the operator, who can unblock it with " + adviceUnblockPath +
-	" `faramir block ls` lists the blocked paths and marks the strict ones."
+var (
+	refuseBlocked = refusal{
+		head:    "this command names a path the operator blocked. " + scopeLoose,
+		subject: "a path the operator blocked",
+		path:    true,
+		instead: []string{useRoute, useRef, unblockPath},
+	}
+	refuseBlockedStrict = refusal{
+		head:    "this command names a path the operator blocked as strict. " + scopeStrict,
+		subject: "a path the operator blocked as strict",
+		path:    true,
+		instead: []string{useRef, unblockPath},
+	}
+	refuseLinked = refusal{
+		head:    "this command names a file a link reads. " + scopeLoose,
+		subject: "a file a link reads",
+		path:    true,
+		instead: []string{useRef, useRoute, unlink},
+	}
+	refuseLinkedStrict = refusal{
+		head:    "this command names a file a strict link reads. " + scopeStrict,
+		subject: "a file a strict link reads",
+		path:    true,
+		instead: []string{useRef, unlink},
+	}
+	// No entry declares faramir's own directories and no removal takes them
+	// back: they are rendered from the layout on every run.
+	refuseOwnPath = refusal{
+		head:    "this command names one of faramir's own directories. " + scopeStrict,
+		subject: "in one of faramir's own directories",
+		path:    true,
+		instead: []string{useRef,
+			"This built-in rule cannot be removed. Ask the operator if you need access."},
+	}
+	// The safe default, for a rule no marker classified: what is true of any
+	// declared path, with both removals. Disclosure rather than one of the
+	// narrower messages, because being wrong this way costs a detour and being
+	// wrong the other way tells an agent that the operator's own secret is
+	// faramir's file.
+	refuseDeclared = refusal{
+		head:    "this command names a path in the blocks or the links on this host. " + scopeLoose,
+		subject: "in the blocks or the links on this host",
+		path:    true,
+		instead: []string{useRoute, useRef,
+			"To lift it, ask the operator: `sudo faramir block rm --path <path>` for a block, " +
+				"`sudo faramir link rm <ref>` for a link. `faramir block ls` and `faramir link ls` show which."},
+	}
+	// A [[secret.block]] entry naming a command rather than a path: telling
+	// somebody who ran `op read` that a path is refused names nothing they typed.
+	refuseCommand = refusal{
+		head: "this command is blocked on this host, in your shell and in brokered commands.",
+		instead: []string{
+			"To write about the command, use your editing tool, not a shell heredoc.",
+			unblockCommand},
+	}
+	// A command that acts on the install rather than through it. The account the
+	// agent runs as could not carry it out, so the refusal saves the detour of
+	// finding that out from a permission error.
+	refuseOperator = refusal{
+		head: "this is an operator command, with or without sudo. Ask the operator to run it.",
+	}
+	// Acting on faramir's own files, accounts or units discloses nothing, so
+	// this offers no brokered route: a brokered command runs as an account with
+	// less reach rather than more.
+	refuseOwnAction = refusal{
+		head:    "this command changes faramir's own file, account or unit.",
+		subject: "faramir's own file, account or unit",
+		instead: []string{"Changes are refused, including through `faramir run`. " +
+			"Ask the operator to make the change."},
+	}
+)
 
-const adviceLinkedStrictPath = "Blocked: a link reads this file on this host" + adviceNamed + adviceNoRoute +
-	"\n\nUse the ref instead of the file. `faramir link ls` lists links and their files. " +
-	"Only the operator can remove a link, with `faramir link rm`, " +
-	"and that removes the ref too."
+// The command form of each, as adviceFor returns it.
+var (
+	adviceBlockedPath       = refuseBlocked.command()
+	adviceBlockedStrictPath = refuseBlockedStrict.command()
+	adviceLinkedPath        = refuseLinked.command()
+	adviceLinkedStrictPath  = refuseLinkedStrict.command()
+	adviceOwnPath           = refuseOwnPath.command()
+	adviceDeclared          = refuseDeclared.command()
+	adviceCommand           = refuseCommand.command()
+	adviceOperator          = refuseOperator.command()
+	adviceOwn               = refuseOwnAction.command()
+)
 
-// adviceOwnPath is for a directory this install occupies. No entry declares
-// these and no removal takes them back: they are rendered from the layout on
-// every run, so a message offering a removal command would name a remedy that
-// does not exist.
-const adviceOwnPath = "Blocked: this is one of faramir's own directories" + adviceNamed + "\n\n" + adviceRefs +
-	" Brokered commands cannot name this directory either. " +
-	"There is no entry to remove: these built-in rules cannot be removed with `faramir block rm`. " +
-	"`faramir block ls` lists them. Ask the operator if access is required."
-
-// adviceDeclared is the safe default, for a rule no marker classified. It says
-// what is true of any declared path and leaves the reader to find which kind
-// applies, which is the most a message can do when the rule does not say.
-//
-// Disclosure rather than one of the narrower messages, because being wrong this
-// way costs a detour and being wrong the other way tells an agent that the
-// operator's own secret is faramir's file.
-const adviceDeclared = "Blocked: this path is in the blocks or the links on this host" + adviceNamed + adviceRoute +
-	"\n\nOtherwise ask the operator, who can unblock it: `sudo faramir block rm --path <path>` " +
-	"for a blocked path, `faramir link rm` for a file a link reads. Both write the config and " +
-	"need root. `faramir block ls` and `faramir link ls` show which it is, and you may run both. " +
-	"The install's own directories are listed by `faramir block ls` under the built-in rules and " +
-	"cannot be removed: their rules are rendered from the layout on every run."
-
-// adviceCommand is for a `[[secret.block]]` entry naming a command rather than a
-// path. The remedy is the same shape and the subject is not: telling somebody
-// who ran `op read` that a path is declared names nothing they typed.
-const adviceCommand = "Blocked: this command is blocked in both your shell and brokered commands. " +
-	"Arguments and paths are not matched as commands, but heredoc lines are. " +
-	"To document the command, use your editing tool, not a shell heredoc. " +
-	"Ask the operator to unblock it with " +
-	adviceUnblockCommand
-
-// adviceOwn is for the rules that are not about disclosure. Acting on
-// faramir's own files, accounts or units discloses nothing, and the disclosure
-// advice would offer `faramir run` as the way to proceed: a brokered command
-// runs as an account with less reach rather than more.
-const adviceOwnOpening = "Blocked: this is "
-
-const adviceOwn = adviceOwnOpening + "faramir's own file, account or unit. " +
-	"Changes are refused, including through `faramir run`. Ask the operator to make the change."
-
-// byKind is the message per catalogue kind, which is the same vocabulary the
+// refusals is the refusal per catalogue kind, which is the same vocabulary the
 // broker answers from. Two tables rather than one because the two tiers say
 // different things: a brokered refusal talks about the account on the far side
 // of it, and this one talks about your tools and your shell. What they share is
 // what decides which sentence, so a kind cannot be answered here and forgotten
 // there.
-var byKind = map[denyrules.Kind]string{
-	denyrules.KindOwn:           adviceOwnPath,
-	denyrules.KindBlocked:       adviceBlockedPath,
-	denyrules.KindBlockedStrict: adviceBlockedStrictPath,
-	denyrules.KindLinked:        adviceLinkedPath,
-	denyrules.KindLinkedStrict:  adviceLinkedStrictPath,
-	denyrules.KindCommand:       adviceCommand,
-	denyrules.KindOperator:      adviceOperator,
-	denyrules.KindOwnAction:     adviceOwn,
+var refusals = map[denyrules.Kind]refusal{
+	denyrules.KindOwn:           refuseOwnPath,
+	denyrules.KindBlocked:       refuseBlocked,
+	denyrules.KindBlockedStrict: refuseBlockedStrict,
+	denyrules.KindLinked:        refuseLinked,
+	denyrules.KindLinkedStrict:  refuseLinkedStrict,
+	denyrules.KindCommand:       refuseCommand,
+	denyrules.KindOperator:      refuseOperator,
+	denyrules.KindOwnAction:     refuseOwnAction,
 }
 
-// adviceFor picks the explanation that matches why the command was refused.
+// byKind is the command form of refusals.
+var byKind = func() map[denyrules.Kind]string {
+	out := make(map[denyrules.Kind]string, len(refusals))
+	for kind, r := range refusals {
+		out[kind] = r.command()
+	}
+	return out
+}()
+
+// refusalFor picks the refusal that matches why the command was refused.
 // Every rule this install rendered carries its kind as a named group, so the
 // pattern says which message it wants and nothing has to be recognised by a
 // substring of itself.
@@ -156,13 +202,30 @@ var byKind = map[denyrules.Kind]string{
 // It gets the disclosure message, which is the larger half and the safer
 // default: being wrong that way costs a detour, and being wrong the other way
 // tells an agent that the operator's own secret is faramir's file.
-func adviceFor(pattern string) string {
+func refusalFor(pattern string) refusal {
 	for _, kind := range denyrules.Kinds() {
 		if strings.Contains(pattern, denyrules.KindMarker(kind)) {
-			return byKind[kind]
+			return refusals[kind]
 		}
 	}
-	return adviceDeclared
+	return refuseDeclared
+}
+
+// adviceFor is the refusal of a shell command the pattern matched.
+func adviceFor(pattern string) string {
+	return refusalFor(pattern).command()
+}
+
+// deniedCommand is the whole refusal of a shell command: the kind's message,
+// then the command in a compound line the rule matched, then what it matched.
+// A hook answers for the whole tool call, so naming the segment is what tells
+// the agent which part of the line to change.
+func deniedCommand(command, pattern string) string {
+	said := adviceFor(pattern)
+	if segment := matchingSegment(command, pattern); segment != "" {
+		said += "\n  whole call refused for: " + shortSegment(segment)
+	}
+	return said + "\n  matched: " + matchedNote(command, pattern)
 }
 
 // matchedNote is what the refusal says about the rule that answered: the text
@@ -232,43 +295,24 @@ func shortSegment(segment string) string {
 	return string(runes[:keep]) + "…"
 }
 
-// pathAdvice is what a refused file tool is told. Its own wording rather than
-// the command one's: nothing ran, so "this command" would name something that
-// never happened, and the way through is the same either way.
-const pathAdvice = "Blocked: %s is key material or one of faramir's own files. This tool call " +
-	"was not made. Use `faramir run` for managed credentials; `faramir refs` lists available refs."
+// pathAdvice is what a refused file tool is told for a kind it cannot meet: a
+// command entry and the rules about faramir's own commands match a verb and a
+// path together, so a tool call carrying a path alone reaches none of them.
+const pathAdvice = "Blocked: %s is protected on this host. This tool call was not made." +
+	"\n  " + useRef
 
-// fileAdviceFor is what a refused file tool is told: the message its kind
-// carries, with the clause about a command swapped for the call that was
-// actually refused. The kinds differ in the list the entry is in and the
-// removal that lifts it, and a file tool's refusal named neither: it said "key
-// material or one of faramir's own files", which is the two answers at once and
-// no remedy for either.
+// fileAdviceFor is what a refused file tool is told: the refusal its kind
+// carries, said about a call that was not made rather than a command that
+// would have run. The kinds differ in the list the entry is in and the removal
+// that lifts it, which is the same answer a shell gets.
 //
-// The kinds a file tool cannot meet fall back to the flat wording. A command
-// entry and the rules about faramir's own commands match a verb and a path
-// together, so a tool call carrying a path alone reaches none of them.
+// The rules about faramir's own are among those a file tool does reach: the
+// deny list is asked about this path as a read and as a write, and `tee` is a
+// write command, so an agent's own hook file matches the rule that refuses
+// replacing it.
 func fileAdviceFor(pattern, path string) string {
-	said := adviceFor(pattern)
-	if strings.Contains(said, adviceNamed) {
-		return strings.Replace(said, adviceNamed, adviceFileNamed(path), 1)
-	}
-	// The rules about faramir's own, which a file tool does reach: the deny list
-	// is asked about this path as a read and as a write, and `tee` is a write
-	// command, so an agent's own hook file matches the rule that refuses
-	// replacing it. Its message stands as it is with the path named, and it is
-	// the one message that must not fall back: the fallback offers `faramir run`
-	// as the way through, which this rule says in as many words it is not.
-	if rest, found := strings.CutPrefix(said, adviceOwnOpening); found {
-		return "Blocked: this tool call was not made. " + path + " is " + rest
+	if r := refusalFor(pattern); r.subject != "" {
+		return r.file(path)
 	}
 	return fmt.Sprintf(pathAdvice, path)
-}
-
-// adviceFileNamed is adviceNamed for a tool call: the same rule, said about a
-// call that did not happen rather than about a command that would have run.
-// The heredoc clause goes with it, an editing tool being what the reader is
-// already holding.
-func adviceFileNamed(path string) string {
-	return ". This tool call was not made. " + path + " is blocked in file tools and shell commands."
 }

@@ -227,14 +227,7 @@ func Run(args []string) int {
 	}
 
 	if pattern, denied := decide(command); denied {
-		note := "\n\n(matched: " + matchedNote(command, pattern) + ")"
-		if segment := matchingSegment(command, pattern); segment != "" {
-			note = "\n\nOne command in the line matched. The whole call is refused" +
-				" because a hook answers for the whole line. The command to change:" +
-				"\n\n    " + shortSegment(segment) +
-				"\n\n(matched: " + matchedNote(command, pattern) + ")"
-		}
-		return emit(activeHost.deny(adviceFor(pattern) + note))
+		return emit(activeHost.deny(deniedCommand(command, pattern)))
 	}
 
 	// The same question the patch branch above asks, of a command that runs the
@@ -286,12 +279,12 @@ func Run(args []string) int {
 // agent that is told to stop and why can say so, where one that meets a silent
 // refusal retries.
 const (
-	unreadablePayload = "Blocked: faramir's guard could not parse this tool call. " +
-		"Ask the operator to check the hook's input format. The command did not run."
-	noCommandString = "Blocked: the shell tool call contains no command. " +
-		"Ask the operator to check the hook's input format."
-	unreadablePatch = "Blocked: faramir's guard could not parse this patch or check its target files. " +
-		"Ask the operator to check the patch tool's input format."
+	unreadablePayload = "Blocked: faramir's guard could not parse this tool call. The command did not run." +
+		"\n  Ask the operator to check the hook's input format."
+	noCommandString = "Blocked: this shell tool call carries no command." +
+		"\n  Ask the operator to check the hook's input format."
+	unreadablePatch = "Blocked: faramir's guard could not parse this patch or check its target files." +
+		"\n  Ask the operator to check the patch tool's input format."
 )
 
 // emit writes the answer. An answer that could not be written exits 2, the

@@ -286,11 +286,11 @@ func TestAFileToolIsToldWhichKindRefusedIt(t *testing.T) {
 		names []string
 	}{
 		{name: "a blocked path", kind: denyrules.KindBlocked,
-			names: []string{"the operator blocked this path", blockRemoval}},
+			names: []string{"a path the operator blocked", blockRemoval}},
 		{name: "a linked file", kind: denyrules.KindLinked,
-			names: []string{"a link reads this file", linkRemoval}},
+			names: []string{"a file a link reads", linkRemoval}},
 		{name: "one of faramir's own directories", kind: denyrules.KindOwn,
-			names: []string{"faramir's own directories", "no entry to remove"}},
+			names: []string{"faramir's own directories", "cannot be removed"}},
 		// The kind whose message carries no clause about naming a path, and the
 		// one a file tool meets most: an agent's own hook file is one faramir
 		// installs, and the deny list is asked about a write to it.

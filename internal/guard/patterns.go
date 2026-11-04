@@ -188,8 +188,7 @@ func rawFilePatterns() []string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintf(os.Stderr, "faramir guard: cannot read %s, so only faramir's own "+
-				"paths are refused and no declared entry is: %v\n", path, err)
+			fmt.Fprintf(os.Stderr, "faramir guard: declared entries not refused: %v\n", err)
 		}
 		return nil
 	}
