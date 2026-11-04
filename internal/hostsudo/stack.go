@@ -78,7 +78,7 @@ func BranchProblem(execUser, helper string) string {
 				"; "+reinit, path)
 		case execUser == "":
 			return problem("faramir block went unchecked: the executor's account is "+
-				"not known; pass --exec-user", path)
+				"not known; run `sudo faramir init --allow-sudo --exec-user <account>`", path)
 		case !strings.Contains(block, "user = "+execUser):
 			return problem("faramir block tests for an account other than "+execUser+
 				", so every escalation fails; "+reinit, path)
