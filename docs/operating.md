@@ -148,8 +148,9 @@ A reload is not needed for a new or edited managed sops file, which the next ref
 
 Vault creation publishes without replacement: if another command creates the
 same name while the editor is open, the add fails and leaves that file intact.
-Publication requires filesystem support for no-replace rename; unsupported
-operations fail without falling back to an overwrite.
+Publication is a hard link, which refuses an existing name, so it works in an
+eCryptfs home; a filesystem without hard links fails the add without falling
+back to an overwrite.
 
 Vault removal compares the inspected file's identity and ciphertext before
 deleting it. Removal, creation and replacement share a brief advisory lock on

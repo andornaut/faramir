@@ -95,8 +95,9 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 // createManaged writes a file that was not there before, 0640 like every other
 // managed one. The group comes from the secrets directory, which is setgid to
 // the keeper's, so a new file is readable by the daemon that opens it without
-// this naming an account. Published with a no-replace rename: another add may
-// have created the target while this run's editor was open.
+// this naming an account. Published with link(2), which refuses an existing
+// name: another add may have created the target while this run's editor was
+// open. Not renameat2(RENAME_NOREPLACE), which eCryptfs rejects with EINVAL.
 func createManaged(target string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".*")
 	if err != nil {
@@ -121,11 +122,15 @@ func createManaged(target string, data []byte) error {
 		return err
 	}
 	return withPublicationLock(func() error {
-		if err := unix.Renameat2(unix.AT_FDCWD, tmp.Name(), unix.AT_FDCWD, target, unix.RENAME_NOREPLACE); err != nil {
+		if err := unix.Link(tmp.Name(), target); err != nil {
 			if errors.Is(err, unix.EEXIST) {
 				return &existsError{target: target, err: err}
 			}
 			return fmt.Errorf("%s: %w", target, err)
+		}
+		// Before the directory sync, so the durable state is the target alone.
+		if err := os.Remove(tmp.Name()); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %s written, but %s was not removed: %v\n", target, tmp.Name(), err)
 		}
 		if err := hostfs.SyncDir(filepath.Dir(target)); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: %s written, but its directory was not synced: %v\n", target, err)

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/andornaut/faramir/internal/hostfs"
 )
 
@@ -52,6 +54,32 @@ func TestManagedPublicationDoesNotReplaceExistingEntry(t *testing.T) {
 				t.Fatalf("temporary publication files remain: %v, %v", leftovers, err)
 			}
 		})
+	}
+}
+
+// Publication links the temp name and then removes it, so a fresh target is
+// the directory's only entry and holds the only link to its inode.
+func TestManagedPublicationPublishesFreshTargetAsSoleLink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "fixture.sops.yml")
+	data := []byte("synthetic fresh ciphertext")
+	if err := createManaged(target, data); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(target)
+	if err != nil || !bytes.Equal(body, data) {
+		t.Fatalf("published content: %q, %v", body, err)
+	}
+	var st unix.Stat_t
+	if err := unix.Lstat(target, &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFREG || st.Nlink != 1 || st.Mode&0o777 != 0o640 {
+		t.Fatalf("published entry: mode %o, %d links", st.Mode, st.Nlink)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 || entries[0].Name() != filepath.Base(target) {
+		t.Fatalf("publication temporary files remain: %v, %v", entries, err)
 	}
 }
 
