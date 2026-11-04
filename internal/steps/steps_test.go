@@ -43,6 +43,23 @@ func TestTheLogIsNoPartOfWhatIsRecorded(t *testing.T) {
 	}
 }
 
+// A step that changed nothing is in the document and not in the log: the log
+// is what needs attention.
+func TestAnUnchangedStepIsRecordedAndNotLogged(t *testing.T) {
+	var lines []string
+	var report Report
+	report.LogTo(func(line string) { lines = append(lines, line) })
+	report.Record("kept", false, "detail")
+	report.Record("made", true, "detail")
+
+	if len(lines) != 1 || lines[0] != "changed   made: detail" {
+		t.Errorf("logged %q, want only the changed step", lines)
+	}
+	if len(report.Steps) != 2 {
+		t.Errorf("recorded %d steps, want 2", len(report.Steps))
+	}
+}
+
 // Warnings are the things that install cleanly and then do not work, so they
 // are collected rather than returned.
 func TestAWarningIsRecordedWithoutFailingTheRun(t *testing.T) {

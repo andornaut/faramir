@@ -55,6 +55,10 @@ func resolveUnenrolPath(named string) (string, bool, error) {
 	return current, false, nil
 }
 
+// afterMissingScan runs between selecting the missing records and checking
+// them again before the write. A variable so a test can change the host there.
+var afterMissingScan = func() {}
+
 func forgetMissingRecords(opts UnenrolOptions, report UnenrolReport) (UnenrolReport, error) {
 	report.RecordOnly = true
 	if opts.ConfigDir == "" {
@@ -80,6 +84,7 @@ func forgetMissingRecords(opts UnenrolOptions, report UnenrolReport) (UnenrolRep
 	for _, dir := range missing {
 		report.Record("missing enrolment", false, dir)
 	}
+	afterMissingScan()
 	// Absence can change independently of the record. Check again immediately
 	// before its CAS write; no atomicity with outside filesystem changes is claimed.
 	for _, dir := range missing {

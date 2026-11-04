@@ -137,6 +137,8 @@ func (r *runner) stepLinkAccess() error {
 		// credential that has gone or a home that is not mounted.
 		detail += fmt.Sprintf("; %d missing: %s",
 			len(absent), strings.Join(absent, ", "))
+		r.warnf("%d linked file(s) missing; their refs serve nothing: %s",
+			len(absent), strings.Join(absent, ", "))
 	}
 	// Never changed: this step asks questions and alters nothing.
 	r.step(steps.LabelLinkedFiles, false, detail)

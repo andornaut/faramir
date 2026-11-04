@@ -85,7 +85,7 @@ func (r *runner) stepValidate() error {
 		// this and `faramir status` exits non-zero over it, so a host in this state
 		// is not one anything calls healthy.
 		if report.OnlyNotRedactable() {
-			r.warnf("%d ref(s) cannot be redacted and are never injected: %s",
+			r.warnf("%d ref(s) cannot be redacted and are not served: %s",
 				len(report.Secrets.NotRedactable), report.RefusedRefs())
 			r.step("validate", false, "installed; refs to fix")
 			return nil

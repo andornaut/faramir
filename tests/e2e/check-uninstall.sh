@@ -209,12 +209,13 @@ faramir init --agent-user op >/tmp/restore.log 2>&1 \
   || bad "restore failed: $(tail -3 /tmp/restore.log)"
 # Adopted, not minted: a run that replaced the key would leave every restored
 # file unreadable, which is the one outcome a restore cannot survive.
-grep -qE '^ok +age key' /tmp/restore.log \
-  && ok "it adopted the key in the archive rather than minting one" \
-  || bad "init did not adopt the restored key: $(grep -i 'age key' /tmp/restore.log)"
-grep -qE '^ok +sops config: keeping' /tmp/restore.log \
-  && ok "and kept the creation rule that came with it" \
-  || bad "init did not keep the restored rule: $(grep -i 'sops config' /tmp/restore.log)"
+# An unchanged step prints nothing, so adopting is the absence of a change line.
+grep -qE '^changed +age key' /tmp/restore.log \
+  && bad "init did not adopt the restored key: $(grep -i 'age key' /tmp/restore.log)" \
+  || ok "it adopted the key in the archive rather than minting one"
+grep -qE '^changed +sops config' /tmp/restore.log \
+  && bad "init did not keep the restored rule: $(grep -i 'sops config' /tmp/restore.log)" \
+  || ok "and kept the creation rule that came with it"
 [ "$(sha256sum $SECRETS | cut -d' ' -f1)" = "$sec_sum" ] \
   && ok "and nothing was re-encrypted" || bad "the restore rewrote the ciphertext"
 

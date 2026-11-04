@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/agentcfg"
@@ -184,8 +183,9 @@ func TestUnenrolMissingRefusesReappearanceAndConcurrentRecordUpdate(t *testing.T
 			opts, missing, live := missingFixture(t)
 			before := readUnenrolFile(t, opts.ConfigDir, "enrolled.json")
 			called := false
-			opts.Log = func(line string) {
-				if called || !strings.Contains(line, "missing enrolment") {
+			t.Cleanup(func() { afterMissingScan = func() {} })
+			afterMissingScan = func() {
+				if called {
 					return
 				}
 				called = true

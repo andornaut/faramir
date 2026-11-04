@@ -728,7 +728,7 @@ out=$(block rm --path "$QUIET")
 [ "$(head -1 <<<"$out")" = "unblocked $QUIET" ] \
   && ok "block rm leads with the outcome" \
   || bad "the first line is not the outcome: ${out:0:200}"
-grep -qE '^(changed|ok) ' <<<"$out" \
+grep -qE '^(changed|skipped|working) ' <<<"$out" \
   && bad "block rm still prints the file-by-file account: ${out:0:300}" \
   || ok "and prints no file-by-file account"
 

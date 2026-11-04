@@ -257,7 +257,7 @@ sudo tar xzf faramir-backup.tgz -C /
 sudo faramir init --agent-user <account>
 ```
 
-`init` adopts what it finds. An existing `age.key` is reported `ok` rather than `changed` and is never overwritten, and an existing `.sops.yaml` is kept and read back. The accounts, units, modes and group are rebuilt around the key and the ciphertext, and nothing is re-encrypted. The same run imports a store from elsewhere: put the files in place first.
+`init` adopts what it finds. An existing `age.key` is not reported as `changed` and is never overwritten, and an existing `.sops.yaml` is kept and read back. The accounts, units, modes and group are rebuilt around the key and the ciphertext, and nothing is re-encrypted. The same run imports a store from elsewhere: put the files in place first.
 
 - **The archive is the secret.** Everything under `secrets/` opens with the key beside it, so the archive is worth exactly what the store is.
 - **Nothing exports the identity.** `tar` and `cp` already do, and a command for it would be one more command an agent could be induced to run.

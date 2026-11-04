@@ -229,8 +229,9 @@ func (r *runner) refuseInvalidSudoers() error {
 	}
 	if out, checkErr := exec.CommandContext(context.Background(), visudo, "-cf", candidate).
 		CombinedOutput(); checkErr != nil {
-		return fmt.Errorf("sudo grant not installed, visudo rejected it; nothing was written:\n%s%s",
-			indent(visudoDetail(out, checkErr, candidate)), hostsudo.VersionNote(visudo))
+		return fmt.Errorf("sudo grant not installed: visudo rejects it: %s%s",
+			strings.ReplaceAll(visudoDetail(out, checkErr, candidate), "\n", "\n  "),
+			hostsudo.VersionNote(visudo))
 	}
 	return nil
 }

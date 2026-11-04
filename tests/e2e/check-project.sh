@@ -579,7 +579,7 @@ rm -f /tmp/conc.*.rc
 # A record that cannot be read is not a record naming nothing.
 printf '{ not json\n' > $REC
 out=$(/usr/local/bin/faramir init --agent-user $OP --dry-run 2>&1)
-grep -q "could not be read" <<<"$out" \
+grep -q "enrolment record unreadable" <<<"$out" \
   && ok "an unreadable record is reported as that" \
   || bad "an unreadable record was read as an empty one: $(grep -i 'enrolled trees' <<<"$out" | head -1)"
 cp /tmp/rec.bak $REC; rm -f /tmp/rec.bak

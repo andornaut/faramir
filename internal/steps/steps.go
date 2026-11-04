@@ -36,13 +36,14 @@ type Report struct {
 	// Warnings are the things that install cleanly and then do not work. Not
 	// failures, each having a legitimate shape.
 	Warnings []string `json:"warnings,omitempty"`
-	// log receives one line per step. Unexported, so it is no part of the
-	// document either report serialises to.
+	// log receives a line per step that changed, was skipped or is working.
+	// Unexported, so it is no part of the document either report serialises to.
 	log func(string)
 }
 
-// LogTo sends one line per step to fn. A setter rather than a field, the log
-// being no part of what a report serialises to.
+// LogTo sends fn a line per step that changed, was skipped or is working. A
+// setter rather than a field, the log being no part of what a report
+// serialises to.
 func (r *Report) LogTo(fn func(string)) { r.log = fn }
 
 // The names a step reports itself under. Several flows run the same steps, and
@@ -63,14 +64,12 @@ func (r *Report) Record(name string, changed bool, detail string) {
 	if changed {
 		r.Changed = true
 	}
-	if r.log == nil {
+	// A step that changed nothing is recorded and not logged: the log is what
+	// needs attention, and the document carries every step.
+	if r.log == nil || !changed {
 		return
 	}
-	mark := "ok"
-	if changed {
-		mark = "changed"
-	}
-	line := fmt.Sprintf("%-9s %s", mark, name)
+	line := fmt.Sprintf("%-9s %s", "changed", name)
 	if detail != "" {
 		line += ": " + detail
 	}

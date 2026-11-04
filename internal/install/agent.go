@@ -51,9 +51,11 @@ func (r *runner) stepAgentConfig() error {
 	if len(targets) == 0 {
 		// Not an error and not a silent pass: nothing was written, and the reason
 		// is a home with no agent in it.
-		r.step(steps.LabelAgentConfig, false, fmt.Sprintf(
-			"no coding agent found in %s; no deny rules written (pass --agent NAME: %s)",
-			r.operatorHome, strings.Join(agentcfg.Known(), ", ")))
+		none := fmt.Sprintf("no coding agent found in %s; no deny rules written (pass --agent NAME: %s)",
+			r.operatorHome, strings.Join(agentcfg.Known(), ", "))
+		// A warning as well as the step: an unchanged step is not logged.
+		r.warnf("%s", none)
+		r.step(steps.LabelAgentConfig, false, none)
 		r.step("agent instructions", false, "no coding agent found; no credentials section written")
 		return nil
 	}
@@ -290,8 +292,8 @@ func (r *runner) stepEnrolledTrees() error {
 		// Said rather than reported as an empty record: the trees are enrolled
 		// either way, and nothing here or in doctor will look at them again until
 		// the file is readable.
-		r.step(steps.LabelEnrolledTrees, false, "enrolment record unreadable, no tree rewritten: "+
-			unreadable)
+		r.warnf("enrolment record unreadable; no enrolled tree was rewritten: %s", unreadable)
+		r.step(steps.LabelEnrolledTrees, false, "enrolment record unreadable: "+unreadable)
 	case len(trees) == 0:
 		r.step(steps.LabelEnrolledTrees, false, "no tree is recorded as enrolled")
 	case len(written) == 0 && len(skipped) == 0:
