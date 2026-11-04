@@ -41,8 +41,8 @@ func VersionNote(visudo string) string {
 	if !older {
 		return ""
 	}
-	return "\n  " + banner + " predates noninteractive_auth, which needs " + floor +
-		" or newer. Upgrade sudo, or install without --allow-sudo"
+	return "\n  " + banner + ": noninteractive_auth needs " + floor +
+		" or newer; upgrade sudo, or install without --allow-sudo"
 }
 
 // olderThanFloor reports whether a version banner names a release without
