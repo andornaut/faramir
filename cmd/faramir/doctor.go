@@ -22,13 +22,8 @@ import (
 )
 
 type doctorFlags struct {
-	clientGroup  string
-	secretsGroup string
-	brokerUser   string
-	keeperUser   string
-	execUser     string
-	asJSON       bool
-	when         string
+	asJSON bool
+	when   string
 }
 
 func newDoctorCmd() *cobra.Command {
@@ -41,23 +36,10 @@ func newDoctorCmd() *cobra.Command {
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runDoctor(f)) },
 	}
 	fl := c.Flags()
-	// No --agent-user, as on every command but `init`: doctor reports on an
-	// install, and the account that install belongs to is one of the things it
-	// reads rather than one it is told.
-	// Empty rather than the install defaults: doctor reads what this host runs
-	// out of the units, the config and the secrets directory, and a default here
-	// would answer about accounts a host installed with other names does not
-	// have. Each is an override for a host whose install is not this one.
-	fl.StringVar(&f.clientGroup, "client-group", "",
-		"the group admitted to the broker socket (default: [server] allowed_group)")
-	fl.StringVar(&f.secretsGroup, "secrets-group", "",
-		"the group that owns the ciphertext (default: the group on <config-dir>/secrets)")
-	fl.StringVar(&f.brokerUser, "broker-user", "",
-		"the account the broker runs as (default: read from faramir-broker.service)")
-	fl.StringVar(&f.keeperUser, "keeper-user", "",
-		"the account that holds the age key (default: read from faramir-keeper.service)")
-	fl.StringVar(&f.execUser, "exec-user", "",
-		"the account brokered commands run as (default: read from faramir-exec.service)")
+	// No account or group flags, --agent-user included: doctor reports on an
+	// install, and the accounts and groups that install uses are among the
+	// things it reads from the units, the config and the secrets directory
+	// rather than ones it is told.
 	fl.BoolVar(&f.asJSON, "json", false, "print the findings as JSON")
 	addColorFlag(c, &f.when)
 	return c
@@ -170,11 +152,6 @@ func runDoctor(f doctorFlags) int {
 		BrokerBuild:   broker.Build,
 		SocketStates:  sockets,
 		AgentUser:     operatorFromConfig(configFile),
-		ClientGroup:   f.clientGroup,
-		BrokerUser:    f.brokerUser,
-		KeeperUser:    f.keeperUser,
-		ExecUser:      f.execUser,
-		SecretsGroup:  f.secretsGroup,
 	})
 	if f.asJSON {
 		if code := printJSON("doctor", report); code != 0 {

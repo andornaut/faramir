@@ -17,16 +17,17 @@ import (
 
 // Options names the accounts, groups and paths Diagnose examines.
 type Options struct {
-	ConfigDir   string
-	AgentUser   string
+	ConfigDir string
+	AgentUser string
+	// The client group, the three service accounts and the secrets group are
+	// what this install uses. Diagnose fills them from the units, the config and
+	// the secrets directory before any check reads them, whatever the caller
+	// set; a test of one check sets them directly.
 	ClientGroup string
-	// The three service accounts, so the group audit does not report them as
-	// unexpected members.
-	BrokerUser string
-	KeeperUser string
-	ExecUser   string
-	// SecretsGroup owns the managed sops files, defaulting to the keeper's own
-	// group as install leaves it.
+	BrokerUser  string
+	KeeperUser  string
+	ExecUser    string
+	// SecretsGroup owns the managed sops files.
 	SecretsGroup string
 
 	// SecretsPatterns is the managed store, for the rule coverage check.

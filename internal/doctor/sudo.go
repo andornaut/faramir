@@ -65,10 +65,6 @@ var sudoNoPasswd = passwordlessSudo
 // A claim that could not be put is a warning rather than a pass: silence would
 // report an unread file as an absent credential.
 func diagnoseSudoCredential(report *Report, opts Options) {
-	if opts.ExecUser == "" {
-		report.unaskedf("sudo credential", 1, "executor account unknown; pass --exec-user")
-		return
-	}
 	nopasswd, known := sudoNoPasswd(opts.ExecUser)
 	switch {
 	case !known:

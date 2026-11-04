@@ -9,7 +9,6 @@ import (
 
 	"github.com/andornaut/faramir/internal/asaccount"
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/hostunit"
 )
 
@@ -143,50 +142,42 @@ func groupEntry(name string) (gid string, members []string, err error) {
 // The unit is the source of truth for a service account, being what systemd
 // reads; the config for the client group, being what the broker checks; and the
 // secrets directory's own group for the secrets group, being what the modes are
-// set to. A flag still wins, for a host whose install is not this machine's.
+// set to.
 //
 // Failing rather than falling back: each of these is readable on any working
-// install.
+// install, and one that is not is repaired by re-running init.
 func resolveIdentities(report *Report, opts Options, cfg *config.Config) (Options, bool) {
 	for _, role := range []struct {
 		unit string
 		into *string
-		flag string
 	}{
-		{hostunit.BrokerUnit, &opts.BrokerUser, hostlayout.BrokerUserFlag},
-		{hostunit.KeeperUnit, &opts.KeeperUser, hostlayout.KeeperUserFlag},
-		{hostunit.ExecUnit, &opts.ExecUser, hostlayout.ExecUserFlag},
+		{hostunit.BrokerUnit, &opts.BrokerUser},
+		{hostunit.KeeperUnit, &opts.KeeperUser},
+		{hostunit.ExecUnit, &opts.ExecUser},
 	} {
-		if *role.into != "" {
-			continue
-		}
 		account, err := hostunit.User(role.unit)
 		if err != nil {
 			report.addf("identities", StatusFailed, "account running %s unknown; "+
-				"pass %s\n%v", role.unit, role.flag, err)
+				"run `sudo faramir init`\n%v", role.unit, err)
 			return opts, false
 		}
 		*role.into = account
 	}
 
-	if opts.ClientGroup == "" {
-		if cfg.Server.AllowedGroup == "" {
-			report.addf("identities", StatusFailed, "[server] allowed_group is unset; "+
-				"run `sudo faramir init --client-group NAME`")
-			return opts, false
-		}
-		opts.ClientGroup = cfg.Server.AllowedGroup
+	if cfg.Server.AllowedGroup == "" {
+		report.addf("identities", StatusFailed, "[server] allowed_group is unset; "+
+			"run `sudo faramir init --client-group NAME`")
+		return opts, false
 	}
-	if opts.SecretsGroup == "" {
-		dir := filepath.Join(opts.ConfigDir, "secrets")
-		group, err := asaccount.GroupOf(dir)
-		if err != nil {
-			report.addf("identities", StatusFailed, "group owning %s unreadable; "+
-				"pass --secrets-group\n%v", dir, err)
-			return opts, false
-		}
-		opts.SecretsGroup = group
+	opts.ClientGroup = cfg.Server.AllowedGroup
+	dir := filepath.Join(opts.ConfigDir, "secrets")
+	group, err := asaccount.GroupOf(dir)
+	if err != nil {
+		report.addf("identities", StatusFailed, "group owning %s unreadable; "+
+			"run `sudo faramir init`\n%v", dir, err)
+		return opts, false
 	}
+	opts.SecretsGroup = group
 
 	report.addf("identities", StatusOK, "%s, %s, %s, in %s, secrets owned by %s",
 		opts.BrokerUser, opts.KeeperUser, opts.ExecUser, opts.ClientGroup, opts.SecretsGroup)
