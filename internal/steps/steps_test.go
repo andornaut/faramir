@@ -60,6 +60,21 @@ func TestAnUnchangedStepIsRecordedAndNotLogged(t *testing.T) {
 	}
 }
 
+// A note is logged under its own name and is not a change.
+func TestANoteIsLoggedWithoutMarkingAChange(t *testing.T) {
+	var lines []string
+	var report Report
+	report.LogTo(func(line string) { lines = append(lines, line) })
+	report.Note("adopted", "--client-group devs")
+
+	if len(lines) != 1 || lines[0] != "adopted   --client-group devs" {
+		t.Errorf("logged %q, want the note", lines)
+	}
+	if report.Changed || len(report.Steps) != 1 || report.Steps[0].Changed {
+		t.Errorf("a note marked a change: %+v", report)
+	}
+}
+
 // Warnings are the things that install cleanly and then do not work, so they
 // are collected rather than returned.
 func TestAWarningIsRecordedWithoutFailingTheRun(t *testing.T) {

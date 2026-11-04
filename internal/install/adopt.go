@@ -22,7 +22,7 @@ func (r *runner) stepAdopted() error {
 	if len(r.adopted) == 0 {
 		return nil
 	}
-	r.step("adopted", false, strings.Join(r.adopted, ", "))
+	r.report.Note("adopted", strings.Join(r.adopted, ", "))
 	return nil
 }
 

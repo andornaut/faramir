@@ -738,9 +738,9 @@ out=$(enrol "$D")
 grep -q 'outdated credentials section without markers' <<<"$out" \
   && ok "and the drift is reported rather than reconciled" \
   || bad "the drift was not reported: ${out:0:140}"
-grep -q 'not written; see the error' <<<"$out" \
-  && ok "  with the step naming the file it did not write" \
-  || bad "  the step does not name the file it left: ${out:0:140}"
+grep -qF "$D/AGENTS.md: outdated credentials section" <<<"$out" \
+  && ok "  with the refusal naming the file it did not write" \
+  || bad "  the refusal does not name the file it left: ${out:0:140}"
 
 # Legacy user text is preserved; the shared credentials section is canonical.
 D=$(tree /home/op/p-instr-claude)

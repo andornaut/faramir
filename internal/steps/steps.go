@@ -76,6 +76,15 @@ func (r *Report) Record(name string, changed bool, detail string) {
 	r.log(line)
 }
 
+// Note records a step that changed nothing but whose detail the operator needs
+// to see, such as a value a run kept that a flag would otherwise have reverted.
+func (r *Report) Note(name, detail string) {
+	r.Steps = append(r.Steps, Step{Name: name, Detail: detail})
+	if r.log != nil {
+		r.log(fmt.Sprintf("%-9s %s", name, detail))
+	}
+}
+
 // Skip records a step that was not run or could not be evaluated: a dry run,
 // a host with nothing for it to do, or one where the answer needs root.
 func (r *Report) Skip(name, why string) {

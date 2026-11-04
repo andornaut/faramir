@@ -245,9 +245,7 @@ brokermax=$(systemctl show faramir-broker.service -p MemoryMax --value)
   || bad "the broker's MemoryMax is [$brokermax]: its value set is unbounded"
 # And doctor reports what it holds against that, so a store growing towards the
 # bound is seen before it is met.
-# Squeezed as well as joined: doctor wraps a detail and indents the
-# continuation, so a phrase straddling the wrap is split by a run of spaces.
-faramir doctor 2>&1 | tr '\n' ' ' | tr -s ' ' | grep -q 'the broker holds' \
+faramir doctor 2>&1 | grep -qE 'broker memory .*[0-9.]+ GB of (its )?[0-9.]+ GB' \
   && ok "and doctor reports what the broker holds against it" \
   || bad "doctor does not report the broker's memory: $(faramir doctor 2>&1 | grep -c .)"
 
