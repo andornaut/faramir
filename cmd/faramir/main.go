@@ -113,4 +113,4 @@ func notTheOperator(alsoRefused ...string) map[string]bool {
 // useLs is the Use line every ls subcommand shares. Spelled once: several
 // commands take it, and the one an operator types at any of them has to read
 // the same as the rest.
-const useLs = "ls [options]"
+const useLs = "ls [flags]"

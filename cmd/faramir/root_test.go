@@ -75,6 +75,31 @@ func TestEveryCommandIsDescribedInSentenceCase(t *testing.T) {
 	}
 }
 
+// A usage line names the flags once, in cobra's word for them. cobra appends
+// "[flags]" to a Use line that does not already carry it, so a command spelling
+// them any other way reads "[options] ... [flags]".
+func TestEveryUsageLineNamesTheFlagsOnce(t *testing.T) {
+	checked := 0
+	var walk func(*cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			checked++
+			line := sub.UseLine()
+			if n := strings.Count(line, "[flags]"); n > 1 {
+				t.Errorf("%s: %q names [flags] %d times", sub.CommandPath(), line, n)
+			}
+			if strings.Contains(line, "[options]") {
+				t.Errorf("%s: %q spells the flags [options]", sub.CommandPath(), line)
+			}
+			walk(sub)
+		}
+	}
+	walk(newRootCmd())
+	if checked == 0 {
+		t.Fatal("the root carries no subcommands, so this asserts nothing")
+	}
+}
+
 // dispatcherNames returns every subcommand the root carries. Taken from the
 // assembled command tree rather than from the source, so a command registered
 // anywhere is seen.

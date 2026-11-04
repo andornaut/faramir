@@ -46,7 +46,7 @@ type linkFlags struct {
 func newLinkAddCmd() *cobra.Command {
 	var f linkFlags
 	c := &cobra.Command{
-		Use:   "add [options] REF FILE",
+		Use:   "add [flags] REF FILE",
 		Short: "Add a secret read from a file another tool maintains",
 		Long: "Adds a [[secret.link]] entry, blocks the file from the agent and reloads\n" +
 			"the daemons. The file must be readable by the broker's group and not\n" +
@@ -120,7 +120,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 func newLinkRemoveCmd() *cobra.Command {
 	var f linkFlags
 	c := &cobra.Command{
-		Use:   "rm [options] REF",
+		Use:   "rm [flags] REF",
 		Short: "Remove a linked secret",
 		Long: "Removes the entry and the rules faramir rendered from it. The broker's\n" +
 			"read access to the file is not undone.",

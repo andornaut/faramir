@@ -34,7 +34,7 @@ type addFlags struct {
 func newAddCmd() *cobra.Command {
 	var f addFlags
 	c := &cobra.Command{
-		Use:   "add [options] NAME",
+		Use:   "add [flags] NAME",
 		Short: "Add a new encrypted secret file",
 		Long: "Creates NAME in the secrets directory, encrypted to the recipients in\n" +
 			".sops.yaml. The content is written in an editor on a tmpfs.",

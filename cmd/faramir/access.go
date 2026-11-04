@@ -31,7 +31,7 @@ func newAccessCmd() *cobra.Command {
 		execute bool
 	)
 	c := &cobra.Command{
-		Use:     "access [options] PATH",
+		Use:     "access [flags] PATH",
 		Short:   "Report whether this account can access a path",
 		GroupID: groupInternal,
 		Args: func(c *cobra.Command, args []string) error {

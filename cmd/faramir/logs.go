@@ -43,7 +43,7 @@ type logsFlags struct {
 func newLogsCmd() *cobra.Command {
 	var f logsFlags
 	c := &cobra.Command{
-		Use:     "logs [options] [LOG-ID]",
+		Use:     "logs [flags] [LOG-ID]",
 		Short:   "Show command audit records",
 		GroupID: groupOperator,
 		Args:    atMostOneArg("log-id"),

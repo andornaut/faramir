@@ -135,7 +135,7 @@ func newSudoWatchCmd() *cobra.Command {
 func newApproveCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
-		Use:   "approve [options] ID",
+		Use:   "approve [flags] ID",
 		Short: "Approve one escalation, by id",
 		// The command line before the caller: a malformed one is worth saying
 		// whoever is asking, and the other two commands check in that order.
@@ -165,7 +165,7 @@ func newRejectCmd() *cobra.Command {
 		when string
 	)
 	c := &cobra.Command{
-		Use:   "reject [options] [ID]",
+		Use:   "reject [flags] [ID]",
 		Short: "Reject an escalation by id, or the pending request",
 		Args:  atMostOneArg("id"),
 		RunE: func(c *cobra.Command, args []string) error {

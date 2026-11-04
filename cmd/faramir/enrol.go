@@ -26,7 +26,7 @@ type enrolFlags struct {
 func newEnrolCmd() *cobra.Command {
 	var f enrolFlags
 	c := &cobra.Command{
-		Use:     "enrol [options] [DIR]",
+		Use:     "enrol [flags] [DIR]",
 		Short:   "Set up one working tree and configure its agents",
 		GroupID: groupOperator,
 		Args:    atMostOneArg("directory"),

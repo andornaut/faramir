@@ -39,7 +39,7 @@ func newRunCmd() *cobra.Command {
 		envFiles []string
 	)
 	c := &cobra.Command{
-		Use:     "run [options] [--] program [args...]",
+		Use:     "run [flags] [--] program [args...]",
 		Short:   "Run a command with secrets injected",
 		GroupID: groupAgent,
 		Args: func(c *cobra.Command, args []string) error {

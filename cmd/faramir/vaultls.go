@@ -140,7 +140,7 @@ type vaultRemoveFlags struct {
 func newVaultRemoveCmd() *cobra.Command {
 	var f vaultRemoveFlags
 	c := &cobra.Command{
-		Use:   "rm [options] NAME",
+		Use:   "rm [flags] NAME",
 		Short: "Remove an encrypted secret file",
 		Long:  "Deletes one managed file and every value in it, after confirmation.",
 		Args:  exactlyArgs(1, "one file name"),
@@ -254,7 +254,7 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 func newRefsCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
-		Use:     "refs [options]",
+		Use:     "refs [flags]",
 		Short:   "List the secret names you can inject; values are never shown",
 		GroupID: groupAgent,
 		Long: "Asks the broker for the refs it serves, so this lists what a brokered\n" +

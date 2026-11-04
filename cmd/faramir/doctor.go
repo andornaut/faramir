@@ -34,7 +34,7 @@ type doctorFlags struct {
 func newDoctorCmd() *cobra.Command {
 	var f doctorFlags
 	c := &cobra.Command{
-		Use:     "doctor [options]",
+		Use:     "doctor [flags]",
 		Short:   "Check the installation and report problems",
 		GroupID: groupOperator,
 		Args:    noArgs,

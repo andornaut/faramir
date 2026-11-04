@@ -39,7 +39,7 @@ var editorUsage = "absolute path of the editor (default: $VISUAL, $EDITOR, then 
 func newEditCmd() *cobra.Command {
 	var f editFlags
 	c := &cobra.Command{
-		Use:   "edit [options] FILE",
+		Use:   "edit [flags] FILE",
 		Short: "Edit an encrypted secret file",
 		Args:  exactlyOneArg("file"),
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runEdit(f, args)) },

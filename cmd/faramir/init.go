@@ -76,7 +76,7 @@ func clearUnset(c *cobra.Command, f *initFlags) {
 func newInitCmd() *cobra.Command {
 	var f initFlags
 	c := &cobra.Command{
-		Use:     "init [options]",
+		Use:     "init [flags]",
 		Short:   "Install or re-install faramir on this host",
 		GroupID: groupOperator,
 		Args:    noArgs,

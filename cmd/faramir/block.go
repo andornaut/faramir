@@ -92,7 +92,7 @@ func (f *blockFlags) registerForms(c *cobra.Command) {
 func newBlockAddCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
-		Use:   "add [options] (--path PATH | --command COMMAND)...",
+		Use:   "add [flags] (--path PATH | --command COMMAND)...",
 		Short: "Block paths or commands from the agent",
 		Long: "Adds a [[secret.block]] entry per --path and --command, re-renders the\n" +
 			"agent's deny rules and reloads the daemons. A symlink is blocked at both\n" +
@@ -166,7 +166,7 @@ func runBlockAdd(f blockFlags, args []string) int {
 func newBlockRemoveCmd() *cobra.Command {
 	var f blockFlags
 	c := &cobra.Command{
-		Use:   "rm [options] (--path PATH | --command COMMAND)...",
+		Use:   "rm [flags] (--path PATH | --command COMMAND)...",
 		Short: "Unblock paths or commands",
 		Long: "Removes the entries and the rules faramir rendered from them. A rule\n" +
 			"rendered from the install layout cannot be removed.",

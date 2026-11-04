@@ -67,7 +67,7 @@ func (f *readerFlags) register(c *cobra.Command, writes bool) {
 func newReaderAddCmd() *cobra.Command {
 	var f readerFlags
 	c := &cobra.Command{
-		Use:   "add [options] KEY",
+		Use:   "add [flags] KEY",
 		Short: "Add a key that can decrypt the secret files",
 		Long: "Adds an age or ssh public key to .sops.yaml and re-encrypts every managed\n" +
 			"file to it.",
@@ -83,7 +83,7 @@ func newReaderAddCmd() *cobra.Command {
 func newReaderRemoveCmd() *cobra.Command {
 	var f readerFlags
 	c := &cobra.Command{
-		Use:   "rm [options] KEY",
+		Use:   "rm [flags] KEY",
 		Short: "Remove a key, so it can no longer decrypt the secret files",
 		Long: "Removes the key from .sops.yaml and re-encrypts every managed file without\n" +
 			"it. Copies of the old ciphertext remain readable by that key.",
@@ -111,7 +111,7 @@ func newReaderListCmd() *cobra.Command {
 func newReaderResealCmd() *cobra.Command {
 	var f readerFlags
 	c := &cobra.Command{
-		Use:   "reseal [options] [FILE...]",
+		Use:   "reseal [flags] [FILE...]",
 		Short: "Re-encrypt every file to the keys .sops.yaml names",
 		Long:  "Re-encrypts the managed files, or the FILEs named, to match .sops.yaml.",
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runReseal(f, args)) },

@@ -13,7 +13,7 @@ import (
 func newUnenrolCmd() *cobra.Command {
 	var dryRun, asJSON, missing bool
 	c := &cobra.Command{
-		Use:   "unenrol [options] [DIR]",
+		Use:   "unenrol [flags] [DIR]",
 		Short: "Remove project enrolment or forget missing project records",
 		Long: "Remove project routing hooks, the marked project credentials section and\n" +
 			"the enrolment record for every agent in one tree. DIR defaults to the\n" +
