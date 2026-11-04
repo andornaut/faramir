@@ -81,7 +81,7 @@ grep -q 'PRIVATE' <<<"$out" && bad "the private half came back" || ok "and never
 refuses() { # label, then argv
   local label=$1; shift
   local out; out=$(brokered "$@")
-  if grep -qiE 'fail|error|not |refus|denied' <<<"$out"; then
+  if grep -qiE 'fail|error|not |refus|denied|blocked' <<<"$out"; then
     ok "$label is refused: $(head -1 <<<"$out" | cut -c1-56)"
   else
     bad "$label was served: ${out:0:110}"
