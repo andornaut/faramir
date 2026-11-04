@@ -130,6 +130,31 @@ func TestAFailedEditorLeavesTheStoreAlone(t *testing.T) {
 	}
 }
 
+// An edit sops refuses to encrypt reports the file and sops's own reason, on
+// indented lines, and neither sops's generic header nor its exit status.
+func TestARefusedEncryptNamesTheFileAndSopsReason(t *testing.T) {
+	useSops(t)
+	store, keyPath := encryptedFixture(t)
+
+	editor := editorScript(t, `printf 'secret_one: again-long-enough-value\n' >> "$1"`)
+	_, err := Edit(keyPath, "", editor, store)
+	if err == nil {
+		t.Fatal("an edit with a duplicate key was saved")
+	}
+	msg := err.Error()
+	if !strings.HasPrefix(msg, "store not saved: sops refused it:\n  ") {
+		t.Errorf("message does not lead with the file and the cause:\n%s", msg)
+	}
+	if !strings.Contains(msg, "already defined") {
+		t.Errorf("message does not carry sops's reason:\n%s", msg)
+	}
+	for _, noise := range []string{"exit status", "Error unmarshalling"} {
+		if strings.Contains(msg, noise) {
+			t.Errorf("message carries %q:\n%s", noise, msg)
+		}
+	}
+}
+
 // The mode the file had is the mode it keeps: an install hands the secrets
 // directory to the secrets group, and the umask must not undo that.
 func TestTheReplacementKeepsTheOriginalMode(t *testing.T) {

@@ -163,25 +163,26 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	if store == nil {
 		return code
 	}
-	// Named here rather than left to keeperStaysAReader below, whose advice is to
-	// put the key back under `- age:`: to an operator who has just asked to
-	// remove it, that reads as an instruction to undo what they typed.
+	// Named here rather than left to KeeperStaysAReader below, whose advice is to
+	// add the key back: to an operator who has just asked to remove it, that
+	// reads as an instruction to undo what they typed.
 	if !adding {
 		if keeper, err := keygen.AgeRecipient(store.keyPath); err == nil && keeper == recipient {
-			fmt.Fprintf(os.Stderr, "faramir %s: %s is the keeper's own key (%s); refused\n",
-				label, recipient, store.keyPath)
+			fmt.Fprintf(os.Stderr, "faramir %s: %s is the keeper's own key; not removed\n",
+				label, recipient)
 			return 1
 		}
 	}
 
 	body, err := os.ReadFile(store.rulePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: creation rule: %v\n", label, err)
-		// Named because it is a dead end otherwise: this command edits that file
-		// and cannot create one, having no way to know who else should read the
-		// store.
+		// The hint because it is a dead end otherwise: this command edits that
+		// file and cannot create one, having no way to know who else should read
+		// the store.
 		if os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "faramir %s: run faramir init to write one\n", label)
+			fmt.Fprintf(os.Stderr, "faramir %s: %v; run `sudo faramir init` to write it\n", label, err)
+		} else {
+			fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		}
 		return 1
 	}
@@ -223,7 +224,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 		return resealStore(label, store, wanted, false)
 	}
 	if err := vault.WriteBack(store.rulePath, edited); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", label, store.rulePath, err)
+		fmt.Fprintf(os.Stderr, "faramir %s: %s not written: %v\n", label, store.rulePath, err)
 		return 1
 	}
 	// One record for the rule, before the per-file records the reseal writes, so
@@ -233,8 +234,6 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 		"change": addedOrRemoved(adding), "recipient": recipient, "to": wanted,
 		"uid": os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
 	}, audit.Output{})
-	fmt.Fprintf(os.Stderr, "%s %s: %s now names %d recipient(s)\n",
-		addedOrRemoved(adding), recipient, store.rulePath, len(wanted))
 
 	// A rule the files are not yet sealed to is the state this command exists to
 	// avoid, so its exit status is the reseal's.

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
 // DecryptAll decrypts every managed file. Per-file failures are returned as
@@ -55,13 +56,13 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 			argv = append(argv, strings.ReplaceAll(a, "{file}", path))
 		}
 		if len(argv) == 0 {
-			errors = append(errors, path+": [secret] decrypt_command is empty")
+			errors = append(errors, path+" not decrypted: [secret] decrypt_command is empty")
 			continue
 		}
 
 		bin, err := config.SopsExecutable(argv[0])
 		if err != nil {
-			errors = append(errors, fmt.Sprintf("%s: running %s failed: %v", path, argv[0], err))
+			errors = append(errors, fmt.Sprintf("%s not decrypted: %v", path, err))
 			continue
 		}
 		ctx, cancel := context.WithTimeout(overall, decryptTimeout)
@@ -71,20 +72,20 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 		cancel()
 
 		if err != nil {
+			// One line: it goes into `faramir status`, `doctor` and the refusal a
+			// brokered command gets.
+			var stderr []byte
 			if exitErr, ok := goerrors.AsType[*exec.ExitError](err); ok {
-				errors = append(errors, keys.scrub(fmt.Sprintf(
-					"%s: decrypt failed (%d): %s", path, exitErr.ExitCode(),
-					firstLine(string(exitErr.Stderr)))))
-			} else {
-				errors = append(errors, keys.scrub(fmt.Sprintf(
-					"%s: running %s failed: %v", path, argv[0], err)))
+				stderr = exitErr.Stderr
 			}
+			errors = append(errors, keys.scrub(fmt.Sprintf("%s not decrypted: %v",
+				path, sopsrule.FailedLine(stderr, err))))
 			continue
 		}
 
 		var tree any
 		if err := json.Unmarshal(stdout, &tree); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: decrypted output is not JSON: %v", path, err))
+			errors = append(errors, fmt.Sprintf("%s not decrypted: output is not JSON: %v", path, err))
 			continue
 		}
 		for ref, value := range Flatten(tree) {
@@ -107,30 +108,8 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 	for ref := range disagreed {
 		// Every file that defines it, not only the two that differed: the repair is
 		// to take the ref out of one of them, so the operator needs the whole list.
-		shadowed[ref] = "defined in " + strings.Join(definedIn[ref], " and ") +
-			", and they do not all hold the same value; the last one read wins and " +
-			"the value it displaced is in no redactor"
+		shadowed[ref] = "defined differently in " + strings.Join(definedIn[ref], " and ") +
+			"; the last one read wins and the other value is not redacted"
 	}
 	return values, errors, shadowed
-}
-
-// firstLine is the line of a decrypt failure the operator is shown, and it goes
-// into `faramir status`, `doctor` and the refusal a brokered command gets.
-//
-// The first rather than the last: a program's error summary is conventionally
-// its opening line, and the closing one is often the tail of an explanation.
-// sops ends "In order for SOPS to recover the file, at least one key has to be
-// successful, but none were.", so the last line reached the operator as the
-// fragment "but none were." and said nothing about which file or why.
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "no output"
-	}
-	for line := range strings.SplitSeq(s, "\n") {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			return trimmed
-		}
-	}
-	return s
 }

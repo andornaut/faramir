@@ -19,9 +19,7 @@ import (
 )
 
 // errNoManagedFiles is what `edit` reports when the secrets directory is empty.
-// `reseal` has its own, saying what it in particular had nothing to do.
-var errNoManagedFiles = errors.New("no managed sops files, so there is nothing to open. " +
-	"Create one with `faramir vault add NAME`")
+var errNoManagedFiles = errors.New("no managed files; create one with `faramir vault add NAME`")
 
 // managedSuffix is what a managed file ends in. One spelling: the suffix
 // decides the store format sops writes and is what the [secret] pattern
@@ -73,7 +71,7 @@ func Resolve(managed []string, arg string) (string, error) {
 	case 1:
 		return matches[0], nil
 	case 0:
-		return "", fmt.Errorf("%s is not a managed file; the managed store names %s",
+		return "", fmt.Errorf("%s is not a managed file; managed: %s",
 			arg, strings.Join(managed, ", "))
 	default:
 		return "", fmt.Errorf("%s matches more than one managed file (%s); name the full path",
@@ -87,7 +85,7 @@ func Resolve(managed []string, arg string) (string, error) {
 // globs do not match encrypts perfectly well and is then served to nobody.
 func NewManagedPath(cfg *config.Config, name string) (string, error) {
 	if len(cfg.Secret.Patterns) == 0 {
-		return "", errors.New("[secret] patterns names no location for a managed file")
+		return "", errors.New("[secret] patterns is empty")
 	}
 	dir := filepath.Dir(cfg.Secret.Patterns[0])
 	// Asked before a path is built out of it: Join drops an empty name and a
@@ -117,18 +115,17 @@ func NewManagedPath(cfg *config.Config, name string) (string, error) {
 		// The patterns in full, not their file names: a pattern shown as
 		// "*.sops.yml" is one /tmp/outside.sops.yml plainly matches, and what it
 		// misses is the directory the glob names.
-		return "", fmt.Errorf("%s matches none of the [secret] patterns (%s), so the "+
-			"broker would never read it",
+		return "", fmt.Errorf("%s matches none of the [secret] patterns (%s)",
 			target, joinPatterns(cfg.Secret.Patterns))
 	}
 	if hostfs.Exists(target) {
 		return "", fmt.Errorf("%s already exists; edit it with `faramir vault edit %s`",
-			target, filepath.Base(target))
+			target, managedStem(target))
 	}
 	// Named rather than left to the write to fail on: a missing directory here
 	// means an install that has not been run.
 	if !hostfs.Exists(dir) {
-		return "", fmt.Errorf("%s does not exist; `sudo faramir init` creates it", dir)
+		return "", fmt.Errorf("%s does not exist; run `sudo faramir init`", dir)
 	}
 	return target, nil
 }
@@ -151,8 +148,8 @@ func refuseUnprintable(name string) error {
 				config.Shown(name), i)
 		}
 		if termsafe.Actionable(r) {
-			return fmt.Errorf("name %q has %q at offset %d, which a terminal acts on "+
-				"instead of printing", config.Shown(name), r, i)
+			return fmt.Errorf("name %q has control character %q at offset %d",
+				config.Shown(name), r, i)
 		}
 		i += size
 	}

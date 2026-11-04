@@ -52,7 +52,7 @@ func (k *KeyHolder) Path() string {
 		}
 		_ = fh.Close()
 		k.path = candidate
-		log.Printf("age key available at %s (not read by this process)", candidate)
+		log.Printf("age key at %s", candidate)
 		return k.path
 	}
 	log.Printf("no age key available (tried: %s)", strings.Join(candidates, ", "))

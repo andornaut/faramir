@@ -23,7 +23,7 @@ func withPublicationLock(publish func() error, target string) error {
 	}
 	defer func() { _ = dir.Close() }()
 	if err := unix.Flock(int(dir.Fd()), unix.LOCK_EX); err != nil {
-		return fmt.Errorf("cannot lock publication directory %s: %w", filepath.Dir(target), err)
+		return fmt.Errorf("cannot lock %s: %w", filepath.Dir(target), err)
 	}
 	defer func() { _ = unix.Flock(int(dir.Fd()), unix.LOCK_UN) }()
 	return publish()
@@ -59,7 +59,7 @@ func InspectRemoval(target string) (*RemovalSnapshot, error) {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("%s is not a regular managed file", target)
+		return nil, fmt.Errorf("%s is not a regular file", target)
 	}
 	body, err := io.ReadAll(file)
 	if err != nil {
@@ -85,13 +85,13 @@ func (s *RemovalSnapshot) Remove() error {
 			return err
 		}
 		if !os.SameFile(s.entry, now.entry) || !os.SameFile(s.file, now.file) || s.digest != now.digest {
-			return fmt.Errorf("%s changed while removal was awaiting confirmation; nothing was removed. Run this again", s.path)
+			return fmt.Errorf("%s changed while this was working on it; nothing was removed. Run this again", s.path)
 		}
 		if err := os.Remove(s.path); err != nil {
 			return err
 		}
 		if err := hostfs.SyncDir(filepath.Dir(s.path)); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir: %s was removed, but its directory could not be flushed (%v), so removal may not survive a power loss\n", s.path, err)
+			fmt.Fprintf(os.Stderr, "warning: %s removed, but its directory was not synced: %v\n", s.path, err)
 		}
 		return nil
 	}, s.path)

@@ -136,17 +136,17 @@ func (s *Store) Degraded() string {
 	if len(s.refused) > 0 {
 		// Named, never the reason each carries: length is one of them and the
 		// operator-facing surfaces are where the rest are said.
-		why = append(why, fmt.Sprintf("%d ref(s) cannot be redacted, so they "+
-			"are never injected: %s", len(s.refused), strings.Join(sortedKeys(s.refused), ", ")))
+		why = append(why, fmt.Sprintf("%d ref(s) cannot be redacted and are not served: %s",
+			len(s.refused), strings.Join(sortedKeys(s.refused), ", ")))
 	}
 	// A ref two managed files define differently: the loser is on disk, in no
 	// redactor, and a command that prints it prints it. The same consequence as
 	// a refused ref, so it is counted the same way. Named, never the files that
 	// define it, which is what --check adds for the operator.
 	if len(s.shadowedRefs) > 0 {
-		why = append(why, fmt.Sprintf("%d ref(s) are defined with different "+
-			"values in more than one managed file, so one value is never "+
-			"redacted: %s", len(s.shadowedRefs), strings.Join(sortedKeys(s.shadowedRefs), ", ")))
+		why = append(why, fmt.Sprintf("%d ref(s) are defined differently in more than "+
+			"one managed file, one value not redacted: %s",
+			len(s.shadowedRefs), strings.Join(sortedKeys(s.shadowedRefs), ", ")))
 	}
 	if len(s.loadErrors) > 0 {
 		// Counted, not quoted: a load error carries the path of a managed file.
@@ -177,13 +177,12 @@ func (s *Store) DegradedCounts() string {
 		why = append(why, fmt.Sprintf("%d linked ref(s) did not load", len(s.degradedLinks)))
 	}
 	if len(s.refused) > 0 {
-		why = append(why, fmt.Sprintf("%d ref(s) cannot be redacted, so they are "+
-			"never injected", len(s.refused)))
+		why = append(why, fmt.Sprintf("%d ref(s) cannot be redacted and are not served",
+			len(s.refused)))
 	}
 	if len(s.shadowedRefs) > 0 {
-		why = append(why, fmt.Sprintf("%d ref(s) are defined with different values "+
-			"in more than one managed file, so one value is never redacted",
-			len(s.shadowedRefs)))
+		why = append(why, fmt.Sprintf("%d ref(s) are defined differently in more than "+
+			"one managed file, one value not redacted", len(s.shadowedRefs)))
 	}
 	if len(s.loadErrors) > 0 {
 		why = append(why, fmt.Sprintf("%d managed file(s) did not load", len(s.loadErrors)))
@@ -191,8 +190,7 @@ func (s *Store) DegradedCounts() string {
 	if len(why) == 0 {
 		return ""
 	}
-	return strings.Join(why, "; ") +
-		". `sudo faramir doctor` names each of them and says what to do about it"
+	return strings.Join(why, "; ") + ". Run `sudo faramir doctor`"
 }
 
 // LoadErrors is every configured file the broker could not load, each one a
@@ -266,11 +264,10 @@ func (s *Store) unreadableLocked() string {
 	case s.unconfirmed && (len(s.state) > 0 || len(s.linkState) > 0):
 		return ""
 	case s.unconfirmed:
-		return "the keeper could not be reached and no value set was ever loaded: " +
+		return "keeper unreachable and no value set loaded: " +
 			strings.Join(s.loadErrors, "; ")
 	case len(s.loadErrors) > 0:
-		return "a managed value the redactor should hold is missing, so output " +
-			"could carry one nothing would cover: " + strings.Join(s.loadErrors, "; ")
+		return "a managed file did not load: " + strings.Join(s.loadErrors, "; ")
 	}
 	// An empty value set is not this. Nothing configured, a store not written
 	// yet, and a store on a volume that is not mounted all leave the broker

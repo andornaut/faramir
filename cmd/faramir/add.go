@@ -69,7 +69,7 @@ func runAdd(f addFlags, name string) int {
 
 	keyPath := vault.AgeKeyPath(cfg)
 	if _, err := os.Stat(keyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: age key: %v\n", label, err)
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
 	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
@@ -103,7 +103,7 @@ func runAdd(f addFlags, name string) int {
 		return 1
 	}
 
-	fmt.Fprintf(os.Stderr, "wrote %s; %s\n", target, reReadNote(brokerclient.Refresh(socketDefault())))
+	warnUnlessReloaded(brokerclient.Refresh(socketDefault()))
 	if f.from != "" {
 		// Said rather than done: removing somebody's file is not this command's to
 		// decide, and a plaintext copy nobody remembers is what this exists to keep

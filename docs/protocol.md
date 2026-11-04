@@ -207,8 +207,7 @@ The peer uid is checked against `[keeper] allowed_user` on top of the socket mod
 ```json
 {"error": {"code": "unsupported",
            "message": "unsupported op \"get_age_key\"; the keeper serves
-                       'get_values' and 'get_state' only and has no operation
-                       that returns key material"}}
+                       'get_values' and 'get_state' only"}}
 ```
 
 ## The executor socket

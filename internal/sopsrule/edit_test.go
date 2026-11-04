@@ -143,7 +143,7 @@ func TestTheAmbiguousShapesAreRefused(t *testing.T) {
 		{
 			"two creation rules",
 			"creation_rules:\n  - path_regex: a$\n    age: [age1a]\n  - path_regex: b$\n    age: [age1b]\n",
-			"path_regex",
+			"2 creation rules",
 		},
 		{
 			"a split data key",

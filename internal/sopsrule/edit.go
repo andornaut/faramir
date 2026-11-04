@@ -48,31 +48,24 @@ func setRecipients(body []byte, path string, want []string) ([]byte, error) {
 // is not exactly one.
 func recipientList(doc *yaml.Node, path string) (*yaml.Node, error) {
 	if len(doc.Content) == 0 {
-		return nil, fmt.Errorf("%s is empty, so it has no creation rule to edit", path)
+		return nil, fmt.Errorf("%s is empty", path)
 	}
 	rules := mapValue(doc.Content[0], "creation_rules")
 	if rules == nil || len(rules.Content) == 0 {
-		return nil, fmt.Errorf("%s has no creation rule, so there is no recipient "+
-			"list to edit", path)
+		return nil, fmt.Errorf("%s has no creation rule", path)
 	}
 	if len(rules.Content) > 1 {
-		return nil, fmt.Errorf("%s has %d creation rules, and which one applies to a "+
-			"file depends on its path_regex. Edit the file by hand, then re-key "+
-			"each file with 'sops updatekeys'",
-			path, len(rules.Content))
+		return nil, fmt.Errorf("%s has %d creation rules; edit it by hand, then run "+
+			"`sops updatekeys` on each file", path, len(rules.Content))
 	}
 	rule := rules.Content[0]
 	if mapValue(rule, "shamir_threshold") != nil {
-		return nil, fmt.Errorf("%s sets shamir_threshold, which splits the data key "+
-			"across key groups. One recipient list cannot express that. Edit the "+
-			"file by hand",
-			path)
+		return nil, fmt.Errorf("%s sets shamir_threshold; edit it by hand", path)
 	}
 	groups, shorthand := mapValue(rule, "key_groups"), mapValue(rule, "age")
 	if groups == nil {
 		if shorthand == nil {
-			return nil, fmt.Errorf("%s has no age recipient, so there is no list to "+
-				"edit; faramir manages age-encrypted files only", path)
+			return nil, fmt.Errorf("%s has no age recipient", path)
 		}
 		return shorthand, nil
 	}
@@ -80,23 +73,19 @@ func recipientList(doc *yaml.Node, path string) (*yaml.Node, error) {
 	// carrying both has a list that governs and a list that does not, and the
 	// second is what the next reader of this file may go by.
 	if shorthand != nil {
-		return nil, fmt.Errorf("%s has both 'age' and 'key_groups' in one rule, and "+
-			"sops reads only the key groups: remove the 'age:' line, then run this "+
-			"again", path)
+		return nil, fmt.Errorf("%s has both 'age' and 'key_groups' in one rule; "+
+			"remove the 'age:' line", path)
 	}
 	if len(groups.Content) != 1 {
-		return nil, fmt.Errorf("%s has %d key groups, and a recipient added to one is "+
-			"not added to the others. Edit the file by hand", path, len(groups.Content))
+		return nil, fmt.Errorf("%s has %d key groups; edit it by hand", path, len(groups.Content))
 	}
 	group := groups.Content[0]
 	if mapValue(group, "merge") != nil {
-		return nil, fmt.Errorf("%s uses 'merge', so the recipient list here is not "+
-			"complete. Edit the file by hand", path)
+		return nil, fmt.Errorf("%s uses 'merge' in a key group; edit it by hand", path)
 	}
 	list := mapValue(group, "age")
 	if list == nil {
-		return nil, fmt.Errorf("%s has a key group with no age recipient; faramir "+
-			"manages age-encrypted files only", path)
+		return nil, fmt.Errorf("%s has a key group with no age recipient", path)
 	}
 	return list, nil
 }
@@ -126,7 +115,7 @@ func render(doc *yaml.Node, path string) ([]byte, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if _, err := Parse(body, path); err != nil {
-		return nil, fmt.Errorf("%s: the edited file would not load: %w", path, err)
+		return nil, fmt.Errorf("edited rule would not load: %w", err)
 	}
 	return body, nil
 }
@@ -185,8 +174,7 @@ func Remove(body []byte, path, recipient string) (out []byte, removed bool, err 
 	}
 	want := slices.DeleteFunc(slices.Clone(current), func(s string) bool { return s == recipient })
 	if len(want) == 0 {
-		return nil, false, fmt.Errorf("%s would be left with no recipient, and sops "+
-			"cannot encrypt to an empty list", path)
+		return nil, false, fmt.Errorf("%s would be left with no recipient", path)
 	}
 	out, err = setRecipients(body, path, want)
 	return out, err == nil, err

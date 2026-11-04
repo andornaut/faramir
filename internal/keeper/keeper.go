@@ -145,9 +145,8 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 		return map[string]any{"values": values, "state": state, "errors": errs,
 			"unresolved_patterns": unresolved, "shadowed_refs": shadowed}
 	default:
-		// Named explicitly, so the error says the key is not obtainable here.
+		// The ops there are, so the error says nothing else is obtainable here.
 		return sockutil.ErrorResponse("unsupported", fmt.Sprintf(
-			"unsupported op %q; the keeper serves 'get_values' and 'get_state' "+
-				"only and has no operation that returns key material", op))
+			"unsupported op %q; the keeper serves 'get_values' and 'get_state' only", op))
 	}
 }

@@ -63,7 +63,7 @@ func loadStore(label, socket string, named []string,
 
 	keyPath := vault.AgeKeyPath(cfg)
 	if _, err := os.Stat(keyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: age key: %v\n", label, err)
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return nil, 1
 	}
 
@@ -73,10 +73,9 @@ func loadStore(label, socket string, named []string,
 	unresolvable := slices.Concat(failures, absent)
 	targets, err := vault.ResealTargets(managed, named)
 	if err != nil && emptyStoreOK && errors.Is(err, vault.ErrNoFilesToReseal) {
-		// Said once, and the per-pattern reasons dropped with it: each is "this glob
+		// Silent, and the per-pattern reasons dropped with it: each is "this glob
 		// matched nothing", which reads as three problems on a host whose first
 		// secret has not been written.
-		fmt.Fprintln(os.Stderr, "no managed files")
 		return &storeContext{
 			cfg:      cfg,
 			keyPath:  keyPath,
@@ -131,12 +130,11 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 					"uid":   os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
 				}, audit.Output{})
 			}
-			fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", label, target, err)
+			fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 			failed++
 			continue
 		}
 		if sopsrule.Same(was, wanted) {
-			fmt.Fprintf(os.Stderr, "unchanged %s\n", target)
 			continue
 		}
 		if dryRun {
@@ -160,12 +158,10 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 		}
 		_ = log.Write(record, audit.Output{})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", label, target, err)
+			fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 			failed++
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "re-encrypted %s: %s -> %s\n",
-			target, strings.Join(was, ","), strings.Join(wanted, ","))
 		changed++
 	}
 
@@ -180,8 +176,8 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 		return 0
 	}
 	if changed > 0 {
-		fmt.Fprintf(os.Stderr, "%d of %d file(s) re-encrypted; %s\n",
-			changed, len(targets), reReadNote(brokerclient.Refresh(socketDefault())))
+		fmt.Fprintf(os.Stderr, "re-encrypted %d of %d file(s)\n", changed, len(targets))
+		warnUnlessReloaded(brokerclient.Refresh(socketDefault()))
 	}
 	return 0
 }

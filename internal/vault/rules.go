@@ -47,10 +47,8 @@ func ruleMustCover(rulePath, target string, recipients []string) error {
 	if covered {
 		return nil
 	}
-	return fmt.Errorf("%s has no creation rule matching %s, so sops would refuse "+
-		"to write it back and the edit would be lost. Widen path_regex to cover "+
-		"it, or keep the store where the rule already looks. `faramir doctor` "+
-		"reports this under `rule coverage`", rulePath, target)
+	return fmt.Errorf("%s has no creation rule matching %s; widen its path_regex",
+		rulePath, target)
 }
 
 // ruleMustNotSplitTheKey refuses an edit under a rule that splits the data key,
@@ -65,10 +63,8 @@ func ruleMustNotSplitTheKey(rulePath string) error {
 	rules, _ := sopsrule.Load(rulePath)
 	for _, rule := range rules {
 		if rule.ShamirThreshold > 0 {
-			return fmt.Errorf("%s sets shamir_threshold: the data key is split "+
-				"across key groups, and %d of them are needed to open a file. Writing "+
-				"this file back would seal it to one group holding every key, so the "+
-				"edit was refused. Use sops directly for this store", rulePath, rule.ShamirThreshold)
+			return fmt.Errorf("%s sets shamir_threshold; edit this store with sops directly",
+				rulePath)
 		}
 	}
 	return nil
@@ -82,7 +78,7 @@ func ruleMustNotSplitTheKey(rulePath string) error {
 func RuleRecipients(path string) ([]string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("creation rule: %w", err)
+		return nil, err
 	}
 	return RuleRecipientsFrom(body, path)
 }
@@ -93,11 +89,11 @@ func RuleRecipients(path string) ([]string, error) {
 func RuleRecipientsFrom(body []byte, path string) ([]string, error) {
 	rules, err := sopsrule.Parse(body, path)
 	if err != nil {
-		return nil, fmt.Errorf("creation rule: %w", err)
+		return nil, err
 	}
 	if len(rules) > 1 {
-		return nil, fmt.Errorf("%s has %d creation rules, and path_regex decides which "+
-			"one governs a file. Re-key each file with 'sops updatekeys'", path, len(rules))
+		return nil, fmt.Errorf("%s has %d creation rules; re-key each file with "+
+			"`sops updatekeys`", path, len(rules))
 	}
 	for _, rule := range rules {
 		// A split data key is refused rather than flattened: shamir_threshold means
@@ -105,17 +101,13 @@ func RuleRecipientsFrom(body []byte, path string) ([]string, error) {
 		// to one list of recipients, so any one of them would open what took N
 		// before.
 		if rule.ShamirThreshold > 0 {
-			return nil, fmt.Errorf("%s sets shamir_threshold: the data key is "+
-				"split across key groups, and %d of them are needed to open a file. "+
-				"Re-encrypting here would seal it to one group holding every key. "+
-				"Re-key each file with 'sops updatekeys'",
-				path, rule.ShamirThreshold)
+			return nil, fmt.Errorf("%s sets shamir_threshold; re-key each file with "+
+				"`sops updatekeys`", path)
 		}
 	}
 	out := sopsrule.Recipients(rules)
 	if len(out) == 0 {
-		return nil, fmt.Errorf("%s names no age recipient, so there is nothing to "+
-			"re-encrypt to; faramir manages age-encrypted files only", path)
+		return nil, fmt.Errorf("%s names no age recipient", path)
 	}
 	return out, nil
 }
@@ -128,13 +120,13 @@ func RuleRecipientsFrom(body []byte, path string) ([]string, error) {
 func KeeperStaysAReader(keyPath string, wanted []string, rulePath string) error {
 	recipient, err := keygen.AgeRecipient(keyPath)
 	if err != nil {
-		return fmt.Errorf("age key: %w", err)
+		return err
 	}
 	if slices.Contains(wanted, recipient) {
 		return nil
 	}
-	return fmt.Errorf("%s does not list %s, the keeper's recipient (key at %s); refused, "+
-		"the keeper could not open the store", rulePath, recipient, keyPath)
+	return fmt.Errorf("%s does not list the keeper's recipient; nothing was written. "+
+		"Add it with `sudo faramir reader add %s`", rulePath, recipient)
 }
 
 // EditRule is the one call that differs between add and rm.

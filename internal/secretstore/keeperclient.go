@@ -90,8 +90,8 @@ func call(socketPath, op string) (*response, error) {
 			// that outgrew the limit rather than anything wrong with the socket.
 			// Named as such: reported as the keeper being unreachable it sent an
 			// operator looking at a daemon that answered perfectly well.
-			return nil, fmt.Errorf("%w: the reply holds every managed value and is larger "+
-				"than %d bytes. Split the store, or shorten its values", errReplyTooLarge, maxReplyBytes)
+			return nil, fmt.Errorf("%w: over %d bytes; split the store or shorten its values",
+				errReplyTooLarge, maxReplyBytes)
 		}
 		return nil, fmt.Errorf("keeper: %w", err)
 	}

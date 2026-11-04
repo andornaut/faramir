@@ -40,7 +40,7 @@ func TestNoManagedFilesSaysSo(t *testing.T) {
 	if err == nil {
 		t.Fatal("accepted an edit with no managed files")
 	}
-	if !strings.Contains(err.Error(), "no managed sops files") {
+	if !strings.Contains(err.Error(), "no managed files") {
 		t.Errorf("unhelpful message: %v", err)
 	}
 }

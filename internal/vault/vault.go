@@ -49,9 +49,10 @@ var sopsBinary = "sops"
 func Edit(keyPath, rulePath, editorPath, target string) (bool, error) {
 	// A tmpfs, so the plaintext never reaches a disk, and 0700 from MkdirTemp
 	// keeps every other uid out while the editor has it open.
+	name := managedStem(target)
 	dir, err := os.MkdirTemp("/dev/shm", "faramir-edit-")
 	if err != nil {
-		return false, fmt.Errorf("temporary directory: %w", err)
+		return false, fmt.Errorf("%s not opened: %w", name, err)
 	}
 	// Registered first so it runs last: defers unwind LIFO, and uninstalling the
 	// handler before the directory is gone leaves a window where a signal kills
@@ -91,7 +92,7 @@ func Edit(keyPath, rulePath, editorPath, target string) (bool, error) {
 
 	decrypted, err := runSops(keyPath, rulePath, "--decrypt", target)
 	if err != nil {
-		return false, fmt.Errorf("decrypt %s: %w", target, err)
+		return false, fmt.Errorf("%s not decrypted: %w", name, err)
 	}
 	if err := os.WriteFile(plain, decrypted, 0o600); err != nil {
 		return false, err
@@ -104,26 +105,25 @@ func Edit(keyPath, rulePath, editorPath, target string) (bool, error) {
 	cmd.Env = []string{envPATH,
 		"TERM=" + os.Getenv("TERM"), envLANG, "HOME=" + dir}
 	if err := cmd.Run(); err != nil {
-		return false, fmt.Errorf("editor: %w", err)
+		return false, fmt.Errorf("%s not saved: %s: %w", name, editorPath, err)
 	}
 
 	edited, err := os.ReadFile(plain)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("%s not saved: %w", name, err)
 	}
 	if string(edited) == string(decrypted) {
 		return false, nil
 	}
 
+	// The plaintext goes with the tmpfs directory on every failure from here:
+	// keeping it would leave a decrypted store on the machine.
 	reencrypted, err := sealTo(keyPath, rulePath, target, recipients, plain)
 	if err != nil {
-		// Said plainly: the plaintext goes with the tmpfs directory, and keeping it
-		// would leave a decrypted store on the machine after a failed command.
-		return false, fmt.Errorf("encrypt: %w. The edit was not saved, and the "+
-			"decrypted copy was removed. Make it again once this is fixed", err)
+		return false, fmt.Errorf("%s not saved: %w", name, err)
 	}
 	if err := writeBack(before, target, reencrypted); err != nil {
-		return false, err
+		return false, notWritten(err, "%s not saved", name)
 	}
 	return true, nil
 }
@@ -139,6 +139,26 @@ func digestOf(path string) ([]byte, error) {
 	return sum[:], nil
 }
 
+// changedError is a file something else wrote while this one worked on it:
+// another `faramir vault edit`, `reader` or `reseal`, or a direct write. It
+// names the file and says nothing was written, so a caller returns it as it
+// is rather than under its own prefix.
+type changedError struct{ path string }
+
+func (e *changedError) Error() string {
+	return fmt.Sprintf("%s changed while this was working on it; nothing was written. "+
+		"Run this again", e.path)
+}
+
+// notWritten prefixes err with what was not done to the file, unless err
+// already says so.
+func notWritten(err error, format string, args ...any) error {
+	if changed, ok := errors.AsType[*changedError](err); ok {
+		return changed
+	}
+	return fmt.Errorf(format+": %w", append(args, err)...)
+}
+
 // unchangedSince refuses a write onto a file something else has written since
 // this read it. The edit is lost either way; what this decides is whose.
 func unchangedSince(path string, before []byte) error {
@@ -147,9 +167,7 @@ func unchangedSince(path string, before []byte) error {
 		return err
 	}
 	if !bytes.Equal(now, before) {
-		return fmt.Errorf("%s changed while this was working on it, so nothing was "+
-			"written. Another `faramir vault edit`, `reader` or `reseal`, or a "+
-			"direct write to the file, changed it first. Run this again", path)
+		return &changedError{path: path}
 	}
 	return nil
 }
@@ -218,10 +236,7 @@ func publishManaged(tmp *os.File, target string) error {
 	// the operator their edit did not take, and would have `reseal` count the file
 	// among those still sealed to the recipients they had.
 	if err := hostfs.SyncDir(filepath.Dir(target)); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %s was replaced, but %s could not be "+
-			"flushed (%v), so the change may not survive a power loss until "+
-			"something else syncs that filesystem\n",
-			target, filepath.Dir(target), err)
+		fmt.Fprintf(os.Stderr, "warning: %s written, but its directory was not synced: %v\n", target, err)
 	}
 	return nil
 }
@@ -248,8 +263,15 @@ func runSops(keyPath, rulePath string, args ...string) ([]byte, error) {
 	argv := append([]string{"--config", sopsConfigPath(rulePath)}, args...)
 	cmd := exec.CommandContext(context.Background(), sops, argv...)
 	cmd.Env = append(config.SopsEnv(), "SOPS_AGE_KEY_FILE="+keyPath)
-	cmd.Stderr = os.Stderr
-	return cmd.Output()
+	// Captured rather than passed through, so the reason sops gives is the
+	// error's detail rather than loose lines above an exit status.
+	var stderr sopsrule.Stderr
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, sopsrule.Failed(stderr.Bytes(), err)
+	}
+	return out, nil
 }
 
 // sealTo encrypts the plaintext copy of target and returns the ciphertext.

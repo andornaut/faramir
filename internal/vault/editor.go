@@ -70,11 +70,11 @@ func ResolveEditor(requested string) (string, error) {
 		}
 	}
 	if len(refused) > 0 {
-		return "", fmt.Errorf("no editor is safe to run as root: %s",
-			strings.Join(refused, "; "))
+		return "", fmt.Errorf("no editor is safe to run as root:\n  %s",
+			strings.Join(refused, "\n  "))
 	}
-	return "", fmt.Errorf("no editor found; install one of %s, or name one with "+
-		"--editor, $VISUAL or $EDITOR", strings.Join(Editors, ", "))
+	return "", fmt.Errorf("none of %s is installed; name an editor with --editor",
+		strings.Join(Editors, ", "))
 }
 
 // checkedEditor resolves one candidate to the absolute path that will be
@@ -130,15 +130,14 @@ func unsafeToRunAsRoot(path string, info os.FileInfo) string {
 			return "cannot read the owner of " + at
 		}
 		if stat.Uid != 0 {
-			return fmt.Sprintf("%s is owned by uid %d, not root, so that account "+
-				"could replace what runs as root", at, stat.Uid)
+			return fmt.Sprintf("%s is owned by uid %d, not root", at, stat.Uid)
 		}
 		// Group and other: root owning it is the point, so its own write bit is
 		// not a finding. A sticky directory lets only an entry's owner remove it
 		// and would be safe, but no editor lives in one and refusing costs
 		// nothing.
 		if mode := os.FileMode(stat.Mode).Perm(); mode&0o022 != 0 {
-			return fmt.Sprintf("%s is %04o, so an account other than root can replace it", at, mode)
+			return fmt.Sprintf("%s is %04o, writable by an account other than root", at, mode)
 		}
 		if parent := filepath.Dir(at); parent == at {
 			return ""

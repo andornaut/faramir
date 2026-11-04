@@ -201,8 +201,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	fmt.Fprintf(os.Stderr, "removed %s (%d ref(s)); %s\n",
-		termui.Safe(target), len(refs), reReadNote(brokerclient.Refresh(socketDefault())))
+	warnUnlessReloaded(brokerclient.Refresh(socketDefault()))
 	return 0
 }
 

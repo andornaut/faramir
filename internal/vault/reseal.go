@@ -2,7 +2,6 @@ package vault
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -49,20 +48,27 @@ func ResealTargets(managed, named []string) ([]string, error) {
 // Which creation rule governs it is settled by --filename-override; see
 // sealTo.
 func Reencrypt(keyPath, rulePath string, recipients []string, target string) error {
+	if err := reencrypt(keyPath, rulePath, recipients, target); err != nil {
+		return notWritten(err, "%s not re-encrypted", target)
+	}
+	return nil
+}
+
+func reencrypt(keyPath, rulePath string, recipients []string, target string) error {
 	// The ciphertext as it stands now, compared again before the write: this
 	// decrypts a copy of its own, and an edit that lands in between would be
-	// replaced by one that never had it. See editManaged.
+	// replaced by one that never had it. See Edit.
 	before, err := digestOf(target)
 	if err != nil {
 		return err
 	}
 	decrypted, err := runSops(keyPath, rulePath, "--decrypt", target)
 	if err != nil {
-		return fmt.Errorf("decrypt: %w", err)
+		return err
 	}
 	dir, err := os.MkdirTemp("/dev/shm", "faramir-reseal-")
 	if err != nil {
-		return fmt.Errorf("temporary directory: %w", err)
+		return err
 	}
 	// Registered first so it runs last; see editManaged.
 	defer removeOnSignal(dir)()
@@ -74,12 +80,11 @@ func Reencrypt(keyPath, rulePath string, recipients []string, target string) err
 	}
 	sealed, err := sealTo(keyPath, rulePath, target, recipients, plain)
 	if err != nil {
-		return fmt.Errorf("encrypt: %w", err)
+		return err
 	}
 	return writeBack(before, target, sealed)
 }
 
-// ErrNoFilesToReseal is errNoManagedFiles said for this command: nothing to
-// re-encrypt rather than nothing to open.
-var ErrNoFilesToReseal = errors.New("no managed sops files, so there is nothing to " +
-	"re-encrypt. Create one with `faramir vault add NAME`")
+// ErrNoFilesToReseal is a reseal over an empty store. The same words as
+// errNoManagedFiles, and a separate value so a caller can tell the two apart.
+var ErrNoFilesToReseal = errors.New("no managed files; create one with `faramir vault add NAME`")

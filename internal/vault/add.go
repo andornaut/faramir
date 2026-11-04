@@ -19,9 +19,10 @@ import (
 // The same shape as an edit minus the decrypt, and the recipients come from the
 // rule rather than from the file, which has none yet.
 func Add(keyPath, rulePath, editorPath, from, target string) error {
+	name := managedStem(target)
 	dir, err := os.MkdirTemp("/dev/shm", "faramir-add-")
 	if err != nil {
-		return fmt.Errorf("temporary directory: %w", err)
+		return fmt.Errorf("%s not saved: %w", name, err)
 	}
 	// Registered first so it runs last; see editManaged.
 	defer removeOnSignal(dir)()
@@ -42,15 +43,17 @@ func Add(keyPath, rulePath, editorPath, from, target string) error {
 	}
 
 	if err := fillPlaintext(editorPath, from, dir, plain); err != nil {
-		return err
+		return fmt.Errorf("%s not saved: %w", name, err)
 	}
 
 	sealed, err := sealTo(keyPath, rulePath, target, recipients, plain)
 	if err != nil {
-		return fmt.Errorf("encrypt: %w. Nothing was written, and the decrypted copy "+
-			"was removed. Enter it again once this is fixed", err)
+		return fmt.Errorf("%s not saved: %w", name, err)
 	}
-	return createManaged(target, sealed)
+	if err := createManaged(target, sealed); err != nil {
+		return fmt.Errorf("%s not saved: %w", name, err)
+	}
+	return nil
 }
 
 // fillPlaintext puts the content in the tmpfs, from a file or from an editor.
@@ -61,7 +64,7 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 			return fserr.At(from, err)
 		}
 		if len(bytes.TrimSpace(body)) == 0 {
-			return fmt.Errorf("%s is empty, and an empty file defines no ref", from)
+			return fmt.Errorf("%s is empty", from)
 		}
 		return os.WriteFile(plain, body, 0o600)
 	}
@@ -75,7 +78,7 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 	cmd.Env = []string{envPATH,
 		"TERM=" + os.Getenv("TERM"), envLANG, "HOME=" + dir}
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("editor: %w", err)
+		return fmt.Errorf("%s: %w", editorPath, err)
 	}
 	body, err := os.ReadFile(plain)
 	if err != nil {
@@ -84,7 +87,7 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 	// An empty file is how somebody says they changed their mind, and creating
 	// one leaves a managed file naming no ref for the broker to serve.
 	if len(bytes.TrimSpace(body)) == 0 {
-		return errors.New("nothing was written, so no file was created")
+		return errors.New("the editor left it empty")
 	}
 	return nil
 }
@@ -120,15 +123,27 @@ func createManaged(target string, data []byte) error {
 	return withPublicationLock(func() error {
 		if err := unix.Renameat2(unix.AT_FDCWD, tmp.Name(), unix.AT_FDCWD, target, unix.RENAME_NOREPLACE); err != nil {
 			if errors.Is(err, unix.EEXIST) {
-				return fmt.Errorf("%s already exists; nothing was replaced. Use `faramir vault edit`: %w", target, err)
+				return &existsError{target: target, err: err}
 			}
-			return fmt.Errorf("publishing %s without replacement: %w", target, err)
+			return fmt.Errorf("%s: %w", target, err)
 		}
 		if err := hostfs.SyncDir(filepath.Dir(target)); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir: %s was written, but %s could not be flushed "+
-				"(%v), so it may not survive a power loss until something else syncs that "+
-				"filesystem\n", target, filepath.Dir(target), err)
+			fmt.Fprintf(os.Stderr, "warning: %s written, but its directory was not synced: %v\n", target, err)
 		}
 		return nil
 	}, target)
 }
+
+// existsError is a target another add created first. The errno stays reachable
+// through Unwrap and out of the message, which says the same in words.
+type existsError struct {
+	target string
+	err    error
+}
+
+func (e *existsError) Error() string {
+	return fmt.Sprintf("%s already exists; nothing was replaced. Edit it with "+
+		"`faramir vault edit %s`", e.target, managedStem(e.target))
+}
+
+func (e *existsError) Unwrap() error { return e.err }

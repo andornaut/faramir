@@ -127,11 +127,11 @@ func TestARefusalQuotesThePatternsInFull(t *testing.T) {
 func TestAManagedNameCarriesNoByteATerminalActsOn(t *testing.T) {
 	cfg, _ := store(t, "*.sops.yml")
 	for _, tc := range []struct{ name, says string }{
-		{"two\nlines", "acts on"},
-		{"esc\x1b[31mred", "acts on"},
-		{"bell\a", "acts on"},
-		{"del\x7f", "acts on"},
-		{"c1\u009b", "acts on"},
+		{"two\nlines", "control character"},
+		{"esc\x1b[31mred", "control character"},
+		{"bell\a", "control character"},
+		{"del\x7f", "control character"},
+		{"c1\u009b", "control character"},
 		{"bad\xffbyte", "not valid UTF-8"},
 	} {
 		t.Run(strconv.Quote(tc.name), func(t *testing.T) {

@@ -196,14 +196,16 @@ func Covers(sopsPath, configPath string, recipients []string, target string) (bo
 	// The same fixed environment the keeper decrypts under, so a rule this
 	// reports as covered is one the keeper's own sops would read the same way.
 	cmd.Env = config.SopsEnv()
+	var stderr Stderr
+	cmd.Stderr = &stderr
 	if _, err := cmd.Output(); err != nil {
 		var exit *exec.ExitError
-		if errors.As(err, &exit) && strings.Contains(string(exit.Stderr), "no matching creation rules") {
+		if errors.As(err, &exit) && strings.Contains(string(stderr.Bytes()), "no matching creation rules") {
 			return false, nil
 		}
 		// Anything else is a rule this could not put the question to; the caller
 		// reports it as unchecked rather than as an uncovered file.
-		return false, fmt.Errorf("%w: %s", err, lastLine(err))
+		return false, FailedLine(stderr.Bytes(), err)
 	}
 	return true, nil
 }
@@ -224,16 +226,6 @@ func probeBody(target string) []byte {
 		return []byte("[faramir]\n" + key + " = probe\n")
 	}
 	return []byte(key + ": probe\n")
-}
-
-// lastLine is the last line of what a failed sops printed, or "".
-func lastLine(err error) string {
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) || len(exit.Stderr) == 0 {
-		return ""
-	}
-	lines := strings.Split(strings.TrimSpace(string(exit.Stderr)), "\n")
-	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // AllRecipients is every age recipient .sops.yaml lists, in order, without

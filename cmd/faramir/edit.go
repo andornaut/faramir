@@ -85,7 +85,7 @@ func runEdit(f editFlags, args []string) int {
 
 	keyPath := vault.AgeKeyPath(cfg)
 	if _, err := os.Stat(keyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir vault edit: age key: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir vault edit: %v\n", err)
 		return 1
 	}
 
@@ -121,8 +121,16 @@ func runEdit(f editFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, "unchanged")
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s; %s\n", target, reReadNote(brokerclient.Refresh(socketDefault())))
+	warnUnlessReloaded(brokerclient.Refresh(socketDefault()))
 	return 0
+}
+
+// warnUnlessReloaded is the one line a write to the store prints on success,
+// and only when the broker did not take the change at once.
+func warnUnlessReloaded(answer string) {
+	if answer != brokerclient.RefreshOK {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", reReadNote(answer))
+	}
 }
 
 // loadResolved finds this host's config and loads it. The resolution failure is
