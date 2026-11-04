@@ -98,7 +98,8 @@ func validateRecipient(s string) error {
 	// YAML. Blocked rather than escaped: no recipient sops accepts carries
 	// one.
 	if strings.ContainsAny(s, "\n\r") {
-		return fmt.Errorf("age recipient contains a line break: %q", s)
+		return fmt.Errorf("age recipient contains a line break; give one recipient "+
+			"per entry\n  %q", s)
 	}
 	switch {
 	case strings.HasPrefix(s, "age1pq1"):
@@ -118,8 +119,8 @@ func validateRecipient(s string) error {
 			return fmt.Errorf("not an ssh public key: %w", err)
 		}
 	default:
-		return fmt.Errorf("unknown recipient type: %q; give an age recipient "+
-			"(age1...) or an ssh public key (ssh-ed25519 ..., ssh-rsa ...)", s)
+		return fmt.Errorf("unknown recipient type; give an age recipient (age1...) "+
+			"or an ssh public key (ssh-ed25519 ..., ssh-rsa ...)\n  %q", s)
 	}
 	return nil
 }
@@ -133,16 +134,16 @@ func validateRecipient(s string) error {
 // comment, and a substring search would refuse a valid recipient whose comment
 // happened to name one of these.
 func privateHalf(s string) string {
-	const published = ", and .sops.yaml is world-readable. "
+	const published = ", and .sops.yaml is world-readable; "
 	for line := range strings.SplitSeq(s, "\n") {
 		line = strings.TrimSpace(line)
 		switch {
 		case strings.HasPrefix(line, "AGE-SECRET-KEY-"), strings.HasPrefix(line, "AGE-PLUGIN-"):
-			return "that is an age identity, the private half, not a recipient" + published +
-				"Pass its age1... public key, the '# public key:' comment above it"
+			return "an age identity, the private half, not a recipient" + published +
+				"use its age1... public key, the '# public key:' comment above it"
 		case strings.HasPrefix(line, "-----BEGIN") && strings.Contains(line, "PRIVATE KEY"):
-			return "that is a private key, not a recipient" + published +
-				"Pass the one-line .pub file beside it"
+			return "a private key, not a recipient" + published +
+				"use the one-line .pub file beside it"
 		}
 	}
 	return ""

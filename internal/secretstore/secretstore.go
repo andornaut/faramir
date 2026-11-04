@@ -35,7 +35,11 @@ type Store struct {
 	mu      sync.RWMutex
 	values  map[string]string
 	refused map[string]string
-	state   []fileState
+	// tooLarge is the refused refs whose value is over redact.MaxValueBytes.
+	// Their reason names its own fix, blocking the file, so the refusal adds
+	// none of its own.
+	tooLarge map[string]bool
+	state    []fileState
 	// linkState is the same fingerprint for the [[secret.link]] files. Kept
 	// apart from state because the broker stats these itself, they being the
 	// operator's own files and reachable from this uid.
@@ -163,6 +167,7 @@ func (s *Store) Reload() {
 	// load; a key out of a managed file arrives here instead.
 	redactable := map[string]string{}
 	refused := map[string]string{}
+	tooLarge := map[string]bool{}
 	for ref, value := range values {
 		if !secretref.Valid(ref) {
 			refused[ref] = "is not valid in a faramir:// reference; " +
@@ -173,12 +178,14 @@ func (s *Store) Reload() {
 			redactable[ref] = value
 		} else {
 			refused[ref] = reason
+			tooLarge[ref] = len(value) >= redact.MaxValueBytes
 		}
 	}
 
 	s.mu.Lock()
 	s.values = redactable
 	s.refused = refused
+	s.tooLarge = tooLarge
 	s.state = state
 	s.linkState = linkState
 	s.unconfirmed = false
@@ -374,10 +381,11 @@ func (s *Store) Refs() []string {
 func (s *Store) Value(ref string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return value(s.values, s.refused, s.degradedLinks, ref)
+	return value(s.values, s.refused, s.tooLarge, s.degradedLinks, ref)
 }
 
-func value(values, refused, degradedLinks map[string]string, ref string) (string, error) {
+func value(values, refused map[string]string, tooLarge map[string]bool,
+	degradedLinks map[string]string, ref string) (string, error) {
 	if v, ok := values[ref]; ok {
 		return v, nil
 	}
@@ -386,6 +394,9 @@ func value(values, refused, degradedLinks map[string]string, ref string) (string
 	// what to do about one too large to inject, and a fixed "lengthen the value"
 	// was advice for one of them given to both.
 	if reason, ok := refused[ref]; ok {
+		if tooLarge[ref] {
+			return "", fmt.Errorf("secret %s was refused at load: %s", ref, reason)
+		}
 		return "", fmt.Errorf("secret %s was refused at load: %s. Fix it with "+
 			"`sudo faramir vault edit`", ref, reason)
 	}

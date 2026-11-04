@@ -13,6 +13,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keepertest"
+	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
@@ -72,6 +73,27 @@ func TestAShortValueIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "refused at load") {
 		t.Errorf("message = %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "vault edit") {
+		t.Errorf("a short value's refusal names no fix: %q", err.Error())
+	}
+}
+
+// One fix per refusal: a value too large to hold carries its own, blocking the
+// file, and editing the value is not it.
+func TestAnOversizedValueCarriesOneFix(t *testing.T) {
+	k := keepertest.New(t, map[string]string{"huge": strings.Repeat("x", redact.MaxValueBytes)})
+	s := newStore(t, k)
+	s.Reload()
+
+	for _, get := range []func(string) (string, error){s.Value, s.Snapshot().Value} {
+		_, err := get("huge")
+		if err == nil {
+			t.Fatal("an oversized value was injectable")
+		}
+		if !strings.Contains(err.Error(), "block add --path") || strings.Contains(err.Error(), "vault edit") {
+			t.Errorf("message = %q, want the block hint and no other", err.Error())
+		}
 	}
 }
 
