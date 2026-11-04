@@ -126,7 +126,7 @@ Field | Rule
 
 ### The three commands are idempotent
 
-A configuration manager can run them on every converge. Adding an entry the install already has re-applies it: the deny rules and the config are rendered again, the file's access is checked again, `--json` reports `changed: false`, and the daemons reload only where something changed. Removing a ref that is not there writes nothing.
+A configuration manager can run them on every converge. Adding an entry the install already has re-applies it: the deny rules and the config are rendered again, the file's access is checked again, `--json` reports `changed: false`, and the daemons reload only where something changed. Removing a ref that is not there writes nothing. `--dry-run` makes the same checks, asks the broker the same question, reports what would change and writes nothing.
 
 The one refusal is the same ref pointing at a different file, type or key. The error names both definitions. A ref has one definition; replacing the entry would change which credential every caller of that name receives.
 

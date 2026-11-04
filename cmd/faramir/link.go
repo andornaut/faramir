@@ -34,10 +34,11 @@ func newLinkCmd() *cobra.Command {
 }
 
 type linkFlags struct {
-	kind string
-	key  string
-	json bool
-	when string
+	kind   string
+	key    string
+	dryRun bool
+	json   bool
+	when   string
 	// strict refuses every command naming the file, not only the ones that
 	// would read it. On add alone: rm takes the entry out either way.
 	strict bool
@@ -61,8 +62,15 @@ func newLinkAddCmd() *cobra.Command {
 	c.Flags().StringVar(&f.key, "key", "", "entry to select from the file")
 	c.Flags().BoolVar(&f.strict, "strict", false,
 		"refuse every brokered command naming the file, not only one that would print it")
-	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
+	f.registerEdit(c)
 	return c
+}
+
+// registerEdit is on add and rm and not on ls: the flags an edit takes and a
+// listing does not.
+func (f *linkFlags) registerEdit(c *cobra.Command) {
+	c.Flags().BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
+	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 }
 
 func runLinkAdd(f linkFlags, ref, path string) int {
@@ -76,7 +84,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 	}
 	link := config.Link{Ref: ref, Path: path, Type: f.kind, Key: f.key,
 		Strict: f.strict}
-	report, added, err := install.AddLink(installOptions(dir), link)
+	report, added, err := install.AddLink(installOptions(f.dryRun, dir), link)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
 	}
@@ -99,7 +107,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 	// The broker fingerprints a linked file by mtime and size and a chgrp changes
 	// neither, so a repair is followed by a restart the operator makes; `faramir
 	// doctor` says so where it reports one.
-	if report.Changed {
+	if report.Changed && !f.dryRun {
 		if err := install.Reload(); err != nil {
 			fmt.Fprintf(os.Stderr, "faramir link add: %s written but daemons not reloaded: %v\n", ref, err)
 			return 1
@@ -109,7 +117,7 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 		return 0
 	}
 	if added {
-		fmt.Fprintf(os.Stderr, "added %s\n", ref)
+		fmt.Fprintf(os.Stderr, "%s %s\n", wouldOr(f.dryRun, "added", "add"), ref)
 	} else {
 		fmt.Fprintf(os.Stderr, "%s already reads %s\n", ref, path)
 	}
@@ -129,7 +137,7 @@ func newLinkRemoveCmd() *cobra.Command {
 			return codeErr(runLinkRemove(f, secretref.Bare(args[0])))
 		},
 	}
-	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
+	f.registerEdit(c)
 	return c
 }
 
@@ -142,7 +150,7 @@ func runLinkRemove(f linkFlags, ref string) int {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 		return 1
 	}
-	report, removed, err := install.RemoveLink(installOptions(dir), ref)
+	report, removed, err := install.RemoveLink(installOptions(f.dryRun, dir), ref)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
 	}
@@ -153,7 +161,7 @@ func runLinkRemove(f linkFlags, ref string) int {
 		return 1
 	}
 	// Only what changed reaches a daemon, as in link add.
-	if report.Changed {
+	if report.Changed && !f.dryRun {
 		if err := install.Reload(); err != nil {
 			fmt.Fprintf(os.Stderr, "faramir link rm: %s removed but daemons not reloaded: %v\n", ref, err)
 			return 1
@@ -167,8 +175,11 @@ func runLinkRemove(f linkFlags, ref string) int {
 		printWarnings(report)
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "removed %s\n", removed.Ref)
+	fmt.Fprintf(os.Stderr, "%s %s\n", wouldOr(f.dryRun, "removed", "remove"), removed.Ref)
 	printWarnings(report)
+	if f.dryRun {
+		return 0
+	}
 	// What was granted and is still granted, so the operator decides rather than
 	// discovering it later.
 	fmt.Fprintf(os.Stderr, "%s is still group-readable: chmod g-r %s\n", removed.Path, removed.Path)
@@ -259,10 +270,12 @@ func runLinkList(f linkFlags) int {
 
 // installOptions is the install this command acts on, at the directory the
 // caller has already resolved. Shared by `link` and `block`, which act on the
-// same install in the same way.
-func installOptions(dir string) install.Options {
+// same install in the same way. dryRun is init's: every step computes its
+// answer and writes nothing, so the report says what a real run would change.
+func installOptions(dryRun bool, dir string) install.Options {
 	return install.Options{
 		ConfigDir: dir,
+		DryRun:    dryRun,
 		// What [server] agent_user records, for the reason recordedOperator gives:
 		// these re-render the agent's rule files, and the account those are
 		// rendered against is not theirs to choose.
@@ -285,6 +298,15 @@ func reportDocument(asJSON bool, label string, report install.Report) int {
 		return 0
 	}
 	return printJSON(label, report)
+}
+
+// wouldOr is the verb an edit's outcome line opens with: what it did, or under
+// --dry-run "would" and the bare verb, the form `reader` prints.
+func wouldOr(dryRun bool, done, verb string) string {
+	if dryRun {
+		return "would " + verb
+	}
+	return done
 }
 
 // printWarnings puts a run's warnings out, and is called after the outcome

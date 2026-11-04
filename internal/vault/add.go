@@ -32,13 +32,8 @@ func Add(keyPath, rulePath, editorPath, from, target string) error {
 	// anything else would match no rule and encrypt to no recipient.
 	plain := filepath.Join(dir, filepath.Base(target))
 
-	recipients, err := RuleRecipients(rulePath)
+	recipients, err := ruleFor(rulePath, target)
 	if err != nil {
-		return err
-	}
-	// Asked before the editor opens, as an edit asks it: sops refuses a file no
-	// creation rule covers at the encrypt, after everything has been typed.
-	if err := ruleMustCover(rulePath, target, recipients); err != nil {
 		return err
 	}
 
@@ -54,6 +49,28 @@ func Add(keyPath, rulePath, editorPath, from, target string) error {
 		return fmt.Errorf("%s not saved: %w", name, err)
 	}
 	return nil
+}
+
+// RuleCovers is the question Add asks of the rule before any content exists:
+// that it names the recipients and has a creation rule for target. What `vault
+// add --dry-run` checks, so a preview and a real run refuse the same rule.
+func RuleCovers(rulePath, target string) error {
+	_, err := ruleFor(rulePath, target)
+	return err
+}
+
+// ruleFor is the recipients a new file at target is sealed to. Asked before the
+// editor opens, as an edit asks it: sops refuses a file no creation rule covers
+// at the encrypt, after everything has been typed.
+func ruleFor(rulePath, target string) ([]string, error) {
+	recipients, err := RuleRecipients(rulePath)
+	if err != nil {
+		return nil, err
+	}
+	if err := ruleMustCover(rulePath, target, recipients); err != nil {
+		return nil, err
+	}
+	return recipients, nil
 }
 
 // fillPlaintext puts the content in the tmpfs, from a file or from an editor.

@@ -136,8 +136,9 @@ func WriteFiles(fs hostfs.FS, warn func(string, ...any), root, configDir string,
 		// reached the file would have the next run trying to remove what is not
 		// there. Not fatal, because the rules did reach the file and what was
 		// lost is the note saying faramir wrote them; said, because the run that
-		// meets it next removes nothing and nothing else would explain why.
-		if rendered != nil {
+		// meets it next removes nothing and nothing else would explain why. Not on
+		// a dry run, which wrote no rule for the record to describe.
+		if rendered != nil && !fs.DryRun {
 			if err := recordWrittenRules(configDir, path, rendered); err != nil && warn != nil {
 				warn("what faramir wrote into %s was not recorded (%v), so a later "+
 					"run will not offer to take those rules out again. Re-run this "+

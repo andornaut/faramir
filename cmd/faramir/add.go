@@ -29,6 +29,8 @@ const opAdd = "add"
 type addFlags struct {
 	editor string
 	from   string
+	dryRun bool
+	json   bool
 }
 
 func newAddCmd() *cobra.Command {
@@ -48,6 +50,9 @@ func newAddCmd() *cobra.Command {
 	}
 	c.Flags().StringVar(&f.editor, "editor", "", editorUsage)
 	c.Flags().StringVar(&f.from, "from", "", "encrypt this plaintext `FILE` instead of opening an editor")
+	c.Flags().BoolVar(&f.dryRun, "dry-run", false,
+		"check the name, the key and the rule, and open no editor and read no file")
+	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
 
@@ -82,6 +87,11 @@ func runAdd(f addFlags, name string) int {
 		}
 	}
 
+	edit := newStoreEdit(f.dryRun, f.json)
+	if f.dryRun {
+		return previewAdd(label, edit, rulePath, target)
+	}
+
 	err = vault.Add(keyPath, rulePath, editorPath, f.from, target)
 	record := map[string]any{
 		"op": opAdd, "log_id": audit.NewLogID(), "file": target,
@@ -100,15 +110,31 @@ func runAdd(f addFlags, name string) int {
 	writeAudit(label, audit.NewLog(cfg.Audit), record)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
-		return 1
+		return edit.done(label, 1)
 	}
+	edit.report.Record(stepManagedFile, true, target)
 
 	warnUnlessReloaded(brokerclient.Refresh(socketDefault()))
 	if f.from != "" {
 		// Said rather than done: removing somebody's file is not this command's to
 		// decide, and a plaintext copy nobody remembers is what this exists to keep
 		// off the disk.
-		fmt.Fprintf(os.Stderr, "warning: %s is still cleartext on disk\n", f.from)
+		edit.report.Warnf("%s is still cleartext on disk", f.from)
+		edit.sayf("warning: %s is still cleartext on disk\n", f.from)
 	}
-	return 0
+	return edit.done(label, 0)
+}
+
+// previewAdd is the rest of a dry run, which stops at what can be known
+// without the content: runAdd has checked the name, that target is absent, the
+// key and the editor, and this asks the rule. The content is the operator's to
+// type, or a cleartext file this command reads only to encrypt it.
+func previewAdd(label string, edit *storeEdit, rulePath, target string) int {
+	if err := vault.RuleCovers(rulePath, target); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return 1
+	}
+	edit.sayf("would add %s\n", target)
+	edit.report.Record(stepManagedFile, true, target)
+	return edit.done(label, 0)
 }

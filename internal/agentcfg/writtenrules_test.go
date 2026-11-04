@@ -206,6 +206,31 @@ func TestASecondRunRemovesTheRuleTheConfigStoppedDeclaring(t *testing.T) {
 	}
 }
 
+// A dry run writes no rule, so it records none: a record naming rules the file
+// does not carry has the next real run taking out what is not there.
+func TestADryRunRecordsNoWrittenRules(t *testing.T) {
+	home := t.TempDir()
+	configDir := t.TempDir()
+	files := []File{{Path: ".claude/settings.json", Mode: 0o640, Merge: true}}
+	render := func(File) ([]byte, error) { return settings(`Read(**/secrets*)`), nil }
+
+	changed, _, err := WriteFiles(hostfs.FS{DryRun: true}, nil, home, configDir,
+		os.Getuid(), hostfs.Keep, 0o700, false, render, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !changed {
+		t.Error("a dry run over a missing file reported nothing to change")
+	}
+	if _, err := os.Stat(filepath.Join(configDir, writtenRulesFile)); !os.IsNotExist(err) {
+		t.Errorf("a dry run wrote the record: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("a dry run wrote the settings file: %v", err)
+	}
+}
+
 // The record is a read-modify-write, and it lost the same way the config and
 // the enrolment record did: two runs each read the file, each add their own
 // entry, and the second write drops the first. What goes with a lost entry is

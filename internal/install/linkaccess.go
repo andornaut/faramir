@@ -106,7 +106,11 @@ func (r *runner) stepLinkAccess() error {
 		r.skip(steps.LabelLinkedFiles, "no [[secret.link]] entries are configured")
 		return nil
 	}
-	if r.opts.DryRun {
+	// A dry run asks these too where it can: they alter nothing, and one that
+	// skipped them would pass an edit the real run refuses. It cannot without
+	// root, which the files and the directories above them may need, or without
+	// the broker's group, which a dry run of a first install has not created.
+	if r.opts.DryRun && (os.Geteuid() != 0 || r.brokerGID == hostfs.Keep) {
 		r.skip(steps.LabelLinkedFiles, "dry run")
 		return nil
 	}
@@ -387,11 +391,9 @@ func linkTarget(path string) string {
 // arrives at a moment nobody chose. `refs` answers on a host that has no
 // secrets yet and on one whose store will not serve, so there is no first
 // install this locks out; what it stops is an add made against a broker that is
-// down.
+// down. Asked on a dry run as well: the question writes nothing, and a dry run
+// that skipped it would pass an add the real run refuses.
 func (r *runner) refuseShadowedRef(edit *configEdit, ref string) error {
-	if r.opts.DryRun {
-		return nil
-	}
 	cfg, configFile := edit.cfg, edit.file
 	if cfg == nil {
 		return fmt.Errorf("config not found: %s", configFile)

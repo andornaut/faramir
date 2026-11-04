@@ -108,12 +108,15 @@ func loadStore(label, socket string, named []string,
 	}, 0
 }
 
-// resealStore re-encrypts every target to wanted.
-func resealStore(label string, store *storeContext, wanted []string, dryRun bool) int {
+// resealStore re-encrypts every target to wanted, recording a step per file it
+// reached on the edit's report: changed where the file was, or under a dry run
+// would be, re-encrypted.
+func resealStore(label string, edit *storeEdit, store *storeContext, wanted []string) int {
 	targets := store.targets
 	if len(targets) == 0 {
 		return 0
 	}
+	dryRun := edit.dryRun()
 	log := audit.NewLog(store.cfg.Audit)
 	failed, changed := 0, 0
 	for _, target := range targets {
@@ -135,11 +138,13 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 			continue
 		}
 		if sopsrule.Same(was, wanted) {
+			edit.report.Record(stepReseal, false, target)
 			continue
 		}
 		if dryRun {
-			fmt.Fprintf(os.Stderr, "would re-encrypt %s: %s -> %s\n",
+			edit.sayf("would re-encrypt %s: %s -> %s\n",
 				target, strings.Join(was, ","), strings.Join(wanted, ","))
+			edit.report.Record(stepReseal, true, target)
 			changed++
 			continue
 		}
@@ -162,6 +167,7 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 			failed++
 			continue
 		}
+		edit.report.Record(stepReseal, true, target)
 		changed++
 	}
 
@@ -172,11 +178,11 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 		return 1
 	}
 	if dryRun {
-		fmt.Fprintf(os.Stderr, "%d of %d file(s) would change\n", changed, len(targets))
+		edit.sayf("%d of %d file(s) would change\n", changed, len(targets))
 		return 0
 	}
 	if changed > 0 {
-		fmt.Fprintf(os.Stderr, "re-encrypted %d of %d file(s)\n", changed, len(targets))
+		edit.sayf("re-encrypted %d of %d file(s)\n", changed, len(targets))
 		warnUnlessReloaded(brokerclient.Refresh(socketDefault()))
 	}
 	return 0

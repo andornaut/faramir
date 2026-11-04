@@ -1,6 +1,14 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+
+	"github.com/andornaut/faramir/internal/steps"
+	"github.com/andornaut/faramir/internal/version"
+)
 
 // newVaultCmd groups what is done to the files: write one, edit one, list them,
 // remove one.
@@ -38,4 +46,61 @@ func requiresSubcommand(c *cobra.Command, args []string) error {
 		return usagef("unknown command %q for %q", args[0], c.CommandPath())
 	}
 	return usagef("%s requires a command", c.CommandPath())
+}
+
+// The step names a store edit reports under. "sops config" is the name `init`
+// records the same file under.
+const (
+	stepSopsConfig  = "sops config"
+	stepReseal      = "reseal"
+	stepManagedFile = "managed file"
+)
+
+// storeReport is the --json document of a command that changes the managed
+// store or its rule: the shared steps.Report with the version and dry_run
+// fields the documents of `init` and `enrol` carry, so a configuration manager
+// reads changed and steps the same way from every edit.
+type storeReport struct {
+	steps.Report
+
+	Version string `json:"version"`
+	DryRun  bool   `json:"dry_run,omitempty"`
+}
+
+// storeEdit is how such a command reports: a line per outcome on stderr, or
+// under --json the document, printed once the command ends. Errors go to
+// stderr either way.
+type storeEdit struct {
+	json   bool
+	report storeReport
+}
+
+func newStoreEdit(dryRun, asJSON bool) *storeEdit {
+	return &storeEdit{json: asJSON, report: storeReport{Version: version.Version, DryRun: dryRun}}
+}
+
+func (e *storeEdit) dryRun() bool { return e.report.DryRun }
+
+// sayf prints an outcome line, which the document replaces under --json.
+func (e *storeEdit) sayf(format string, args ...any) {
+	if !e.json {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
+}
+
+// done prints the document under --json and returns the command's exit
+// status, which a document that would not print turns into a failure. A run
+// that recorded no step prints [] rather than null, for the reason `link ls`
+// gives.
+func (e *storeEdit) done(label string, code int) int {
+	if !e.json {
+		return code
+	}
+	if e.report.Steps == nil {
+		e.report.Steps = []steps.Step{}
+	}
+	if printed := printJSON(label, e.report); printed != 0 {
+		return printed
+	}
+	return code
 }

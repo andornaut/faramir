@@ -134,7 +134,9 @@ func runVaultList(f vaultListFlags) int {
 }
 
 type vaultRemoveFlags struct {
-	force bool
+	force  bool
+	dryRun bool
+	json   bool
 }
 
 func newVaultRemoveCmd() *cobra.Command {
@@ -149,6 +151,9 @@ func newVaultRemoveCmd() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&f.force, "force", false, "do not ask for confirmation")
+	c.Flags().BoolVar(&f.dryRun, "dry-run", false,
+		"report what would be removed, without asking, and remove nothing")
+	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
 
@@ -174,6 +179,11 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 		return 1
 	}
 
+	edit := newStoreEdit(f.dryRun, f.json)
+	if f.dryRun {
+		return previewRemoval(label, edit, target)
+	}
+
 	// Read before anything is asked, so the question names what is at stake
 	// rather than a path.
 	snapshot, err := removeVaultFile(confirmRemoval, f.force, target)
@@ -184,7 +194,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	refs := snapshot.Refs
 	if errors.Is(err, errRemovalDeclined) {
 		fmt.Fprintf(os.Stderr, "faramir %s: not removed\n", label)
-		return 1
+		return edit.done(label, 1)
 	}
 
 	// Written whether or not the removal worked, and naming the refs: the file is
@@ -199,10 +209,25 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	writeAudit(label, audit.NewLog(cfg.Audit), record)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return edit.done(label, 1)
+	}
+	edit.report.Record(stepManagedFile, true, target)
+	warnUnlessReloaded(brokerclient.Refresh(socketDefault()))
+	return edit.done(label, 0)
+}
+
+// previewRemoval is a dry run's removal: target inspected as a real run
+// inspects it, so a file that would be refused is refused here too, and
+// nothing asked, there being nothing to confirm.
+func previewRemoval(label string, edit *storeEdit, target string) int {
+	snapshot, err := vault.InspectRemoval(target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	warnUnlessReloaded(brokerclient.Refresh(socketDefault()))
-	return 0
+	edit.sayf("would remove %s and %d ref(s)\n", termui.Safe(target), len(snapshot.Refs))
+	edit.report.Record(stepManagedFile, true, target)
+	return edit.done(label, 0)
 }
 
 // Confirmation uses the same snapshot whose refs the audit records. Force

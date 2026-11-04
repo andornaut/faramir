@@ -62,6 +62,7 @@ func (f *readerFlags) register(c *cobra.Command, writes bool) {
 		return
 	}
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
+	fl.BoolVar(&f.json, "json", false, "print the report as JSON")
 }
 
 func newReaderAddCmd() *cobra.Command {
@@ -128,6 +129,13 @@ func runReseal(f readerFlags, args []string) int {
 	if store == nil {
 		return code
 	}
+	edit := newStoreEdit(f.dryRun, f.json)
+	return edit.done(label, reseal(label, edit, store))
+}
+
+// reseal is runReseal once the store is loaded, which is where its report
+// starts.
+func reseal(label string, edit *storeEdit, store *storeContext) int {
 	wanted, err := vault.RuleRecipients(store.rulePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
@@ -140,7 +148,7 @@ func runReseal(f readerFlags, args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	return resealStore(label, store, wanted, f.dryRun)
+	return resealStore(label, edit, store, wanted)
 }
 
 // runReaderChange is add and rm, which differ only in the edit they ask for.
@@ -163,6 +171,14 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	if store == nil {
 		return code
 	}
+	edit := newStoreEdit(f.dryRun, f.json)
+	return edit.done(label, changeReader(label, edit, store, recipient, adding))
+}
+
+// changeReader is runReaderChange once the store is loaded, which is where its
+// report starts.
+func changeReader(label string, edit *storeEdit, store *storeContext,
+	recipient string, adding bool) int {
 	// Named here rather than left to KeeperStaysAReader below, whose advice is to
 	// add the key back: to an operator who has just asked to remove it, that
 	// reads as an instruction to undo what they typed.
@@ -196,7 +212,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 	// and then failed on a file leaves exactly that state, so the reseal runs
 	// either way and re-running is how such a pass is resumed.
 	if !changed {
-		fmt.Fprintf(os.Stderr, "%s already %s %s\n", store.rulePath, listedOrNot(adding), recipient)
+		edit.sayf("%s already %s %s\n", store.rulePath, listedOrNot(adding), recipient)
 	}
 
 	wanted, err := vault.RuleRecipientsFrom(edited, store.rulePath)
@@ -212,21 +228,24 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 		return 1
 	}
 
-	if f.dryRun {
+	if edit.dryRun() {
 		if changed {
-			fmt.Fprintf(os.Stderr, "would %s %s: %s -> %s\n",
+			edit.sayf("would %s %s: %s -> %s\n",
 				addOrRemove(adding), recipient, store.rulePath, strings.Join(wanted, ","))
 		}
-		return resealStore(label, store, wanted, true)
+		edit.report.Record(stepSopsConfig, changed, store.rulePath)
+		return resealStore(label, edit, store, wanted)
 	}
 
 	if !changed {
-		return resealStore(label, store, wanted, false)
+		edit.report.Record(stepSopsConfig, false, store.rulePath)
+		return resealStore(label, edit, store, wanted)
 	}
 	if err := vault.WriteBack(store.rulePath, edited); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %s not written: %v\n", label, store.rulePath, err)
 		return 1
 	}
+	edit.report.Record(stepSopsConfig, true, store.rulePath)
 	// One record for the rule, before the per-file records the reseal writes, so
 	// the log reads in the order it happened. Public keys only.
 	writeAudit(label, audit.NewLog(store.cfg.Audit), map[string]any{
@@ -237,7 +256,7 @@ func runReaderChange(f readerFlags, recipient string, adding bool) int {
 
 	// A rule the files are not yet sealed to is the state this command exists to
 	// avoid, so its exit status is the reseal's.
-	return resealStore(label, store, wanted, false)
+	return resealStore(label, edit, store, wanted)
 }
 
 // addOrRemove is the bare verb, for a sentence that already carries a "would".

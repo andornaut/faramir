@@ -416,6 +416,21 @@ grep -q '"changed": false' <<<"$out" \
   && ok "adding an entry already applied reports no change" \
   || bad "a second add of the same entry reported a change: ${out:0:200}"
 
+# Check mode: the same checks as a real run, a report of what it would change,
+# and nothing written.
+before=$(cat $CFG)
+out=$(addlink gh/dry-run $GH --type yaml --key github.com/oauth_token --dry-run --json)
+rc=$?
+[ $rc -eq 0 ] && grep -q '"changed": true' <<<"$out" && grep -q '"dry_run": true' <<<"$out" \
+  && [ "$(cat $CFG)" = "$before" ] \
+  && ok "add --dry-run reports a new link as a change and writes nothing" \
+  || bad "link add --dry-run exited $rc or wrote the config: ${out:0:200}"
+out=$("$faramir" link rm gh/token --dry-run --json 2>&1)
+rc=$?
+[ $rc -eq 0 ] && grep -q '"changed": true' <<<"$out" && [ "$(cat $CFG)" = "$before" ] \
+  && ok "rm --dry-run reports the removal and leaves the entry" \
+  || bad "link rm --dry-run exited $rc or wrote the config: ${out:0:200}"
+
 # What that re-application is for. A tool that replaces its own file rather than
 # rewriting it takes the group with it: 0600 in the operator's own group is what
 # a temp file renamed over the original leaves behind. A converge run naming

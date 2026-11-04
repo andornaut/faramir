@@ -160,6 +160,11 @@ faramir reader reseal --dry-run >/tmp/dry.log 2>&1
   || bad "a dry run rewrote the file"
 grep -qiE "would|dry" /tmp/dry.log && ok "it reported what it would do: $(grep -iE 'would|dry' /tmp/dry.log | head -1 | cut -c1-70)" \
   || bad "a dry run said nothing useful: $(head -2 /tmp/dry.log)"
+faramir reader reseal --dry-run --json 2>/dev/null \
+  | jq -e '.dry_run and .changed and any(.steps[]; .step == "reseal" and .changed)' >/dev/null \
+  && [ "$(sum)" = "$before" ] \
+  && ok "and --json reports the file it would re-encrypt as a changed step" \
+  || bad "reseal --dry-run --json: $(faramir reader reseal --dry-run --json 2>&1 | head -c 300)"
 
 head_ "5. reseal to a second recipient, and the keeper can still read"
 faramir reader reseal >/tmp/reseal.log 2>&1 && ok "reseal completed" || bad "reseal failed: $(tail -2 /tmp/reseal.log)"
@@ -522,6 +527,11 @@ faramir reader add --dry-run "$SECOND" >/tmp/add-dry.log 2>&1
   || bad "a dry run re-encrypted the store"
 grep -q "$SECOND" /etc/faramir/.sops.yaml && bad "a dry run wrote the rule" \
   || ok "and leaves the rule alone too"
+faramir reader add --dry-run --json "$SECOND" 2>/dev/null \
+  | jq -e '.dry_run and any(.steps[]; .step == "sops config" and .changed)' >/dev/null \
+  && [ "$(sum)" = "$before" ] && ! grep -q "$SECOND" /etc/faramir/.sops.yaml \
+  && ok "and --json reports the rule change and writes neither" \
+  || bad "reader add --dry-run --json: $(faramir reader add --dry-run --json "$SECOND" 2>&1 | head -c 300)"
 
 faramir reader add "$SECOND" >/tmp/add.log 2>&1 \
   && ok "reader add completed" || bad "reader add failed: $(tail -2 /tmp/add.log)"
@@ -596,6 +606,12 @@ grep -q "$KEEPER" /etc/faramir/.sops.yaml \
   || bad "the refused removal edited the rule anyway"
 [ "$(sum)" = "$before" ] && ok "and the ciphertext is untouched" || bad "the refused removal rewrote the store"
 
+faramir reader rm --dry-run --json "$SECOND" 2>/dev/null \
+  | jq -e '.dry_run and .changed' >/dev/null \
+  && [ "$(sum)" = "$before" ] && grep -q "$SECOND" /etc/faramir/.sops.yaml \
+  && ok "rm --dry-run --json reports the removal and writes neither" \
+  || bad "reader rm --dry-run --json: $(faramir reader rm --dry-run --json "$SECOND" 2>&1 | head -c 300)"
+
 faramir reader rm "$SECOND" >/tmp/rm.log 2>&1 \
   && ok "reader rm completed" || bad "reader rm failed: $(tail -2 /tmp/rm.log)"
 grep -q "$SECOND" "$MANAGED" && bad "the removed recipient is still in the ciphertext" \
@@ -661,9 +677,15 @@ printf 'added:\n  by_the_editor: s3kr3t-added-4242\n' > "$1"
 EOF
 chmod 0755 /usr/local/sbin/writer
 
+NEW=/etc/faramir/secrets/added.sops.yml
+faramir vault add --dry-run --json --editor /usr/local/sbin/writer added.sops.yml 2>/dev/null \
+  | jq -e --arg f "$NEW" '.dry_run and .changed and any(.steps[]; .detail == $f)' >/dev/null \
+  && [ ! -e "$NEW" ] \
+  && ok "add --dry-run --json reports the file it would create and creates none" \
+  || bad "vault add --dry-run --json: $(faramir vault add --dry-run --json --editor /usr/local/sbin/writer added.sops.yml 2>&1 | head -c 300)"
+
 faramir vault add --editor /usr/local/sbin/writer added.sops.yml >/tmp/add.log 2>&1 \
   && ok "add completed" || bad "add failed: $(tail -2 /tmp/add.log)"
-NEW=/etc/faramir/secrets/added.sops.yml
 [ -e "$NEW" ] && ok "the file is there, named relative to the secrets directory" \
   || bad "no file at $NEW"
 [ "$(stat -c '%a %U:%G' "$NEW")" = "640 root:faramir-keeper" ] \
@@ -803,6 +825,12 @@ done
 faramir vault rm inventory.sops.yml </dev/null >/dev/null 2>&1
 [ -e /etc/faramir/secrets/inventory.sops.yml ] && ok "and a closed stdin refuses" \
   || bad "a closed stdin removed the file"
+
+faramir vault rm --dry-run --json inventory </dev/null 2>/dev/null \
+  | jq -e '.dry_run and .changed' >/dev/null \
+  && [ -e /etc/faramir/secrets/inventory.sops.yml ] \
+  && ok "rm --dry-run --json reports the removal, asks nothing and removes nothing" \
+  || bad "vault rm --dry-run --json: $(faramir vault rm --dry-run --json inventory </dev/null 2>&1 | head -c 300)"
 
 printf 'y\n' | faramir vault rm inventory >/tmp/rm.log 2>&1 \
   && ok "y removes it" || bad "rm failed: $(tail -2 /tmp/rm.log)"

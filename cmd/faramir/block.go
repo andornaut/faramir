@@ -36,6 +36,7 @@ type blockFlags struct {
 	commands []string
 	declared bool
 	builtIn  bool
+	dryRun   bool
 	json     bool
 	when     string
 	// strict tightens every path this invocation names. On add alone: rm takes
@@ -82,11 +83,14 @@ func (f *blockFlags) entries(args []string) ([]config.BlockedPath, error) {
 
 // registerForms is on add and rm and not on ls, which takes none of them. Each
 // form is a flag, including the path: two things are blocked here and a
-// positional argument would make one of them the default.
+// positional argument would make one of them the default. --dry-run and --json
+// ride with them, being what an edit takes and a listing does not.
 func (f *blockFlags) registerForms(c *cobra.Command) {
 	c.Flags().StringArrayVar(&f.paths, "path", nil, "absolute path; repeatable")
 	c.Flags().StringArrayVar(&f.commands, "command", nil,
 		"command as typed (\"op read\"), matched literally at the start of a command line; repeatable")
+	c.Flags().BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
+	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 }
 
 func newBlockAddCmd() *cobra.Command {
@@ -110,7 +114,6 @@ func newBlockAddCmd() *cobra.Command {
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.strict, "strict", false,
 		"refuse every brokered command naming the path, not only one that would print it")
-	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
 
@@ -123,7 +126,7 @@ func runBlockAdd(f blockFlags, blocked []config.BlockedPath) int {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 		return 1
 	}
-	report, added, err := install.AddBlockedPaths(installOptions(dir), blocked)
+	report, added, err := install.AddBlockedPaths(installOptions(f.dryRun, dir), blocked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 	}
@@ -138,7 +141,7 @@ func runBlockAdd(f blockFlags, blocked []config.BlockedPath) int {
 	// Only when something changed: a re-assert that found the host as it should
 	// be has nothing new for a daemon to read, and reloading would restart them
 	// under whatever brokered command is running.
-	if report.Changed {
+	if report.Changed && !f.dryRun {
 		if err := install.Reload(); err != nil {
 			fmt.Fprintf(os.Stderr, "faramir block add: written but daemons not reloaded: %v\n", err)
 			return 1
@@ -152,7 +155,8 @@ func runBlockAdd(f blockFlags, blocked []config.BlockedPath) int {
 	// would not say which was which.
 	for i, entry := range blocked {
 		if added[i] {
-			fmt.Fprintf(os.Stderr, "blocked %s\n", config.Shown(entry.Blocks()))
+			fmt.Fprintf(os.Stderr, "%s %s\n", wouldOr(f.dryRun, "blocked", "block"),
+				config.Shown(entry.Blocks()))
 			continue
 		}
 		fmt.Fprintf(os.Stderr, "already blocked %s\n", config.Shown(entry.Blocks()))
@@ -178,7 +182,6 @@ func newBlockRemoveCmd() *cobra.Command {
 		},
 	}
 	f.registerForms(c)
-	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
 
@@ -202,7 +205,7 @@ func runBlockRemove(f blockFlags, asked []config.BlockedPath) int {
 	if !requireRoot("block rm") {
 		return 1
 	}
-	report, removed, err := install.RemoveBlockedPaths(installOptions(dir), asked)
+	report, removed, err := install.RemoveBlockedPaths(installOptions(f.dryRun, dir), asked)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 	}
@@ -214,7 +217,7 @@ func runBlockRemove(f blockFlags, asked []config.BlockedPath) int {
 	}
 	// The other direction of the same staleness: until the broker reloads it goes
 	// on refusing a path the operator has just undeclared.
-	if report.Changed {
+	if report.Changed && !f.dryRun {
 		if err := install.Reload(); err != nil {
 			fmt.Fprintf(os.Stderr, "faramir block rm: removed but daemons not reloaded: %v\n", err)
 			return 1
@@ -230,7 +233,8 @@ func runBlockRemove(f blockFlags, asked []config.BlockedPath) int {
 			fmt.Fprintf(os.Stderr, "not blocked %s\n", config.Shown(asked[i].Blocks()))
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "unblocked %s\n", config.Shown(entry.Blocks()))
+		fmt.Fprintf(os.Stderr, "%s %s\n", wouldOr(f.dryRun, "unblocked", "unblock"),
+			config.Shown(entry.Blocks()))
 	}
 	printWarnings(report)
 	return 0

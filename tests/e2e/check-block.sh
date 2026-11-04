@@ -449,6 +449,21 @@ grep -q '"changed": false' <<<"$out" \
   && ok "the config is byte-identical" \
   || bad "a second add rewrote the config"
 
+# Check mode: a configuration manager asks whether a run would change the host,
+# and the asking writes nothing.
+out=$(block add --path /etc/dry-run-only.key --dry-run --json)
+rc=$?
+[ $rc -eq 0 ] && grep -q '"changed": true' <<<"$out" && grep -q '"dry_run": true' <<<"$out" \
+  && [ "$(cat $CFG)" = "$before" ] \
+  && ok "add --dry-run reports a new entry as a change and writes nothing" \
+  || bad "block add --dry-run exited $rc or wrote the config: ${out:0:200}"
+out=$(block rm --path "$KEY" --dry-run --json)
+rc=$?
+[ $rc -eq 0 ] && grep -q '"changed": true' <<<"$out" \
+  && [ "$(cat $CFG)" = "$before" ] && grep -qF "$(rule Read "$KEY")" $RULES \
+  && ok "rm --dry-run reports the removal and leaves the entry and its rule" \
+  || bad "block rm --dry-run exited $rc or wrote: ${out:0:200}"
+
 # What the re-rendering is for: an agent's settings are the operator's own file,
 # and a rule can leave one without faramir being involved.
 cp -a $RULES "$BACKUP/settings.json"

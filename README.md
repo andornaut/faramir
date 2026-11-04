@@ -214,7 +214,7 @@ That refuses `ls` and `chmod` as well as `cat`, so nothing can rotate the file. 
 
 `faramir block ls` lists everything in force, including the rules faramir carries itself. It runs without root, as do `reader ls`, `link ls` and `doctor`, which reports less without root.
 
-Every `block` command is idempotent and reports what changed with `--json`, so a configuration manager can declare the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
+Every `block` command is idempotent, previews with `--dry-run` and reports what changed with `--json`, so a configuration manager can declare the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
 
 ## Usage
 
@@ -323,7 +323,7 @@ A secret another tool owns | `link add`, `link ls`, `link rm`
 A path, name or command blocked from the agent | `block add`, `block ls`, `block rm`
 The record, and sudo | `logs`, `sudo approve`, `sudo ls`, `sudo reject`, `sudo watch`
 
-`init`, `enrol`, `unenrol` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can declare every entry on every run.
+`init`, `enrol`, `unenrol`, the four `link` and `block` edits and `reader add`, `reader rm` and `reader reseal` are idempotent, so a configuration manager can declare every entry on every run. They and `vault add` and `vault rm` take `--dry-run`, which writes nothing and reports what a real run would change, and `--json`, which prints one document of `steps`, each with a `changed` flag, and an overall `changed`. `vault add` refuses a file that exists, and `vault rm` one that does not.
 
 ### What the agent runs
 
