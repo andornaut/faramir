@@ -52,7 +52,7 @@ func diagnoseLinkedAccess(report *Report, opts Options, cfg *config.Config) {
 			// The directory, where that is what refuses: the remedy below is about
 			// the file's own group and mode, and neither is the problem here.
 			if dir := asaccount.BlockingDir(opts.BrokerUser, link.Path); dir != "" {
-				entry += fmt.Sprintf(": cannot enter %s", dir)
+				entry += ": cannot enter " + dir
 			}
 			unreadable = append(unreadable, entry)
 		case asaccount.CanRead(opts.ExecUser, link.Path):

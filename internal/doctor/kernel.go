@@ -43,7 +43,7 @@ var usernsSwitches = []struct {
 //
 // Reported rather than enforced: this is a kernel-wide sysctl every other
 // container and browser sandbox on the host depends on.
-func diagnoseUserns(report *Report, opts Options, cfg *config.Config) {
+func diagnoseUserns(report *Report, cfg *config.Config) {
 	if cfg == nil || cfg.Sudo.ExecUser == "" {
 		report.addf("user namespaces", StatusNA, "no [sudo] section; the executor "+
 			"filter excludes @mount")

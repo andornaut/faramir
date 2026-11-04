@@ -51,7 +51,7 @@ func diagnoseBoundaries(report *Report, opts Options, cfg *config.Config, serves
 		func() { diagnoseSSHKey(report, opts, cfg) },
 		func() { diagnoseSudoGrant(report, opts, cfg) },
 		func() { diagnosePtraceScope(report, cfg) },
-		func() { diagnoseUserns(report, opts, cfg) },
+		func() { diagnoseUserns(report, cfg) },
 		func() { diagnoseCgroupDelegation(report, opts, cfg) },
 		func() { diagnoseConfigReadable(report, opts) },
 	}

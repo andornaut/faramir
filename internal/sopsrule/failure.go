@@ -69,8 +69,7 @@ func FailedLine(stderr []byte, err error) error {
 }
 
 func failed(stderr []byte, err error, oneLine bool) error {
-	var exit *exec.ExitError
-	if !errors.As(err, &exit) {
+	if _, ok := errors.AsType[*exec.ExitError](err); !ok {
 		return &failure{msg: fmt.Sprintf("sops did not run: %v", err), err: err}
 	}
 	lines := Cause(stderr)

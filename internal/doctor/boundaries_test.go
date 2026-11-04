@@ -305,7 +305,7 @@ func TestUserNamespacesDecideNothingWithoutAnEscalationGrant(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var report Report
-			diagnoseUserns(&report, Options{AgentUser: "op"}, tc.cfg)
+			diagnoseUserns(&report, tc.cfg)
 			got := only(t, report)
 			if got.Status != StatusNA {
 				t.Errorf("status is %q, want %q: %s", got.Status, StatusNA, got.Detail)
@@ -387,7 +387,7 @@ func TestDiagnoseUsernsReportsWhatTheUnitStoppedBounding(t *testing.T) {
 	// Reported n/a rather than dropped, like the ptrace scope check beside it: a
 	// line that is absent reads the same as one that was never written.
 	var quiet Report
-	diagnoseUserns(&quiet, Options{ExecUser: "faramir-exec"}, &config.Config{})
+	diagnoseUserns(&quiet, &config.Config{})
 	if len(quiet.Findings) != 1 || quiet.Findings[0].Status != StatusNA {
 		t.Errorf("a host with no sudo grant should report n/a: %v", quiet.Findings)
 	}
@@ -396,7 +396,7 @@ func TestDiagnoseUsernsReportsWhatTheUnitStoppedBounding(t *testing.T) {
 	granted.Sudo.ExecUser = "faramir-exec"
 
 	var loose Report
-	diagnoseUserns(&loose, Options{ExecUser: "faramir-exec"}, granted)
+	diagnoseUserns(&loose, granted)
 	if len(loose.Findings) != 1 || loose.Findings[0].Status != StatusWarn {
 		t.Fatalf("an open switch on a host that grants an escalation: %v", loose.Findings)
 	}
@@ -410,7 +410,7 @@ func TestDiagnoseUsernsReportsWhatTheUnitStoppedBounding(t *testing.T) {
 		t.Fatal(err)
 	}
 	var shut Report
-	diagnoseUserns(&shut, Options{ExecUser: "faramir-exec"}, granted)
+	diagnoseUserns(&shut, granted)
 	if len(shut.Findings) != 1 || shut.Findings[0].Status != StatusOK {
 		t.Errorf("a closed switch should read as closed: %v", shut.Findings)
 	}

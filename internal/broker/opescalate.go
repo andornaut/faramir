@@ -23,8 +23,8 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 	if peer != nil && peer.UID == 0 {
 		return nil
 	}
-	out := protocol.ErrorResponse("forbidden", fmt.Sprintf(
-		"%s needs root: run `sudo faramir sudo ls`", op), "")
+	out := protocol.ErrorResponse("forbidden",
+		op+" needs root: run `sudo faramir sudo ls`", "")
 	return &out
 }
 

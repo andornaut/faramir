@@ -209,8 +209,7 @@ func readTOML(path string) (map[string]any, error) {
 func unmarshalTOML(data []byte, path string) (map[string]any, error) {
 	var raw map[string]any
 	if err := toml.Unmarshal(data, &raw); err != nil {
-		var parse toml.ParseError
-		if errors.As(err, &parse) {
+		if parse, ok := errors.AsType[toml.ParseError](err); ok {
 			return nil, fmt.Errorf("%s: line %d: %s", path, parse.Position.Line, parse.Message)
 		}
 		return nil, fmt.Errorf("%s: %w", path, err)

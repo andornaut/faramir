@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -390,7 +391,7 @@ func TestAValueTooLargeToHoldIsRefused(t *testing.T) {
 		t.Error("the length refusal claims a fix it does not name")
 	}
 	why := refusal.Reason
-	for _, want := range []string{fmt.Sprint(MaxValueBytes), "the limit is", "block add --path"} {
+	for _, want := range []string{strconv.Itoa(MaxValueBytes), "the limit is", "block add --path"} {
 		if !strings.Contains(why, want) {
 			t.Errorf("the reason does not mention %q: %s", want, why)
 		}

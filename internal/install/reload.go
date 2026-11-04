@@ -115,8 +115,7 @@ func parseInstalledConfig() error {
 	if err != nil {
 		// What the broker printed on stdout is part of the cause too.
 		if detail := causeLines(out); len(detail) > 0 {
-			var cmdErr *commandError
-			if errors.As(err, &cmdErr) {
+			if cmdErr, ok := errors.AsType[*commandError](err); ok {
 				cmdErr.stderr += "\n" + strings.Join(detail, "\n")
 			}
 		}

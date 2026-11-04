@@ -111,7 +111,6 @@ var (
 	adviceLinkedStrictPath  = refuseLinkedStrict.command()
 	adviceOwnPath           = refuseOwnPath.command()
 	adviceDeclared          = refuseDeclared.command()
-	adviceCommand           = refuseCommand.command()
 	adviceOperator          = refuseOperator.command()
 	adviceOwn               = refuseOwnAction.command()
 )

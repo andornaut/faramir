@@ -459,8 +459,8 @@ func (s *Server) pend(runID string, run Run) (*escalation, bool, string, string)
 	// refusal. Requests from the same run joined their question above, so this
 	// refuses another command rather than another sudo.
 	if other := s.otherRunLocked(runID); other != "" {
-		return nil, false, CodeOtherCommand, fmt.Sprintf(
-			"%s is also running. Run this again once it has finished", other)
+		return nil, false, CodeOtherCommand,
+			other + " is also running. Run this again once it has finished"
 	}
 	id := newID()
 	if id == "" {
