@@ -43,8 +43,8 @@ func TestPartiallyOverlappingSecretsBothRedacted(t *testing.T) {
 // or a multi-line secret printed this way matches neither view.
 func TestCRLFAcrossEscapeAndChunkBoundary(t *testing.T) {
 	whole := "abc\r\x1b[31m\ndef"
-	oneShot := New(nil, DefaultPolicy()).RedactText(whole)
-	r := New(nil, DefaultPolicy())
+	oneShot := New(nil, defaultPolicy()).RedactText(whole)
+	r := New(nil, defaultPolicy())
 	streamed := r.Feed("abc\r\x1b[3") + r.Feed("1m\ndef") + r.Flush()
 	if streamed != oneShot {
 		t.Fatalf("streamed %q != one-shot %q", streamed, oneShot)
@@ -65,7 +65,7 @@ func TestBlankLineWrapIsHeldAndCaught(t *testing.T) {
 		{"hex", hexOf(secret)},
 	} {
 		t.Run(form.name, func(t *testing.T) {
-			r := New([]Secret{{Ref: "svc/token", Value: secret}}, DefaultPolicy())
+			r := New([]Secret{{Ref: "svc/token", Value: secret}}, defaultPolicy())
 			var wrapped strings.Builder
 			for i, c := range form.value {
 				if i > 0 {
@@ -111,7 +111,7 @@ func TestChunkingInvariance(t *testing.T) {
 // output must equal RedactText of the whole (chunking-invariance).
 func TestMultibyteRuneSplitAcrossFeedIsRedacted(t *testing.T) {
 	secret := "café-señor-naïve-passwörd" // several 2-byte runes
-	values := NewValues([]Secret{{Ref: "m", Value: secret}}, DefaultPolicy())
+	values := NewValues([]Secret{{Ref: "m", Value: secret}}, defaultPolicy())
 	line := "before " + secret + " after"
 	whole := values.Redactor().RedactText(line)
 	if !strings.Contains(whole, TokenFor("m")) {

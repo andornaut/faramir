@@ -172,13 +172,11 @@ type project struct {
 	targets []*agentcfg.Target
 }
 
-// step, skip and warnf are the report's, forwarded so a step here spells them
-// the way a step in `init` does.
+// step and warnf are the report's, forwarded so a step here spells them the
+// way a step in `init` does.
 func (p *project) step(name string, changed bool, detail string) {
 	p.report.Record(name, changed, detail)
 }
-
-func (p *project) skip(name, why string) { p.report.Skip(name, why) }
 
 func (p *project) warnf(format string, args ...any) {
 	p.report.Warnf(format, args...)

@@ -49,7 +49,7 @@ func TestOverlapHoldsPathologicalWrap(t *testing.T) {
 		{"percent/wrap1", wrapEvery(percentEncode(streamSecret, safeQuote, false, false), 1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
+			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, defaultPolicy())
 			got := feedRuneByRune(r, "head\n"+tc.form+"\ntail")
 			rejoined := strings.ReplaceAll(got, "\n", "")
 			if strings.Contains(rejoined, streamSecret) {
@@ -72,12 +72,12 @@ func TestColourSpliceIsStripped(t *testing.T) {
 		{"per-char", spliceEveryChar(streamSecret, "\x1b[32m")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
+			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, defaultPolicy())
 			if got := r.RedactText("x " + tc.spliced + " y"); strings.Contains(got, streamSecret) {
 				t.Errorf("raw secret leaked despite stripping: %q", got)
 			}
 			// Fed one rune at a time, the escape splits across chunks too.
-			streamed := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
+			streamed := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, defaultPolicy())
 			if got := feedRuneByRune(streamed, "x "+tc.spliced+" y"); strings.Contains(got, streamSecret) {
 				t.Errorf("streamed: raw secret leaked: %q", got)
 			}
@@ -102,7 +102,7 @@ func TestZeroWidthSplicingSurvivesStage1(t *testing.T) {
 		{"soft hyphen", "\u00ad"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
+			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, defaultPolicy())
 			got := r.RedactText(spliceEveryChar(streamSecret, tc.sep))
 
 			// Whole in the output once the separator is taken back out, which any

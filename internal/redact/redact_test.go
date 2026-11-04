@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 const secret = "hunter2-correct-horse"
@@ -19,8 +21,13 @@ var (
 	digity  = "secret9 value here"
 )
 
+// defaultPolicy is the policy an install that sets no [secret] min_length gets.
+func defaultPolicy() EligibilityPolicy {
+	return EligibilityPolicy{MinLength: config.DefaultMinLength}
+}
+
 func newTestRedactor() *Redactor {
-	return New([]Secret{{Ref: "home/router/admin", Value: secret}}, DefaultPolicy())
+	return New([]Secret{{Ref: "home/router/admin", Value: secret}}, defaultPolicy())
 }
 
 // routerToken is the token the default redactor replaces `secret` with.
@@ -150,7 +157,7 @@ func TestRedactTextCoversEveryVariantSpelling(t *testing.T) {
 			if secrets == nil {
 				secrets = []Secret{{Ref: "home/router/admin", Value: secret}}
 			}
-			out := New(secrets, DefaultPolicy()).RedactText(tc.text)
+			out := New(secrets, defaultPolicy()).RedactText(tc.text)
 			for _, gone := range tc.gone {
 				if strings.Contains(out, gone) {
 					t.Errorf("survived: %q in %q", gone, out)
@@ -195,7 +202,7 @@ func TestValueSplitAcrossChunks(t *testing.T) {
 // words, so redacting it would blank unrelated output at random; that is about
 // what this program does with a value rather than about the value.
 func TestATooShortValueIsRefused(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := defaultPolicy()
 	for _, value := range []string{"", "abc", "1234567"} {
 		if !policy.Check(value).Refused() {
 			t.Errorf("%q was accepted", value)
@@ -210,7 +217,7 @@ func TestATooShortValueIsRefused(t *testing.T) {
 // or Shannon-entropy floor would refuse to carry values it graded as weak while
 // not being the strength check it reads as: "password" clears both.
 func TestAWeakButLongValueIsCarried(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := defaultPolicy()
 	for _, value := range []string{"password", "aaaaaaaaaaaa", "ababababababab"} {
 		if why := policy.Check(value); why.Refused() {
 			t.Errorf("%q was refused as %q; strength is the operator's call", value, why.Reason)
@@ -249,7 +256,7 @@ func TestStripANSI(t *testing.T) {
 }
 
 func TestEmptyRedactorPassesTextThrough(t *testing.T) {
-	r := New(nil, DefaultPolicy())
+	r := New(nil, defaultPolicy())
 	const text = "nothing to redact here"
 	if out := r.RedactText(text); out != text {
 		t.Errorf("got %q, want %q", out, text)
@@ -278,7 +285,7 @@ func BenchmarkRedactorNew(b *testing.B) {
 			secrets := manySecrets(n)
 			b.ReportAllocs()
 			for b.Loop() {
-				New(secrets, DefaultPolicy())
+				New(secrets, defaultPolicy())
 			}
 		})
 	}
@@ -295,7 +302,7 @@ func BenchmarkRedactorFeed(b *testing.B) {
 			b.SetBytes(int64(len(chunk)))
 			b.ReportAllocs()
 			for b.Loop() {
-				r := New(secrets, DefaultPolicy())
+				r := New(secrets, defaultPolicy())
 				r.Feed(chunk)
 				r.Flush()
 			}
@@ -315,7 +322,7 @@ func TestAValueStage1RewritesIsStillRedacted(t *testing.T) {
 		{"an escape sequence", "abcd\x1b[0mefghij"},
 		{"a bare CR, which stage 1 keeps", "abcdef\rghijkl"},
 	} {
-		r := New([]Secret{{Ref: "a/b", Value: c.value}}, DefaultPolicy())
+		r := New([]Secret{{Ref: "a/b", Value: c.value}}, defaultPolicy())
 		got := r.RedactText("before " + c.value + " after")
 		if want := "before " + TokenFor("a/b") + " after"; got != want {
 			t.Errorf("%s: got %q, want %q", c.name, got, want)
@@ -327,7 +334,7 @@ func TestAValueStage1RewritesIsStillRedacted(t *testing.T) {
 // something too short to search output for, and adding it would blank
 // unrelated text. The policy decides, as it does for the value itself.
 func TestAValueThatStripsUnderTheFloorIsNotAdded(t *testing.T) {
-	r := New([]Secret{{Ref: "a/b", Value: strings.Repeat("\x01", 10) + "ab"}}, DefaultPolicy())
+	r := New([]Secret{{Ref: "a/b", Value: strings.Repeat("\x01", 10) + "ab"}}, defaultPolicy())
 	const text = "a table of abbreviations"
 	if got := r.RedactText(text); got != text {
 		t.Errorf("a value that strips to %q ate the output: %q", "ab", got)
@@ -341,7 +348,7 @@ func TestEveryValueIsOneAutomaton(t *testing.T) {
 		{Ref: "a/one", Value: "hunter2-correct-horse"},
 		{Ref: "b/two", Value: "tok_live_0PENSESAME_9911"},
 	}
-	r := New(secrets, DefaultPolicy())
+	r := New(secrets, defaultPolicy())
 	if r.matcher == nil {
 		t.Fatal("no matcher was built")
 	}
@@ -361,7 +368,7 @@ func TestEveryValueIsOneAutomaton(t *testing.T) {
 // gigabytes, where the host kills it and nothing is redacted at all until it
 // comes back.
 func TestAValueTooLargeToHoldIsRefused(t *testing.T) {
-	policy := DefaultPolicy()
+	policy := defaultPolicy()
 	for _, tc := range []struct {
 		name    string
 		size    int

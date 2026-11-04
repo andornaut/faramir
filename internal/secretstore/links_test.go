@@ -53,7 +53,7 @@ func TestALinkedValueJoinsTheValueSet(t *testing.T) {
 	}})
 	s.Reload()
 
-	got, err := s.Value("gh/token")
+	got, err := s.Snapshot().Value("gh/token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestALinkedValueJoinsTheValueSet(t *testing.T) {
 	}
 	// The redactor is handed both, which is the point of linking at all.
 	var linked bool
-	for _, pair := range s.pairs() {
+	for _, pair := range pairsOf(s.Snapshot().values) {
 		if pair.Ref == "gh/token" && pair.Value == "gho_linked_example" {
 			linked = true
 		}
@@ -97,7 +97,7 @@ func TestAnUnreadableLinkRefusesItsOwnRefAlone(t *testing.T) {
 		t.Errorf("the broken link is not reported: %v", degraded)
 	}
 	// The ref itself answers nothing, and says which kind of nothing.
-	_, err := s.Value("gh/token")
+	_, err := s.Snapshot().Value("gh/token")
 	if err == nil || !strings.Contains(err.Error(), "linked and did not load") {
 		t.Errorf("error = %v, want the ref refused as a link that did not load", err)
 	}
@@ -107,7 +107,7 @@ func TestAnUnreadableLinkRefusesItsOwnRefAlone(t *testing.T) {
 		t.Errorf("the refusal carries the file's path: %v", err)
 	}
 	// The managed value is still held: one broken link does not blank the set.
-	if _, err := s.Value("a/b"); err != nil {
+	if _, err := s.Snapshot().Value("a/b"); err != nil {
 		t.Errorf("a broken link dropped a managed value: %v", err)
 	}
 }
@@ -183,7 +183,7 @@ func TestAShortLinkedValueIsRefused(t *testing.T) {
 	if refs := s.Refs(); len(refs) != 0 {
 		t.Errorf("a short linked value was listed: %v", refs)
 	}
-	if _, err := s.Value("short/token"); err == nil ||
+	if _, err := s.Snapshot().Value("short/token"); err == nil ||
 		!strings.Contains(err.Error(), "refused at load") {
 		t.Errorf("error = %v, want the refusal the managed values get", err)
 	}
@@ -219,7 +219,7 @@ func TestALinkShadowingAManagedRefIsRefused(t *testing.T) {
 			s.degradedLinks)
 	}
 	// The managed value wins, so the redactor still covers what sops holds.
-	if got, err := s.Value("a/b"); err != nil || got != "hunter2-correct-horse" {
+	if got, err := s.Snapshot().Value("a/b"); err != nil || got != "hunter2-correct-horse" {
 		t.Errorf("value = (%q, %v), want the managed one", got, err)
 	}
 }
@@ -239,7 +239,7 @@ func TestAnEditedLinkIsPickedUp(t *testing.T) {
 	}
 	s.RefreshIfStale()
 
-	got, err := s.Value("gh/token")
+	got, err := s.Snapshot().Value("gh/token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestALinksOnlyStoreServesWhenTheKeeperGoesAway(t *testing.T) {
 	if reason := s.Unreadable(); reason != "" {
 		t.Errorf("a links-only store refused when the keeper went away: %s", reason)
 	}
-	if got, err := s.Value("gh/token"); err != nil || got != "gho_linked_example" {
+	if got, err := s.Snapshot().Value("gh/token"); err != nil || got != "gho_linked_example" {
 		t.Errorf("value = (%q, %v), want the linked one still held", got, err)
 	}
 }
@@ -357,7 +357,7 @@ func TestALinkIsPickedUpInsideTheKeeperInterval(t *testing.T) {
 	}
 	s.RefreshIfStale()
 
-	got, err := s.Value("gh/token")
+	got, err := s.Snapshot().Value("gh/token")
 	if err != nil {
 		t.Fatal(err)
 	}

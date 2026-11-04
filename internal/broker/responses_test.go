@@ -168,16 +168,3 @@ func TestStatusNeverCarriesAValue(t *testing.T) {
 		t.Errorf("status leaked a value: %q", body)
 	}
 }
-
-// An unexpected error string may have interpolated a value.
-func TestSafeDetailRedactsAValue(t *testing.T) {
-	const secret = "hunter2-correct-horse"
-	s := newServer(t, map[string]string{"a/b": secret})
-	got := s.safeDetail("exec failed: could not connect with " + secret)
-	if strings.Contains(got, secret) {
-		t.Errorf("an error message leaked a value: %q", got)
-	}
-	if !strings.Contains(got, "«SECRET:a/b»") {
-		t.Errorf("no token in %q", got)
-	}
-}

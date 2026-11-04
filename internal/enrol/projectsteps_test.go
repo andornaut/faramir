@@ -95,21 +95,6 @@ func TestEnrolmentWarnsWhenTheBinaryTheHookExecsIsAbsent(t *testing.T) {
 	}
 }
 
-// An enrolment can say a step was not evaluated, which is what a dry run and a
-// step with no subject both need: a step missing from the report reads as one
-// that never existed.
-func TestAnEnrolmentCanRecordASkippedStep(t *testing.T) {
-	run := &project{}
-	run.skip("share tree", "dry run")
-
-	if len(run.report.Steps) != 1 || !run.report.Steps[0].Skipped {
-		t.Fatalf("skip recorded %+v, want one skipped step", run.report.Steps)
-	}
-	if run.report.Changed {
-		t.Error("a skipped step marked the report changed")
-	}
-}
-
 // A directory created for an agent's files in a tree is shared like the rest of
 // it. The files go in group-readable because the tree is shared with the
 // client group; 0700 above them would make an enrolled tree's own configuration

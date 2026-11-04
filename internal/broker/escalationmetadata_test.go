@@ -22,7 +22,8 @@ func TestEscalationQuestionsAndAuditRedactCommandMetadata(t *testing.T) {
 			Argv: []string{"bin/tool", marker}, Cwd: "/work/" + marker,
 			Argv0Path: "/work/" + marker + "/bin/tool", LogID: "metadata-test",
 		}
-		captured := redact.NewValues([]redact.Secret{{Ref: "fixture/value", Value: marker}}, redact.DefaultPolicy())
+		captured := redact.NewValues([]redact.Secret{{Ref: "fixture/value", Value: marker}},
+			redact.EligibilityPolicy{MinLength: config.DefaultMinLength})
 		metadata := escalationMetadata(captured.Redactor(), original)
 		s := escalation.New(config.SudoConfig{ExecUser: "test-executor", TimeoutSec: 10})
 		t.Cleanup(s.Stop)

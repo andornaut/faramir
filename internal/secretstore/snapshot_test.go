@@ -22,20 +22,20 @@ func TestSnapshotRetainsValuesAndMatcherAcrossReload(t *testing.T) {
 	if got, err := snapshot.Value("svc/token"); err != nil || got != oldValue {
 		t.Fatalf("snapshot changed after reload: %q, %v", got, err)
 	}
-	if got, err := s.Value("svc/token"); err != nil || got != newValue {
+	if got, err := s.Snapshot().Value("svc/token"); err != nil || got != newValue {
 		t.Fatalf("store did not update: %q, %v", got, err)
 	}
 	if _, err := snapshot.Value("tiny"); err == nil || !strings.Contains(err.Error(), "refused at load") {
 		t.Fatalf("snapshot lost its refusal: %v", err)
 	}
-	if _, err := s.Value("tiny"); err != nil {
+	if _, err := s.Snapshot().Value("tiny"); err != nil {
 		t.Fatalf("store retained its old refusal: %v", err)
 	}
 	input := oldValue + " " + newValue
 	if got := snapshot.Redactor().RedactText(input); got != redact.TokenFor("svc/token")+" "+newValue {
 		t.Fatalf("snapshot used a different matcher: %q", got)
 	}
-	if got := s.Redactor().RedactText(input); got != oldValue+" "+redact.TokenFor("svc/token") {
+	if got := s.Snapshot().Redactor().RedactText(input); got != oldValue+" "+redact.TokenFor("svc/token") {
 		t.Fatalf("store retained its old matcher: %q", got)
 	}
 	if len(snapshot.Redactor().Summary()) != 0 {

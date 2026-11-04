@@ -57,7 +57,7 @@ func FuzzNoRenderingOfAValueSurvives(f *testing.F) {
 		// A value that is not valid UTF-8, and one whose own bytes stage 1
 		// rewrites, are their own cases and are skipped here so this keeps
 		// hunting for the ways a value gets past the matcher itself.
-		if DefaultPolicy().Check(value).Refused() || stripANSI(value) != value || !utf8.ValidString(value) {
+		if defaultPolicy().Check(value).Refused() || stripANSI(value) != value || !utf8.ValidString(value) {
 			t.Skip()
 		}
 		if !isPrintableRun(value) {
@@ -68,7 +68,7 @@ func FuzzNoRenderingOfAValueSurvives(f *testing.F) {
 				continue
 			}
 			text := prefix + rendering + suffix
-			r := New([]Secret{{Ref: "a/b", Value: value}}, DefaultPolicy())
+			r := New([]Secret{{Ref: "a/b", Value: value}}, defaultPolicy())
 			got := stream(r, chunks(text, seed))
 			if strings.Contains(got, rendering) {
 				t.Fatalf("rendering %q survived in %q (value %q, chunks %v)",
@@ -98,12 +98,12 @@ func FuzzTheChunkingDoesNotChangeTheOutput(f *testing.F) {
 	f.Add("hunter2-correct-horse", "line\r\nhunter2-correct-horse\r\n", []byte{2, 2})
 
 	f.Fuzz(func(t *testing.T, value, text string, seed []byte) {
-		if DefaultPolicy().Check(value).Refused() || !utf8.ValidString(value) {
+		if defaultPolicy().Check(value).Refused() || !utf8.ValidString(value) {
 			t.Skip()
 		}
-		one := New([]Secret{{Ref: "a/b", Value: value}}, DefaultPolicy())
+		one := New([]Secret{{Ref: "a/b", Value: value}}, defaultPolicy())
 		want := one.RedactText(text)
-		many := New([]Secret{{Ref: "a/b", Value: value}}, DefaultPolicy())
+		many := New([]Secret{{Ref: "a/b", Value: value}}, defaultPolicy())
 		got := stream(many, chunks(text, seed))
 		if got != want {
 			t.Fatalf("chunked %q, one-shot %q (value %q, chunks %q)", got, want, value, chunks(text, seed))
@@ -117,7 +117,7 @@ func FuzzNeitherOfTwoOverlappingValuesSurvives(f *testing.F) {
 	f.Add("hunter2-correct", "hunter2-correct-horse", "x ", " y", []byte{3})
 
 	f.Fuzz(func(t *testing.T, short, long, prefix, suffix string, seed []byte) {
-		p := DefaultPolicy()
+		p := defaultPolicy()
 		if p.Check(short).Refused() || p.Check(long).Refused() {
 			t.Skip()
 		}

@@ -376,13 +376,8 @@ func (s *Store) Refs() []string {
 	return sortedKeys(s.values)
 }
 
-// Value returns one secret.
-func (s *Store) Value(ref string) (string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return value(s.values, s.refused, s.namesFix, s.degradedLinks, ref)
-}
-
+// value looks a ref up in one generation of the set, naming why a ref it does
+// not serve is missing.
 func value(values, refused map[string]string, namesFix map[string]bool,
 	degradedLinks map[string]string, ref string) (string, error) {
 	if v, ok := values[ref]; ok {
@@ -411,38 +406,12 @@ func value(values, refused map[string]string, namesFix map[string]bool,
 	return "", fmt.Errorf("unknown secret ref: %s; list them with `faramir refs`", ref)
 }
 
-// Redactor is a redactor over the current value set, sharing the compiled
-// matcher rather than building one. Every caller that redacts should take one
-// from here.
-func (s *Store) Redactor() *redact.Redactor {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.compiled == nil {
-		// A store that has not loaded yet. It serves nothing, so there is nothing
-		// to match; building an empty set per call costs nothing worth caching.
-		return redact.New(nil, s.Policy)
-	}
-	return s.compiled.Redactor()
-}
-
-// pairsOf is pairs over a map the caller already holds, for the compile above:
-// pairs takes the read lock, which Reload holds for writing.
+// pairsOf is every (ref, value) pair in values, in ref order: the input to the
+// redactor's value set. The age key is absent, no child being able to obtain it.
 func pairsOf(values map[string]string) []redact.Secret {
 	out := make([]redact.Secret, 0, len(values))
 	for _, ref := range sortedKeys(values) {
 		out = append(out, redact.Secret{Ref: ref, Value: values[ref]})
-	}
-	return out
-}
-
-// pairs is every (ref, value) pair: the input to the redactor's value set. The
-// age key is absent, no child being able to obtain it.
-func (s *Store) pairs() []redact.Secret {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]redact.Secret, 0, len(s.values))
-	for _, ref := range sortedKeys(s.values) {
-		out = append(out, redact.Secret{Ref: ref, Value: s.values[ref]})
 	}
 	return out
 }

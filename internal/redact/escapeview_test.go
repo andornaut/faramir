@@ -137,7 +137,7 @@ func BenchmarkRedactorFeedColoured(b *testing.B) {
 			b.SetBytes(int64(len(chunk)))
 			b.ReportAllocs()
 			for b.Loop() {
-				r := New(secrets, DefaultPolicy())
+				r := New(secrets, defaultPolicy())
 				r.Feed(chunk)
 				r.Flush()
 			}

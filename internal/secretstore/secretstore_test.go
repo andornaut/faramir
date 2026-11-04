@@ -47,7 +47,7 @@ func TestARedactableValueIsLoaded(t *testing.T) {
 	s := newStore(t, k)
 	s.Reload()
 
-	got, err := s.Value("a/b")
+	got, err := s.Snapshot().Value("a/b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestAShortValueIsRefused(t *testing.T) {
 	if refs := s.Refs(); len(refs) != 0 {
 		t.Errorf("a short value was listed: %v", refs)
 	}
-	_, err := s.Value("tiny")
+	_, err := s.Snapshot().Value("tiny")
 	if err == nil {
 		t.Fatal("a short value was injectable")
 	}
@@ -86,14 +86,12 @@ func TestAnOversizedValueCarriesOneFix(t *testing.T) {
 	s := newStore(t, k)
 	s.Reload()
 
-	for _, get := range []func(string) (string, error){s.Value, s.Snapshot().Value} {
-		_, err := get("huge")
-		if err == nil {
-			t.Fatal("an oversized value was injectable")
-		}
-		if !strings.Contains(err.Error(), "block add --path") || strings.Contains(err.Error(), "vault edit") {
-			t.Errorf("message = %q, want the block hint and no other", err.Error())
-		}
+	_, err := s.Snapshot().Value("huge")
+	if err == nil {
+		t.Fatal("an oversized value was injectable")
+	}
+	if !strings.Contains(err.Error(), "block add --path") || strings.Contains(err.Error(), "vault edit") {
+		t.Errorf("message = %q, want the block hint and no other", err.Error())
 	}
 }
 
@@ -105,7 +103,7 @@ func TestALowEntropyValueIsCarried(t *testing.T) {
 	k := keepertest.New(t, map[string]string{"flat": "abababababababab"})
 	s := newStore(t, k)
 	s.Reload()
-	if _, err := s.Value("flat"); err != nil {
+	if _, err := s.Snapshot().Value("flat"); err != nil {
 		t.Fatalf("a long but low-entropy value was refused: %v", err)
 	}
 }
@@ -116,7 +114,7 @@ func TestAnUnknownRefIsNotReportedAsRefused(t *testing.T) {
 	s := newStore(t, k)
 	s.Reload()
 
-	_, err := s.Value("nope")
+	_, err := s.Snapshot().Value("nope")
 	if err == nil {
 		t.Fatal("an unknown ref resolved")
 	}
@@ -168,13 +166,13 @@ func TestARefusalDoesNotSurviveAReloadThatFixesIt(t *testing.T) {
 	k := keepertest.New(t, map[string]string{"x": "abc"})
 	s := newStore(t, k)
 	s.Reload()
-	if _, err := s.Value("x"); err == nil {
+	if _, err := s.Snapshot().Value("x"); err == nil {
 		t.Fatal("the short value was injectable")
 	}
 
 	k.SetValues(map[string]string{"x": "hunter2-correct-horse"})
 	s.Reload()
-	if _, err := s.Value("x"); err != nil {
+	if _, err := s.Snapshot().Value("x"); err != nil {
 		t.Fatalf("the lengthened value is still refused: %v", err)
 	}
 	refused := s.DescribeForOperator().NotRedactable
@@ -192,7 +190,7 @@ func TestAnUnreachableKeeperKeepsThePreviousValueSet(t *testing.T) {
 	_ = k.Listener.Close()
 	s.Reload()
 
-	if got, err := s.Value("a/b"); err != nil || got != "hunter2-correct-horse" {
+	if got, err := s.Snapshot().Value("a/b"); err != nil || got != "hunter2-correct-horse" {
 		t.Errorf("the value set was dropped: %q %v", got, err)
 	}
 	if len(s.LoadErrors()) == 0 {
@@ -224,7 +222,7 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	// No edit, no SIGHUP: only the interval-gated re-load recovers this.
 	s.RefreshIfStale()
 
-	if got, err := s.Value("x"); err != nil || got != "hunter2-correct-horse" {
+	if got, err := s.Snapshot().Value("x"); err != nil || got != "hunter2-correct-horse" {
 		t.Errorf("the store did not recover once the keeper was up: %q %v", got, err)
 	}
 }
@@ -302,12 +300,12 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 	if n := served.Load(); n != 1 {
 		t.Errorf("the keeper served %d reloads, want 1", n)
 	}
-	if got, err := s.Value("x"); err != nil || got != "hunter2-correct-horse" {
+	if got, err := s.Snapshot().Value("x"); err != nil || got != "hunter2-correct-horse" {
 		t.Errorf("the one reload that ran did not land: %q %v", got, err)
 	}
 }
 
-// pairs is the redactor's input: every managed value, not just injected ones.
+// pairsOf is the redactor's input: every managed value, not just injected ones.
 func TestPairsCarriesEveryLoadedValue(t *testing.T) {
 	k := keepertest.New(t, map[string]string{
 		"a": "hunter2-correct-horse", "b": "another-good-value", "tiny": "abc",
@@ -315,7 +313,7 @@ func TestPairsCarriesEveryLoadedValue(t *testing.T) {
 	s := newStore(t, k)
 	s.Reload()
 
-	pairs := s.pairs()
+	pairs := pairsOf(s.Snapshot().values)
 	if len(pairs) != 2 {
 		t.Fatalf("pairs = %v", pairs)
 	}
@@ -417,7 +415,7 @@ func TestRefreshIfStaleReloadsOnAChangedFile(t *testing.T) {
 	}
 	s.RefreshIfStale()
 
-	if got, _ := s.Value("x"); got != "a-different-good-value" {
+	if got, _ := s.Snapshot().Value("x"); got != "a-different-good-value" {
 		t.Errorf("value = %q; the edit was not picked up", got)
 	}
 }

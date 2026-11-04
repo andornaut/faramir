@@ -22,7 +22,7 @@ func TestPercentEncodedSpellingsAreRedacted(t *testing.T) {
 		{"form encoding, space as plus", "r0uter%21pass%26word%3Ctricky%3E%2Fa+b"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New([]Secret{{Ref: "router/admin", Value: value}}, DefaultPolicy())
+			r := New([]Secret{{Ref: "router/admin", Value: value}}, defaultPolicy())
 			got := r.RedactText("GET /x?p=" + tc.text + " HTTP/1.1")
 			if strings.Contains(got, tc.text) {
 				t.Errorf("the %s spelling reached the output verbatim:\n%s", tc.name, got)

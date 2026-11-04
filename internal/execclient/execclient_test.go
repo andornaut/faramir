@@ -62,7 +62,8 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 // received.
 func (h *harness) run(t *testing.T, script string) (*Result, string) {
 	t.Helper()
-	r := redact.New([]redact.Secret{{Ref: "a/b", Value: secret}}, redact.DefaultPolicy())
+	r := redact.New([]redact.Secret{{Ref: "a/b", Value: secret}},
+		redact.EligibilityPolicy{MinLength: config.DefaultMinLength})
 	var audited strings.Builder
 	result, err := Run(h.execCfg, h.executorCfg, r, func(s string) { audited.WriteString(s) },
 		Request{
@@ -200,7 +201,8 @@ func tail(s string) string {
 // the timeout a way to print a value in the clear.
 func TestOutputPrintedBeforeATimeoutIsStillRedacted(t *testing.T) {
 	h := newHarness(t, 1<<20)
-	r := redact.New([]redact.Secret{{Ref: "a/b", Value: secret}}, redact.DefaultPolicy())
+	r := redact.New([]redact.Secret{{Ref: "a/b", Value: secret}},
+		redact.EligibilityPolicy{MinLength: config.DefaultMinLength})
 	var audited strings.Builder
 	result, err := Run(h.execCfg, h.executorCfg, r, func(s string) { audited.WriteString(s) },
 		Request{

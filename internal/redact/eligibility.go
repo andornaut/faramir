@@ -7,8 +7,6 @@ package redact
 import (
 	"fmt"
 	"strings"
-
-	"github.com/andornaut/faramir/internal/config"
 )
 
 // EligibilityPolicy is the one property of a value this decides: whether it is
@@ -46,11 +44,6 @@ type EligibilityPolicy struct {
 // `faramir link` is not the way around it, a linked value entering the same
 // automaton.
 const MaxValueBytes = 16 << 10
-
-// DefaultPolicy is the policy an install that sets no [secret] min_length gets.
-func DefaultPolicy() EligibilityPolicy {
-	return EligibilityPolicy{MinLength: config.DefaultMinLength}
-}
 
 // Refusal is why a value may not be redacted, and the zero value where it may.
 type Refusal struct {

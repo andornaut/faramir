@@ -27,7 +27,7 @@ func TestInvalidBytesAreCountedBeforeTheyBecomeReplacements(t *testing.T) {
 		{"a truncated sequence", "before \xe2\x82 after", 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := New(nil, DefaultPolicy())
+			r := New(nil, defaultPolicy())
 			out := r.RedactText(tc.text)
 			if got := r.InvalidBytes(); got != tc.want {
 				t.Errorf("InvalidBytes() = %d, want %d", got, tc.want)
@@ -45,7 +45,7 @@ func TestInvalidBytesAreCountedBeforeTheyBecomeReplacements(t *testing.T) {
 // number for the whole stream, so a chunk that carried nothing invalid must not
 // clear what an earlier one counted.
 func TestTheCountCoversTheWholeStream(t *testing.T) {
-	r := New(nil, DefaultPolicy())
+	r := New(nil, defaultPolicy())
 	r.Feed("clean\n")
 	r.Feed("\xff more\n")
 	r.Feed("clean again\n")
@@ -61,7 +61,7 @@ func TestTheCountCoversTheWholeStream(t *testing.T) {
 // the second arrives. Holding the \r back is what makes the two chunks read
 // like the one text they were.
 func TestACarriageReturnHeldAtAChunkBoundaryIsStillNormalised(t *testing.T) {
-	r := New(nil, DefaultPolicy())
+	r := New(nil, defaultPolicy())
 	var out strings.Builder
 	out.WriteString(r.Feed("first line\r"))
 	out.WriteString(r.Feed("\nsecond line\r\n"))
@@ -81,7 +81,7 @@ func TestACarriageReturnHeldAtAChunkBoundaryIsStillNormalised(t *testing.T) {
 func TestOneValueUnderTwoRefsIsCompiledOnce(t *testing.T) {
 	const value = "hunter2-correct-horse"
 	r := New([]Secret{{Ref: "first/ref", Value: value}, {Ref: "second/ref", Value: value}},
-		DefaultPolicy())
+		defaultPolicy())
 
 	for text, token := range r.tokenOf {
 		if token == TokenFor("second/ref") {
@@ -103,7 +103,7 @@ func TestOneValueUnderTwoRefsIsCompiledOnce(t *testing.T) {
 // A value the policy refuses is carried by neither ref: New drops it before it
 // is compiled, so nothing in the output is replaced on its account.
 func TestARefusedValueCompilesToNothing(t *testing.T) {
-	r := New([]Secret{{Ref: "short/ref", Value: "abc"}}, DefaultPolicy())
+	r := New([]Secret{{Ref: "short/ref", Value: "abc"}}, defaultPolicy())
 
 	if r.matcher != nil {
 		t.Fatal("a refused value still compiled into the matcher")
@@ -125,7 +125,7 @@ func TestARefusedValueCompilesToNothing(t *testing.T) {
 // carry the token-value's ref instead of its own. Refusing it keeps it out of
 // the matcher, so the emitted token is stable.
 func TestATokenShapedValueIsRefused(t *testing.T) {
-	p := DefaultPolicy()
+	p := defaultPolicy()
 	if !p.Check(TokenFor("api")).Refused() {
 		t.Error("a value equal to a token was not refused")
 	}
@@ -139,7 +139,7 @@ func TestATokenShapedValueIsRefused(t *testing.T) {
 	// value's plaintext yields its own token, not the token-value's ref.
 	api := Secret{Ref: "api", Value: "an-ordinary-credential-value"}
 	spoof := Secret{Ref: "spoof", Value: TokenFor("api")}
-	r := New([]Secret{api, spoof}, DefaultPolicy())
+	r := New([]Secret{api, spoof}, defaultPolicy())
 	if got := r.RedactText(api.Value); got != TokenFor("api") {
 		t.Errorf("RedactText(apiValue) = %q, want %q: the token-shaped value was not kept out of the matcher",
 			got, TokenFor("api"))

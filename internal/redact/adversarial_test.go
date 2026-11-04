@@ -10,7 +10,7 @@ import (
 // survives reports whether needle is still present after the redactor has been
 // over output holding secret.
 func survives(secret, needle, output string) bool {
-	r := New([]Secret{{Ref: "svc/token", Value: secret}}, DefaultPolicy())
+	r := New([]Secret{{Ref: "svc/token", Value: secret}}, defaultPolicy())
 	return strings.Contains(r.RedactText(output), needle)
 }
 
