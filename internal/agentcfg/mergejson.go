@@ -34,7 +34,7 @@ func MergeJSON(existing, ours []byte, wrote []string) ([]byte, error) {
 	}
 	var into, from any
 	if err := json.Unmarshal(existing, &into); err != nil {
-		return nil, fmt.Errorf("parsing the file already there: %w", err)
+		return nil, fmt.Errorf("not valid JSON: %w", err)
 	}
 	if err := json.Unmarshal(ours, &from); err != nil {
 		return nil, fmt.Errorf("parsing what would be written: %w", err)
@@ -107,7 +107,7 @@ func mergeValue(into, from any, wrote []string) (any, error) {
 			return nil, err
 		}
 		return nil, fmt.Errorf("holds the single value %s where faramir writes an "+
-			"object of rules; rewrite it as an object and run this again", value)
+			"object. Rewrite it as an object", value)
 	}
 
 	// A scalar, or the shapes disagree. faramir's value wins: a file holding a

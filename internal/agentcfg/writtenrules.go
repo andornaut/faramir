@@ -126,9 +126,8 @@ func unchangedSince(configDir string, expect []byte) error {
 	if bytes.Equal(now, expect) {
 		return nil
 	}
-	return fmt.Errorf("%s changed while this was working on it, so nothing was "+
-		"removed: another faramir command edited it. Run them one at a time, then "+
-		"run this again", writtenRulesPath(configDir))
+	return fmt.Errorf("%s changed while this was working on it; nothing was removed. "+
+		"Run this again", writtenRulesPath(configDir))
 }
 
 // writtenRulesDigest is the record as it stands, or nil where there is none: a

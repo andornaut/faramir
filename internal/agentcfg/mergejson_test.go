@@ -319,7 +319,7 @@ func TestMergeJSONRefusesUnparseableFile(t *testing.T) {
 	if err == nil {
 		t.Fatal("no error merging into a file that does not parse")
 	}
-	if !strings.Contains(err.Error(), "already there") {
-		t.Errorf("error does not say which side failed: %v", err)
+	if !strings.Contains(err.Error(), "not valid JSON") {
+		t.Errorf("error does not say the file is not JSON: %v", err)
 	}
 }

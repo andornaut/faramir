@@ -76,7 +76,7 @@ func TestExtractJSONSelectsByKeyPath(t *testing.T) {
 		"number":     {key: "count", want: "3"},
 		"missing":    {key: "auths/docker.io/auth", wantErr: "has no auths/docker.io"},
 		"not scalar": {key: "auths", wantErr: "not a value"},
-		"boolean":    {key: "on", wantErr: "never a secret"},
+		"boolean":    {key: "on", wantErr: "is a boolean"},
 		"through a leaf": {key: "count/deeper",
 			wantErr: "has no count/deeper: count is not a table or a list"},
 	} {

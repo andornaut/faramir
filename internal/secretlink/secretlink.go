@@ -102,8 +102,7 @@ func readBounded(path string) ([]byte, error) {
 		return nil, err
 	}
 	if len(data) > maxBytes {
-		return nil, fmt.Errorf("is larger than %d bytes, which is too large for a "+
-			"credential file", maxBytes)
+		return nil, fmt.Errorf("is larger than %d bytes", maxBytes)
 	}
 	return data, nil
 }
@@ -130,8 +129,7 @@ func extract(kind, key string, data []byte) (string, error) {
 	switch kind {
 	case KindText:
 		if !utf8.Valid(data) {
-			return "", errors.New("is not valid UTF-8, so it cannot be redacted from " +
-				"output or held in an environment variable; use type = \"base64\"")
+			return "", errors.New("is not valid UTF-8. Use type base64")
 		}
 		value := strings.TrimSpace(string(data))
 		if value == "" {
@@ -195,5 +193,5 @@ func Refusal(path, kind string, cause error) error {
 		// the keys a file offers.
 		shown[i] = termsafe.Truncate(termsafe.Arg(key), maxKeyChars)
 	}
-	return fmt.Errorf("%w\nthis file offers: %s", cause, strings.Join(shown, ", "))
+	return fmt.Errorf("%w\n  this file offers: %s", cause, strings.Join(shown, ", "))
 }

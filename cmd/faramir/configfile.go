@@ -67,7 +67,8 @@ func findConfigFile(st brokerclient.Status) (string, error) {
 
 // errNoInstall names both places that were asked, so the operator knows which
 // one to repair rather than which directory to pass.
-var errNoInstall = fmt.Errorf("no install found: the broker did not answer and %s names no config file", brokerUnit)
+var errNoInstall = fmt.Errorf("no install found: the broker did not answer and %s "+
+	"names no config file. Set FARAMIR_CONFIG to the config file", brokerUnit)
 
 // resolveConfigDir is the directory holding this host's config, for the
 // commands that act on the install rather than read it.

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/andornaut/faramir/internal/hostfs"
 )
@@ -73,8 +74,8 @@ func Resolve(names []string, scope Scope, dir, home string) ([]*Target, error) {
 			continue
 		}
 		if _, ok := Targets[name]; !ok {
-			return nil, fmt.Errorf("unknown --agent %q; known agents are %v, or %q",
-				name, Known(), Auto)
+			return nil, fmt.Errorf("unknown --agent %q; known: %s, %s",
+				name, strings.Join(Known(), ", "), Auto)
 		}
 		wanted[name] = true
 	}

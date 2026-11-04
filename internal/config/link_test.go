@@ -56,7 +56,7 @@ type = "text"`, "path is required"},
 ref = "a/b"
 path = "~/.npmrc"
 type = "ini"
-key = "k"`, "nothing expands here"},
+key = "k"`, "starts with ~"},
 		"relative path": {`
 ref = "a/b"
 path = ".npmrc"
@@ -77,7 +77,7 @@ type = "json"`, "key is required"},
 ref = "a/b"
 path = "/x"
 type = "text"
-key = "k"`, "selects nothing"},
+key = "k"`, "takes no key"},
 		"unknown key": {`
 ref = "a/b"
 path = "/x"

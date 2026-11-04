@@ -203,11 +203,9 @@ const (
 // Trust is reported afterwards as well, `doctor` failing on a hook Codex will not run;
 // how Codex was started is not something a later run can know, and is said here
 // alone.
-const codexNote = "Codex skips untrusted hooks. In each affected project, open `/hooks` in Codex " +
-	"to review and trust this hook. Codex must also " +
-	"run without its own sandbox (`codex --dangerously-bypass-approvals-and-sandbox`): " +
-	"sandboxed, it cannot reach the broker socket, and every command's output is " +
-	"withheld instead of redacted"
+const codexNote = "Codex skips untrusted hooks: open `/hooks` in Codex in each affected " +
+	"project to review and trust this hook. Run Codex without its own sandbox " +
+	"(`codex --dangerously-bypass-approvals-and-sandbox`)"
 
 // FamilyName is the tree enrolment this target belongs to, which is the target
 // itself where it shares one with nobody.
@@ -439,12 +437,9 @@ func antigravityMember(name string, detectHome []string, ownRules []File) *Targe
 		// The saved-rule cost, which is not the plugin hosts' open question: the
 		// prompt names the wrapper invocation, so the rules are known to see the
 		// rewrite. docs/coding-agents.md#antigravity has the measurement.
-		Note: "Antigravity loads what an enrolment writes into a tree once that tree is a " +
-			"project it has opened, so until then the rules file is there and inert. What " +
-			"holds meanwhile is the account-wide hook `faramir init` writes. A permission " +
-			"rule you saved for a command by its text stops matching it once it is wrapped, " +
-			"and one saved from a wrapped prompt is keyed on `source`, so it covers every " +
-			"wrapped command",
+		Note: "Antigravity reads this tree's rules only once it is a project it has opened; " +
+			"until then only the account-wide hook applies. A permission saved from a " +
+			"wrapped prompt is keyed on `source` and covers every wrapped command",
 	}
 }
 
@@ -453,8 +448,7 @@ func antigravityMember(name string, detectHome []string, ownRules []File) *Targe
 // rewrite is undocumented, so this states the symptom.
 func pluginNote(agent string) string {
 	const wrapper = "source " + hostlayout.DefaultLibexecDir + "/wrap.sh"
-	return agent + " matches its bash permission rules against the command text, and the " +
-		"guard rewrites every command into `" + wrapper + "'<command>'`. Whether those rules see the command or the rewrite is not " +
-		"documented: if commands prompt as the wrapper, they see the rewrite, and a rule " +
-		"naming `" + wrapper + " *` is what decides them from then on"
+	return agent + " may match its bash permission rules against the wrapped command " +
+		"`" + wrapper + " '<command>'`. If commands prompt as the wrapper, a rule naming `" +
+		wrapper + " *` decides all of them"
 }

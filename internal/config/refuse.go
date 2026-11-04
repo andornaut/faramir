@@ -30,28 +30,16 @@ func refuseControl(form, value, at string) error {
 	for i := 0; i < len(value); {
 		r, size := utf8.DecodeRuneInString(value[i:])
 		if r == utf8.RuneError && size == 1 {
-			return fmt.Errorf("%s: %s %q has a byte at offset %d that is not valid UTF-8, so the rule it "+
-				"renders would not compile and would refuse nothing", at, form, Shown(value), i)
+			return fmt.Errorf("%s: %s %q has a byte at offset %d that is not valid UTF-8",
+				at, form, Shown(value), i)
 		}
 		if termsafe.Actionable(r) {
-			return fmt.Errorf("%s: %s %q contains %q at offset %d. %s",
-				at, form, Shown(value), r, i, whyControlIsRefused(r))
+			return fmt.Errorf("%s: %s %q contains the control character %q at offset %d",
+				at, form, Shown(value), r, i)
 		}
 		i += size
 	}
 	return nil
-}
-
-// whyControlIsRefused is which of the two reasons this character is refused
-// for. The two are told apart because an operator reading that a tab splits a
-// line goes looking for a line it did not split.
-func whyControlIsRefused(r rune) string {
-	if r == '\n' || r == '\r' {
-		return "A rule is one line of a generated file, and this character ends " +
-			"a line: it would split the rule and leave neither half working"
-	}
-	return "A listing prints an entry back to a terminal, and this character " +
-		"would make the row read as something other than what is stored"
 }
 
 // Shown is an entry as a message quotes it back. Bounded because the entry is

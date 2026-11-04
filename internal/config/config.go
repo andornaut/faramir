@@ -11,8 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/BurntSushi/toml"
 )
 
 // The install's default names, which the loader falls back to for a key the file
@@ -243,9 +241,9 @@ func Check(data []byte, path string) error {
 // For a caller that needs the bytes as well as what they say, so the two come
 // from one read.
 func Parse(data []byte, path string) (*Config, error) {
-	var raw map[string]any
-	if err := toml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+	raw, err := unmarshalTOML(data, path)
+	if err != nil {
+		return nil, err
 	}
 	cfg, err := fromMap(raw, path)
 	if err != nil {

@@ -180,27 +180,24 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 	// resolve time: the broker does not start, instead of running a file nobody
 	// named.
 	if out.Env["PATH"] == "" {
-		return fmt.Errorf("%s: [command] env sets PATH to nothing, so no bare program "+
-			"name resolves. Leave it out to keep the built-in %q", path, defaultPATH)
+		return fmt.Errorf("%s: [command] env sets PATH to nothing. Remove it to keep "+
+			"the built-in %q", path, defaultPATH)
 	}
 	for component := range strings.SplitSeq(out.Env["PATH"], ":") {
 		if filepath.IsAbs(component) {
 			continue
 		}
-		shown := component
-		if shown == "" {
+		shown := fmt.Sprintf("the relative directory %q", component)
+		if component == "" {
 			shown = "an empty component"
 		}
-		return fmt.Errorf("%s: [command] env PATH contains %s, which is resolved against "+
-			"the working directory. The broker resolves a bare program name in its own "+
-			"directory and the command runs in the request's, so the file checked would "+
-			"not be the file run. Use absolute directories only", path, shown)
+		return fmt.Errorf("%s: [command] env PATH contains %s. Use absolute "+
+			"directories only", path, shown)
 	}
 	// Every request is clamped to max_timeout_sec, so a smaller one here would
 	// replace timeout_sec rather than cap it.
 	if out.MaxTimeoutSec < out.TimeoutSec {
-		return fmt.Errorf("%s: [command] max_timeout_sec (%d) is below timeout_sec "+
-			"(%d), which would silently override it for every command",
+		return fmt.Errorf("%s: [command] max_timeout_sec (%d) is below timeout_sec (%d)",
 			path, out.MaxTimeoutSec, out.TimeoutSec)
 	}
 	return nil
@@ -285,19 +282,16 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 	if len(out.NotifyCommand) > 0 && !slices.ContainsFunc(out.NotifyCommand, func(arg string) bool {
 		return strings.Contains(arg, "{prompt}") || strings.Contains(arg, "{id}")
 	}) {
-		return fmt.Errorf("%s: notify_command names neither {prompt} nor {id}, so it "+
-			"would announce that something is waiting without saying what", where)
+		return fmt.Errorf("%s: notify_command names neither {prompt} nor {id}. "+
+			"Add one of them to an argument", where)
 	}
 	// 0 would refuse every question the instant it was raised. See
 	// MaxSudoTimeoutSec for the ceiling, and clampSudoTimeout for the other one:
 	// what this section will accept, and what the [command] section leaves room
 	// for, are separate questions and this is only the first.
-	if out.TimeoutSec, err = intInRange(sec, "timeout_sec", where, out.TimeoutSec,
-		1, MaxSudoTimeoutSec); err != nil {
-		return fmt.Errorf("%w. Other brokered commands are refused while a question "+
-			"is open, so the wait is bounded; past that, refuse and run the command again", err)
-	}
-	return nil
+	out.TimeoutSec, err = intInRange(sec, "timeout_sec", where, out.TimeoutSec,
+		1, MaxSudoTimeoutSec)
+	return err
 }
 
 // MaxSudoTimeoutSec is the longest a question may wait for a human. The PAM

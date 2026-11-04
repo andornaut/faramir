@@ -125,7 +125,7 @@ func scalar(node any, key string) (string, error) {
 	case json.Number:
 		return value.String(), nil
 	case bool:
-		return "", fmt.Errorf("%s is a boolean, which is never a secret", key)
+		return "", fmt.Errorf("%s is a boolean, not a value", key)
 	case nil:
 		return "", fmt.Errorf("%s is null", key)
 	}

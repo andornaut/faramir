@@ -72,8 +72,8 @@ func TestALinkPathRefusesTheWildcardABlockAccepts(t *testing.T) {
 	if err == nil {
 		t.Fatal("loaded a trailing wildcard on a link path, and a link opens the file")
 	}
-	if !strings.Contains(err.Error(), "never resolve") {
-		t.Errorf("error is %q, want it to say the ref would not resolve", err)
+	if !strings.Contains(err.Error(), "Name the file") {
+		t.Errorf("error is %q, want it to say to name the file", err)
 	}
 	// The same path as a block entry, which is what the refusal points at.
 	if _, err := load(t, minimal+"\n[[secret.block]]\npath = \""+path+"\"\n"); err != nil {

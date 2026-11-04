@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -200,8 +201,18 @@ func readTOML(path string) (map[string]any, error) {
 		}
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	return unmarshalTOML(data, path)
+}
+
+// unmarshalTOML decodes a config, naming the file and the line a syntax error
+// is on ahead of the parser's own message.
+func unmarshalTOML(data []byte, path string) (map[string]any, error) {
 	var raw map[string]any
 	if err := toml.Unmarshal(data, &raw); err != nil {
+		var parse toml.ParseError
+		if errors.As(err, &parse) {
+			return nil, fmt.Errorf("%s: line %d: %s", path, parse.Position.Line, parse.Message)
+		}
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return raw, nil

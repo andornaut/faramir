@@ -201,8 +201,8 @@ func loadLinks(value any, where string) ([]Link, error) {
 		// A ref is the name a caller asks by, so two entries claiming one is
 		// refused rather than resolved.
 		if seen[link.Ref] {
-			return nil, fmt.Errorf("%s: ref %q is claimed by more than one entry; "+
-				"a ref has one definition", at, link.Ref)
+			return nil, fmt.Errorf("%s: ref %q is declared by more than one entry",
+				at, link.Ref)
 		}
 		seen[link.Ref] = true
 		out = append(out, link)
@@ -237,8 +237,7 @@ func loadBlocked(value any, where string) ([]BlockedPath, error) {
 		if removed, err := str(entry["name"], at, ""); err != nil {
 			return nil, err
 		} else if removed != "" {
-			return nil, fmt.Errorf("%s: name %q is no longer supported. Declare the "+
-				"file or the directory with a path entry instead",
+			return nil, fmt.Errorf("%s: name %q is no longer supported. Use a path entry",
 				at, Shown(removed))
 		}
 		if err := rejectUnknownKeys(entry, blockKeys, at); err != nil {
@@ -303,8 +302,7 @@ func validateBlocked(blocked BlockedPath, at string) error {
 	}
 	switch {
 	case len(named) > 1:
-		return fmt.Errorf("%s: names %s. An entry is either a path or a command. "+
-			"Write one entry for each",
+		return fmt.Errorf("%s: names both %s. Write one entry for each",
 			at, strings.Join(named, " and "))
 	case blocked.Command != "":
 		// A command entry is already about what a command does, so there is no
@@ -314,19 +312,16 @@ func validateBlocked(blocked BlockedPath, at string) error {
 		// something, and accepting it while changing nothing leaves an operator
 		// sure they did.
 		if blocked.Strict {
-			return fmt.Errorf("%s: %s applies to a path entry only: it narrows what a "+
-				"brokered command may do to the file. A command entry is already "+
-				"refused to the agent's shell and to brokered commands. Remove the key",
-				at, keyStrict)
+			return fmt.Errorf("%s: %s applies to a path entry only, not a command "+
+				"entry. Remove the key", at, keyStrict)
 		}
 		// Refused for the reason strict is: a command entry names no file, so
 		// there is no symlink for one to have been resolved out of, and an entry
 		// carrying it would be taken back by a `block rm` of a path it has
 		// nothing to do with.
 		if blocked.DerivedFrom != "" {
-			return fmt.Errorf("%s: %s applies to a path entry only: it names the "+
-				"declared path a symlink was resolved out of, and a command entry "+
-				"names no file. Remove the key", at, keyDerivedFrom)
+			return fmt.Errorf("%s: %s applies to a path entry only, not a command "+
+				"entry. Remove the key", at, keyDerivedFrom)
 		}
 		return validateBlockedCommand(blocked.Command, at)
 	}
@@ -349,9 +344,8 @@ func validateBlockedCommand(command, at string) error {
 	}
 	for word := range strings.FieldsSeq(command) {
 		if len(word) < 2 {
-			return fmt.Errorf("%s: command %q contains the single-character word %q, "+
-				"which would match nearly every command line. Write the command as it "+
-				"would be typed", at, Shown(command), Shown(word))
+			return fmt.Errorf("%s: command %q contains the single-character word %q. "+
+				"Use words of two or more characters", at, Shown(command), Shown(word))
 		}
 	}
 	return nil
@@ -386,9 +380,8 @@ func validateDerivedFrom(refused BlockedPath, at string) error {
 	// is one nothing derived. It would also make `block rm` on the path remove
 	// the entry twice over, once as itself and once as its own derivation.
 	if refused.DerivedFrom == refused.Path {
-		return fmt.Errorf("%s: %s names the entry's own path. It names the declared "+
-			"path a symlink was resolved out of, which is a different file. Remove "+
-			"the key", at, keyDerivedFrom)
+		return fmt.Errorf("%s: %s names the entry's own path. Remove the key",
+			at, keyDerivedFrom)
 	}
 	return validateRulePath(keyDerivedFrom, refused.DerivedFrom, at)
 }
@@ -403,12 +396,12 @@ func validateDerivedFrom(refused BlockedPath, at string) error {
 // operator would go and edit rather than the word "path" three keys share.
 func validateRulePath(key, path, at string) error {
 	if strings.HasPrefix(path, "~") {
-		return fmt.Errorf("%s: %s %q starts with ~, and nothing expands here. "+
-			"Write the path in full", at, key, Shown(path))
+		return fmt.Errorf("%s: %s %q starts with ~. Write the path in full",
+			at, key, Shown(path))
 	}
 	if !filepath.IsAbs(path) {
-		return fmt.Errorf("%s: %s %q is relative. A deny rule matches the full "+
-			"path the agent names, so write it in full", at, key, Shown(path))
+		return fmt.Errorf("%s: %s %q is relative. Write the path in full",
+			at, key, Shown(path))
 	}
 	// A rule is a literal string in someone else's config, so the path that
 	// reaches it has to be the one an agent would name. "/etc/./k" and "/etc/k"
@@ -416,14 +409,14 @@ func validateRulePath(key, path, at string) error {
 	// file still opens either way, so a link written this way works while the
 	// rule rendered from it protects nothing.
 	if clean := filepath.Clean(path); clean != path {
-		return fmt.Errorf("%s: %s %q is not in its shortest form, and a deny rule "+
-			"matches the path as written. Use %q", at, key, Shown(path), Shown(clean))
+		return fmt.Errorf("%s: %s %q is not in its shortest form. Use %q",
+			at, key, Shown(path), Shown(clean))
 	}
 	// "/" would render a rule refusing the whole filesystem, which fails closed
 	// and leaves the agent unable to read anything at all.
 	if path == "/" {
-		return fmt.Errorf("%s: %s is /, which would refuse the agent every file "+
-			"on the host. Name the file or the directory that holds it", at, key)
+		return fmt.Errorf("%s: %s is /, which covers every file on the host. "+
+			"Name the file or the directory that holds it", at, key)
 	}
 	// One wildcard is accepted and only in one place: a trailing "*" on the last
 	// component, after at least one literal character. That form names a file
@@ -454,20 +447,15 @@ func validateRulePath(key, path, at string) error {
 	if literal, isPrefix := strings.CutSuffix(path, "*"); isPrefix &&
 		!strings.HasSuffix(literal, "/") && !strings.ContainsAny(literal, globChars) {
 		if filepath.Dir(literal) == "/" {
-			return fmt.Errorf("%s: %s %q puts a wildcard in a top-level name, so the "+
-				"rule would match every directory under / whose name begins that way. "+
+			return fmt.Errorf("%s: %s %q puts a wildcard in a top-level name. "+
 				"Put the wildcard inside a named directory", at, key, Shown(path))
 		}
 		return nil
 	}
 	if i := strings.IndexAny(path, globChars); i >= 0 {
-		return fmt.Errorf("%s: %s %q contains %q. A path is matched as written, not "+
-			"expanded, so the rule would refuse only a command typing that pattern "+
-			"and leave the files readable. The only wildcard allowed is a trailing "+
-			"%q after at least one literal character in the last component. "+
-			"Otherwise name the directory that holds the files, which covers "+
-			"everything under it",
-			at, key, Shown(path), string(path[i]), "*")
+		return fmt.Errorf("%s: %s %q contains %q, which is matched as written. Name "+
+			"the directory that holds the files, or end the file name in a trailing * "+
+			"after a literal prefix", at, key, Shown(path), string(path[i]))
 	}
 	return nil
 }
@@ -481,11 +469,11 @@ func validateLink(link Link, at string) error {
 	// The same pattern a faramir:// URI is parsed against: a ref outside it would
 	// load and then be unreachable.
 	if link.Ref == "" {
-		return fmt.Errorf("%s: ref is required; it is the name a caller asks by", at)
+		return fmt.Errorf("%s: ref is required", at)
 	}
 	if !secretref.Valid(link.Ref) {
-		return fmt.Errorf("%s: ref %q is not valid in a faramir:// reference; "+
-			"letters, digits, and then any of . _ - /", at, Shown(link.Ref))
+		return fmt.Errorf("%s: ref %q is not valid in a faramir:// reference. "+
+			"Use letters, digits, and then any of . _ - /", at, Shown(link.Ref))
 	}
 	if link.Path == "" {
 		return fmt.Errorf("%s: path is required", at)
@@ -509,12 +497,10 @@ func validateLink(link Link, at string) error {
 	// which is a ref that is permanently degraded: `faramir doctor` reports it
 	// and the exit status is non-zero, for an entry that loaded cleanly.
 	//
-	// Checked before validateRulePath so the refusal says why a link differs,
-	// rather than the shared message offering a form this side cannot use.
+	// Checked before validateRulePath so the shared message does not offer a form
+	// this side cannot use.
 	if _, isPrefix := strings.CutSuffix(link.Path, "*"); isPrefix {
-		return fmt.Errorf("%s: path %q ends in a wildcard. A link opens the file "+
-			"it names, so the ref would never resolve. Name the file. Only a "+
-			"[[secret.block]] entry may end in a wildcard", at,
+		return fmt.Errorf("%s: path %q ends in a wildcard. Name the file", at,
 			Shown(link.Path))
 	}
 	if err := validateRulePath(keyPath, link.Path, at); err != nil {
@@ -532,24 +518,11 @@ func validateLink(link Link, at string) error {
 	// a whole-file link is an operator who believes something is being
 	// selected.
 	if secretlink.NeedsKey(link.Type) && link.Key == "" {
-		return fmt.Errorf("%s: type %q selects one value out of the file, so key is "+
-			"required", at, link.Type)
+		return fmt.Errorf("%s: key is required for type %q", at, link.Type)
 	}
 	if !secretlink.NeedsKey(link.Type) && link.Key != "" {
-		return fmt.Errorf("%s: type %q reads the whole file, so key selects nothing; "+
-			"remove it, or use a type that selects: %s", at, link.Type,
-			strings.Join(selectingKinds(), ", "))
+		return fmt.Errorf("%s: type %q reads the whole file and takes no key. "+
+			"Remove the key", at, link.Type)
 	}
 	return nil
-}
-
-// selectingKinds is the types that take a key, for the message above.
-func selectingKinds() []string {
-	var out []string
-	for _, kind := range secretlink.Kinds() {
-		if secretlink.NeedsKey(kind) {
-			out = append(out, kind)
-		}
-	}
-	return out
 }
