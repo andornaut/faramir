@@ -103,7 +103,7 @@ test: e2e
 ## CGO_ENABLED=1 for this recipe only: -race needs cgo, and the export above
 ## turns it off for every other one because the shipped binary is static. In
 ## the container for the reason `make test` is; the profile is written to
-## $(BIN)/coverage.txt, the one directory the container can write.
+## $(BIN)/coverage.txt, the one directory a run's output is copied out to.
 coverage:
 	CGO_ENABLED=1 FARAMIR_TEST_OUT=$(BIN) tests/go/run.sh sh -c \
 	  'go test -race -coverprofile=/out/coverage.txt -covermode=atomic ./... && \
