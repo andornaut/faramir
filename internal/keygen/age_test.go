@@ -1,6 +1,7 @@
 package keygen
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -284,5 +285,23 @@ func TestValidateRecipientDoesNotEchoAPrivateKey(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "AGE-SECRET-KEY") {
 		t.Errorf("KEY MATERIAL IN THE ERROR: %v", err)
+	}
+}
+
+// A caller whose file already holds a private key has a key to rotate, and asks
+// errors.Is rather than reading the message.
+func TestAPrivateHalfIsTellableApart(t *testing.T) {
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{id.String(),
+		"-----BEGIN OPENSSH PRIVATE KEY-----\nb3Bl\n-----END OPENSSH PRIVATE KEY-----"} {
+		if err := ValidateRecipient(s); !errors.Is(err, ErrPrivateHalf) {
+			t.Errorf("a private key is not ErrPrivateHalf: %v", err)
+		}
+	}
+	if err := ValidateRecipient("not-a-key"); errors.Is(err, ErrPrivateHalf) {
+		t.Errorf("an unknown recipient reads as a private key: %v", err)
 	}
 }

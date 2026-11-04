@@ -19,16 +19,19 @@ import (
 // secrets directory, readable by every account on the host.
 func TestARecipientSopsWillNotTakeIsReported(t *testing.T) {
 	for _, tc := range []struct {
-		name, entry, says string
+		name, entry, leads, says string
 	}{
 		{
+			// Already in the world-readable file, so the fix is a rotation.
 			name:  "an identity, the private half",
 			entry: "AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ",
+			leads: "lists a private key; replace it with its public key and rotate the key\n",
 			says:  "world-readable",
 		},
 		{
 			name:  "not a recipient of any kind",
 			entry: "not-a-key",
+			leads: "lists a recipient sops will not take\n",
 			says:  "unknown recipient type",
 		},
 	} {
@@ -44,6 +47,9 @@ func TestARecipientSopsWillNotTakeIsReported(t *testing.T) {
 			finding := onlyFinding(t, report, "sops config")
 			if finding.Status != StatusFailed {
 				t.Errorf("status = %q, want failed: %s", finding.Status, finding.Detail)
+			}
+			if first, _, _ := strings.Cut(finding.Detail, "\n"); !strings.HasSuffix(first+"\n", tc.leads) {
+				t.Errorf("detail does not lead with %q: %s", tc.leads, finding.Detail)
 			}
 			if !strings.Contains(finding.Detail, tc.says) {
 				t.Errorf("detail does not say %q: %s", tc.says, finding.Detail)

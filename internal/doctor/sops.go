@@ -101,8 +101,14 @@ func recipientsAreWellFormed(report *Report, listed []string, path string) bool 
 			continue
 		}
 		ok = false
-		// The error names what to do, including the rotation a private half needs,
-		// so it is carried rather than summarised.
+		// A private key in the file is already readable by every account, so its
+		// fix is a rotation, which the refusal written for a paste cannot name.
+		// The refusal follows as the detail either way.
+		if errors.Is(err, keygen.ErrPrivateHalf) {
+			report.addf("sops config", StatusFailed, "%s lists a private key; replace it "+
+				"with its public key and rotate the key\n%v", path, err)
+			continue
+		}
 		report.addf("sops config", StatusFailed, "%s lists a recipient sops will not "+
 			"take\n%v", path, err)
 	}

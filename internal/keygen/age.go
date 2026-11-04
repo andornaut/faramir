@@ -75,10 +75,23 @@ func ValidateRecipient(s string) error {
 		// Bounded here rather than at each message: what is quoted back is what
 		// was pasted, and a pasted key file is a hundred kilobytes of refusal.
 		// The parsers below quote it too, so the cut is made on the way out.
-		return errors.New(termsafe.Truncate(err.Error(), maxRefusalBytes))
+		return &refusal{msg: termsafe.Truncate(err.Error(), maxRefusalBytes), err: err}
 	}
 	return nil
 }
+
+// ErrPrivateHalf is a private key given where a recipient belongs. A caller
+// whose file already holds one has a key to rotate, which errors.Is tells it.
+var ErrPrivateHalf = errors.New("a private key, not a recipient")
+
+// refusal is a message with the error it was made from kept for errors.Is.
+type refusal struct {
+	msg string
+	err error
+}
+
+func (r *refusal) Error() string { return r.msg }
+func (r *refusal) Unwrap() error { return r.err }
 
 // maxRefusalBytes is how much of what was given a refusal quotes back: enough
 // to recognise the paste, and not the paste.
@@ -92,7 +105,7 @@ func validateRecipient(s string) error {
 	// usually pasted with the file around it, and the line-break refusal below
 	// would answer a paste of the private half with a note about YAML.
 	if why := privateHalf(s); why != "" {
-		return errors.New(why)
+		return &refusal{msg: why, err: ErrPrivateHalf}
 	}
 	// A line break would close the list item and let what follows be read as
 	// YAML. Blocked rather than escaped: no recipient sops accepts carries
