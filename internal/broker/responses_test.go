@@ -5,6 +5,7 @@ package broker
 import (
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,38 +19,46 @@ func TestListSecretsOmitsARefusedRef(t *testing.T) {
 	s := newServer(t, map[string]string{
 		"good": "hunter2-correct-horse", "tiny": "abc",
 	})
-	body := output(t, s.opListSecrets())
-	if !strings.Contains(body, "faramir://good") {
-		t.Errorf("a loaded ref is missing: %q", body)
-	}
-	if strings.Contains(body, "tiny") {
-		t.Errorf("a refused ref was listed: %q", body)
+	if got := listedRefs(t, s.opListSecrets()); !slices.Equal(got, []string{"good"}) {
+		t.Errorf("refs = %q, want only the loaded ref", got)
 	}
 }
 
-func TestListSecretsEndsEveryLine(t *testing.T) {
+// The array is the whole answer: a newline-joined copy beside it would be a
+// second spelling of the same list for a caller to parse.
+func TestListSecretsAnswersWithAnArrayAlone(t *testing.T) {
 	s := newServer(t, map[string]string{
-		"a": "hunter2-correct-horse", "b": "another-good-value",
+		"b": "hunter2-correct-horse", "a": "another-good-value",
 	})
-	body := output(t, s.opListSecrets())
-	if body == "" {
-		t.Fatal("empty output")
+	response := s.opListSecrets()
+	if got := listedRefs(t, response); !slices.Equal(got, []string{"a", "b"}) {
+		t.Errorf("refs = %q, want [a b] in order", got)
 	}
-	if !strings.HasSuffix(body, "\n") {
-		t.Errorf("the last line is unterminated: %q", body)
-	}
-	for line := range strings.SplitSeq(strings.TrimSuffix(body, "\n"), "\n") {
-		if !strings.HasPrefix(line, "faramir://") {
-			t.Errorf("unexpected line: %q", line)
-		}
+	if _, ok := response["output"]; ok {
+		t.Errorf("response carries output beside refs: %v", response)
 	}
 }
 
+// An empty array rather than null, so a caller reading the list reads an empty
+// one.
 func TestListSecretsIsEmptyWhenNothingLoaded(t *testing.T) {
 	s := newUnconfiguredServer(t, map[string]string{})
-	if body := output(t, s.opListSecrets()); body != "" {
-		t.Errorf("output = %q, want empty", body)
+	encoded, err := json.Marshal(s.opListSecrets()["refs"])
+	if err != nil {
+		t.Fatal(err)
 	}
+	if string(encoded) != "[]" {
+		t.Errorf("refs = %s, want []", encoded)
+	}
+}
+
+func listedRefs(t *testing.T, r map[string]any) []string {
+	t.Helper()
+	refs, ok := r["refs"].([]string)
+	if !ok {
+		t.Fatalf("response has no ref array: %v", r)
+	}
+	return refs
 }
 
 // A value that is never tokenized is worth targeting, so status names neither

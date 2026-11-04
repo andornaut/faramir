@@ -42,9 +42,12 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		// failure.
 		Escalation     string `json:"escalation"`
 		EscalationCode string `json:"escalation_code"`
-		// Why a response that still carries its output is not the whole answer:
+		// Why a response that still carries its list is not the whole answer:
 		// refs on a degraded store.
-		Warning    string `json:"warning"`
+		Warning string `json:"warning"`
+		// What refs answers with in place of output: the bare names, printed one
+		// faramir:// URI per line.
+		Refs       []string `json:"refs"`
 		Redactions []struct {
 			Token string `json:"token"`
 			Count int    `json:"count"`
@@ -99,9 +102,13 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		}
 	}
 
+	output := response.Output
+	if request["op"] == "refs" {
+		output = refLines(response.Refs)
+	}
 	// A failed write to stdout is an error, not something to discard: a broken
 	// pipe means the caller never received the output.
-	if _, err := io.WriteString(os.Stdout, response.Output); err != nil {
+	if _, err := io.WriteString(os.Stdout, output); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: writing output: %v\n", prog, err)
 		return 1
 	}

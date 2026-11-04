@@ -268,3 +268,13 @@ func newRefsCmd() *cobra.Command {
 	o.add(c)
 	return c
 }
+
+// refLines is the plain form of the broker's refs array: one faramir:// URI
+// per line, each line ended.
+func refLines(refs []string) string {
+	var lines strings.Builder
+	for _, ref := range refs {
+		lines.WriteString("faramir://" + ref + "\n")
+	}
+	return lines.String()
+}

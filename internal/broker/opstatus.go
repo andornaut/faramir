@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/andornaut/faramir/internal/protocol"
@@ -100,21 +99,16 @@ const refreshWait = 90 * time.Second
 
 func (s *Server) opListSecrets() protocol.Response {
 	// Names only, and only refs that loaded: a value the redactor cannot cover is
-	// refused at load.
+	// refused at load. The array is the whole answer; the client renders it.
 	refs := s.Store.Refs()
-	var output strings.Builder
-	for _, ref := range refs {
-		output.WriteString("faramir://" + ref + "\n")
-	}
-	// Non-zero on a degraded store, as status is, the list still printed: a ref
+	// Non-zero on a degraded store, as status is, the list still answered: a ref
 	// missing from a partial list otherwise reads as one nobody configured.
 	// Counted, not named, the agent being the one reading it.
 	code, warning := 0, s.Store.DegradedCounts()
 	if warning != "" {
 		code = 1
 	}
-	response := okResponse(code, output.String())
-	response["refs"] = refs
+	response := protocol.Response{"exit_code": code, "refs": refs}
 	if warning != "" {
 		response["warning"] = warning
 	}
