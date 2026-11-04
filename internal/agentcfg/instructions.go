@@ -188,16 +188,15 @@ func SectionFile(f hostfs.FS, path, section, head string, uid, gid int, within s
 func SectionProblem(err error, path, command string) string {
 	switch {
 	case errors.Is(err, errHalfMarked):
-		return path + " has incomplete or misordered section markers; nothing was written. " +
-			"Restore " + SectionBegin + " and " + SectionEnd + ", in that order, " +
-			"around the credentials section, or remove the incomplete markers, " +
-			"and run " + command + " again"
+		return path + ": incomplete section markers; nothing was written\n" +
+			"  restore " + SectionBegin + " and " + SectionEnd + " in order, " +
+			"then run " + command + " again"
 	case errors.Is(err, errStaleSection):
-		return path + " has an outdated credentials section without markers; nothing was written. " +
-			"Remove that section and run " + command + " again"
+		return path + ": outdated credentials section without markers; nothing was written\n" +
+			"  remove that section, then run " + command + " again"
 	case errors.Is(err, hostfs.ErrNotOperators):
-		return path + " is not owned by the operator or is a broken symlink; nothing was written. " +
-			"Use an operator-owned file or symlink target and run " + command + " again"
+		return path + ": not owned by the operator, or a broken symlink; nothing was written\n" +
+			"  use an operator-owned file or symlink target, then run " + command + " again"
 	}
 	return err.Error()
 }
