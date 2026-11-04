@@ -111,7 +111,6 @@ func (a *Agent) Env() map[string]string {
 // the host where SSH is arranged for the executor's uid some other way.
 func (a *Agent) Start() error {
 	if !a.Enabled() {
-		log.Printf("no [ssh] key configured; not starting an agent")
 		return nil
 	}
 	a.closing.Store(false)
@@ -142,11 +141,10 @@ func (a *Agent) Start() error {
 	a.private = private
 
 	// Before the socket is bound, so there is no window in which a command reaches
-	// an agent holding nothing. ssh-add has already logged why.
-	if !a.add(a.config.Key, private) {
+	// an agent holding nothing.
+	if err := a.add(a.config.Key, private); err != nil {
 		a.Stop()
-		return fmt.Errorf("the agent did not load %s, which [ssh] key names",
-			a.config.Key)
+		return fmt.Errorf("[ssh] key %s: %w", a.config.Key, err)
 	}
 
 	listener, err := listen(path)
@@ -250,8 +248,7 @@ func (a *Agent) relay(client net.Conn, private string) {
 		}
 
 		if kind := request[4]; kind != agentRequestIdentities && kind != agentSignRequest {
-			log.Printf("ssh-agent proxy: refusing agent request type %d; "+
-				"brokered commands may only list keys and sign", kind)
+			log.Printf("ssh-agent proxy: refused request type %d: only list and sign are allowed", kind)
 			// The protocol's own refusal rather than a dropped connection: ssh sends
 			// session-bind@openssh.com under agent forwarding, and a client that sees
 			// one request fail carries on.
@@ -361,7 +358,7 @@ func (a *Agent) grantExecutorAccess(path string) {
 	}
 	g, err := user.LookupGroup(group)
 	if err != nil {
-		log.Printf("group %s does not exist; the executor cannot use the agent", group)
+		log.Printf("group %s does not exist, so the executor cannot use the agent", group)
 		return
 	}
 	gid, err := strconv.Atoi(g.Gid)
@@ -369,7 +366,7 @@ func (a *Agent) grantExecutorAccess(path string) {
 		return
 	}
 	if err := os.Chown(path, -1, gid); err != nil {
-		log.Printf("cannot hand %s to group %s (%v); is the broker a member of it?", path, group, err)
+		log.Printf("cannot hand %s to group %s: %v\n  add the broker to group %s", path, group, err, group)
 		return
 	}
 	if err := os.Chmod(path, socketMode); err != nil {
@@ -377,7 +374,9 @@ func (a *Agent) grantExecutorAccess(path string) {
 	}
 }
 
-func (a *Agent) add(key, socketPath string) bool {
+// add loads key into the agent at socketPath. The error is what ssh-add said,
+// its last line, or the exit status where it said nothing.
+func (a *Agent) add(key, socketPath string) error {
 	cmd := exec.CommandContext(context.Background(), a.config.SshAdd, key)
 	cmd.Env = []string{
 		"SSH_AUTH_SOCK=" + socketPath,
@@ -388,11 +387,13 @@ func (a *Agent) add(key, socketPath string) bool {
 		"DISPLAY=",
 	}
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("ssh-add %s failed: %v: %s", key, err, lastLine(string(out)))
-		return false
+	if err == nil {
+		return nil
 	}
-	return true
+	if said := lastLine(string(out)); said != "" {
+		return fmt.Errorf("ssh-add: %s", said)
+	}
+	return fmt.Errorf("ssh-add: %w", err)
 }
 
 func (a *Agent) Stop() {
@@ -434,9 +435,6 @@ func envOr(name, fallback string) string {
 // lastLine is where ssh-add puts its reason.
 func lastLine(s string) string {
 	s = strings.TrimSpace(s)
-	if s == "" {
-		return "no output"
-	}
 	if i := strings.LastIndexByte(s, '\n'); i >= 0 {
 		return s[i+1:]
 	}

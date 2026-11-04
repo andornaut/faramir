@@ -177,8 +177,8 @@ func auditFailure(redactor *redact.Redactor, response protocol.Response, outcome
 			outcome += fmt.Sprintf(" (exit status %d)", exitCode)
 		}
 	}
-	message := outcome + "; cannot write the audit completion record: " + detail +
-		". Verify the command's effects before retrying."
+	message := outcome + ", audit completion record not written: " + detail +
+		"\n  verify the command's effects before retrying"
 	log.Printf("%s audit completion failed: %s", response["log_id"], message)
 	response["error"] = map[string]string{"code": "audit_failed", "message": message}
 	response["version"] = version.Version
@@ -219,7 +219,7 @@ func (s *Server) writeRunStart(a execAudit) *protocol.Response {
 	if err := s.Audit.Write(starting, audit.Output{}); err != nil {
 		detail := a.secrets.Redactor().RedactText(err.Error())
 		log.Printf("%s audit start failed: %s", a.logID, detail)
-		response := protocol.ErrorResponse("no_audit", "command not run: cannot write the audit start record: "+detail, a.logID)
+		response := protocol.ErrorResponse("no_audit", "command not run: audit start record not written: "+detail, a.logID)
 		return &response
 	}
 	return nil
@@ -242,10 +242,10 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	execCfg := s.Config.Command
 	logID := audit.NewLogID()
 	secrets := s.Store.Snapshot()
-	if refused := s.refuseUnreadable("run", "this command", logID, peer, secrets.Unreadable()); refused != nil {
+	if refused := s.refuseUnreadable("run", "command not run", logID, peer, secrets.Unreadable()); refused != nil {
 		return *refused
 	}
-	if refused := s.refuseUnauditable("this command", logID); refused != nil {
+	if refused := s.refuseUnauditable("command not run", logID); refused != nil {
 		return *refused
 	}
 
@@ -255,7 +255,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	// knows where that is.
 	cwd := request.Cwd
 	if !request.HasCwd || cwd == "" {
-		return s.refuse(secrets, "bad_request", "no cwd: name the directory to run in.",
+		return s.refuse(secrets, "bad_request", "no cwd: name the directory to run in",
 			logID, peer, cmd, "")
 	}
 	// Fails early with a clear message; it enforces nothing. Permission is left
@@ -340,11 +340,9 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	if heldBy != "" {
 		// heldBy is a whole clause, naming the command and which of the two states
 		// it is in: waiting to be approved, or holding an approval already given.
-		// Framing it as a noun phrase spliced a second sentence into the first.
 		return s.refuse(secrets, "escalation_in_progress", heldBy+
-			", and no other brokered command runs while one is: "+
-			"a second could ride it. Not run and not queued; run it again once that "+
-			"one has finished", logID, peer, cmd, cwd)
+			". Not run and not queued; run it again once that one has finished",
+			logID, peer, cmd, cwd)
 	}
 	// How this run ended, read by the defer below and published to the terminal
 	// that approved it. The zero value is a run the broker never got a status

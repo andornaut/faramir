@@ -182,9 +182,9 @@ func TestTheRefusalNamesTheEntryAndTheRemedy(t *testing.T) {
 	said := declaredRefusal(rule)
 	for _, want := range []string{
 		"the path /srv/keys/luks.key", // which entry, and which form it took
-		"never reads",                 // why the output cannot be covered instead
+		"by ref",                      // what to do instead
 		"faramir block rm",            // and whose the remedy is
-		"A command outside it is not refused",
+		"Only reading commands are refused",
 	} {
 		if !strings.Contains(said, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, said)
@@ -354,7 +354,7 @@ func TestTheStricterRefusalSaysItIsStricter(t *testing.T) {
 	rule, _ := blocking(config.BlockedPath{Path: "/home/op/.private", Strict: true}).
 		refuses([]string{"ls", "/home/op/.private"}, "/tmp")
 
-	if !strings.Contains(declaredRefusal(rule), "no command may name at all") {
+	if !strings.Contains(declaredRefusal(rule), "no brokered command may name it") {
 		t.Errorf("the refusal does not say the entry is the stricter kind:\n%s",
 			declaredRefusal(rule))
 	}
@@ -415,17 +415,17 @@ func TestAnStrictRefusalDoesNotPromiseTheFileCanBeChanged(t *testing.T) {
 		t.Fatal("a listing of a strict path was allowed")
 	}
 	said := declaredRefusal(rule)
-	if strings.Contains(said, "A command outside it is not refused") {
+	if strings.Contains(said, "Only reading commands are refused") {
 		t.Errorf("the refusal for a strict entry says the file can still be "+
 			"changed, having just refused a command that would:\n%s", said)
 	}
-	if !strings.Contains(said, "no command may name it") {
+	if !strings.Contains(said, "no brokered command may name it") {
 		t.Errorf("the refusal does not say what the entry actually covers:\n%s", said)
 	}
 	// The looser entry keeps the sentence, that being what it promises.
 	loose, _ := blocking(pathEntry("/srv/keys/luks.key")).
 		refuses([]string{"cat", "/srv/keys/luks.key"}, "/tmp")
-	if !strings.Contains(declaredRefusal(loose), "A command outside it is not refused") {
+	if !strings.Contains(declaredRefusal(loose), "Only reading commands are refused") {
 		t.Error("an ordinary entry stopped naming what it leaves alone")
 	}
 }
@@ -485,7 +485,7 @@ func TestTheOwnDirectoryRefusalOffersNoRemoval(t *testing.T) {
 		t.Errorf("the refusal names a removal command for a rule no entry stands "+
 			"behind: %s", message)
 	}
-	if !strings.Contains(message, "no entry to remove") {
+	if !strings.Contains(message, "cannot be removed") {
 		t.Errorf("the refusal does not say why there is nothing to take back: %s", message)
 	}
 }
@@ -511,7 +511,7 @@ func TestACommandRefusalIsNotWrittenAboutAPath(t *testing.T) {
 		}
 	}
 	// The path tail, which is about a file and has none to be about here.
-	for _, unwanted := range []string{"`cp`, `tee` and `sed`", "whatever it does to the file"} {
+	for _, unwanted := range []string{"cp, tee and sed", "Only reading commands"} {
 		if strings.Contains(said, unwanted) {
 			t.Errorf("the refusal for a command carries %q, which is a path's sentence:\n%s",
 				unwanted, said)

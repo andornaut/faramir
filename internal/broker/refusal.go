@@ -19,12 +19,12 @@ import (
 // startup check judges the host as it was at boot, and exiting would take the
 // daemon down just when `faramir status` and `doctor` would explain why.
 // status and refs stay available, neither producing output that depends on the
-// set.
-func (s *Server) refuseUnreadable(op, phrase, logID string, peer *sockutil.Peer, reason string) *protocol.Response {
+// set. outcome is what was not done, such as "command not run".
+func (s *Server) refuseUnreadable(op, outcome, logID string, peer *sockutil.Peer, reason string) *protocol.Response {
 	if reason == "" {
 		return nil
 	}
-	log.Printf("%s refusing %s: %s", logID, phrase, reason)
+	log.Printf("%s %s: %s", logID, outcome, reason)
 	// Recorded like a served call: a refusal is what the operator is looking for
 	// when they ask why nothing ran.
 	_ = s.Audit.Write(map[string]any{
@@ -37,16 +37,14 @@ func (s *Server) refuseUnreadable(op, phrase, logID string, peer *sockutil.Peer,
 	// The remedies are for the states that reach here, which are a managed file
 	// that was found and did not load, and a keeper that never answered. A store
 	// nobody has written yet is not one of them: Store.Unreadable serves that
-	// case rather than refusing it, so advice about writing a first file was
-	// advice for a condition this message cannot carry.
-	out := protocol.ErrorResponse("no_secrets", fmt.Sprintf(
-		"the broker does not hold every managed value, so %s would run with "+
-			"less redaction than the config asks for: %s. `sudo faramir doctor` "+
-			"says what to do about each file named above; a file the keeper "+
-			"cannot decrypt usually has the wrong age key or recipients. If the "+
-			"reason names a [[secret.link]] ref, that link claims a name the managed "+
-			"store already defines; `sudo faramir link rm REF` removes it",
-		phrase, reason), logID)
+	// case rather than refusing it. A [[secret.link]] named in the reason is a
+	// link claiming a ref the managed store already defines, and that reason
+	// carries its own fix, so it gets no second one.
+	message := outcome + ": " + reason
+	if !strings.Contains(reason, "[[secret.link]]") {
+		message += ". Run `sudo faramir doctor`"
+	}
+	out := protocol.ErrorResponse("no_secrets", message, logID)
 	return &out
 }
 
@@ -87,9 +85,8 @@ func cwdMissing(cwd string) string {
 		if cwd != private && !strings.HasPrefix(cwd, private+"/") {
 			continue
 		}
-		return "cwd does not exist for this daemon: " + cwd + ". PrivateTmp=true isolates " +
-			private + " from your session. Use a directory outside " +
-			strings.Join(hostlayout.PrivateTmp, " and ") + "."
+		return "cwd does not exist for this daemon (PrivateTmp): " + cwd + "\n" +
+			"  use a directory outside " + strings.Join(hostlayout.PrivateTmp, " and ")
 	}
 	return "cwd does not exist: " + cwd
 }
@@ -98,15 +95,15 @@ func cwdMissing(cwd string) string {
 // cannot be recorded is not run, and the agent can reach that state by printing
 // enough to fill the filesystem. Nothing is recorded here, there being nowhere
 // to record it: the refusal goes back to the caller and to the daemon log.
-func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
+func (s *Server) refuseUnauditable(outcome, logID string) *protocol.Response {
 	reason := s.Audit.Unwritable()
 	if reason == "" {
 		return nil
 	}
-	log.Printf("%s refusing %s: the audit log cannot be written: %s", logID, phrase, reason)
+	log.Printf("%s %s: the audit log cannot be written: %s", logID, outcome, reason)
 	out := protocol.ErrorResponse("no_audit",
-		phrase+" refused: cannot write the audit log ("+reason+"). "+
-			"Free disk space or change [audit] log_path to a writable location, then retry", logID)
+		outcome+": the audit log cannot be written: "+reason+"\n"+
+			"  free disk space or set [audit] log_path to a writable location", logID)
 	return &out
 }
 

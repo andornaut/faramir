@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/andornaut/faramir/internal/fserr"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -55,7 +56,7 @@ func NewClient(socketPath string) *Client { return &Client{socketPath: socketPat
 func ask(socketPath string, req request, timeout time.Duration, asked string) (line []byte, problem string) {
 	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)
 	if err != nil {
-		return nil, fmt.Sprintf("the executor could not be asked %s (%s: %v)", asked, socketPath, err)
+		return nil, fmt.Sprintf("the executor could not be asked %s: %v", asked, fserr.At(socketPath, err))
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
@@ -103,11 +104,11 @@ func (c *Client) Start(argv []string, cwd string, env map[string]string,
 	stdin []byte, runID string, timeoutSec, killGraceSec int, slaveFD uintptr) error {
 	addr, err := net.ResolveUnixAddr("unix", c.socketPath)
 	if err != nil {
-		return fmt.Errorf("executor socket %s: %w", c.socketPath, err)
+		return fmt.Errorf("executor socket %w", fserr.At(c.socketPath, err))
 	}
 	conn, err := net.DialUnix("unix", nil, addr)
 	if err != nil {
-		return fmt.Errorf("executor socket %s: %w", c.socketPath, err)
+		return fmt.Errorf("executor socket %w", fserr.At(c.socketPath, err))
 	}
 	c.conn = conn
 

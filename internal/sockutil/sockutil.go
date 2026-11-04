@@ -70,7 +70,6 @@ func Listen(path string) (net.Listener, error) {
 		}
 		// FileListener dups the descriptor.
 		_ = f.Close()
-		log.Printf("using socket activation fd %d", listenFDStart)
 		return ln, nil
 	}
 

@@ -24,8 +24,7 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 		return nil
 	}
 	out := protocol.ErrorResponse("forbidden", fmt.Sprintf(
-		"%s needs root: an escalation must be answered by an account the coding "+
-			"agent cannot become. Run `sudo faramir sudo ls`", op), "")
+		"%s needs root: run `sudo faramir sudo ls`", op), "")
 	return &out
 }
 
@@ -74,8 +73,7 @@ func (s *Server) opEscalations(request *protocol.Request, peer *sockutil.Peer) p
 	}
 	body, err := json.MarshalIndent(rendered, "", "  ")
 	if err != nil {
-		return protocol.ErrorResponse("internal", "the questions could not be "+
-			"rendered: "+err.Error(), "")
+		return protocol.ErrorResponse("internal", "questions not rendered: "+err.Error(), "")
 	}
 	response := okResponse(0, string(body)+"\n")
 	response["questions"] = questions

@@ -155,10 +155,9 @@ func resolveProgram(argv0, cwd string, execCfg config.CommandConfig) (string, er
 			argv0, unrunnable)
 	}
 	if found == "" {
-		return "", notFoundf("%s: not found on the broker's PATH (%s). For a "+
-			"program installed elsewhere (a venv, pipx, a version-manager shim), "+
-			"add its directory to [command.env] PATH or use an absolute path "+
-			"in cmd[0]", argv0, path)
+		return "", notFoundf("%s: not found on the broker's PATH (%s)\n"+
+			"  add its directory (a venv, pipx or shim) to [command.env] PATH, or use an absolute path",
+			argv0, path)
 	}
 	return realpath(found), nil
 }

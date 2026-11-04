@@ -123,9 +123,8 @@ func New(cfg *config.Config) *Executor {
 	// Probed once: per run this is a field read rather than a syscall.
 	e.cgroupBase = cgroupBase()
 	if e.cgroupBase == "" {
-		log.Printf("this executor has no delegated cgroup, so brokered commands will be " +
-			"refused: it needs cgroup v2, a unit that sets Delegate=, and a kernel with " +
-			"cgroup.kill (>= 5.14). Reinstall on such a host")
+		log.Printf("no delegated cgroup, so every brokered command is refused\n" +
+			"  needs cgroup v2, a unit with Delegate= and a kernel with cgroup.kill (>= 5.14)")
 	}
 	return e
 }
@@ -386,14 +385,14 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	// cgroup is torn down. A host with no delegated cgroup, or a run that cannot
 	// be given one, is refused rather than reaped by process group.
 	if e.cgroupBase == "" {
-		return sockutil.ErrorResponse("exec_failed", "this host has no delegated cgroup (needs "+
-			"cgroup v2, a unit with Delegate=, and a kernel with cgroup.kill >= 5.14); "+
-			"refusing to run a command it cannot confine and reap")
+		return sockutil.ErrorResponse("exec_failed", "command not run: this host has no "+
+			"delegated cgroup\n"+
+			"  needs cgroup v2, a unit with Delegate= and a kernel with cgroup.kill (>= 5.14)")
 	}
 	rcg, err := newRunCgroup(e.cgroupBase)
 	if err != nil {
-		return sockutil.ErrorResponse("exec_failed", fmt.Sprintf("could not confine this run to a "+
-			"cgroup (%v); refusing to run it", err))
+		return sockutil.ErrorResponse("exec_failed", fmt.Sprintf("command not run: "+
+			"no cgroup to confine it: %v", err))
 	}
 	cmd.SysProcAttr.UseCgroupFD = true
 	cmd.SysProcAttr.CgroupFD = rcg.fd

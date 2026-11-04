@@ -58,8 +58,7 @@ func (s *Server) opStatus() protocol.Response {
 	}
 	body, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
-		return protocol.ErrorResponse("internal", "the status could not be "+
-			"rendered: "+err.Error(), "")
+		return protocol.ErrorResponse("internal", "status not rendered: "+err.Error(), "")
 	}
 	code := 0
 	if s.Store.Degraded() != "" {
@@ -78,17 +77,15 @@ func (s *Server) opStatus() protocol.Response {
 // `faramir vault` closes that itself rather than leaving it to the clock.
 func (s *Server) opRefresh(peer *sockutil.Peer) protocol.Response {
 	if peer == nil || peer.UID != 0 {
-		return protocol.ErrorResponse("forbidden",
-			"refresh is root's: it is what writes the managed store that asks for "+
-				"it, and everything else is served by the refresh interval", "")
+		return protocol.ErrorResponse("forbidden", "refresh needs root", "")
 	}
 	if !s.Store.Refresh(refreshWait) {
 		// A reload already under way that did not finish in time. Refused rather
 		// than answered, so the caller reports the interval it is now waiting on
 		// instead of telling an operator the store has been re-read.
 		return protocol.ErrorResponse("busy", fmt.Sprintf(
-			"a reload was already running and did not finish within %s, so the "+
-				"store was not re-read now; the periodic refresh will", refreshWait), "")
+			"store not re-read: a reload already running did not finish within %s",
+			refreshWait), "")
 	}
 	refs := s.Store.Refs()
 	response := okResponse(0, "")

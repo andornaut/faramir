@@ -92,8 +92,7 @@ func (s *streamer) flush(more bool) error {
 	s.buf = append(s.buf[:0], tail...)
 	redacted, err := s.stream.send(text, more)
 	if err != nil {
-		return fmt.Errorf("withheld %d byte(s) that could not be redacted, "+
-			"and stopped there: %w", len(text), err)
+		return fmt.Errorf("withheld %d byte(s) and everything after: %w", len(text), err)
 	}
 	_, writeErr := io.WriteString(s.out, redacted)
 	return writeErr

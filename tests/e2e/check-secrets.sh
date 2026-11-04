@@ -237,13 +237,13 @@ reload_daemons || bad "the daemons did not come back after a 20 KB value"
 runuser -u op -- faramir refs 2>/dev/null | grep -q 'faramir://midsize' \
   && bad "a 20 KB value is served, and the broker pays 15 KB per byte for it" \
   || ok "a value the broker will not hold is refused at load, under the kernel's cap"
-# The reason has to name the cost and what to do instead, or an operator reads a
+# The reason has to name the limit and what to do instead, or an operator reads a
 # number with nothing to act on.
 # Squeezed as well as joined: doctor wraps a detail across lines and indents the
 # continuation, so a phrase straddling the wrap is split by a run of spaces.
 detail=$(faramir doctor 2>&1 | tr '\n' ' ' | tr -s ' ')
-grep -q 'memory per byte' <<<"$detail" \
-  && ok "  and doctor says what it costs" || bad "  doctor gives no reason: $(grep -o 'midsize[^.]*' <<<"$detail" | head -c 100)"
+grep -q 'the limit is' <<<"$detail" \
+  && ok "  and doctor names the limit" || bad "  doctor gives no reason: $(grep -o 'midsize[^.]*' <<<"$detail" | head -c 100)"
 grep -q 'block add --path' <<<"$detail" \
   && ok "  and what to do instead" || bad "  doctor offers no alternative"
 faramir vault rm --force e2e-midsize >/dev/null 2>&1

@@ -29,7 +29,7 @@ func undumpable(who string) {
 	if err := unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0); err != nil {
 		// Reported rather than fatal: refusing to start would take the whole role
 		// down over a hardening measure.
-		log.Printf("%s could not mark itself undumpable (%v), so a process of its own "+
-			"uid may be able to ptrace it or read its memory", who, err)
+		log.Printf("%s not marked undumpable, so a process of its uid can read its memory: %v",
+			who, err)
 	}
 }

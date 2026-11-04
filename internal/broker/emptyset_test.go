@@ -187,33 +187,58 @@ func TestRedactIsNotRateLimited(t *testing.T) {
 	}
 }
 
-// The refusal's remedies have to be for the states that reach it. A store
-// nobody has written yet is served rather than refused, so advice about writing
-// a first file was advice for a condition this message cannot carry, and an
-// operator whose age key had gone unreadable was told to create a secret.
+// The refusal's remedy has to be for the state that reached it. A store nobody
+// has written yet is served rather than refused, so advice about writing a
+// first file was advice for a condition this message cannot carry, and an
+// operator whose age key had gone unreadable was told to create a secret. A
+// link claiming a ref the store defines carries its own fix in the reason, so
+// it gets no second hint.
 func TestTheUnreadableRefusalAdvisesOnlyWhatCouldHaveCausedIt(t *testing.T) {
-	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	file := managedFile(t)
-	k.SetFiles([]string{file})
-	k.SetErrors([]string{"/etc/faramir/secrets/other.sops.yml: could not decrypt"})
-	s := serverWith(t, k, file)
-	s.Store.Reload()
+	for _, tc := range []struct {
+		name     string
+		reason   string
+		want     string
+		unwanted string
+	}{
+		{"a managed file that did not decrypt",
+			"/etc/faramir/secrets/other.sops.yml: could not decrypt",
+			"faramir doctor", "link rm"},
+		{"a link claiming a managed ref",
+			"/home/op/.config/gh/hosts.yml: a [[secret.link]] entry claims a ref the managed store defines. " +
+				"Rename the link or remove the managed value",
+			"Rename the link", "faramir doctor"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
+			file := managedFile(t)
+			k.SetFiles([]string{file})
+			k.SetErrors([]string{tc.reason})
+			s := serverWith(t, k, file)
+			s.Store.Reload()
 
-	got := handle(s, map[string]any{
-		"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir(),
-	}, &sockutil.Peer{UID: 1000})
-	failure, ok := got["error"].(map[string]string)
-	if !ok || failure["code"] != "no_secrets" {
-		t.Fatalf("wanted the no_secrets refusal, got %v", got)
-	}
-	if strings.Contains(failure["message"], "vault add") {
-		t.Errorf("the refusal advises writing a first file, which is not a state "+
-			"that reaches it: %q", failure["message"])
-	}
-	for _, want := range []string{"named above", "faramir doctor", "secret.link"} {
-		if !strings.Contains(failure["message"], want) {
-			t.Errorf("the refusal does not mention %q: %q", want, failure["message"])
-		}
+			got := handle(s, map[string]any{
+				"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir(),
+			}, &sockutil.Peer{UID: 1000})
+			failure, ok := got["error"].(map[string]string)
+			if !ok || failure["code"] != "no_secrets" {
+				t.Fatalf("wanted the no_secrets refusal, got %v", got)
+			}
+			message := failure["message"]
+			if strings.Contains(message, "vault add") {
+				t.Errorf("the refusal advises writing a first file, which is not a state "+
+					"that reaches it: %q", message)
+			}
+			if !strings.Contains(message, tc.reason) {
+				t.Errorf("the refusal does not carry the reason: %q", message)
+			}
+			if !strings.Contains(message, tc.want) {
+				t.Errorf("the refusal does not mention %q: %q", tc.want, message)
+			}
+			if strings.Contains(message, tc.unwanted) {
+				t.Errorf("the refusal mentions %q, which is not this cause's remedy: %q",
+					tc.unwanted, message)
+			}
+		})
 	}
 }
 

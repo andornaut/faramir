@@ -235,10 +235,11 @@ type refusal struct {
 	tail string
 }
 
+// text is the body on the first line and each further part indented under it.
 func (r refusal) text() string {
-	out := r.body + "\n\n" + r.remedy
+	out := r.body + "\n  " + r.remedy
 	if r.tail != "" {
-		out += " " + r.tail
+		out += "\n  " + r.tail
 	}
 	return out
 }
@@ -258,40 +259,31 @@ func declaredRefusal(rule declaredRule) string {
 func refusalFor(rule declaredRule) refusal {
 	switch rule.Kind {
 	case denyrules.KindOwn:
+		// These rules come from the install's layout, so there is no entry to
+		// remove, and a file mode does not help: a brokered command runs as its
+		// own account, or as root after an approved escalation.
 		return refusal{
-			body: "this is " + rule.Entry + ", which is faramir's own, so no brokered " +
-				"command may name it, whatever it would do with it. There is no entry " +
-				"to remove: these rules come from the install's layout, and a file " +
-				"mode does not help because a brokered command runs as its own " +
-				"account, or as root after an approved escalation.",
-			remedy: "If this is deliberate, the operator must do it outside faramir.",
+			body: "names " + rule.Entry + ", one of faramir's own directories; " +
+				"no brokered command may name it.",
+			remedy: "This built-in rule cannot be removed. Ask the operator.",
 		}
 	case denyrules.KindOperator:
 		return refusal{
-			body: "this command changes the faramir install, so only the operator " +
-				"may run it. A brokered command runs as an account with less access " +
-				"than you, not more.",
-			remedy: "Ask the operator. Where `faramir doctor` says to run something " +
-				"as root, that line is addressed to them.",
+			body:   "this is an operator command.",
+			remedy: "Ask the operator to run it.",
 		}
 	case denyrules.KindOwnAction:
 		return refusal{
-			body: "this is faramir's own binary, one of the files an enrolment " +
-				"installs, or one of its units. It is refused because it would change " +
-				"or stop what keeps credentials out of this conversation, and a " +
-				"brokered command has less access than you, not more.",
-			remedy: "If this is deliberate, the operator must do it.",
+			body:   "this changes faramir's own file, account or unit.",
+			remedy: "Ask the operator to make the change.",
 		}
 	case denyrules.KindCommand:
 		// No tail: it is about what a reader may still do to a file, and names
 		// nothing somebody who ran `op read` typed.
 		return refusal{
 			body: rule.Kind.List() + " on this host name the command " + rule.Entry +
-				", so no brokered command may run it. The words are matched at the " +
-				"start of a command, so the same words inside an argument or a path " +
-				"are allowed; each line of a heredoc is read as a command and is not.",
-			remedy: "If the work needs it, the operator can run it outside " +
-				"faramir, or remove the entry with " + rule.Remedy + ".",
+				"; no brokered command may run it.",
+			remedy: "To unblock, ask the operator to run " + rule.Remedy + ".",
 		}
 	case denyrules.KindBlocked, denyrules.KindBlockedStrict,
 		denyrules.KindLinked, denyrules.KindLinkedStrict:
@@ -303,44 +295,35 @@ func refusalFor(rule declaredRule) refusal {
 	// What the entry leaves alone, which is the sentence that tells a reader
 	// whether another spelling is worth trying. A strict entry leaves nothing
 	// alone, and saying otherwise sends a model back for the same `ls`.
-	tail := "The entry refuses a fixed set of reading commands wherever the " +
-		"path appears in the line, so `cp`, `tee` and `sed` are refused even " +
-		"when the path is only what they write to. " +
-		"A command outside it is not refused, whatever it does to the file: " +
-		"`chmod`, `rm` and `mv` among them."
+	//
+	// The entry refuses a fixed set of reading commands wherever the path
+	// appears in the line, so a copy is refused even when the path is only what
+	// it writes to.
+	tail := "Only reading commands are refused; cp, tee and sed count as reading."
 	if rule.Strict {
-		tail = "This entry is strict: no command may name it, including one " +
-			"that only changes the file in place."
+		tail = "The entry is strict: no brokered command may name it."
 	}
 	// Only the two path kinds reach here, and both are an entry: they have a
-	// listing to name and a removal to offer, so neither is asked for.
+	// listing to name and a removal to offer, so neither is asked for. The
+	// contents are not redacted, faramir either never reading that file or
+	// reading a single ref from it, which is why the value is used by ref.
 	return refusal{
 		body: rule.Kind.List() + " on this host name " + declaredSubject(rule) +
-			", so a brokered command may not print it. " +
-			"Its contents are not redacted: faramir either never reads that file or " +
-			"reads a single ref from it, so it has no value to replace in this " +
-			"command's output.",
-		remedy: "Only the operator may read it, outside faramir or after " +
-			"removing the entry with " + rule.Remedy + ".",
-		tail: tail,
+			"; a brokered command may not print it.",
+		remedy: "Use it by ref, or ask the operator to run " + rule.Remedy + ".",
+		tail:   tail,
 	}
 }
 
-// declaredSubject is how the refusal names a path entry: the file, the ref it
-// answers where a link is what named it, and the stricter entry saying so
-// itself. A command refused for naming a path it never read is one whose author
-// would otherwise reach for a way round it, so the sentence has to carry why.
+// declaredSubject is how the refusal names a path entry: the file, and the ref
+// it answers where a link is what named it.
 func declaredSubject(rule declaredRule) string {
-	what := "the path " + rule.Entry
 	if rule.Ref != "" {
 		// What a caller is meant to do with a linked credential is ask for it by
 		// name, and the refusal is where to say so.
-		what = "the file " + rule.Entry + ", which answers " + rule.Ref
+		return "the file " + rule.Entry + ", which answers " + rule.Ref
 	}
-	if rule.Strict {
-		what += ", which no command may name at all"
-	}
-	return what
+	return "the path " + rule.Entry
 }
 
 // agentHomeDir is the home a "~" in a command stands for. The agent runs as the

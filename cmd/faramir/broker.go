@@ -99,25 +99,20 @@ func runBroker(f brokerFlags) int {
 
 	// No gate here: exec and redact refuse per request instead. Exiting would
 	// take down the process `faramir status` and `doctor` ask.
+	// The empty set is served, and said here because a store on a filesystem
+	// that is not mounted looks the same as a host that manages no credentials.
 	if reason := s.Store.Unreadable(); reason != "" {
-		log.Printf("refusing exec and redact: %s", reason)
-		log.Printf("every command the agent hook wraps has its output withheld until this is fixed. " +
-			"status and refs still answer; encrypt a file into the secrets directory, and no " +
-			"restart is needed")
+		log.Printf("refusing exec and redact: %s\n  run `sudo faramir doctor`", reason)
 	} else if reason := s.Store.EmptySet(); reason != "" {
-		log.Printf("serving with an empty value set: %s", reason)
-		log.Printf("commands run and their output is redacted against nothing, there being nothing to " +
-			"redact. That is right for a host managing no credentials and wrong for a store on " +
-			"a filesystem that is not mounted, which looks the same from here")
+		log.Printf("serving with an empty value set, so nothing is redacted: %s", reason)
 	}
 
 	// Same shape: said at startup so an operator finds out here, and asked again
-	// per request, a filesystem filling after boot.
+	// per request, a filesystem filling after boot. A command that cannot be
+	// recorded is not run, so this is the whole install.
 	if reason := s.Audit.Unwritable(); reason != "" {
 		log.Printf("refusing every brokered command: the audit log cannot be "+
-			"written: %s", reason)
-		log.Printf("a command that cannot be recorded is not run, so this is the whole install rather " +
-			"than one feature of it. Free space, or point [audit] log_path somewhere with room")
+			"written: %s\n  free space, or set [audit] log_path to a writable location", reason)
 	}
 
 	sshErr := s.Ssh.Start()
@@ -129,10 +124,8 @@ func runBroker(f brokerFlags) int {
 	// error. `--check` and `doctor` both fail on it. An unset [ssh] key is not
 	// this: Start reports no error.
 	if sshErr != nil {
-		log.Printf("ssh-agent: %v", sshErr)
-		log.Printf("no SSH identity is loaded, so every brokered command that " +
-			"reaches a managed host will fail to authenticate. Place the key and " +
-			"restart faramir-broker, or unset [ssh] key")
+		log.Printf("no SSH identity loaded: %v\n"+
+			"  place the key and restart faramir-broker, or unset [ssh] key", sshErr)
 	}
 
 	// Nothing to start: escalation binds no socket and holds no credential, so

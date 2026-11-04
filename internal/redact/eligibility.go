@@ -58,11 +58,10 @@ func (p EligibilityPolicy) Check(value string) string {
 		return fmt.Sprintf("shorter than %d characters", p.MinLength)
 	}
 	if len(value) >= MaxValueBytes {
-		return fmt.Sprintf("%d bytes, and the broker holds at most %d: a value "+
-			"costs about 15 KB of the broker's memory per byte, so one this size "+
-			"would exhaust it. Block the file from the agent with `sudo faramir "+
-			"block add --path` and let a brokered command read it instead",
-			len(value), MaxValueBytes)
+		// A value costs about 15 KB of the broker's memory per byte. A file this
+		// size is one to block rather than hold.
+		return fmt.Sprintf("%d bytes; the limit is %d. Block the file instead "+
+			"with `sudo faramir block add --path`", len(value), MaxValueBytes)
 	}
 	// A value that is faramir's own token, guillemets and all. The redactor
 	// emits that shape for another ref, so a stored token in output cannot be

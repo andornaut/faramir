@@ -159,7 +159,7 @@ func newRunCgroup(base string) (*runCgroup, error) {
 // reached on a kernel that lacks it.
 func (c *runCgroup) kill() {
 	if err := os.WriteFile(filepath.Join(c.path, "cgroup.kill"), []byte("1"), 0); err != nil {
-		log.Printf("cgroup %s: cgroup.kill failed (%v); tree may not be reaped",
+		log.Printf("cgroup %s not killed, so its tree may survive: %v",
 			filepath.Base(c.path), err)
 	}
 }
@@ -244,8 +244,7 @@ func (e *Executor) quiescence() map[string]any {
 	strays, err := e.strays()
 	if err != nil {
 		return map[string]any{"quiescent": false, "detail": fmt.Sprintf(
-			"this host's process table could not be read (%v), so whether anything "+
-				"is running as the executor is unknown", err)}
+			"process table unreadable: %v", err)}
 	}
 	if len(strays) == 0 {
 		return map[string]any{"quiescent": true, "detail": "nothing is running as the executor"}

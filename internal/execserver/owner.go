@@ -46,9 +46,9 @@ func (e *Executor) own(runID string, pid, pidfd int) {
 			_ = unix.Close(pidfd)
 		}
 		if runID != "" {
-			log.Printf("this kernel gave no pidfd for pid %d, so nothing in that run "+
-				"can be told from a process that reused its number; it will not be able "+
-				"to sudo", pid)
+			// Without a pidfd nothing in the run can be told from a process that
+			// reused its number.
+			log.Printf("no pidfd for pid %d, so its run cannot sudo", pid)
 		}
 		return
 	}
@@ -99,8 +99,7 @@ func (e *Executor) ownerOf(ancestors []int) map[string]any {
 			if !stillRunning(owned.pidfd) {
 				// The process this run was forked as has been reaped, so the number is
 				// no longer proof of anything. Blocked rather than matched.
-				log.Printf("pid %d was %s's command and has been reaped; the process "+
-					"asking is not it", pid, runID)
+				log.Printf("pid %d not attributed to %s: that command has been reaped", pid, runID)
 				continue
 			}
 			return map[string]any{"run_id": runID, "detail": fmt.Sprintf(

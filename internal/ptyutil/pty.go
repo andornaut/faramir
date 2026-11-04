@@ -11,6 +11,8 @@ import (
 	"os"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/andornaut/faramir/internal/fserr"
 )
 
 // Every ioctl here goes through SyscallConn rather than File.Fd, and that is
@@ -25,7 +27,7 @@ import (
 func Open() (master, slave *os.File, err error) {
 	m, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open /dev/ptmx: %w", err)
+		return nil, nil, fmt.Errorf("pty %w", fserr.At("/dev/ptmx", err))
 	}
 	defer func() {
 		if err != nil {
@@ -37,7 +39,7 @@ func Open() (master, slave *os.File, err error) {
 	if err = control(m, func(fd int) error {
 		return unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0)
 	}); err != nil {
-		return nil, nil, fmt.Errorf("TIOCSPTLCK: %w", err)
+		return nil, nil, fmt.Errorf("pty not unlocked: %w", err)
 	}
 	var n int
 	if err = control(m, func(fd int) error {
@@ -45,12 +47,12 @@ func Open() (master, slave *os.File, err error) {
 		n, ioctlErr = unix.IoctlGetInt(fd, unix.TIOCGPTN)
 		return ioctlErr
 	}); err != nil {
-		return nil, nil, fmt.Errorf("TIOCGPTN: %w", err)
+		return nil, nil, fmt.Errorf("pty number not read: %w", err)
 	}
 	name := fmt.Sprintf("/dev/pts/%d", n)
 	s, err := os.OpenFile(name, os.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open %s: %w", name, err)
+		return nil, nil, fmt.Errorf("pty %w", fserr.At(name, err))
 	}
 	return m, s, nil
 }

@@ -56,8 +56,9 @@ func startFailure(program, cwd string, err error) (code, detail string) {
 	// was simply not executable.
 	switch err := unix.Access(cwd, unix.X_OK); {
 	case err == nil:
-		return codeNotExecutable, fmt.Sprintf("%s may not execute %s; a brokered "+
-			"command runs as that account, not as you", whoRuns(), program)
+		// Named for the account, which is not the caller's: a brokered command
+		// runs as this one.
+		return codeNotExecutable, fmt.Sprintf("%s may not execute %s", whoRuns(), program)
 	case !errors.Is(err, os.ErrPermission):
 		// The directory answered something other than a refusal: a stale handle
 		// or an I/O error on a mount that has gone. What the exec reported is
@@ -67,9 +68,8 @@ func startFailure(program, cwd string, err error) (code, detail string) {
 	}
 	// The program may be perfectly runnable; what failed is getting to where it
 	// was to run. Not the shell's 126, which is about the program.
-	return codeExecFailed, fmt.Sprintf("%s cannot enter %s, so %s was never "+
-		"started. Share the tree by running `sudo faramir enrol` in it",
-		whoRuns(), cwd, program)
+	return codeExecFailed, fmt.Sprintf("%s not started: %s cannot enter %s\n"+
+		"  run `sudo faramir enrol` in the tree", program, whoRuns(), cwd)
 }
 
 // whoRuns names the account a brokered command runs as, which is this process's

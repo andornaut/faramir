@@ -29,7 +29,7 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer,
 	}
 	if stream.redactor == nil {
 		secrets := s.Store.Snapshot()
-		if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID(), peer, secrets.Unreadable()); refused != nil {
+		if refused := s.refuseUnreadable("redact", "redact refused", audit.NewLogID(), peer, secrets.Unreadable()); refused != nil {
 			return *refused
 		}
 		// Built once for the whole stream, so every chunk of one command's output

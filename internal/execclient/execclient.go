@@ -302,8 +302,8 @@ func isEIO(err error) bool {
 // in raw bytes rather than the bytes a record encodes to, so it carries its
 // own marker; audit.Bounded is the ring under both.
 func truncationMarker(dropped, budget int) string {
-	return fmt.Sprintf("\n[faramir] %d bytes of output dropped; the head and the "+
-		"tail are kept, at a %d byte cap\n", dropped, budget)
+	return fmt.Sprintf("\n[faramir] %d bytes of output dropped from the middle (cap %d bytes)\n",
+		dropped, budget)
 }
 
 func round3(v float64) float64 { return float64(int64(v*1000+0.5)) / 1000 }

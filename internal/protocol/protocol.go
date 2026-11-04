@@ -171,8 +171,8 @@ func parseCmd(payload map[string]any, req *Request) error {
 		return nil
 	}
 	if _, isStr := rawCmd.(string); isStr {
-		return errors.New("'cmd' must be an array, not a string; the broker never " +
-			"invokes a shell for you, so send ['bash', '-lc', '…']")
+		// The broker never invokes a shell, so the hint names what does work.
+		return errors.New("'cmd' must be an array, not a string: send ['bash', '-lc', '…']")
 	}
 	list, isList := rawCmd.([]any)
 	if !hasCmd || !isList || len(list) == 0 {
@@ -198,7 +198,7 @@ func parseStdin(payload map[string]any, req *Request) error {
 		return nil
 	}
 	if req.Op != OpRun {
-		return errors.New("'stdin' is for a run; no other op feeds a child")
+		return errors.New("'stdin' is only valid for a run")
 	}
 	encoded, isStr := raw.(string)
 	if !isStr {
@@ -209,8 +209,8 @@ func parseStdin(payload map[string]any, req *Request) error {
 		return errors.New("'stdin' must be base64: " + err.Error())
 	}
 	if len(decoded) > config.MaxStdinBytes {
-		return fmt.Errorf("'stdin' is %d bytes and the limit is %d; write a "+
-			"larger input to a file and have the command read it",
+		return fmt.Errorf("'stdin' is %d bytes; the limit is %d\n"+
+			"  write it to a file and have the command read that",
 			len(decoded), config.MaxStdinBytes)
 	}
 	req.Stdin = decoded
@@ -358,11 +358,10 @@ func parseWaits(payload map[string]any, req *Request) error {
 		if !isNum || n <= 0 {
 			// One refusal for every shape of bad value. It names both halves --
 			// wholeness and magnitude -- because a fraction and a float past int64
-			// arrive indistinguishable once decoded, and either correction is a
-			// number the clamp below max_timeout_sec makes moot anyway.
+			// arrive indistinguishable once decoded. A value in range is clamped
+			// to [command] max_timeout_sec rather than refused.
 			return errors.New("'timeout_sec' must be a positive whole number of " +
-				"seconds and not too large to hold; every value is clamped to " +
-				"'[command] max_timeout_sec'")
+				"seconds, not too large to hold")
 		}
 		req.TimeoutSec = n
 	}

@@ -4,6 +4,8 @@ package runcmd
 
 import (
 	"encoding/json"
+	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -37,5 +39,34 @@ func TestCommandErrorCarriesStderr(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "the reason") {
 		t.Errorf("error does not carry stderr: %v", err)
+	}
+	// The reason stands in for the exit status, which says nothing beside it.
+	if strings.Contains(err.Error(), "exit status") {
+		t.Errorf("error carries the exit status as well as the reason: %v", err)
+	}
+	if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+		t.Errorf("the exit is no longer reachable through the error: %v", err)
+	}
+}
+
+// stderr goes on indented lines under the command, blank lines dropped, and a
+// program that said nothing is reported by its exit status.
+func TestCommandErrorShape(t *testing.T) {
+	_, err := Output("/bin/sh", "-c", `printf 'first\n\n  second\n' >&2; exit 2`)
+	if want := "sh -c printf 'first\\n\\n  second\\n' >&2; exit 2:\n  first\n    second"; err == nil || err.Error() != want {
+		t.Errorf("err = %q, want %q", err, want)
+	}
+	_, err = Output("sh", "-c", "echo one line >&2; exit 2")
+	if want := "sh -c echo one line >&2; exit 2:\n  one line"; err == nil || err.Error() != want {
+		t.Errorf("err = %q, want %q", err, want)
+	}
+	_, err = Output("sh", "-c", "exit 4")
+	if want := "sh -c exit 4: exit status 4"; err == nil || err.Error() != want {
+		t.Errorf("err = %q, want %q", err, want)
+	}
+	// A long command line is cut, so the reason is not buried under it.
+	_, err = Output("sh", "-c", "exit 4", strings.Repeat("x", 200))
+	if first, _, _ := strings.Cut(err.Error(), ":"); len([]rune(first)) > maxCommandRunes {
+		t.Errorf("first line runs to %d characters: %q", len([]rune(first)), first)
 	}
 }

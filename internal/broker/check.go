@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/andornaut/faramir/internal/escalation"
+	"github.com/andornaut/faramir/internal/fserr"
 )
 
 // CheckOutput is the operator-facing --check report: the refs refused at load,
@@ -57,11 +58,9 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	// asking whether the host serves anything is told and a converge run is not
 	// failed over a host that manages no credentials. What does fail is a
 	// managed file that was found and did not load, below.
+	// A store on an unmounted filesystem looks the same as one never written.
 	if s.Store.Count() == 0 {
-		log.Printf("the broker holds no managed values, so nothing is injected " +
-			"and nothing is redacted. Commands still run. A store on an unmounted " +
-			"filesystem looks the same, so check that this host is meant to " +
-			"manage none")
+		log.Printf("the broker holds no managed values, so nothing is injected or redacted")
 	}
 	if absent := s.Store.UnresolvedPatterns(); len(absent) > 0 {
 		log.Printf("%d configured entry(ies) named no file: %v", len(absent), absent)
@@ -70,40 +69,34 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	// redactor, so a command that prints it prints it in the clear: the same
 	// consequence as a ref too short to cover, and counted the same way.
 	if shadowed := s.Store.ShadowedRefs(); len(shadowed) > 0 {
-		log.Printf("%d ref(s) are defined with different values in more than one "+
-			"managed file; one value wins and the others are not redacted: %v",
-			len(shadowed), shadowed)
+		log.Printf("%d ref(s) defined in more than one managed file; only one value "+
+			"is redacted: %v", len(shadowed), shadowed)
 		code = 1
 	}
 	// Every value the broker failed to load is one it cannot redact.
 	if fatal := s.Store.LoadErrors(); len(fatal) > 0 {
-		log.Printf("%d secret load failure(s): %v", len(fatal), fatal)
-		log.Printf("those values are not redacted: a command that prints one " +
-			"prints it in plaintext")
+		log.Printf("%d secret load failure(s), and those values are not redacted: %v",
+			len(fatal), fatal)
 		code = 1
 	}
 	if len(problems) > 0 {
-		log.Printf("the broker cannot use the configured SSH key: %v", problems)
-		log.Printf("brokered commands cannot authenticate to a host that expects " +
-			"it. Place the key, or unset [ssh] key to authenticate another way")
+		log.Printf("SSH key unusable: %v\n  place the key, or unset [ssh] key", problems)
 		code = 1
 	}
 	// Same weighting as the SSH key: an escalation that cannot be asked for
 	// breaks only the commands that sudo, and those fail at the point of use with
 	// sudo's own error.
 	if len(escalationProblems) > 0 {
-		log.Printf("this host cannot answer an escalation: %v", escalationProblems)
-		log.Printf("a brokered command that runs sudo will fail to authenticate. " +
-			"Re-run `sudo faramir init --allow-sudo`, or re-run without it to remove " +
-			"the grant")
+		log.Printf("sudo escalation unavailable: %v\n"+
+			"  re-run `sudo faramir init --allow-sudo`, or without it to remove the grant",
+			escalationProblems)
 		code = 1
 	}
 	// Not a warning: a host whose audit log cannot be written runs no brokered
 	// command at all.
 	if reason := s.Audit.Unwritable(); reason != "" {
-		log.Printf("the audit log cannot be written: %s", reason)
-		log.Printf("every brokered command is refused until it can be written: " +
-			"a command that cannot be recorded does not run")
+		log.Printf("the audit log cannot be written, so every brokered command is refused: %s",
+			reason)
 		code = 1
 	}
 	return body, code
@@ -128,8 +121,7 @@ func (s *Server) describeEscalation() (map[string]any, []string) {
 	// The helper is what sudo's PAM service execs, as root. Absent, every
 	// escalation fails closed.
 	if _, err := os.Stat(cfg.Helper); err != nil {
-		problems = append(problems, cfg.Helper+": "+err.Error()+
-			" (the PAM service execs it, so no escalation can be approved)")
+		problems = append(problems, "PAM helper "+fserr.At(cfg.Helper, err).Error())
 	}
 	// The stack that execs it, wherever it is on this host: a service file of
 	// faramir's own where sudo can be sent to one by name, and a block in the
@@ -138,9 +130,7 @@ func (s *Server) describeEscalation() (map[string]any, []string) {
 	// normal host and authenticates anything on one whose `other` is permissive;
 	// doctor checks that too.
 	if stack, err := escalation.Stack(escalation.PamDir, cfg.PamStack, cfg.PamService); err != nil {
-		problems = append(problems, "nothing here authenticates an escalation: "+
-			err.Error()+" (sudo would fall back to /etc/pam.d/other for "+
-			cfg.ExecUser+")")
+		problems = append(problems, "no PAM stack for "+cfg.ExecUser+": "+err.Error())
 	} else {
 		info["pam_stack"] = stack
 	}
@@ -149,8 +139,8 @@ func (s *Server) describeEscalation() (map[string]any, []string) {
 	// silently.
 	if len(cfg.NotifyCommand) > 0 {
 		if _, err := osexec.LookPath(cfg.NotifyCommand[0]); err != nil {
-			problems = append(problems, cfg.NotifyCommand[0]+": "+err.Error()+
-				" ([sudo] notify_command names it, so nothing announces a pending request)")
+			problems = append(problems, "[sudo] notify_command "+
+				fserr.At(cfg.NotifyCommand[0], err).Error())
 		}
 	}
 	return info, problems
@@ -168,15 +158,14 @@ func (s *Server) policyProblems() []string {
 	// unchecked rather than passing.
 	path := s.Config.Server.SocketPath
 	if info, err := os.Stat(path); err != nil {
-		log.Printf("%s is not bound, so its mode went unchecked: %v", path, err)
+		log.Printf("socket mode not checked: %v", fserr.At(path, err))
 	} else if mode := info.Mode().Perm(); mode&0o007 != 0 {
 		problems = append(problems, fmt.Sprintf(
-			"%s is %04o: every account on this host can reach the broker, "+
-				"regardless of allowed_group", path, mode))
+			"%s is %04o: every account on this host can reach the broker", path, mode))
 	}
 	if os.Geteuid() == 0 {
-		log.Printf("running as root, so [keeper] and [executor] allowed_user were " +
-			"not checked: run --check as the broker's own account")
+		log.Printf("[keeper] and [executor] allowed_user not checked as root\n" +
+			"  run --check as the broker's own account")
 		return problems
 	}
 	for _, socket := range []struct {
@@ -185,9 +174,9 @@ func (s *Server) policyProblems() []string {
 		cost    string
 	}{
 		{"keeper", s.Config.Keeper.AllowedUser,
-			"that account can ask it for any decrypted value, which is as good as holding the age key"},
+			"that account can read every decrypted value"},
 		{"executor", s.Config.Executor.AllowedUser,
-			"a command sent there runs unredacted and unlogged"},
+			"that account can run commands unredacted and unlogged"},
 	} {
 		// Unset is not checked: it fails loudly on its own, and what is looked for
 		// here is a name admitting the wrong account.
@@ -220,11 +209,10 @@ func unusableReason(data []byte) string {
 		return ""
 	}
 	if _, ok := errors.AsType[*ssh.PassphraseMissingError](err); ok {
-		return "passphrase-protected; the broker has no way to type one, " +
-			"so ssh-add will refuse it"
+		return "passphrase-protected: remove the passphrase with `ssh-keygen -p`"
 	}
 	if _, _, _, _, pubErr := ssh.ParseAuthorizedKey(data); pubErr == nil {
-		return "this is a public key; [ssh] key must name the private key"
+		return "a public key: point [ssh] key at the private key"
 	}
 	return "not a usable private key"
 }
@@ -246,7 +234,7 @@ func (s *Server) describeSSH() (map[string]any, []string) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		key["readable"] = false
-		return info, []string{path + ": " + err.Error()}
+		return info, []string{fserr.At(path, err).Error()}
 	}
 	key["readable"] = true
 	if reason := unusableReason(data); reason != "" {
