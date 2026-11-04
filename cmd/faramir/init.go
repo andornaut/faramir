@@ -82,7 +82,7 @@ func newInitCmd() *cobra.Command {
 		Args:    noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			clearUnset(c, &f)
-			return codeErr(runInit(f))
+			return runInit(f)
 		},
 	}
 	fl := c.Flags()
@@ -167,20 +167,19 @@ func namedValues(pairs []string) (map[string]string, error) {
 	return out, nil
 }
 
-func runInit(f initFlags) int {
+func runInit(f initFlags) error {
 	// Before the first step. init asks the broker what the agent holds on its way
 	// out, so nested it would do every other step and then fail at its own
 	// verification: a converge that changed nothing and reports failure, with
 	// nothing in the ending to point at the cause.
 	if why := protocol.NestedRun(); why != "" {
 		fmt.Fprintf(os.Stderr, "faramir init: %s; run it outside a brokered command\n", why)
-		return 1
+		return codeErr(1)
 	}
 
 	env, err := namedValues(f.commandEnv)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir init: %v\n", err)
-		return 2
+		return usageError{err}
 	}
 
 	// The durations, refused here rather than carried into the config as a zero.
@@ -195,8 +194,7 @@ func runInit(f initFlags) int {
 	for flag, value := range durations {
 		got, err := durationSeconds(flag, *value)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir init: %v\n", err)
-			return 2
+			return usageError{err}
 		}
 		seconds[flag] = got
 	}
@@ -252,16 +250,16 @@ func runInit(f initFlags) int {
 	}
 	if f.asJSON {
 		if code := printJSON("init", report); code != 0 {
-			return code
+			return codeErr(code)
 		}
 	}
 	if err != nil {
-		return 1
+		return codeErr(1)
 	}
 	if !f.asJSON {
 		reportToOperator(report)
 	}
-	return 0
+	return nil
 }
 
 // reportToOperator prints what a person needs after a run: what installs

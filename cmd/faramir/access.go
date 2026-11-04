@@ -15,9 +15,6 @@ package main
 // a path with no interpretation.
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 )
@@ -41,7 +38,7 @@ func newAccessCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runAccess(args[0], read, write, execute))
+			return runAccess(args[0], read, write, execute)
 		},
 	}
 	c.Flags().BoolVarP(&read, "read", "r", false, "check read access")
@@ -54,12 +51,13 @@ func newAccessCmd() *cobra.Command {
 	return c
 }
 
-// runAccess exits 0 where the access is permitted and 1 where it is not.
+// runAccess exits 0 where the access is permitted, 1 where it is not and 2 where
+// no access was named.
 //
 // Deny by default: no flag is a question nobody asked, and answering it yes
 // would report a boundary as open on the strength of an empty command line.
 // Several together is the conjunction, as access(2)'s own mask is.
-func runAccess(path string, read, write, execute bool) int {
+func runAccess(path string, read, write, execute bool) error {
 	var mode uint32
 	if read {
 		mode |= unix.R_OK
@@ -71,15 +69,14 @@ func runAccess(path string, read, write, execute bool) int {
 		mode |= unix.X_OK
 	}
 	if mode == 0 {
-		fmt.Fprintln(os.Stderr, "faramir access: name --read, --write or --execute")
-		return 2
+		return usagef("name --read, --write or --execute")
 	}
 	// Faccessat with a zero flags argument asks about the real uid and gid and
 	// the process's supplementary groups, which under runuser are the account's.
 	// Not AT_EACCESS: doctor asks what that account may do, and the effective ids
 	// of this short-lived child are the same ones anyway.
 	if err := unix.Faccessat(unix.AT_FDCWD, path, mode, 0); err != nil {
-		return 1
+		return codeErr(1)
 	}
-	return 0
+	return nil
 }

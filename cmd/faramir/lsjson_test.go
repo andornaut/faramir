@@ -206,8 +206,8 @@ func TestTheTwoHalvesOfBlockLsPartitionIt(t *testing.T) {
 // wrote both meant one of them.
 func TestNamingBothHalvesIsRefused(t *testing.T) {
 	atConfigDir(t, t.TempDir())
-	out, code := testio.CaptureStdout(t, func() int {
-		return runBlockList(blockFlags{declared: true, builtIn: true})
+	out, code := testio.CaptureStderr(t, func() int {
+		return run([]string{"block", "ls", "--declared", "--built-in"})
 	})
 	if code != 2 {
 		t.Errorf("exit %d, want 2: %s", code, out)
@@ -299,28 +299,30 @@ command = "op read"
 // one file on this host, which is not what they asked for and looks like it
 // worked.
 func TestABareArgumentToBlockIsRefused(t *testing.T) {
+	// Through the root, so the label and the status are the ones a caller sees.
 	for _, verb := range []string{"add", "rm"} {
-		var f blockFlags
-		_, err := f.entries(verb, []string{"/etc/luks/volume.key"})
-		if err == nil {
-			t.Errorf("block %s took a positional path", verb)
+		said, code := testio.CaptureStderr(t, func() int {
+			return run([]string{"block", verb, "/etc/luks/volume.key"})
+		})
+		if code != 2 {
+			t.Errorf("block %s with a positional path = %d, want 2 (usage): %q", verb, code, said)
 			continue
 		}
-		for _, want := range []string{"--path", "--command"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("the refusal does not name %s: %v", want, err)
+		for _, want := range []string{"faramir block " + verb + ": ", "--path", "--command"} {
+			if !strings.Contains(said, want) {
+				t.Errorf("the refusal does not name %s: %q", want, said)
 			}
 		}
 	}
 	// A stray argument beside a named form is refused too, rather than silently
 	// dropped.
 	f := blockFlags{paths: []string{"/etc/x"}}
-	if _, err := f.entries("add", []string{"stray"}); err == nil {
+	if _, err := f.entries([]string{"stray"}); err == nil {
 		t.Error("an argument beside --path was accepted and would be ignored")
 	}
 	// And both named forms are taken, together, one entry each.
 	f = blockFlags{paths: []string{"/etc/x"}, commands: []string{"op read"}}
-	got, err := f.entries("add", nil)
+	got, err := f.entries(nil)
 	if err != nil {
 		t.Fatalf("the two forms together were refused: %v", err)
 	}
@@ -328,7 +330,7 @@ func TestABareArgumentToBlockIsRefused(t *testing.T) {
 		t.Errorf("got %d entries from two forms, want 2", len(got))
 	}
 	// Naming none is refused, and says how to name one.
-	if _, err := (&blockFlags{}).entries("add", nil); err == nil {
+	if _, err := (&blockFlags{}).entries(nil); err == nil {
 		t.Error("an add naming no form was accepted")
 	}
 }

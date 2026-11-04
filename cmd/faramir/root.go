@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -60,11 +61,21 @@ func exitCode(err error) int {
 	return 1
 }
 
-// runCommand executes one subcommand against args on its own, which is how the
-// tests reach a command without going through the root.
+// runCommand executes c against args and returns the status to exit with. c is
+// the root, or a subcommand on its own, which is how the tests reach one
+// without going through the root.
+//
+// A usage error the command returned is printed here, once, under its label.
+// Cobra prints one refused before the command ran; one returned after
+// PersistentPreRunE silenced the command is this function's to print, as cobra
+// itself decides it: from SilenceErrors on the command that ran and on c.
 func runCommand(c *cobra.Command, args []string) int {
 	c.SetArgs(args)
-	return exitCode(c.Execute())
+	ran, err := c.ExecuteC()
+	if _, ok := errors.AsType[usageError](err); ok && (ran.SilenceErrors || c.SilenceErrors) {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", ran.CommandPath(), err)
+	}
+	return exitCode(err)
 }
 
 // newRootCmd assembles every subcommand. The groups organise the help, and
@@ -93,10 +104,11 @@ func newRootCmd() *cobra.Command {
 		// not consider runnable has its arguments ignored altogether.
 		RunE: func(c *cobra.Command, args []string) error { return nil },
 		// Runs once the arguments have been accepted, which is where a failure
-		// stops being a wrong invocation worth printing usage for. Every RunE past
-		// this point returns exitCodeError, which the command has already explained
-		// on its own stderr; cobra printing it again would add "Error: exit status
-		// N" to what the caller is reading.
+		// stops being a wrong invocation worth printing usage for. A RunE past this
+		// point returns exitCodeError, which the command has already explained on
+		// its own stderr, or a usageError, which runCommand prints under the
+		// command's label; cobra printing either would add "Error: ..." and the
+		// usage block to what the caller is reading.
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			c.SilenceUsage = true
 			c.SilenceErrors = true

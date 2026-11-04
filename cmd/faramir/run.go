@@ -55,8 +55,7 @@ func newRunCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, rest []string) error {
 			refs, err := secretref.EnvRefs(envFiles, envRefs)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
-				return codeErr(2)
+				return usageError{err}
 			}
 
 			request := map[string]any{"op": brokerclient.OpRun, "cmd": rest}
@@ -65,21 +64,15 @@ func newRunCmd() *cobra.Command {
 			}
 			// Resolved here rather than sent as it was typed: the broker runs the
 			// command from its own directory, so a relative path means the
-			// caller's directory or nothing. Printed here because an error
-			// returned past this point is silenced.
+			// caller's directory or nothing.
 			cwd, err = resolveCwd(cwd)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
-				return codeErr(2)
+				return usageError{err}
 			}
 			request["cwd"] = cwd
-			// Printed here rather than returned as a usage error: past argument
-			// validation the root command silences what a RunE returns, so a
-			// usagef from here exits 2 and says nothing at all.
 			seconds, err := durationSeconds("--timeout", timeout)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
-				return codeErr(2)
+				return usageError{err}
 			}
 			// Zero is "name none", which the broker reads as its configured
 			// default.
@@ -97,15 +90,13 @@ func newRunCmd() *cobra.Command {
 			// spoken for.
 			piped, err := pipedStdin(stdin)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
-				return codeErr(2)
+				return usageError{err}
 			}
 			if len(piped) > 0 {
 				request["stdin"] = base64.StdEncoding.EncodeToString(piped)
 			}
 			if err := fitsOneRequest(request, len(piped)); err != nil {
-				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
-				return codeErr(2)
+				return usageError{err}
 			}
 			return codeErr(send("run", socketDefault(), request, o.json, quiet))
 		},

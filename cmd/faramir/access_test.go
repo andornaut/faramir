@@ -31,7 +31,7 @@ func TestAccessAnswersOnlyWhatItWasAsked(t *testing.T) {
 		{"traversing what is not there", filepath.Join(dir, "absent"), false, false, true, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := runAccess(tc.path, tc.read, tc.write, tc.execute)
+			got := exitCode(runAccess(tc.path, tc.read, tc.write, tc.execute))
 			if got != tc.want {
 				t.Errorf("runAccess(%q, read=%v, write=%v, execute=%v) = %d, want %d",
 					tc.path, tc.read, tc.write, tc.execute, got, tc.want)
@@ -53,10 +53,10 @@ func TestAccessSeparatesTraversalFromReading(t *testing.T) {
 	if err := os.Mkdir(listable, 0o400); err != nil {
 		t.Fatal(err)
 	}
-	if got := runAccess(listable, true, false, false); got != 0 {
+	if got := exitCode(runAccess(listable, true, false, false)); got != 0 {
 		t.Errorf("reading a 0400 directory = %d, want 0", got)
 	}
-	if got := runAccess(listable, false, false, true); got != 1 {
+	if got := exitCode(runAccess(listable, false, false, true)); got != 1 {
 		t.Errorf("traversing a 0400 directory = %d, want 1", got)
 	}
 }
@@ -71,7 +71,7 @@ func TestAccessRefusesAModeThatPermitsNothing(t *testing.T) {
 	if err := os.WriteFile(closed, []byte("x"), 0o000); err != nil {
 		t.Fatal(err)
 	}
-	if got := runAccess(closed, true, false, false); got != 1 {
+	if got := exitCode(runAccess(closed, true, false, false)); got != 1 {
 		t.Errorf("runAccess on a 0000 file = %d, want 1", got)
 	}
 }

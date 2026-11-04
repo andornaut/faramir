@@ -2,11 +2,39 @@ package main
 
 import (
 	"os/user"
+	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/protocol"
+	"github.com/andornaut/faramir/internal/testio"
 )
+
+// A usage error a command returns once it is running exits 2 and is said once,
+// on one line, under the command's label: the root silences what a RunE
+// returns, so run is what prints it. read-link refuses a missing --path before
+// it reads anything.
+func TestAUsageErrorFromARunningCommandIsOneLine(t *testing.T) {
+	said, code := testio.CaptureStderr(t, func() int { return run([]string{"read-link", "--type", "env"}) })
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 (usage)", code)
+	}
+	if want := "faramir read-link: --path and --type are required\n"; said != want {
+		t.Errorf("stderr = %q, want %q", said, want)
+	}
+}
+
+// One refused before the command runs is cobra's to print, and run does not
+// print it a second time.
+func TestAUsageErrorFromArgumentValidationIsSaidOnce(t *testing.T) {
+	said, code := testio.CaptureStderr(t, func() int { return run([]string{"version", "extra"}) })
+	if code != 2 {
+		t.Errorf("exit = %d, want 2 (usage)", code)
+	}
+	if n := strings.Count(said, "takes no arguments"); n != 1 {
+		t.Errorf("the refusal is said %d times, want once: %q", n, said)
+	}
+}
 
 func TestTheSocketEnvVarOverridesTheDefault(t *testing.T) {
 	t.Setenv("FARAMIR_SOCKET", "/tmp/custom.sock")

@@ -47,10 +47,10 @@ func TestRunReadsItsOwnFlagsBeforeTheCommand(t *testing.T) {
 
 // A refusal raised before the broker is contacted goes to the real os.Stderr.
 // Past PersistentPreRunE the root command silences what a RunE returns, so a
-// message written to cobra's own writer or returned as a usage error arrives
-// nowhere and the caller is given a silent exit 2. The fd is captured rather
-// than cobra's writer for that reason: the mistake this catches is the one that
-// looks right in a test using SetErr.
+// message written to cobra's own writer arrives nowhere and the caller is given
+// a silent exit 2. The fd is captured rather than cobra's writer for that
+// reason: the mistake this catches is the one that looks right in a test using
+// SetErr.
 func TestAPreBrokerRefusalReachesTheRealStderr(t *testing.T) {
 	old := os.Stderr
 	r, w, err := os.Pipe()
@@ -58,9 +58,7 @@ func TestAPreBrokerRefusalReachesTheRealStderr(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Stderr = w
-	root := newRootCmd()
-	root.SetArgs([]string{"run", "-t", "nonsense", "--", "echo", "hi"})
-	code := exitCode(root.Execute())
+	code := run([]string{"run", "-t", "nonsense", "--", "echo", "hi"})
 	_ = w.Close()
 	os.Stderr = old
 	msg, _ := io.ReadAll(r)

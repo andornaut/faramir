@@ -51,18 +51,18 @@ type blockFlags struct {
 // so nothing here has to choose between the forms. A dozen paths in one command
 // is what a first run pastes and what a converge hands over, and it costs one
 // config rewrite rather than a dozen.
-func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, error) {
+func (f *blockFlags) entries(args []string) ([]config.BlockedPath, error) {
 	// A positional argument is refused rather than read as a path. The two forms
 	// block different things and neither is the obvious one: an operator who
 	// means a command and types the argument gets a rule about a file, which is
 	// not what they asked for and looks like it worked.
 	if len(args) > 0 {
-		return nil, fmt.Errorf("faramir block %s: %q: pass --path or --command", verb, args[0])
+		return nil, usagef("%q: pass --path or --command", args[0])
 	}
 	// With no path to ride on, --strict would change nothing, and the loader
 	// refuses a command entry carrying it for the same reason.
 	if f.strict && len(f.paths) == 0 && len(f.commands) > 0 {
-		return nil, fmt.Errorf("faramir block %s: --strict applies to --path only", verb)
+		return nil, usagef("--strict applies to --path only")
 	}
 	out := make([]config.BlockedPath, 0, len(f.paths)+len(f.commands))
 	// --strict rides on every path the command names, and on no command entry:
@@ -75,7 +75,7 @@ func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, 
 		out = append(out, config.BlockedPath{Command: command})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("faramir block %s: nothing given: pass --path or --command", verb)
+		return nil, usagef("nothing given: pass --path or --command")
 	}
 	return out, nil
 }
@@ -98,8 +98,13 @@ func newBlockAddCmd() *cobra.Command {
 			"agent's deny rules and reloads the daemons. A symlink is blocked at both\n" +
 			"names, and `block rm` on the link removes both.",
 		Args: cobra.ArbitraryArgs,
+		// A wrong invocation is refused before root is asked for.
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runBlockAdd(f, args))
+			blocked, err := f.entries(args)
+			if err != nil {
+				return err
+			}
+			return codeErr(runBlockAdd(f, blocked))
 		},
 	}
 	f.registerForms(c)
@@ -109,14 +114,7 @@ func newBlockAddCmd() *cobra.Command {
 	return c
 }
 
-func runBlockAdd(f blockFlags, args []string) int {
-	// A wrong invocation is reported before root is asked for, and exits 2 as
-	// every usage error does.
-	blocked, err := f.entries("add", args)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
-	}
+func runBlockAdd(f blockFlags, blocked []config.BlockedPath) int {
 	if !requireRoot("block add") {
 		return 1
 	}
@@ -171,19 +169,20 @@ func newBlockRemoveCmd() *cobra.Command {
 		Long: "Removes the entries and the rules faramir rendered from them. A rule\n" +
 			"rendered from the install layout cannot be removed.",
 		Args: cobra.ArbitraryArgs,
-		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockRemove(f, args)) },
+		RunE: func(c *cobra.Command, args []string) error {
+			asked, err := f.entries(args)
+			if err != nil {
+				return err
+			}
+			return codeErr(runBlockRemove(f, asked))
+		},
 	}
 	f.registerForms(c)
 	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
 
-func runBlockRemove(f blockFlags, args []string) int {
-	asked, err := f.entries("rm", args)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 2
-	}
+func runBlockRemove(f blockFlags, asked []config.BlockedPath) int {
 	// Before root, not after: these can never be granted, so making the operator
 	// find sudo to be told so is a round trip for nothing. It reads the config,
 	// which needs no root either, because an entry the install declares is
@@ -245,7 +244,15 @@ func newBlockListCmd() *cobra.Command {
 		Long: "Lists the declared [[secret.block]] entries, then the rules rendered from\n" +
 			"the install layout. --json adds a `source` field per row.",
 		Args: noArgs,
-		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockList(f)) },
+		RunE: func(c *cobra.Command, args []string) error {
+			// Both halves is the default, so naming both narrows to everything and
+			// says nothing. Refused rather than answered, a caller that wrote both
+			// having meant one of them.
+			if f.declared && f.builtIn {
+				return usagef("--declared and --built-in are exclusive")
+			}
+			return codeErr(runBlockList(f))
+		},
 	}
 	c.Flags().BoolVar(&f.declared, "declared", false, "only the declared entries")
 	c.Flags().BoolVar(&f.builtIn, "built-in", false, "only the rules rendered from the install layout")
@@ -258,13 +265,6 @@ func runBlockList(f blockFlags) int {
 	paint, bad := termui.PaletteFor("block ls", f.when)
 	if bad != 0 {
 		return bad
-	}
-	// Both halves is the default, so naming both narrows to everything and says
-	// nothing. Refused rather than answered, a caller that wrote both having
-	// meant one of them.
-	if f.declared && f.builtIn {
-		fmt.Fprintln(os.Stderr, "faramir block ls: --declared and --built-in are exclusive")
-		return 2
 	}
 	dir, err := installedConfigDir(socketDefault())
 	if err != nil {

@@ -32,8 +32,7 @@ func newReadLinkCmd() *cobra.Command {
 		Args:   noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			if path == "" || kind == "" {
-				fmt.Fprintln(os.Stderr, "faramir read-link: --path and --type are required")
-				return codeErr(2)
+				return usagef("--path and --type are required")
 			}
 			if _, err := secretlink.Read(path, kind, key); err != nil {
 				// Refusal adds the selectors the file offers, and is what `link add`

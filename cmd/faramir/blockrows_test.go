@@ -122,11 +122,11 @@ func TestTheInstallsOwnDirectoriesAreListedAsStrict(t *testing.T) {
 // a command entry. With a path beside them it rides on the path alone.
 func TestStrictIsRefusedWithNoPathToApplyTo(t *testing.T) {
 	f := blockFlags{commands: []string{"op read"}, strict: true}
-	if _, err := f.entries("add", nil); err == nil {
+	if _, err := f.entries(nil); err == nil {
 		t.Fatal("--strict with only --command was accepted")
 	}
 	f.paths = []string{"/home/user/.aws"}
-	got, err := f.entries("add", nil)
+	got, err := f.entries(nil)
 	if err != nil {
 		t.Fatalf("--strict with a --path was refused: %v", err)
 	}

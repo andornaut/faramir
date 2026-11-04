@@ -29,11 +29,7 @@ func socketDefault() string {
 
 func main() { os.Exit(run(os.Args[1:])) }
 
-func run(args []string) int {
-	root := newRootCmd()
-	root.SetArgs(args)
-	return exitCode(root.Execute())
-}
+func run(args []string) int { return runCommand(newRootCmd(), args) }
 
 // requireRoot refuses a command that must run as root, naming how to re-run it.
 // The escalation commands use requireRootToAnswer instead: they must not

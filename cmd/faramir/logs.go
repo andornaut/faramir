@@ -47,7 +47,15 @@ func newLogsCmd() *cobra.Command {
 		Short:   "Show command audit records",
 		GroupID: groupOperator,
 		Args:    atMostOneArg("log-id"),
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runLogs(f, args)) },
+		RunE: func(c *cobra.Command, args []string) error {
+			// A log-id names a command already recorded, so there is nothing to
+			// watch for. Refused before the root check, so the answer is the same
+			// whoever typed it.
+			if f.watch && firstArg(args) != "" {
+				return usagef("--watch takes no log-id")
+			}
+			return codeErr(runLogs(f, args))
+		},
 	}
 	c.Flags().IntVarP(&f.count, "count", "n", defaultLogCount, "how many of the latest records to list")
 	c.Flags().BoolVar(&f.asJSON, "json", false, "print the records as JSON")
@@ -60,13 +68,6 @@ func runLogs(f logsFlags, args []string) int {
 	paint, bad := termui.PaletteFor("logs", f.when)
 	if bad != 0 {
 		return bad
-	}
-
-	// A log-id names a command already recorded, so there is nothing to watch for.
-	// Blocked before the root check, so the answer is the same whoever typed it.
-	if f.watch && firstArg(args) != "" {
-		fmt.Fprintln(os.Stderr, "faramir logs: --watch takes no log-id")
-		return 2
 	}
 
 	// Blocked rather than attempted: otherwise a bare permission error on a path

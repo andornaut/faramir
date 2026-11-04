@@ -14,8 +14,7 @@ import (
 // operator who typed both is told which is wrong rather than told to use sudo
 // and then told this.
 func TestLogsRefusesAWatchWithALogID(t *testing.T) {
-	f := logsFlags{when: "never", watch: true, count: 20}
-	said, code := testio.CaptureStderr(t, func() int { return runLogs(f, []string{"a"}) })
+	said, code := testio.CaptureStderr(t, func() int { return run([]string{"logs", "--watch", "a"}) })
 	if code != 2 {
 		t.Errorf("faramir logs --watch w5vq7dbg000002 = %d, want 2 (usage)", code)
 	}
