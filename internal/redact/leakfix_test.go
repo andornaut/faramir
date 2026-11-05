@@ -6,8 +6,9 @@ import (
 )
 
 // The value itself is split across two Feed calls, and its first character was
-// eaten by a dangling CSI in the first chunk. The reinserted byte has to survive
-// the chunk boundary, or the value goes out missing only its first character.
+// eaten by a dangling CSI in the first chunk. The byte the CSI took has to stay
+// with the rest across the chunk boundary, or the value goes out missing only
+// its first character.
 func TestValueSplitAfterDanglingCSIDoesNotLeak(t *testing.T) {
 	const value = "hunter2-correct-horse-battery-staple"
 	r := New([]Secret{{Ref: "db/password", Value: value}}, EligibilityPolicy{MinLength: 8})

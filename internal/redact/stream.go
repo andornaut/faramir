@@ -4,6 +4,8 @@ package redact
 // one says whether a rendering continues into it.
 
 import (
+	"sort"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -123,10 +125,11 @@ func (r *Redactor) process(final bool) string {
 // and emit now, holding the rest back so a value, an escape, or a CRLF split
 // across the next chunk is still caught. It holds back at least Overlap
 // non-newline runes of stripped output, never cuts a rendering the matcher can
-// already see, and never ends the emitted part inside an escape sequence or on
-// the first half of a CRLF.
+// already see, and never ends the emitted part inside or just after an escape
+// sequence, inside one still open, or on the first half of a CRLF.
 func (r *Redactor) settleBoundary() int {
-	clean, ev, src := stripANSIViewSrc(string(r.raw))
+	text := string(r.raw)
+	clean, ev, src := stripANSIViewSrc(text)
 	cleanRunes := []rune(clean)
 	n := len(cleanRunes)
 	// runeByte[k] is the byte offset in clean of clean rune k, plus the end.
@@ -161,108 +164,119 @@ func (r *Redactor) settleBoundary() int {
 	if holdRune <= 0 {
 		return 0
 	}
-	bb := runeByte[holdRune]
-
-	// Never cut a rendering the matcher can already see: pull the boundary back to
-	// the start of any match that would straddle it. Bounded: a match is at most
-	// the longest rendering, and each pull moves the boundary strictly earlier.
-	spans := r.potentialSpans(clean, ev, runeByte)
-	for moved := true; moved; {
-		moved = false
+	// The boundary is decided in the raw text from here on: a byte an escape
+	// sequence took has no offset in clean, and it can belong to a value.
+	cut := runeByte[holdRune]
+	if src != nil {
+		cut = src[cut]
+	}
+	spans := r.potentialSpans(clean, ev, src, runeByte)
+	var seqs [][]int
+	if ev != nil {
+		seqs = ev.seqs
+	}
+	// Each rule below only moves the boundary earlier, so this ends.
+	for {
+		before := cut
+		// Never cut a rendering the matcher can already see.
 		for _, s := range spans {
-			if s.start < bb && bb < s.end {
-				bb = s.start
-				moved = true
+			if s.start < cut && cut < s.end {
+				cut = s.start
 			}
 		}
+		// Not inside an escape sequence or just after one: the held part is
+		// re-stripped with the next chunk, and a sequence it starts with is
+		// rebuilt whole there.
+		if i := sort.Search(len(seqs), func(i int) bool { return seqs[i][0] >= cut }); i > 0 && seqs[i-1][1] >= cut {
+			cut = seqs[i-1][0]
+		}
+		// Not after a CR, which may be the first half of a CRLF the next chunk
+		// closes, with nothing or only stray controls between: stage 1 removes
+		// those before it pairs the CR.
+		k := cut
+		for k > 0 && strayControl(text[k-1]) {
+			k--
+		}
+		if k > 0 && text[k-1] == '\r' {
+			cut = k - 1
+		}
+		cut = holdOpenEscape(text, cut)
+		if cut == before {
+			break
+		}
 	}
-	if bb <= 0 {
+	if cut <= 0 {
 		return 0
 	}
+	return utf8.RuneCountInString(text[:cut])
+}
 
-	// bb is a byte offset in clean at a rune boundary; src turns it into the raw
-	// byte offset to resume from. A nil src means no stripping, so clean is the
-	// raw and the offsets are the same.
-	rawByte := bb
-	if src != nil {
-		rawByte = src[bb]
+// holdOpenEscape moves cut back to an escape sequence the text before it opens
+// but does not close, if that starts within maxEscapeLen runes of cut. The next
+// chunk may complete it, and stripping it now would emit its bytes as text
+// where the whole sequence is meant to vanish:
+//
+//   - an ESC whose sequence has no terminator yet, such as `ESC [ 0 1 ;`
+//   - an OSC, DCS, PM, APC or SOS with no BEL or ST yet, which on its own parses
+//     as a two-character escape and leaves its body as text
+//
+// Further back than maxEscapeLen, a lone ESC is treated as text and an open
+// OSC or DCS as a two-character escape followed by text, so the buffer never
+// grows without bound waiting for a terminator that is not coming. A value in
+// such a body is then matched as the text it is.
+func holdOpenEscape(text string, cut int) int {
+	lo := cut
+	for k := 0; k < maxEscapeLen && lo > 0; k++ {
+		_, size := utf8.DecodeLastRuneInString(text[:lo])
+		lo -= size
 	}
-	cut := utf8.RuneCountInString(string(r.raw)[:rawByte])
-
-	// Do not end the emitted part inside an escape sequence or on a lone CR: a
-	// stripped escape contributes no clean byte, so the boundary can land just
-	// after one whose reinserted byte belongs to a value that continues in the
-	// held part, and a CR may be the first half of a CRLF the next chunk closes.
-	// Pull the boundary back over either so the raw is rebuilt with the rest.
-	for cut > 0 {
-		if r.raw[cut-1] == '\r' {
-			cut--
-			continue
-		}
-		lo := max(cut-maxEscapeLen, 0)
-		window := string(r.raw[lo:cut])
-		pulled := false
-		for _, loc := range ansiRE.FindAllStringIndex(window, -1) {
-			if loc[1] == len(window) {
-				cut = lo + utf8.RuneCountInString(window[:loc[0]])
-				pulled = true
-				break
-			}
-		}
-		if !pulled {
-			break
-		}
+	esc := strings.LastIndexByte(text[lo:cut], 0x1b)
+	if esc == -1 {
+		return cut
 	}
-
-	// Also hold back an escape the settled part opens but does not close: an ESC
-	// within maxEscapeLen of the boundary whose sequence has no terminator yet is
-	// completed by the next chunk, and stripping it now would emit its parameter
-	// bytes as text where the whole sequence is meant to vanish. Beyond
-	// maxEscapeLen a lone ESC is treated as text, so a buffer never grows without
-	// bound waiting for a terminator that is not coming.
-	for cut > 0 {
-		lo := max(cut-maxEscapeLen, 0)
-		esc := -1
-		for i := cut - 1; i >= lo; i-- {
-			if r.raw[i] == '\x1b' {
-				esc = i
-				break
-			}
-		}
-		if esc == -1 {
-			break
-		}
-		tail := string(r.raw[esc:cut])
-		if loc := ansiRE.FindStringIndex(tail); loc != nil && loc[0] == 0 {
-			break // a complete sequence begins at esc; the settled part may keep it
-		}
-		cut = esc
+	esc += lo
+	tail := text[esc:cut]
+	loc := ansiRE.FindStringIndex(tail)
+	if loc == nil || loc[0] != 0 {
+		return esc
+	}
+	// A string sequence's introducer that matched only as a two-character
+	// escape: its terminator is still to come.
+	if loc[1] == 2 && strings.IndexByte("]PX^_", tail[1]) >= 0 {
+		return esc
 	}
 	return cut
 }
 
-// potentialSpans returns, as byte ranges in clean, every rendering the three
-// redact passes could match: plain, escape-view, and newline-collapsed. It is
-// the boundary chooser's view of what must not be cut, so a superset is safe.
-func (r *Redactor) potentialSpans(clean string, ev *escapeView, runeByte []int) []span {
+// potentialSpans returns, as byte ranges in the raw text, every rendering the
+// three redact passes could match: plain, escape-view, and newline-collapsed.
+// It is the boundary chooser's view of what must not be cut, so a superset is
+// safe. src maps clean onto the raw text, nil meaning the two are the same.
+func (r *Redactor) potentialSpans(clean string, ev *escapeView, src []int, runeByte []int) []span {
 	if r.matcher == nil {
 		return nil
 	}
-	out := append([]span(nil), r.matcher.find(clean)...)
-	if ev != nil && ev.lenient {
+	toRaw := func(start, end int) span {
+		if src == nil {
+			return span{start: start, end: end}
+		}
+		return span{start: src[start], end: src[end-1] + 1}
+	}
+	var out []span
+	for _, s := range r.matcher.find(clean) {
+		out = append(out, toRaw(s.start, s.end))
+	}
+	if ev != nil {
 		for _, loc := range r.matcher.find(ev.view) {
-			start, end := ev.clean[loc.start], ev.clean[loc.end]
-			if end > start {
-				out = append(out, span{start: start, end: end})
-			}
+			out = append(out, span{start: ev.raw[loc.start], end: ev.raw[loc.end-1] + 1})
 		}
 	}
 	if cv := newCollapsedView(clean); cv.collapsed {
 		for _, loc := range r.matcher.find(cv.view) {
 			startRune := cv.byteStart[loc.start]
 			endRune := cv.byteStart[loc.end-1] + 1
-			if startRune < len(runeByte) && endRune < len(runeByte) {
-				out = append(out, span{start: runeByte[startRune], end: runeByte[endRune]})
+			if startRune < len(runeByte) && endRune < len(runeByte) && startRune < endRune {
+				out = append(out, toRaw(runeByte[startRune], runeByte[endRune]))
 			}
 		}
 	}

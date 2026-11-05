@@ -80,8 +80,8 @@ func NewValues(secrets []Secret, policy EligibilityPolicy) *Values {
 	// The overlap window is measured in non-newline runes, so a rendering wrapped
 	// across any number of lines is held until all of its own characters have
 	// arrived regardless of the blank lines between them. longest bounds a
-	// rendering's own length; the rest is slack for a reinserted escape byte and
-	// for quoting expansion at a chunk boundary.
+	// rendering's own length; the rest is slack for quoting expansion at a chunk
+	// boundary.
 	r.Overlap = longest + 16
 	return r
 }

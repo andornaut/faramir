@@ -120,19 +120,28 @@ redact < /tmp/bin.in > /tmp/bin.out
 [ "$(wc -c < /tmp/bin.out)" -gt 3000000 ] && ok "3MB of binary streams through ($(wc -c < /tmp/bin.out) bytes out, invalid bytes replaced)" \
   || bad "binary input produced $(wc -c < /tmp/bin.out) bytes"
 # The claim that matters: a value embedded in binary is still found, including
-# on a join.
-python3 -c "
-import os,sys
-raw=os.urandom(($CHUNK - 12))
-sys.stdout.buffer.write(raw)
+# on a join. Random binary holds escape sequences that take some or all of the
+# value, which is the point of it. The bytes are random but seeded, and a
+# failure prints the seed: binsec rebuilds the same input from it.
+binsec() {
+  python3 -c "
+import os,random,sys
+rng=random.Random($1)
+sys.stdout.buffer.write(rng.randbytes($CHUNK - 12))
 sys.stdout.buffer.write(os.environ['SECRET'].encode())
-sys.stdout.buffer.write(os.urandom(2000))" > /tmp/binsec.in
+sys.stdout.buffer.write(rng.randbytes(2000))"
+}
+seed=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
+binsec "$seed" > /tmp/binsec.in
 redact < /tmp/binsec.in > /tmp/binsec.out
-grep -qF "$SECRET" /tmp/binsec.out && bad "a value inside binary leaked across a join" \
-  || { grep -qF "$TOKEN" /tmp/binsec.out && ok "a value embedded in random binary, on a join, is tokenized" \
-       || bad "no token and no whole value: random binary can hold an escape \
-introducer that takes the value's first byte as its terminator, and what is \
-left of the value is in the clear"; }
+if grep -qF "$SECRET" /tmp/binsec.out; then
+  bad "a value inside binary leaked across a join (binsec seed $seed)"
+elif grep -qF "$TOKEN" /tmp/binsec.out; then
+  ok "a value embedded in random binary, on a join, is tokenized"
+else
+  bad "no token and no whole value in random binary (binsec seed $seed): no \
+haystack held the value whole, so pieces of it may be in the clear"
+fi
 # Text with no secret in it must be byte-identical, whatever the chunking.
 python3 -c "
 import sys

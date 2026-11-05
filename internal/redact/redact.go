@@ -127,13 +127,15 @@ type tokenSpan struct {
 // source length in the spans' index space, and between returns source[a:b] in
 // it. A span that starts inside the previous one covers only its uncovered tail,
 // and one wholly covered is skipped, so partially overlapping secrets are both
-// redacted without a negative slice.
+// redacted without a negative slice. An empty span is a token inserted where
+// nothing of its value is left, and is skipped only where a token already
+// stands.
 func (r *Redactor) spliceSpans(spans []tokenSpan, size int, between func(a, b int) string) string {
 	var b strings.Builder
 	b.Grow(size)
-	cursor := 0
+	cursor, wrote := 0, false
 	for _, s := range spans {
-		if s.end <= cursor {
+		if s.end < cursor || s.end == cursor && wrote {
 			continue
 		}
 		if s.start < cursor {
@@ -143,20 +145,22 @@ func (r *Redactor) spliceSpans(spans []tokenSpan, size int, between func(a, b in
 			b.WriteString(s.token)
 		}
 		r.counts[s.token]++
-		cursor = s.end
+		cursor, wrote = s.end, true
 	}
 	b.WriteString(between(cursor, size))
 	return b.String()
 }
 
 func (r *Redactor) redact(text string, ev *escapeView) string {
-	if text == "" || r.matcher == nil {
+	// Empty text can still have had a value in it: one an escape sequence took
+	// whole, which only the view holds.
+	if r.matcher == nil || text == "" && ev == nil {
 		return text
 	}
-	// The escape pass first, against a view holding the byte a CSI took from the
-	// front of a value. Only what that view alone can find: everything still
-	// contiguous in text is left to the two passes below, so the ordinary case
-	// pays nothing here and this one is not scanned twice.
+	// The escape pass first, against a view holding the bytes escape sequences
+	// took. Only what that view alone can find: everything still contiguous in
+	// text is left to the two passes below, so the ordinary case pays nothing
+	// here and this one is not scanned twice.
 	if out, changed := r.subEscaped(text, ev); changed {
 		text = out
 	}
@@ -232,25 +236,26 @@ func newCollapsedView(text string) *collapsedView {
 }
 
 // subEscaped replaces every value that is whole only in the escape view, and
-// reports whether it changed anything. The span it replaces is in text: the
-// byte the sequence took is not there, so the token stands where what survived
-// of the value stood.
+// reports whether it changed anything. The span it replaces is in text and
+// holds what the sequences left of the value, so the token stands where that
+// stood, or where the sequence stood if they left nothing.
 func (r *Redactor) subEscaped(text string, v *escapeView) (string, bool) {
-	if v == nil || !v.lenient {
+	if v == nil {
 		return "", false
 	}
 	var spans []tokenSpan
 	for _, loc := range r.matcher.find(v.view) {
-		token, ok := r.tokenOf[v.view[loc.start:loc.end]]
+		matched := v.view[loc.start:loc.end]
+		token, ok := r.tokenOf[matched]
 		if !ok {
 			continue // unreachable: the automaton is built from these keys
 		}
-		start, end := v.clean[loc.start], v.clean[loc.end]
-		// Only a match a returned byte made whole. One the same length in both is
-		// contiguous in text as well, and the plain pass owns it: taking it here
+		start, end := v.cleanSpan(loc)
+		// Only a match a sequence took bytes of. One whose bytes are all in text
+		// is contiguous there as well, and the plain pass owns it: taking it here
 		// would count it and then leave that pass nothing, which reads the same
 		// but pays for two scans of every value.
-		if end-start == loc.end-loc.start || end <= start {
+		if text[start:end] == matched {
 			continue
 		}
 		spans = append(spans, tokenSpan{start: start, end: end, token: token})

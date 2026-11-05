@@ -67,7 +67,7 @@ grep -qF "$TOKEN" <<<"$out" && ok "with CRLF line endings" || bad "CRLF leaked: 
 # An escape introducer that never got a terminator of its own, so the value's
 # first byte is one: a CSI ends at the first byte in @-~, which is every
 # letter. What is left of the value matches nothing on its own.
-for opener in '\033[' '\033[01;32' '\033[01;32 !'; do
+for opener in '\033[' '\033[01;32' '\033[01;32 !' '\r\033['; do
   out=$(printf "$opener"'%s\n' "$SECRET" | redact)
   grep -qF "${SECRET:1}" <<<"$out" && bad "a dangling escape took the first byte and the rest leaked: $out" \
     || { grep -qF "$TOKEN" <<<"$out" && ok "after a dangling escape ($(printf %q "$opener"))" \
