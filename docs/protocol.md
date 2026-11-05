@@ -167,7 +167,7 @@ Code | Meaning
 `no_secrets` | A managed value the redactor should hold is missing: a managed file that matched did not load, or the keeper never answered and no value set was ever loaded. An entry that matched no file is not this: the broker is missing nothing it should hold, and serves. `run` and `redact` both refuse; `status` and `refs` always answer. A `[[secret.link]]` entry that did not load is not this either: it is one ref the broker can name, so that ref alone is refused with `unknown_secret` and the host keeps serving
 `not_found` | Nothing at the path `cmd[0]` names, or nothing by that name on `[command.env] PATH`. The shell's 127, which is what `faramir run` exits with
 `not_executable` | `cmd[0]` exists but the kernel will not run it: a directory, a device, a file without the execute bit, a file with no interpreter and no magic. The shell's 126
-`exec_failed` | The program could not be started for any other reason: a working directory the executor cannot enter, an argument list too long, a byte no argument can carry
+`exec_failed` | The program could not be started for any other reason: a working directory the executor cannot enter (except by a [brokered sudo](escalation.md#where-a-brokered-sudo-runs), which starts in `/`), an argument list too long, a byte no argument can carry
 `internal` | The broker could not render its own answer. Not a fault of the request
 `forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the four root-only ops
 `too_large` | Request exceeded the 256 KiB cap, which is a [constant rather than a key](configuration.md#what-is-not-a-key-at-all)
@@ -228,7 +228,7 @@ A run the broker was given `stdin` for carries it here too, base64, under the sa
 
 The descriptor is the **slave** end of a PTY the broker created. The broker keeps the master, so redaction and the audit log read the child's bytes directly. Both sides close their copy of the slave once the child holds it; otherwise the master never reaches EOF.
 
-`argv[0]` arrives already resolved to an absolute path. The executor checks nothing about it before running it. Only after a failed start does it inspect why, and answer `not_executable` or `exec_failed` instead of a run with no status. A brokered command is bounded by the uid it runs as (no age key, no audit log, no SSH key) and by the mode on this socket, which the executor's own uid cannot open. An exit code is `128+signal` where the child was signalled.
+`argv[0]` arrives already resolved to an absolute path. `argv` and `cwd` are what the child is given: for a [brokered sudo](escalation.md#where-a-brokered-sudo-runs) the broker sends `-D` and the caller's directory after `argv[0]`, and `/` as `cwd`. The executor checks nothing about it before running it. Only after a failed start does it inspect why, and answer `not_executable` or `exec_failed` instead of a run with no status. A brokered command is bounded by the uid it runs as (no age key, no audit log, no SSH key) and by the mode on this socket, which the executor's own uid cannot open. An exit code is `128+signal` where the child was signalled.
 
 `run_id` is the broker's name for this run. It is passed through so a `sudo` raised inside the run can be attributed to the command a human was shown. It is empty where the host grants no escalation, which leaves the run unattributable and therefore unable to sudo.
 

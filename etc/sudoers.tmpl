@@ -64,10 +64,22 @@
 # does a question that lapses, and the stock mail_badpass in /etc/sudoers mails
 # the mailto address on each one. Bound to {{.ExecUser}}, so every other
 # account's failed authentication still mails.
-{{if not .SudoRs}}Defaults:{{.ExecUser}} pam_service={{.PamService}}
+{{if .SudoRs}}#
+# CWD=* on the rule lets {{.ExecUser}} pass -D, which is how a brokered sudo is
+# told its directory: it starts in / and root enters the caller's tree after the
+# approval, so a tree {{.ExecUser}} cannot enter does not fail the command before
+# the question. It adds nothing to a grant that already runs anything as anyone.
+# On the rule rather than as runcwd, which sudo-rs before 0.2.14 cannot parse.
+{{else}}#
+# runcwd=* lets {{.ExecUser}} pass -D, which is how a brokered sudo is told its
+# directory: it starts in / and root enters the caller's tree after the
+# approval, so a tree {{.ExecUser}} cannot enter does not fail the command before
+# the question. It adds nothing to a grant that already runs anything as anyone.
+{{end}}{{if not .SudoRs}}Defaults:{{.ExecUser}} pam_service={{.PamService}}
 Defaults:{{.ExecUser}} pam_login_service={{.PamService}}
+Defaults:{{.ExecUser}} runcwd=*
 {{end}}Defaults:{{.ExecUser}} timestamp_timeout=0
 Defaults:{{.ExecUser}} passwd_tries=1
 Defaults:{{.ExecUser}} noninteractive_auth
 Defaults:{{.ExecUser}} !mail_badpass
-{{.ExecUser}} ALL=(ALL:ALL) PASSWD: ALL
+{{.ExecUser}} ALL=(ALL:ALL) {{if .SudoRs}}CWD=* {{end}}PASSWD: ALL

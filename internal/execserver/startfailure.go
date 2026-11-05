@@ -25,12 +25,16 @@ const (
 // startFailure names what went wrong, which is not always the program. The
 // kernel refuses the exec when the working directory cannot be entered as well
 // as when the binary cannot be run, and both arrive as one EACCES on the
-// program's path: an operator following the README's first `faramir run` from a
-// stock home was told /usr/bin/printenv could not be run.
+// program's path.
 //
 // Asked here rather than by the broker because this runs as the account the
 // answer is about. Only on a permission error, and only to add a sentence: what
 // the exec reported is still what is returned.
+//
+// The advice to enrol the tree is for a command that runs in it as this
+// account. A sudo the broker can have approved never gets it: the broker starts
+// that one in / and passes the tree with -D, which root enters after the
+// approval.
 func startFailure(program, cwd string, err error) (code, detail string) {
 	// The path once and the errno on its own: exec wraps both in "fork/exec",
 	// which names the call rather than the reason.
@@ -49,11 +53,10 @@ func startFailure(program, cwd string, err error) (code, detail string) {
 	// that is not theirs, and the cwd and the program are different fixes.
 	//
 	// Asked as execute rather than as a read, which is not the same permission:
-	// entering a directory needs x and opening it needs r, so a 0710 home --
-	// which is what sharing a tree leaves behind -- reads as one this account
-	// cannot enter while it walks through it all day. That sent an operator to
-	// run `enrol` on a tree that was already right, for a program that
-	// was simply not executable.
+	// entering a directory needs x and opening it needs r, so a 0710 home (what
+	// sharing a tree leaves behind) would read as one this account cannot enter
+	// while it walks through it, and blame the tree for a program that is not
+	// executable.
 	switch err := unix.Access(cwd, unix.X_OK); {
 	case err == nil:
 		// Named for the account, which is not the caller's: a brokered command

@@ -194,6 +194,10 @@ type execAudit struct {
 	cmd       []string
 	argv0Path string
 	cwd       string
+	// sudoChdir is the cwd when the command is a sudo the executor started in /
+	// with `-D cwd` after argv[0], and "" when it ran in cwd as sent. cmd stays
+	// the caller's argv either way.
+	sudoChdir string
 	refs      map[string]string
 	started   time.Time
 	secrets   secretstore.Snapshot
@@ -203,7 +207,7 @@ type execAudit struct {
 // are the caller's to add. Each record uses the command's value set.
 func (s *Server) execFields(a execAudit) map[string]any {
 	record := a.secrets.Redactor()
-	return map[string]any{
+	fields := map[string]any{
 		"log_id": a.logID, "peer": a.peer,
 		"cmd":        redactEach(record, a.cmd),
 		"argv0_path": record.RedactText(a.argv0Path),
@@ -211,6 +215,10 @@ func (s *Server) execFields(a execAudit) map[string]any {
 		"env_refs":   a.refs,
 		"started_at": a.started.Unix(),
 	}
+	if a.sudoChdir != "" {
+		fields["sudo_chdir"] = record.RedactText(a.sudoChdir)
+	}
+	return fields
 }
 
 func (s *Server) writeRunStart(a execAudit) *protocol.Response {
@@ -374,9 +382,15 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	collector := audit.NewCollector(s.Audit.OutputBudget())
 	started := time.Now()
 
+	// A sudo that can escalate starts in / and is told the cwd with -D, so the
+	// executor's uid need not enter a tree root will enter for it. The question
+	// and the records keep the caller's argv.
+	execArgv, execCwd, sudoChdirTo := execTarget(execCfg, runID, argv0Path, cwd, cmd)
+
 	audited := execAudit{
 		logID: logID, peer: peer, cmd: cmd, argv0Path: argv0Path,
-		cwd: cwd, refs: injected, started: started, secrets: secrets,
+		cwd: cwd, sudoChdir: sudoChdirTo, refs: injected, started: started,
+		secrets: secrets,
 	}
 
 	// An exec is a pair of records sharing one log_id: this one when the child
@@ -389,8 +403,8 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	}
 
 	result, err := s.exec(redactor, collector.Add, execclient.Request{
-		Argv:       append([]string{argv0Path}, cmd[1:]...),
-		Cwd:        cwd,
+		Argv:       execArgv,
+		Cwd:        execCwd,
 		Env:        env,
 		Stdin:      request.Stdin,
 		TimeoutSec: timeout,
