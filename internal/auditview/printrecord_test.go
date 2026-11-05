@@ -29,7 +29,7 @@ func renderRecord(t *testing.T, line string, paint termui.Palette) string {
 const detailFixture = `{"log_id":"w5vq7dbf000007","op":"run",` +
 	`"peer":{"uid":0,"pid":4242},"cmd":["ansible-playbook","site.yml"],` +
 	`"argv0_path":"/usr/bin/ansible-playbook",` +
-	`"cwd":"/srv/project","sudo_chdir":"/srv/project",` +
+	`"cwd":"/srv/project","started_in":"/","sudo_chdir":"/srv/project",` +
 	`"exit_code":0,"duration_sec":1.5,` +
 	`"env_refs":{"PW":"db/password","TOKEN":"api/token"},` +
 	`"from":["age1aaa"],"to":["age1bbb"],"record_reduced":true,` +
@@ -45,6 +45,7 @@ func TestPrintRecordRendersEveryField(t *testing.T) {
 		"reduced    fields were cut to fit the record cap",
 		"caller     root (uid 0), pid 4242",
 		"cwd        /srv/project",
+		"started in  /",
 		"sudo -D    /srv/project",
 		"program    /usr/bin/ansible-playbook",
 		"refs       PW=db/password, TOKEN=api/token",
@@ -80,7 +81,7 @@ func TestRefsRowReadsTheShapeTheBrokerWrites(t *testing.T) {
 func TestPrintRecordOmitsAbsentFields(t *testing.T) {
 	got := renderRecord(t, `{"log_id":"x","op":"redact","input_bytes":2048}`, termuitest.Plain(t))
 	for _, absent := range []string{
-		"caller", "cwd", "sudo -D", "program", "reason", "reduced",
+		"caller", "cwd", "started in", "sudo -D", "program", "reason", "reduced",
 		"refs", "from", "to", "redacted", "output",
 	} {
 		if strings.Contains(got, absent) {

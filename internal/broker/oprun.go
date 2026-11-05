@@ -194,9 +194,11 @@ type execAudit struct {
 	cmd       []string
 	argv0Path string
 	cwd       string
-	// sudoChdir is the cwd when the command is a sudo the executor started in /
-	// with `-D cwd` after argv[0], and "" when it ran in cwd as sent. cmd stays
-	// the caller's argv either way.
+	// startedIn is where the executor started a sudo it did not start in cwd,
+	// and "" where it started in cwd. sudoChdir is the directory it passed with
+	// `-D` after argv[0], and "" where it added none. cmd stays the caller's argv
+	// either way.
+	startedIn string
 	sudoChdir string
 	refs      map[string]string
 	started   time.Time
@@ -214,6 +216,9 @@ func (s *Server) execFields(a execAudit) map[string]any {
 		"cwd":        record.RedactText(a.cwd),
 		"env_refs":   a.refs,
 		"started_at": a.started.Unix(),
+	}
+	if a.startedIn != "" {
+		fields["started_in"] = a.startedIn
 	}
 	if a.sudoChdir != "" {
 		fields["sudo_chdir"] = record.RedactText(a.sudoChdir)
@@ -382,15 +387,20 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer,
 	collector := audit.NewCollector(s.Audit.OutputBudget())
 	started := time.Now()
 
-	// A sudo that can escalate starts in / and is told the cwd with -D, so the
-	// executor's uid need not enter a tree root will enter for it. The question
-	// and the records keep the caller's argv.
+	// A sudo that can escalate starts in / and is told the cwd with -D, or
+	// changes to the target's home under -i, so the executor's uid need not
+	// enter a tree root will enter for it. The question and the records keep
+	// the caller's argv.
 	execArgv, execCwd, sudoChdirTo := execTarget(execCfg, runID, argv0Path, cwd, cmd)
+	startedIn := ""
+	if execCwd != cwd {
+		startedIn = execCwd
+	}
 
 	audited := execAudit{
 		logID: logID, peer: peer, cmd: cmd, argv0Path: argv0Path,
-		cwd: cwd, sudoChdir: sudoChdirTo, refs: injected, started: started,
-		secrets: secrets,
+		cwd: cwd, startedIn: startedIn, sudoChdir: sudoChdirTo, refs: injected,
+		started: started, secrets: secrets,
 	}
 
 	// An exec is a pair of records sharing one log_id: this one when the child

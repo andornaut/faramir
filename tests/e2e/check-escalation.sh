@@ -975,8 +975,9 @@ head_ "15d. a sudo in a tree the executor cannot enter"
 
 # The executor forks as its own uid, so a command started in a tree that was
 # never shared fails before it runs. A sudo is started in / instead and given
-# the tree with -D, which root enters after the approval: the grant's runcwd=*
-# (CWD=* under sudo-rs) is what lets the executor pass it.
+# the tree with -D, which root enters after the approval: the grant's CWD=* is
+# what lets the executor pass it. A login shell is started in / as sent, since
+# it changes to the target's home wherever it starts.
 CLOSED=/home/op/e2e-closed
 rm -rf "$CLOSED"
 install -d -o op -g op -m 0700 "$CLOSED"
@@ -1006,10 +1007,34 @@ else
     && ok "and the approved command ran in that tree" \
     || bad "the approved sudo printed: $(tr '\n' ' ' </tmp/closed.out | cut -c1-150)"
   LOGID=$(jq -r 'select(.op=="escalate" and .approved==true) | .run_log_id' $LOG 2>/dev/null | tail -1)
-  run=$(jq -c --arg id "$LOGID" 'select(.log_id==$id and .op=="run") | [.cmd, .cwd, .sudo_chdir]' \
+  run=$(jq -c --arg id "$LOGID" \
+    'select(.log_id==$id and .op=="run") | [.cmd, .cwd, .started_in, .sudo_chdir]' \
     $LOG 2>/dev/null | tail -1)
-  [ "$run" = "[[\"/usr/bin/sudo\",\"/usr/bin/pwd\"],\"$CLOSED\",\"$CLOSED\"]" ] \
-    && ok "and the record keeps the command as sent, with the -D it was given" \
+  [ "$run" = "[[\"/usr/bin/sudo\",\"/usr/bin/pwd\"],\"$CLOSED\",\"/\",\"$CLOSED\"]" ] \
+    && ok "and the record keeps the command as sent, with where it started and the -D it was given" \
+    || bad "the run record says $run"
+fi
+quiesce
+
+setsid runuser -u op -- /usr/local/bin/faramir run --quiet -t 45 -C "$CLOSED" -- \
+  /usr/bin/sudo -i /usr/bin/pwd >/tmp/closedlogin.out 2>&1 </dev/null &
+RUN=$!
+ID=$(waitq)
+if [ -z "$ID" ]; then
+  bad "a sudo -i in a tree the executor cannot enter filed no question: $(head -2 /tmp/closedlogin.out)"
+else
+  ok "a sudo -i there reaches the question ($ID)"
+  /usr/local/bin/faramir sudo approve "$ID" >/dev/null 2>&1
+  wait $RUN 2>/dev/null
+  tr -d '\r' </tmp/closedlogin.out | grep -qx /root \
+    && ok "and the approved login shell ran in root's home" \
+    || bad "the approved sudo -i printed: $(tr '\n' ' ' </tmp/closedlogin.out | cut -c1-150)"
+  LOGID=$(jq -r 'select(.op=="escalate" and .approved==true) | .run_log_id' $LOG 2>/dev/null | tail -1)
+  run=$(jq -c --arg id "$LOGID" \
+    'select(.log_id==$id and .op=="run") | [.cmd, .started_in, .sudo_chdir]' \
+    $LOG 2>/dev/null | tail -1)
+  [ "$run" = '[["/usr/bin/sudo","-i","/usr/bin/pwd"],"/",null]' ] \
+    && ok "and the record says it started in / with no -D added" \
     || bad "the run record says $run"
 fi
 rm -rf "$CLOSED"

@@ -34,7 +34,7 @@ const (
 // The advice to enrol the tree is for a command that runs in it as this
 // account. A sudo the broker can have approved never gets it: the broker starts
 // that one in / and passes the tree with -D, which root enters after the
-// approval.
+// approval, or starts a login shell in / as sent.
 func startFailure(program, cwd string, err error) (code, detail string) {
 	// The path once and the errno on its own: exec wraps both in "fork/exec",
 	// which names the call rather than the reason.

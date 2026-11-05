@@ -134,18 +134,15 @@ func TestTheGrantCarriesOnlyWhatThisSudoParses(t *testing.T) {
 			t.Errorf("sudo-rs=%v: the grant is passwordless, which skips PAM and the "+
 				"question with it:\n%s", rs, grant)
 		}
-		// Both let the executor pass -D, which a brokered sudo is started with.
-		// runcwd is the original's setting and unknown to sudo-rs before 0.2.14,
-		// which reads the same permission as CWD=* on the rule.
-		permits := map[bool]string{
-			false: "Defaults:" + layout.ExecUser + " runcwd=*",
-			true:  layout.ExecUser + " ALL=(ALL:ALL) CWD=* PASSWD: ALL",
+		// Both let the executor pass -D, which a brokered sudo is started with, by
+		// the one spelling both parse: CWD=* on the rule. runcwd is unknown to
+		// sudo-rs before 0.2.14, and visudo rejects the whole file over it.
+		if rule := layout.ExecUser + " ALL=(ALL:ALL) CWD=* PASSWD: ALL"; !strings.Contains(grant, rule) {
+			t.Errorf("sudo-rs=%v: the grant does not carry %q:\n%s", rs, rule, grant)
 		}
-		if !strings.Contains(grant, permits[rs]) {
-			t.Errorf("sudo-rs=%v: the grant does not carry %q:\n%s", rs, permits[rs], grant)
-		}
-		if strings.Contains(grant, "runcwd") == rs {
-			t.Errorf("sudo-rs=%v: runcwd is where that sudo cannot parse it:\n%s", rs, grant)
+		if strings.Contains(grant, "runcwd") {
+			t.Errorf("sudo-rs=%v: the grant sets runcwd, which sudo-rs before 0.2.14 "+
+				"cannot parse:\n%s", rs, grant)
 		}
 	}
 }

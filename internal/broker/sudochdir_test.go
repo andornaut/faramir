@@ -5,104 +5,140 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
-// Which sudo argv gain -D and which are left as sent. The modes and conflicts
-// are the ones real sudo 1.9.15, 1.9.17 and sudo-rs 0.2.13 were seen to reject
-// -D with, or to treat differently with it.
-func TestSudoChdirRewritesOnlyACommandRunAsRoot(t *testing.T) {
-	const cwd = "/srv/tree"
-	rewritten := func(args ...string) []string {
-		return append([]string{"sudo", "-D", cwd}, args...)
-	}
+// How each sudo argv is started. The modes and conflicts are the ones real sudo
+// 1.9.15, 1.9.17 and sudo-rs 0.2.13 were seen to reject -D with, or to treat
+// differently with it.
+func TestPlanSudoRewritesOnlyWhatRootEntersForIt(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		args []string
-		want []string // nil: left as sent
+		want sudoStart
 	}{
-		{"a bare command", []string{"id"}, rewritten("id")},
-		{"a command with its own options", []string{"ls", "-l", "-D", "x"},
-			rewritten("ls", "-l", "-D", "x")},
-		{"flags before the command", []string{"-n", "-E", "id"}, rewritten("-n", "-E", "id")},
-		{"a flag cluster", []string{"-nE", "id"}, rewritten("-nE", "id")},
-		{"-k with a command", []string{"-k", "id"}, rewritten("-k", "id")},
-		{"-- before the command", []string{"-n", "--", "id"}, rewritten("-n", "--", "id")},
-		{"-- before a dash-led command", []string{"--", "-x"}, rewritten("--", "-x")},
-		{"an environment assignment", []string{"FOO=bar", "env"}, rewritten("FOO=bar", "env")},
-		{"-u root", []string{"-u", "root", "id"}, rewritten("-u", "root", "id")},
-		{"-uroot", []string{"-uroot", "id"}, rewritten("-uroot", "id")},
-		{"-u #0", []string{"-u", "#0", "id"}, rewritten("-u", "#0", "id")},
-		{"-nu root", []string{"-nu", "root", "id"}, rewritten("-nu", "root", "id")},
-		{"--user=root", []string{"--user=root", "id"}, rewritten("--user=root", "id")},
-		{"--user root", []string{"--user", "root", "id"}, rewritten("--user", "root", "id")},
-		{"-u root -g a group", []string{"-u", "root", "-g", "adm", "id"},
-			rewritten("-u", "root", "-g", "adm", "id")},
+		{"a bare command", []string{"id"}, sudoWithChdir},
+		{"a command with its own options", []string{"ls", "-l", "-D", "x"}, sudoWithChdir},
+		{"flags before the command", []string{"-n", "-E", "id"}, sudoWithChdir},
+		{"a flag cluster", []string{"-nE", "id"}, sudoWithChdir},
+		{"-k with a command", []string{"-k", "id"}, sudoWithChdir},
+		{"-- before the command", []string{"-n", "--", "id"}, sudoWithChdir},
+		{"-- before a dash-led command", []string{"--", "-x"}, sudoWithChdir},
+		{"an environment assignment", []string{"FOO=bar", "env"}, sudoWithChdir},
+		{"-u root", []string{"-u", "root", "id"}, sudoWithChdir},
+		{"-uroot", []string{"-uroot", "id"}, sudoWithChdir},
+		{"-u #0", []string{"-u", "#0", "id"}, sudoWithChdir},
+		{"-nu root", []string{"-nu", "root", "id"}, sudoWithChdir},
+		{"--user=root", []string{"--user=root", "id"}, sudoWithChdir},
+		{"--user root", []string{"--user", "root", "id"}, sudoWithChdir},
+		{"-u root -g a group", []string{"-u", "root", "-g", "adm", "id"}, sudoWithChdir},
 		// The value of an option is not the command, even where it reads like one.
-		{"a prompt that looks like a command", []string{"-p", "id", "true"},
-			rewritten("-p", "id", "true")},
-		{"--prompt=value", []string{"--prompt=x", "id"}, rewritten("--prompt=x", "id")},
-		{"-C with its value joined", []string{"-C5", "id"}, rewritten("-C5", "id")},
-		{"--preserve-env=list", []string{"--preserve-env=PATH", "id"},
-			rewritten("--preserve-env=PATH", "id")},
-		{"--preserve-env alone", []string{"--preserve-env", "id"},
-			rewritten("--preserve-env", "id")},
+		{"a prompt that looks like a command", []string{"-p", "id", "true"}, sudoWithChdir},
+		{"--prompt=value", []string{"--prompt=x", "id"}, sudoWithChdir},
+		{"-C with its value joined", []string{"-C5", "id"}, sudoWithChdir},
+		{"--preserve-env=list", []string{"--preserve-env=PATH", "id"}, sudoWithChdir},
+		{"--preserve-env alone", []string{"--preserve-env", "id"}, sudoWithChdir},
+
+		// A login shell changes to the target's home wherever it starts, so it
+		// starts in / without -D, for any account and with or without a command.
+		{"-i with a command", []string{"-i", "id"}, sudoLogin},
+		{"-i alone", []string{"-i"}, sudoLogin},
+		{"--login", []string{"--login", "id"}, sudoLogin},
+		{"-i in a cluster", []string{"-ni", "id"}, sudoLogin},
+		{"-i in a cluster before a value", []string{"-iu", "root", "id"}, sudoLogin},
+		{"-i after other options", []string{"-n", "-u", "root", "-i", "id"}, sudoLogin},
+		{"-i as another account", []string{"-i", "-u", "nobody"}, sudoLogin},
+		{"-i -g without -u", []string{"-i", "-g", "adm"}, sudoLogin},
+		{"--login given a value", []string{"--login=x", "id"}, sudoAsSent},
+		{"-i with -D", []string{"-i", "-D", "/x", "id"}, sudoAsSent},
+		{"-i with -s", []string{"-i", "-s"}, sudoAsSent},
+		{"-i with -l", []string{"-i", "-l"}, sudoAsSent},
+		{"-i with -e", []string{"-i", "-e", "/etc/hosts"}, sudoAsSent},
+		{"-i missing an option's value", []string{"-i", "-u"}, sudoAsSent},
 
 		// A directory already chosen. Both sudos reject -D twice or apply only one.
-		{"-D DIR", []string{"-D", "/x", "id"}, nil},
-		{"-DDIR", []string{"-D/x", "id"}, nil},
-		{"-D in a cluster", []string{"-nD/x", "id"}, nil},
-		{"--chdir DIR", []string{"--chdir", "/x", "id"}, nil},
-		{"--chdir=DIR", []string{"--chdir=/x", "id"}, nil},
-		// A directory sudo chooses itself.
-		{"-i", []string{"-i", "id"}, nil},
-		{"--login", []string{"--login", "id"}, nil},
-		{"-s", []string{"-s", "id"}, nil},
-		{"--shell", []string{"--shell"}, nil},
-		{"-i in a cluster", []string{"-ni", "id"}, nil},
+		{"-D DIR", []string{"-D", "/x", "id"}, sudoAsSent},
+		{"-DDIR", []string{"-D/x", "id"}, sudoAsSent},
+		{"-D in a cluster", []string{"-nD/x", "id"}, sudoAsSent},
+		{"--chdir DIR", []string{"--chdir", "/x", "id"}, sudoAsSent},
+		{"--chdir=DIR", []string{"--chdir=/x", "id"}, sudoAsSent},
+		// -s runs the shell in the directory it was started in.
+		{"-s", []string{"-s", "id"}, sudoAsSent},
+		{"--shell", []string{"--shell"}, sudoAsSent},
 		// A mode that runs no command, or that sudo-rs refuses -D with.
-		{"-e", []string{"-e", "/etc/hosts"}, nil},
-		{"--edit", []string{"--edit", "/etc/hosts"}, nil},
-		{"-l", []string{"-l"}, nil},
-		{"-l with a command", []string{"-l", "id"}, nil},
-		{"-v", []string{"-v"}, nil},
-		{"-k alone", []string{"-k"}, nil},
-		{"-K", []string{"-K"}, nil},
-		{"-V", []string{"-V"}, nil},
-		{"-h", []string{"-h"}, nil},
-		{"--help", []string{"--help"}, nil},
-		{"-h host", []string{"-h", "example.com", "id"}, nil},
-		{"-R", []string{"-R", "/chroot", "id"}, nil},
-		{"--chroot", []string{"--chroot=/chroot", "id"}, nil},
+		{"-e", []string{"-e", "/etc/hosts"}, sudoAsSent},
+		{"--edit", []string{"--edit", "/etc/hosts"}, sudoAsSent},
+		{"-l", []string{"-l"}, sudoAsSent},
+		{"-l with a command", []string{"-l", "id"}, sudoAsSent},
+		{"-v", []string{"-v"}, sudoAsSent},
+		{"-k alone", []string{"-k"}, sudoAsSent},
+		{"-K", []string{"-K"}, sudoAsSent},
+		{"-V", []string{"-V"}, sudoAsSent},
+		{"-h", []string{"-h"}, sudoAsSent},
+		{"--help", []string{"--help"}, sudoAsSent},
+		{"-h host", []string{"-h", "example.com", "id"}, sudoAsSent},
+		{"-R", []string{"-R", "/chroot", "id"}, sudoAsSent},
+		{"--chroot", []string{"--chroot=/chroot", "id"}, sudoAsSent},
 		// No command at all.
-		{"no arguments", nil, nil},
-		{"options only", []string{"-n"}, nil},
-		{"an option missing its value", []string{"-u"}, nil},
-		{"-- and nothing after it", []string{"--"}, nil},
+		{"no arguments", nil, sudoAsSent},
+		{"options only", []string{"-n"}, sudoAsSent},
+		{"an option missing its value", []string{"-u"}, sudoAsSent},
+		{"-- and nothing after it", []string{"--"}, sudoAsSent},
 		// Another account enters the directory under -D, where it inherits it today.
-		{"-u another account", []string{"-u", "nobody", "id"}, nil},
-		{"-u a uid", []string{"-u", "#1000", "id"}, nil},
-		{"--user another account", []string{"--user=nobody", "id"}, nil},
-		{"-g without -u", []string{"-g", "adm", "id"}, nil},
-		{"--group without -u", []string{"--group=adm", "id"}, nil},
+		{"-u another account", []string{"-u", "nobody", "id"}, sudoAsSent},
+		{"-u a uid", []string{"-u", "#1000", "id"}, sudoAsSent},
+		{"--user another account", []string{"--user=nobody", "id"}, sudoAsSent},
+		{"-g without -u", []string{"-g", "adm", "id"}, sudoAsSent},
+		{"--group without -u", []string{"--group=adm", "id"}, sudoAsSent},
 		// What this does not know, it leaves alone.
-		{"an unknown short option", []string{"-Z", "id"}, nil},
-		{"an unknown long option", []string{"--frobnicate", "id"}, nil},
-		{"an abbreviated long option", []string{"--chd=/x", "id"}, nil},
-		{"a flag given a value", []string{"--stdin=x", "id"}, nil},
+		{"an unknown short option", []string{"-Z", "id"}, sudoAsSent},
+		{"an unknown long option", []string{"--frobnicate", "id"}, sudoAsSent},
+		{"an abbreviated long option", []string{"--chd=/x", "id"}, sudoAsSent},
+		{"a flag given a value", []string{"--stdin=x", "id"}, sudoAsSent},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			argv := append([]string{"sudo"}, tc.args...)
-			sent := slices.Clone(argv)
-			got, ok := sudoChdir(cwd, argv)
-			want := tc.want
-			if want == nil {
-				want = sent
+			if got := planSudo(argv); got != tc.want {
+				t.Errorf("planSudo(%q) = %v, want %v", argv, got, tc.want)
 			}
-			if ok != (tc.want != nil) || !slices.Equal(got, want) {
-				t.Errorf("sudoChdir(%q) = %q, %v; want %q, %v", sent, got, ok, want, tc.want != nil)
+		})
+	}
+}
+
+// What each plan hands the executor: -D goes straight after argv[0], and the
+// caller's argv is never changed in place.
+func TestExecTargetStartsEachPlanWhereItSays(t *testing.T) {
+	dir := t.TempDir()
+	sudo := filepath.Join(dir, "sudo")
+	if err := os.WriteFile(sudo, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	execCfg := config.CommandConfig{Env: map[string]string{"PATH": dir}}
+	const cwd = "/srv/tree"
+	for _, tc := range []struct {
+		name              string
+		cmd, argv         []string
+		dir, chdir, runID string
+	}{
+		{"-D after argv[0]", []string{"sudo", "-n", "id"},
+			[]string{sudo, "-D", cwd, "-n", "id"}, "/", cwd, "run"},
+		{"a login shell in /", []string{"sudo", "-i", "id"},
+			[]string{sudo, "-i", "id"}, "/", "", "run"},
+		{"-s as sent", []string{"sudo", "-s", "id"},
+			[]string{sudo, "-s", "id"}, cwd, "", "run"},
+		{"no run id", []string{"sudo", "id"},
+			[]string{sudo, "id"}, cwd, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sent := slices.Clone(tc.cmd)
+			argv, gotDir, chdir := execTarget(execCfg, tc.runID, sudo, cwd, tc.cmd)
+			if !slices.Equal(argv, tc.argv) || gotDir != tc.dir || chdir != tc.chdir {
+				t.Errorf("execTarget = %q in %q, -D %q; want %q in %q, -D %q",
+					argv, gotDir, chdir, tc.argv, tc.dir, tc.chdir)
 			}
-			if !slices.Equal(argv, sent) {
-				t.Errorf("the caller's argv was changed to %q", argv)
+			if !slices.Equal(tc.cmd, sent) {
+				t.Errorf("the caller's argv was changed to %q", tc.cmd)
 			}
 		})
 	}
@@ -154,6 +190,33 @@ func TestABrokeredSudoStartsInRootAndIsToldTheCwd(t *testing.T) {
 			t.Errorf("%v record cwd = %v, sudo_chdir = %v; want both %q",
 				record["op"], record["cwd"], record["sudo_chdir"], cwd)
 		}
+		if record["started_in"] != "/" {
+			t.Errorf("%v record started_in = %v, want /", record["op"], record["started_in"])
+		}
+	}
+}
+
+// A login shell starts in / as sent, and its records say where it started and
+// that no -D was added.
+func TestABrokeredLoginShellStartsInRoot(t *testing.T) {
+	s, rec := execServer(t)
+	allowSudo(t, s)
+	sudo := fakeSudo(t, s)
+	cwd := t.TempDir()
+
+	r := exec(t, s, map[string]any{"cmd": []any{"sudo", "-i", "id"}, "cwd": cwd})
+	if r["error"] != nil {
+		t.Fatalf("error: %v", r["error"])
+	}
+	req := rec.only(t)
+	if want := []string{sudo, "-i", "id"}; !slices.Equal(req.Argv, want) || req.Cwd != "/" {
+		t.Errorf("the executor ran %q in %q, want %q in /", req.Argv, req.Cwd, want)
+	}
+	for _, record := range records(t, s) {
+		if record["cwd"] != cwd || record["started_in"] != "/" || record["sudo_chdir"] != nil {
+			t.Errorf("%v record cwd = %v, started_in = %v, sudo_chdir = %v; want %q, /, none",
+				record["op"], record["cwd"], record["started_in"], record["sudo_chdir"], cwd)
+		}
 	}
 }
 
@@ -189,8 +252,9 @@ func TestOnlyTheHostsSudoOnAGrantingHostIsRewritten(t *testing.T) {
 			if req.Cwd != cwd || slices.Contains(req.Argv, "-D") {
 				t.Errorf("the executor ran %q in %q, want it as sent in %q", req.Argv, req.Cwd, cwd)
 			}
-			if record := lastRecord(t, s); record["sudo_chdir"] != nil {
-				t.Errorf("the record carries sudo_chdir %v for a run left as sent", record["sudo_chdir"])
+			if record := lastRecord(t, s); record["sudo_chdir"] != nil || record["started_in"] != nil {
+				t.Errorf("the record carries sudo_chdir %v, started_in %v for a run left as sent",
+					record["sudo_chdir"], record["started_in"])
 			}
 		})
 	}

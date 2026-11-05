@@ -6,7 +6,7 @@ A brokered command runs as `faramir-exec`, which has no sudo. A playbook that al
 
 The grant is not a runtime toggle or a config key. Granting it writes files only root may place and changes how the executor is sandboxed:
 
-- a **password-required sudoers entry** for `faramir-exec` in `/etc/sudoers.d/faramir`, which also lets it pass `-D` ([where a brokered sudo runs](#where-a-brokered-sudo-runs))
+- a **password-required sudoers entry** for `faramir-exec` in `/etc/sudoers.d/faramir`, tagged `CWD=*` so it may pass `-D` ([where a brokered sudo runs](#where-a-brokered-sudo-runs)). Both sudos read the tag; sudo-rs before 0.2.14 has no `Defaults runcwd`, so the grant does not use it
 - a **PAM stack of faramir's own**, whose auth step asks the broker. Its location depends on the host's sudo ([why](#the-two-sudos)): `/etc/pam.d/faramir-sudo` on the original sudo, and a delimited block in `/etc/pam.d/sudo` and `/etc/pam.d/sudo-i` on sudo-rs, which has no service file
 - an **environment file**, `/usr/local/libexec/faramir/sudo-env`, holding what a command keeps across its sudo
 - the executor account **locked** (`usermod -L`), so no password can authenticate it
@@ -18,13 +18,13 @@ The grant is off by default. **Re-running `init` without `--allow-sudo` removes 
 
 Ubuntu ships two sudo implementations from 25.10 on. Both read `/etc/sudoers.d`. The `sudo` alternatives group decides which one is `/usr/bin/sudo`: sudo-rs at priority 50, the original at 40 as `sudo.ws`. `init` reads the version banner of the binary `sudo` resolves to, not the packaging, and writes the arrangement that sudo can read. The flag works on either.
 
-They differ in where the PAM stack that decides an escalation is, and so how a brokered command's sudo reaches it, and in how the grant spells the permission to pass `-D`.
+They differ in one thing: where the PAM stack that decides an escalation is, and so how a brokered command's sudo reaches it.
 
 | | The original sudo | sudo-rs |
 | --- | --- | --- |
 | Where the stack is | `/etc/pam.d/faramir-sudo`, selected by `pam_service` and `pam_login_service` in the grant | a `# BEGIN faramir` block in `/etc/pam.d/sudo` and `/etc/pam.d/sudo-i` |
 | Files every account's sudo reads | none touched | two, each gaining four auth lines: a branch on the account, and the three lines it skips |
-| What permits `-D` | `Defaults:faramir-exec runcwd=*` | `CWD=*` on the rule, since sudo-rs before 0.2.14 has no `runcwd` |
+| What permits `-D` | `CWD=*` on the rule | `CWD=*` on the rule |
 
 On both, the environment a brokered command keeps across `sudo` is read by a `pam_env` line in the file that carries the stack. sudoers has an `env_file` setting that would do the same, but sudo-rs has none, so faramir uses the one mechanism that works on both.
 
@@ -40,19 +40,21 @@ sudo-rs has neither `pam_service` nor `env_file`, and its service names `sudo` a
 
 ## Where a brokered sudo runs
 
-A brokered command starts in its caller's directory as `faramir-exec`, so a tree that account cannot enter fails the command before it runs. A top-level `sudo` that runs a command as root is started in `/` instead, with `-D <cwd>` added after `sudo`. Root enters the directory after the approval, so a tree that was never enrolled still reaches the question. Top-level means `cmd[0]` resolves to the same file as `sudo` on `[command.env] PATH`; a `sudo` inside a script inherits the script's directory as usual.
+A brokered command starts in its caller's directory as `faramir-exec`, so a tree that account cannot enter fails the command before it runs. A top-level `sudo` that runs a command as root is started in `/` instead, with `-D <cwd>` added after `sudo`. Root enters the directory after the approval, so a tree that was never enrolled still reaches the question. A login shell (`-i`, `--login`) is started in `/` with its argv as sent, for any target account: it changes to the target's home whatever directory it starts in, so `/` is only where it stays if that home cannot be entered. Top-level means `cmd[0]` resolves to the same file as `sudo` on `[command.env] PATH`; a `sudo` inside a script inherits the script's directory as usual.
 
 The argv is left as sent, and the command starts in the caller's directory, when the host grants no escalation or when `sudo`'s own options already decide the directory or the account:
 
 Option | Why it is left alone
 --- | ---
 `-D`, `--chdir` | The caller chose a directory
-`-i`, `--login`, `-s`, `--shell` | sudo chooses the directory itself
+`-s`, `--shell` | The shell runs in the directory it was started in, so starting it in `/` would change what it does
 `-u` naming an account other than `root` or `#0`, or `-g` without `-u` | That account would enter the directory under `-D`, and may be refused where inheriting it works
 `-e`, `-l`, `-v`, `-K`, `-V`, `-h`, `-R` and their long forms | Runs no command, moves the root, or sudo-rs refuses `-D` with it
 No command (`-k` alone included), or an option faramir does not know, an abbreviated long option among them | Nothing to rewrite safely
 
-The question and the audit records show the command as the caller sent it. The `run_started` and `run` records of a rewritten command carry `sudo_chdir`, the directory passed to `-D`, and `faramir logs <id>` prints it as `sudo -D`.
+A login shell combined with any of these is left as sent too.
+
+The question and the audit records show the command and its cwd as the caller sent them. The `run_started` and `run` records of a command started elsewhere carry `started_in`, the directory it was started in, and those of a command given `-D` carry `sudo_chdir`, the directory passed to it. `faramir logs <id>` prints them as `started in` and `sudo -D`.
 
 ## What happens when a command runs `sudo`
 

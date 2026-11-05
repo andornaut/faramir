@@ -6,8 +6,9 @@ package broker
 // there would fail before any question was asked, though root needs nothing of
 // the executor's to enter it. A sudo that will run a command as root is started
 // in / instead and told where to go with -D, which sudo applies as root after
-// the approval. The grant's runcwd=* (CWD=* under sudo-rs) is what lets the
-// executor pass -D.
+// the approval; the grant's CWD=* is what lets the executor pass -D. A login
+// shell (-i) is started in / as it is: sudo changes to the target's home
+// whatever directory it started in.
 
 import (
 	"strings"
@@ -15,9 +16,9 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// sudoChdirRoot is where a rewritten sudo starts: a directory every uid can
+// sudoStartRoot is where a rewritten sudo starts: a directory every uid can
 // enter.
-const sudoChdirRoot = "/"
+const sudoStartRoot = "/"
 
 // sudoOption is what one of sudo's options means for the rewrite. The zero
 // value is an option this does not know, which leaves the argv alone.
@@ -28,10 +29,13 @@ const (
 	optFlag sudoOption = iota + 1
 	// optValue takes an argument: joined, or the next word.
 	optValue
-	// optKeep leaves the argv as the caller sent it: a directory already chosen
-	// (-D), one sudo chooses itself (-i, -s), a root that moves (-R), or a mode
-	// that runs no command or that sudo-rs refuses -D with (-e, -l, -v, -K, -V,
-	// -h).
+	// optLogin is -i: sudo changes to the target's home, so the directory it
+	// starts in is not the one the command runs in.
+	optLogin
+	// optKeep leaves the argv and directory as the caller sent them: a
+	// directory already chosen (-D), the caller's directory used as it is (-s),
+	// a root that moves (-R), or a mode that runs no command or that sudo-rs
+	// refuses -D with (-e, -l, -v, -K, -V, -h).
 	optKeep
 )
 
@@ -41,8 +45,9 @@ var sudoShort = map[byte]sudoOption{
 	'k': optFlag, 'n': optFlag, 'N': optFlag, 'P': optFlag, 'S': optFlag,
 	'C': optValue, 'g': optValue, 'p': optValue, 'r': optValue, 't': optValue,
 	'T': optValue, 'u': optValue, 'U': optValue,
-	'D': optKeep, 'i': optKeep, 's': optKeep, 'R': optKeep, 'e': optKeep,
-	'l': optKeep, 'v': optKeep, 'K': optKeep, 'V': optKeep, 'h': optKeep,
+	'i': optLogin,
+	'D': optKeep, 's': optKeep, 'R': optKeep, 'e': optKeep, 'l': optKeep,
+	'v': optKeep, 'K': optKeep, 'V': optKeep, 'h': optKeep,
 }
 
 // sudoLong is sudo's long options. An abbreviation is not here: the original
@@ -56,16 +61,21 @@ var sudoLong = map[string]sudoOption{
 	"close-from": optValue, "command-timeout": optValue, "group": optValue,
 	"other-user": optValue, "prompt": optValue, "role": optValue,
 	"type": optValue, "user": optValue,
+	"login": optLogin,
 	"chdir": optKeep, "chroot": optKeep, "edit": optKeep, "help": optKeep,
-	"host": optKeep, "list": optKeep, "login": optKeep, "remove-timestamp": optKeep,
+	"host": optKeep, "list": optKeep, "remove-timestamp": optKeep,
 	"shell": optKeep, "validate": optKeep, "version": optKeep,
 }
 
 // sudoPrefix is what sudo's option prefix says, as far as the rewrite needs.
 type sudoPrefix struct {
-	// rewritable is false where an option rules the rewrite out or could not be
-	// read, and where no command follows the options.
-	rewritable  bool
+	// parsed is false where an option rules the rewrite out or could not be
+	// read.
+	parsed bool
+	// command is whether a word follows the options.
+	command bool
+	// login is -i or --login.
+	login       bool
 	user, group string
 }
 
@@ -111,6 +121,10 @@ func parseSudoPrefix(argv []string) sudoPrefix {
 			if kind == optFlag && (!joined || name == "preserve-env") {
 				continue
 			}
+			if kind == optLogin && !joined {
+				p.login = true
+				continue
+			}
 			if kind != optValue {
 				return p
 			}
@@ -129,6 +143,10 @@ func parseSudoPrefix(argv []string) sudoPrefix {
 			if kind == optFlag {
 				continue
 			}
+			if kind == optLogin {
+				p.login = true
+				continue
+			}
 			if kind != optValue {
 				return p
 			}
@@ -145,31 +163,47 @@ func parseSudoPrefix(argv []string) sudoPrefix {
 			break
 		}
 	}
-	p.rewritable = i < len(argv)
+	p.parsed = true
+	p.command = i < len(argv)
 	return p
 }
 
-// sudoChdir returns argv with `-D cwd` after argv[0] and true when argv is a
-// sudo that runs a command as root, and argv unchanged and false otherwise.
-// argv[0] is not read: whether the program is the host's sudo is the caller's
-// question.
+// sudoStart is how a brokered sudo is started.
+type sudoStart int
+
+const (
+	// sudoAsSent runs the argv as sent, in the caller's directory.
+	sudoAsSent sudoStart = iota
+	// sudoWithChdir runs it in / with `-D cwd` after argv[0].
+	sudoWithChdir
+	// sudoLogin runs it as sent, in /: a login shell changes to the target's
+	// home whatever directory it starts in.
+	sudoLogin
+)
+
+// planSudo is how argv, a sudo, is started. argv[0] is not read: whether the
+// program is the host's sudo is the caller's question.
 //
-// A command run as another account is left alone: -D makes sudo enter the
-// directory as that account, which can be refused where inheriting it works.
-// So is -g without -u, which runs the command as the invoking account.
-func sudoChdir(cwd string, argv []string) ([]string, bool) {
+// -D is added only for a command run as root: it makes sudo enter the
+// directory as the target account, which can be refused where inheriting it
+// works, and -g without -u runs the command as the invoking account. A login
+// shell enters the target's home as that account however it starts, so it is
+// started in / for any account.
+func planSudo(argv []string) sudoStart {
 	p := parseSudoPrefix(argv)
 	switch {
-	case !p.rewritable:
-		return argv, false
+	case !p.parsed:
+		return sudoAsSent
+	case p.login:
+		return sudoLogin
+	case !p.command:
+		return sudoAsSent
 	case p.user != "" && p.user != "root" && p.user != "#0":
-		return argv, false
+		return sudoAsSent
 	case p.user == "" && p.group != "":
-		return argv, false
+		return sudoAsSent
 	}
-	out := make([]string, 0, len(argv)+2)
-	out = append(out, argv[0], "-D", cwd)
-	return append(out, argv[1:]...), true
+	return sudoWithChdir
 }
 
 // isHostSudo reports whether a resolved program is the sudo a bare `sudo`
@@ -177,22 +211,28 @@ func sudoChdir(cwd string, argv []string) ([]string, bool) {
 // way, so a symlink such as an alternatives link compares by its target, and a
 // file named sudo elsewhere is not taken for it.
 func isHostSudo(execCfg config.CommandConfig, argv0Path string) bool {
-	sudo, err := resolveProgram("sudo", sudoChdirRoot, execCfg)
+	sudo, err := resolveProgram("sudo", sudoStartRoot, execCfg)
 	return err == nil && sudo == argv0Path
 }
 
 // execTarget is the argv and directory the executor is given, and the
-// directory passed to -D, "" where the command runs as sent. A sudo is
-// rewritten only on a run with a run id: without one it cannot be approved, and
-// the executor's own refusal to enter the cwd is the more useful failure.
+// directory passed to -D, "" where none was added. A sudo is rewritten only on
+// a run with a run id: without one it cannot be approved, and the executor's
+// own refusal to enter the cwd is the more useful failure.
 func execTarget(execCfg config.CommandConfig, runID, argv0Path, cwd string,
 	cmd []string) (argv []string, dir, chdir string) {
 	argv = append([]string{argv0Path}, cmd[1:]...)
 	if runID == "" || !isHostSudo(execCfg, argv0Path) {
 		return argv, cwd, ""
 	}
-	if rewritten, ok := sudoChdir(cwd, argv); ok {
-		return rewritten, sudoChdirRoot, cwd
+	switch planSudo(argv) {
+	case sudoWithChdir:
+		out := make([]string, 0, len(argv)+2)
+		out = append(out, argv[0], "-D", cwd)
+		return append(out, argv[1:]...), sudoStartRoot, cwd
+	case sudoLogin:
+		return argv, sudoStartRoot, ""
+	case sudoAsSent:
 	}
 	return argv, cwd, ""
 }

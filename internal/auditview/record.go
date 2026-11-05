@@ -97,13 +97,15 @@ func PrintRecord(record map[string]any, paint termui.Palette) {
 	// word the escalation question uses for what root or the executor actually
 	// ran, and sits under the cwd a relative argv[0] resolved against. outcome is
 	// the escalation's own reason, and run_log_id is the command's record, so an
-	// escalation reads in both directions. sudo_chdir reads as the option the
-	// executor added: that sudo started in / and was given -D with this directory.
+	// escalation reads in both directions. started_in is where a sudo was
+	// started when that was not the cwd, and sudo_chdir reads as the option the
+	// executor added: -D with this directory.
 	//
 	// Rendered, not printed: all of these carry text chosen by the account this
 	// log exists to hold to account.
 	for _, row := range []struct{ field, label string }{
-		{"cwd", "cwd"}, {"sudo_chdir", "sudo -D"}, {"argv0_path", "program"},
+		{"cwd", "cwd"}, {"started_in", "started in"}, {"sudo_chdir", "sudo -D"},
+		{"argv0_path", "program"},
 		{"error", "error"},
 		{"outcome", "outcome"}, {"reason", "reason"}, {"run_log_id", "run_log_id"},
 	} {
