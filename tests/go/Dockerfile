@@ -4,14 +4,17 @@
 # downloads, so the suite and the e2e stacks test the same binary.
 #
 # The tests run as uid 19001, which owns nothing on the host.
+ARG NODE_VERSION=24
+FROM node:${NODE_VERSION} AS node
 FROM golang:1.27
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
 RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources \
     && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=20 \
       -o Acquire::https::CaInfo=/etc/ssl/certs/ca-certificates.crt \
       -o APT::Update::Error-Mode=any update \
     && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=20 \
       -o Acquire::https::CaInfo=/etc/ssl/certs/ca-certificates.crt install -y --no-install-recommends \
-      openssh-client nodejs nano \
+      openssh-client nano \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd second \
     && groupadd -g 19001 tester \

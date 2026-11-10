@@ -44,8 +44,10 @@ source_state=$(git -C "$root" status --porcelain --untracked-files=all)
 "$root/tests/source.sh" > "$scratch/source.tar"
 digest=$(sha256sum "$scratch/source.tar" | cut -d ' ' -f1)
 
+node_version=$(cat "$root/.nvmrc")
 tar -C "$root" -cf - tests/go/Dockerfile tests/go/inside.sh tests/cgroup.sh |
-  docker build -q -t faramir-go-test:local --iidfile "$scratch/image.id" -f tests/go/Dockerfile - >/dev/null
+  docker build -q -t faramir-go-test:local --iidfile "$scratch/image.id" \
+    --build-arg "NODE_VERSION=${node_version#v}" -f tests/go/Dockerfile - >/dev/null
 image=$(cat "$scratch/image.id")
 args=(-i --cgroupns=private --cap-add SYS_ADMIN
   --security-opt apparmor=unconfined --security-opt seccomp=unconfined

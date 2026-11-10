@@ -37,7 +37,13 @@ files() {
   done
 }
 
-git -C "$root" ls-files -z --cached -- . | files |
-  tar -C "$root" --no-recursion --null --verbatim-files-from --files-from=- \
-    --format=gnu --mtime=@0 --owner=0 --group=0 --numeric-owner \
-    --mode='u+rwX,go+rX,go-w' -cf -
+case "${1:-}" in
+  --list) git -C "$root" ls-files -z --cached -- . | files;;
+  '')
+    git -C "$root" ls-files -z --cached -- . | files |
+      tar -C "$root" --no-recursion --null --verbatim-files-from --files-from=- \
+        --format=gnu --mtime=@0 --owner=0 --group=0 --numeric-owner \
+        --mode='u+rwX,go+rX,go-w' -cf -
+    ;;
+  *) echo 'source: unknown archive option' >&2; exit 2;;
+esac
