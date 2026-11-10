@@ -32,23 +32,6 @@ func TestGroupSharedAddsGroupAccessWithoutGrantingExecute(t *testing.T) {
 	}
 }
 
-// A string comparison would put /home/op2 under /home/op.
-func TestWithinComparesPathElements(t *testing.T) {
-	for _, tc := range []struct {
-		home, dir string
-		want      bool
-	}{
-		{"/home/op", "/home/op/src", true},
-		{"/home/op", "/home/op", true},
-		{"/home/op", "/home/op2/src", false},
-		{"/home/op", "/srv/faramir/tree", false},
-	} {
-		if got := within(tc.home, tc.dir); got != tc.want {
-			t.Errorf("within(%q, %q) = %v, want %v", tc.home, tc.dir, got, tc.want)
-		}
-	}
-}
-
 // The sharing half needs no root: a tree the caller owns.
 func TestShareTreeAppliesModesThroughout(t *testing.T) {
 	root := t.TempDir()

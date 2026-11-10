@@ -72,8 +72,7 @@ func startFailure(program, cwd string, err error) (code, detail string) {
 	// The program may be perfectly runnable; what failed is getting to where it
 	// was to run. Not the shell's 126, which is about the program.
 	return codeExecFailed, fmt.Sprintf("%s not started: %s cannot enter %s\n"+
-		"  grant this account traversal through the directory and its ancestors, and access to the files it needs\n"+
-		"  enrollment is not required; the operator can use `sudo faramir share --group NAME DIR` for group access",
+		"  grant filesystem access, checking ancestors; operator group sharing: `sudo faramir share --group NAME DIR` (enrollment is not required)",
 		program, whoRuns(), cwd)
 }
 

@@ -232,7 +232,9 @@ run `sudo faramir share --group NAME DIR`. The directory gains group read/write,
 traversal and setgid. Only already group-readable, non-hidden descendants are
 shared. Hidden entries, private files and directories, configured blocked or
 linked paths, the broker's SSH key and symlinks are left alone. User ownership
-is preserved. Name only the source, dependency or build subtree the command
+is preserved. Existing ACLs grant the owning group the requested access while
+retaining every named user's and group's effective permissions. Name only the
+source, dependency or build subtree the command
 needs; name a required hidden subtree directly. Ancestors must already permit
 traversal. `--dry-run` previews without
 writing; `--json` reports changes. No agent configuration or enrollment record

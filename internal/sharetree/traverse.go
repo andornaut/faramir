@@ -4,7 +4,6 @@ package sharetree
 // that stop it, and who is asked.
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -18,12 +17,13 @@ import (
 // Blocker is one directory above a shared path that the group cannot enter,
 // with the group and mode that stop it.
 type Blocker struct {
-	Path  string
-	Group string
-	Mode  os.FileMode
+	Path      string
+	Group     string
+	Mode      os.FileMode
+	AccessACL bool
 }
 
-// Traversable reports which directories from the operator's home down to the
+// Traversable reports which directories from the filesystem root down to the
 // path named the group cannot enter, and alters none of them. Empty means the
 // group can already reach it. With Options.Account set the question is asked
 // about that account instead; see the field.
@@ -38,7 +38,7 @@ func Traversable(opts Options) ([]Blocker, error) {
 	if err != nil {
 		return nil, err
 	}
-	owner, err := user.Lookup(opts.Operator)
+	_, err = user.Lookup(opts.Operator)
 	if err != nil {
 		return nil, noSuchUser(opts.Operator, err)
 	}
@@ -47,11 +47,6 @@ func Traversable(opts Options) ([]Blocker, error) {
 		return nil, noSuchGroup(opts.Group, err)
 	}
 	gid, _ := strconv.Atoi(group.Gid)
-	// Outside the homes the modes already allow it.
-	home := resolvedHome(owner)
-	if home == "" || !within(home, dir) {
-		return nil, nil
-	}
 	who := groupEntrant(gid)
 	if opts.Account != "" {
 		who, err = entrantFor(opts.Account, gid)
@@ -59,7 +54,7 @@ func Traversable(opts Options) ([]Blocker, error) {
 			return nil, err
 		}
 	}
-	return blockers(home, dir, who)
+	return blockers(string(filepath.Separator), dir, who)
 }
 
 // entrant is who has to get in: a uid, or -1 where the caller asked about a
@@ -101,8 +96,8 @@ func entrantFor(account string, gid int) (entrant, error) {
 
 // canEnter reports whether this account may traverse a directory at that
 // ownership and mode: the kernel's own order, owner then group then other.
-// ACLs and CAP_DAC_OVERRIDE are not read, so this is the answer for an
-// ordinary account on an ordinary filesystem.
+// This is the fallback for a filesystem without an access ACL. CAP_DAC_OVERRIDE
+// is not considered: this asks about an ordinary account or a group.
 func (e entrant) canEnter(st *syscall.Stat_t, mode os.FileMode) bool {
 	if e.uid >= 0 && int(st.Uid) == e.uid {
 		return mode&0o100 != 0
@@ -120,6 +115,10 @@ func (e entrant) canEnter(st *syscall.Stat_t, mode os.FileMode) bool {
 func Fix(blocked []Blocker, group string) string {
 	lines := make([]string, 0, len(blocked))
 	for _, b := range blocked {
+		if b.AccessACL {
+			lines = append(lines, fmt.Sprintf("  grant group %s search (x) in the access ACL on %s, including its mask", group, b.Path))
+			continue
+		}
 		if b.Group == group {
 			lines = append(lines, "  sudo chmod g+x "+b.Path)
 			continue
@@ -140,7 +139,7 @@ func Describe(blocked []Blocker) string {
 	return strings.Join(out, ", ")
 }
 
-// components lists every directory from home down to dir's parent, the tree
+// components lists every directory from the starting root to dir's parent, the tree
 // itself being group-owned above.
 func components(home, dir string) []string {
 	rel, err := filepath.Rel(home, dir)
@@ -157,7 +156,7 @@ func components(home, dir string) []string {
 	return out
 }
 
-// blockers is every directory from the home down to the tree that the group
+// blockers is every directory from the starting root down to the tree that the group
 // cannot enter. Nothing is altered: these directories are the operator's.
 //
 // Walked through descriptors rather than by path, as shareTree walks the tree:
@@ -177,22 +176,22 @@ func blockers(home, dir string, who entrant) ([]Blocker, error) {
 	defer func() { _ = handle.Close() }()
 
 	var found []Blocker
-	add := func(name string, info os.FileInfo) error {
-		action, err := traversalAction(info, who)
-		if err != nil || action == leaveAlone {
+	add := func(name string, directory *os.File) error {
+		info, err := directory.Stat()
+		if err != nil {
+			return err
+		}
+		allowed, accessACL, err := canTraverse(who, info, directory)
+		if err != nil || allowed {
 			return err
 		}
 		found = append(found, Blocker{
-			Path: name, Group: groupName(info), Mode: info.Mode().Perm(),
+			Path: name, Group: groupName(info), Mode: info.Mode().Perm(), AccessACL: accessACL,
 		})
 		return nil
 	}
 
-	info, err := handle.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if err := add(home, info); err != nil {
+	if err := add(home, handle); err != nil {
 		return nil, err
 	}
 
@@ -203,11 +202,13 @@ func blockers(home, dir string, who entrant) ([]Blocker, error) {
 	defer func() { _ = root.Close() }()
 	for _, component := range parts[1:] {
 		name := filepath.Base(component)
-		info, err := root.Stat(name)
+		directory, err := root.OpenFile(name, os.O_RDONLY|syscall.O_DIRECTORY, 0)
 		if err != nil {
 			return nil, err
 		}
-		if err := add(component, info); err != nil {
+		err = add(component, directory)
+		_ = directory.Close()
+		if err != nil {
 			return nil, err
 		}
 		next, err := root.OpenRoot(name)
@@ -218,37 +219,6 @@ func blockers(home, dir string, who entrant) ([]Blocker, error) {
 		root = next
 	}
 	return found, nil
-}
-
-type traversal int
-
-const (
-	leaveAlone traversal = iota
-	addExecute
-	regroup
-)
-
-// traversalAction decides what one directory on the path needs. Nothing, where
-// whoever was asked about can already enter it: tightening a directory the
-// operator left open is not this command's business, and neither is regrouping
-// one that is already open to the account another way.
-func traversalAction(info os.FileInfo, who entrant) (traversal, error) {
-	mode := info.Mode().Perm()
-	// Read off the same FileInfo the mode came from, rather than stat-ing the path
-	// a second time.
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return leaveAlone, errors.New("cannot read ownership")
-	}
-	if who.canEnter(st, mode) {
-		return leaveAlone, nil
-	}
-	// Blocked. The remedy is the execute bit alone where the group a fix would
-	// name already owns it, and a regroup otherwise.
-	if len(who.gids) > 0 && int(st.Gid) == who.gids[0] {
-		return addExecute, nil
-	}
-	return regroup, nil
 }
 
 func groupName(info os.FileInfo) string {

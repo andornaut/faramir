@@ -46,6 +46,17 @@ func TestShareOnlyDryRunWritesNoEnrollmentOrAgentConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
+	// The fixture's ancestors, including Go's per-test temporary parent, must
+	// permit the selected group to traverse before the sharing preflight runs.
+	for path := filepath.Dir(root); path != os.TempDir(); path = filepath.Dir(path) {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, info.Mode()|0o010); err != nil {
+			t.Fatal(err)
+		}
+	}
 	configDir := installedConfig(t, installed())
 	before, err := os.ReadDir(configDir)
 	if err != nil {

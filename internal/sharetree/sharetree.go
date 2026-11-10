@@ -14,6 +14,7 @@
 package sharetree
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -23,6 +24,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Options is one run. Group is both what the tree is shared with and what is
@@ -152,23 +155,35 @@ func Share(opts Options) (Result, error) {
 	// Asked before each operation, and the operation still made unconditionally:
 	// what is counted is whether this run altered the host.
 	rootMode := os.FileMode(0o2770) | os.ModeSetgid
-	if info, err := os.Stat(dir); err == nil {
-		if opts.PreservePrivate {
-			rootMode = groupShared(info.Mode())
-		}
-		// One per path, not one per operation: a path needing both a regroup and a
-		// widen is still one path.
-		if wouldRegroup(info, gid) || wouldReown(info, uid) ||
-			chmodBits(info.Mode()) != chmodBits(rootMode) {
-			result.Changed++
-		}
-	}
-	if err := os.Chown(dir, uid, gid); err != nil {
+	rootFile, err := os.OpenFile(dir, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY, 0)
+	if err != nil {
 		return result, err
 	}
-	// MkdirAll applies the umask and an existing directory keeps its mode, so
-	// setgid is set explicitly.
-	if err := os.Chmod(dir, rootMode); err != nil {
+	defer func() { _ = rootFile.Close() }()
+	rootACL, err := readAccessACL(rootFile)
+	if err != nil {
+		return result, err
+	}
+	rootInfo, err := rootFile.Stat()
+	if err != nil {
+		return result, err
+	}
+	rootACLChanged := false
+	if opts.PreservePrivate {
+		rootMode = groupShared(rootInfo.Mode())
+	}
+	if rootACL != nil {
+		mode, updated := sharedAccessACL(rootMode|os.ModeDir, *rootACL)
+		rootACLChanged = !bytes.Equal(rootACL.bytes(), updated.bytes())
+		rootMode, rootACL = mode, &updated
+	}
+	// One per path, not one per operation: a path needing both a regroup and a
+	// widen is still one path.
+	if rootACLChanged || wouldRegroup(rootInfo, gid) || wouldReown(rootInfo, uid) ||
+		chmodBits(rootInfo.Mode()) != chmodBits(rootMode) {
+		result.Changed++
+	}
+	if err := applySharing(uid, gid, rootMode, rootACL, rootFile); err != nil {
 		return result, err
 	}
 	changed, err := shareTreePolicy(opts.PreservePrivate, opts.Exclude, gid, keep, sticky, opts.Progress, dir)
@@ -201,27 +216,6 @@ func (o Options) logf(format string, args ...any) {
 	if o.Log != nil {
 		o.Log(fmt.Sprintf(format, args...))
 	}
-}
-
-// resolvedHome is the account's home with symlinks taken out, to compare
-// against a tree resolved the same way. Empty when passwd names no home, or
-// one that is not there.
-func resolvedHome(owner *user.User) string {
-	if owner.HomeDir == "" {
-		return ""
-	}
-	home, err := Resolve(owner.HomeDir)
-	if err != nil {
-		return ""
-	}
-	return home
-}
-
-// within compares path elements, so /home/andornaut2 is not inside
-// /home/andornaut.
-func within(home, dir string) bool {
-	rel, err := filepath.Rel(home, dir)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // shareTree regroups and widens every entry under root.
@@ -277,17 +271,57 @@ func shareTreePolicy(preservePrivate bool, exclude func(string) bool, gid int, k
 		if err != nil {
 			return err
 		}
+		// Only regular files and directories carry the ACL sharing path. Other
+		// entry types retain the existing metadata-only operations below.
+		var file *os.File
+		var acl *accessACL
+		if info.IsDir() || info.Mode().IsRegular() {
+			file, err = dir.OpenFile(rel, os.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW, 0)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = file.Close() }()
+			info, err = file.Stat()
+			if err != nil {
+				return err
+			}
+			acl, err = readAccessACL(file)
+			if err != nil {
+				return err
+			}
+			privateACL := acl != nil && acl.group&acl.mask&4 == 0
+			if preservePrivate && path != root && (info.Mode().Perm()&0o040 == 0 || privateACL) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
 		// Asked before either operation and counted once: this is one path whether
 		// it needs a regroup, a widen, or both.
 		regroup := wouldRegroup(info, gid)
 		want := stickyIf(groupShared(info.Mode()), info.IsDir() && sticky[rel])
+		aclChanged := false
+		if acl != nil && !keep[rel] {
+			mode, updated := sharedAccessACL(want, *acl)
+			aclChanged = !bytes.Equal(acl.bytes(), updated.bytes())
+			want, acl = mode, &updated
+		}
 		widen := !keep[rel] && chmodBits(want) != chmodBits(info.Mode())
-		if regroup || widen {
+		if regroup || widen || aclChanged {
 			changed++
 		}
-		// A path already right is left alone rather than re-applied: a re-run
-		// over an enrolled tree is then a stat per path instead of three
-		// syscalls.
+		// A path already shared needs only metadata checks, without reapplying
+		// its ownership, mode or ACL.
+		if file != nil {
+			if regroup || widen || aclChanged {
+				if keep[rel] {
+					want = info.Mode()
+				}
+				return applySharing(-1, gid, want, acl, file)
+			}
+			return nil
+		}
 		if regroup {
 			if err := dir.Lchown(rel, -1, gid); err != nil {
 				return err

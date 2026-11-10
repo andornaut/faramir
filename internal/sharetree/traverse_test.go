@@ -2,12 +2,50 @@ package sharetree
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 )
+
+func TestTraversableChecksAncestorsOutsideTheOperatorsHome(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := user.LookupGroupId(strconv.Itoa(os.Getgid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := t.TempDir()
+	tree := filepath.Join(parent, "tree")
+	if err := os.Mkdir(tree, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := Traversable(Options{Dir: tree, Operator: me.Username, Group: group.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, blocker := range blocked {
+		found = found || blocker.Path == parent
+	}
+	if !found {
+		t.Fatalf("private ancestor %s not reported: %v", parent, blocked)
+	}
+}
+
+func TestACLBlockerAdviceDoesNotReplaceOwnershipOrOnlyChangeMask(t *testing.T) {
+	got := Fix([]Blocker{{Path: "/project", Group: "old", AccessACL: true}}, "new")
+	if strings.Contains(got, "chgrp") || strings.Contains(got, "chmod") ||
+		!strings.Contains(got, "access ACL") || !strings.Contains(got, "mask") {
+		t.Errorf("ACL blocker advice = %q", got)
+	}
+}
 
 // From the home down to the tree's parent; the tree itself is group-owned rather
 // than traversed.
@@ -28,9 +66,7 @@ func TestComponentsWalkFromTheHomeToTheTreesParent(t *testing.T) {
 	}
 }
 
-// What one directory on the path needs. Group ownership rather than an ACL, the
-// group slot being the one going spare on a home the operator owns.
-func TestTraversalAction(t *testing.T) {
+func TestModeTraversalUsesGroupAndOtherPermissions(t *testing.T) {
 	dir := t.TempDir()
 	var st syscall.Stat_t
 	if err := syscall.Stat(dir, &st); err != nil {
@@ -43,18 +79,14 @@ func TestTraversalAction(t *testing.T) {
 		name string
 		mode os.FileMode
 		gid  int
-		want traversal
+		want bool
 	}{
-		// Already open to everyone, and tightening it is not this command's
-		// business.
-		{"world-traversable is left alone", 0o755, other, leaveAlone},
-		{"world-traversable even with a foreign group", 0o701, other, leaveAlone},
-		// Right group, only the bit missing.
-		{"our group without execute gains it", 0o700, mine, addExecute},
-		{"our group with execute is done", 0o710, mine, leaveAlone},
-		// Wrong group, which costs the old group its access.
-		{"a foreign group is taken over", 0o700, other, regroup},
-		{"a foreign group with execute is still taken over", 0o710, other, regroup},
+		{"world traversal", 0o755, other, true},
+		{"world traversal with a foreign group", 0o701, other, true},
+		{"owning group without execute", 0o700, mine, false},
+		{"owning group with execute", 0o710, mine, true},
+		{"foreign group without execute", 0o700, other, false},
+		{"foreign owning group execute does not grant access", 0o710, other, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := os.Chmod(dir, tc.mode); err != nil {
@@ -64,12 +96,9 @@ func TestTraversalAction(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := traversalAction(info, groupEntrant(tc.gid))
-			if err != nil {
-				t.Fatal(err)
-			}
+			got := groupEntrant(tc.gid).canEnter(info.Sys().(*syscall.Stat_t), info.Mode().Perm())
 			if got != tc.want {
-				t.Errorf("traversalAction(%v, gid=%d) = %v, want %v", tc.mode, tc.gid, got, tc.want)
+				t.Errorf("mode traversal(%v, gid=%d) = %v, want %v", tc.mode, tc.gid, got, tc.want)
 			}
 		})
 	}
@@ -78,7 +107,7 @@ func TestTraversalAction(t *testing.T) {
 // Every directory on the path that the group cannot enter is named, and none of
 // them is altered: they are the operator's, and opening them is not faramir's
 // to do. The group is the tree's own, so no privilege is needed here;
-// TestTraversalAction covers the regroup branch.
+// TestModeTraversalUsesGroupAndOtherPermissions covers a foreign group.
 func TestBlockersNamesThePathAndChangesNothing(t *testing.T) {
 	home := t.TempDir()
 	middle := filepath.Join(home, "src")

@@ -46,7 +46,7 @@ Every path the install creates, what owns it, and what each account can reach th
 
 ```text
 <any file you link>             group-readable by <broker's group>, and by nobody else
-<the directories above it>      enterable by <client-group>, down from the home
+<the directories above it>      enterable by <client-group>, from filesystem root
 ```
 
 `init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>`, and a missing parent is `0700`. A file that already exists keeps its owner and group; a rule file, hook or plugin loses any bit outside `0640` and is never widened, and an instructions file keeps its mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
@@ -89,9 +89,9 @@ The section says what the deny rules cannot: why they refuse, and what to do ins
 
 **Enrollment and `share` change filesystem ownership and permissions only inside the named tree.** Everywhere else they check and report. `share` grants access without agent configuration or an enrollment record and retains private descendants and user ownership. The directories above the tree are not part of it, so the operator grants the traversal `faramir-exec` needs through a `0700` home:
 
-- Every directory from the home down must be enterable by the client group (execute only), so those uids can pass through without listing what they pass. `enrol` refuses to share a tree it cannot reach, and names each directory and the `chgrp` and `chmod` that open it.
+- Every ancestor from the filesystem root must permit the selected group's traversal through its mode or access ACL. Execute alone permits traversal without listing. `enrol` and `share` refuse unreachable trees and report each blocking directory. Mode-only blockers name `chgrp` and `chmod` remedies; ACL blockers require a group search grant and an effective ACL mask.
 - Never `chmod o+x`. That grants the same to every account on the machine.
 - Everyone in the group gets that traversal, so keep membership to the accounts that need it.
-- A directory already traversable by `other` is accepted as it is. `enrol` does not tighten a directory the operator left open.
+- An already traversable directory is accepted as it is, using the kernel's owner, named-user, group and other precedence. Neither command tightens an ancestor the operator left open.
 - Membership is a permission, not a mount, so an encrypted home still unmounts at logout. A brokered command running at the time holds it open.
-- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. That covers the whole tree, so a `.env` or `.pem` in the checkout is shared along with the code. The agent settings faramir manages are regrouped but deliberately not made group-writable. `enrol` reports how many paths it changed, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.
+- Enrollment gives the tree itself `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. That covers the whole tree, so a `.env` or `.pem` in the checkout is shared along with the code. The agent settings faramir manages are regrouped but deliberately not made group-writable. `enrol` reports how many paths it changed, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.
