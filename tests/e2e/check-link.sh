@@ -25,6 +25,51 @@
 set -u
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
+link_degraded() {
+  local response
+  response=$(broker_document "$1" status) || return 1
+  jq -e --arg ref "$2" '
+    (.output.secrets.degraded_links | type) == "object" and
+    (.output.secrets.degraded_links[$ref] | type) == "string" and
+    (.output.secrets.degraded_links[$ref] | length) > 0
+  ' <<<"$response" >/dev/null
+}
+
+head_ "0. readiness predicates"
+while IFS='|' read -r label predicate readiness_status expected readiness_payload; do
+  actual=1
+  if (
+    # Only this subshell replaces the external command. The actual predicates
+    # and jq parse the response and process status together.
+    runuser() { printf '%s\n' "$readiness_payload"; return "$readiness_status"; }
+    "$predicate" op target/ref >/dev/null 2>&1
+  ); then actual=0; fi
+  [ "$actual" -eq "$expected" ] && ok "$label" || bad "$label"
+done <<'READINESS'
+a healthy ref is ready|ref_served|0|0|{"exit_code":0,"refs":["target/ref"]}
+a degraded response can serve the target|ref_served|1|0|{"exit_code":1,"warning":"degraded fixture","refs":["target/ref"]}
+an empty valid ref list is an answer|answers|1|0|{"exit_code":1,"refs":[]}
+an absent target is ready|ref_not_served|1|0|{"exit_code":1,"refs":["another/ref"]}
+a prefix is not the target ref|ref_served|0|1|{"exit_code":0,"refs":["target/ref-other"]}
+a served target is not absent|ref_not_served|0|1|{"exit_code":0,"refs":["target/ref"]}
+malformed JSON does not prove absence|ref_not_served|1|1|not-json
+a missing ref array does not prove absence|ref_not_served|1|1|{"exit_code":1}
+non-string refs do not prove absence|ref_not_served|1|1|{"exit_code":1,"refs":[4]}
+a broker refusal is not readiness|ref_not_served|1|1|{"exit_code":1,"error":{"code":"unavailable"},"refs":[]}
+an unavailable broker is not readiness|ref_not_served|1|1|
+an unexpected process status is not readiness|ref_not_served|2|1|{"exit_code":2,"refs":[]}
+a mismatched process status is not readiness|answers|1|1|{"exit_code":0,"refs":[]}
+multiple documents are not readiness|answers|0|1|{"exit_code":0,"refs":[]} {"exit_code":0,"refs":[]}
+the target degraded link is ready|link_degraded|1|0|{"exit_code":1,"output":{"secrets":{"degraded_links":{"target/ref":"missing fixture"}}}}
+another degraded link is not the target|link_degraded|1|1|{"exit_code":1,"output":{"secrets":{"degraded_links":{"target/ref-other":"missing fixture"}}}}
+a malformed status is not readiness|link_degraded|1|1|{"exit_code":1,"output":{"secrets":{"degraded_links":[]}}}
+an empty degradation reason is not readiness|link_degraded|1|1|{"exit_code":1,"output":{"secrets":{"degraded_links":{"target/ref":""}}}}
+READINESS
+if [ "${1:-}" = --readiness-only ] || [ "$FAIL" -ne 0 ]; then
+  summary
+  exit "$?"
+fi
+
 CFG=/etc/faramir/config.toml
 GHDIR=/home/op/.config/gh
 GH=$GHDIR/hosts.yml
@@ -66,8 +111,11 @@ restore_baseline() {
   rm -rf "$BACKUP"
   rm -f "$GH" "$NPMRC"
   "$faramir" reload >/dev/null 2>&1 || true
-  waitfor 25 asop refs >/dev/null 2>&1 || true
-  return "$rc"
+  if ! waitfor 25 answers op; then
+    printf 'e2e: broker did not answer after restoring the link fixture\n' >&2
+    rc=1
+  fi
+  exit "$rc"
 }
 trap restore_baseline EXIT
 
@@ -256,7 +304,7 @@ rm -f $GHDIR/hosts-link.yml
 
 # --------------------------------------------------------------------------
 head_ "3. the broker serves it"
-waitfor 25 asop refs >/dev/null 2>&1
+waitfor 25 ref_served op gh/token || bad "timed out waiting for gh/token to be served"
 asop refs 2>/dev/null | grep -q 'faramir://gh/token' \
   && ok "faramir refs names the ref" \
   || bad "the ref is not being served: $(asop refs 2>&1 | tr '\n' ' ')"
@@ -462,7 +510,7 @@ out=$(addlink gh/token $GH --type yaml --key github.com/oauth_token)
 grep -q 'already reads' <<<"$out" \
   && ok "and adding it again then says the entry is the one that is there" \
   || bad "the re-application does not say the entry was already there: ${out:0:200}"
-waitfor 25 asop refs >/dev/null 2>&1
+waitfor 25 ref_served op gh/token || bad "timed out waiting for gh/token to be served again"
 asop refs 2>/dev/null | grep -q 'faramir://gh/token' \
   && ok "and the ref is served again" \
   || bad "the ref is not being served after the file was arranged again"
@@ -483,7 +531,7 @@ snap
 # holding to is the blast radius: before it was scoped per ref, one linked file
 # the broker could not read withheld the output of every command on the host,
 # including commands with no relationship to the credential.
-waitfor 25 asop refs >/dev/null 2>&1
+waitfor 25 link_degraded op npm/token || bad "timed out waiting for npm/token to be reported as degraded"
 out=$(brokered -- /bin/echo unrelated)
 grep -q 'unrelated' <<<"$out" \
   && ok "a command that never asked for the missing ref still runs and prints" \
@@ -522,7 +570,7 @@ grep -q 'chmod g-r' <<<"$out" \
   && ok "and it says the file is still readable by the broker's group" \
   || bad "removal does not say what access it left behind: $out"
 
-waitfor 25 asop refs >/dev/null 2>&1
+waitfor 25 ref_not_served op gh/token || bad "timed out waiting for gh/token to stop being served"
 asop refs 2>/dev/null | grep -q 'faramir://gh/token' \
   && bad "the ref is still being served" \
   || ok "the ref stops being served"

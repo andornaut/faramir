@@ -46,11 +46,38 @@ waitfor() {
   return 1
 }
 
-# answers USER is whether the broker answers USER, degraded or not. Not refs'
-# exit status: refs exits 1 on a store holding a ref it cannot serve, which the
-# suites' stores do on purpose. An answer carries the ref array, a refusal
-# carries an error, and a broker not reached prints nothing.
-answers() {
-  runuser -u "$1" -- /usr/local/bin/faramir refs --json 2>/dev/null |
-    jq -e '.error == null and (.refs | type) == "array"' >/dev/null
+# broker_document USER OP accepts a single successful metadata response, including
+# exit 1 for degraded state. A refusal, missing response or mismatched status is
+# not readiness. Capture the status explicitly so callers may enable pipefail.
+broker_document() {
+  local response code=0
+  response=$(runuser -u "$1" -- /usr/local/bin/faramir "$2" --json 2>/dev/null) || code=$?
+  case "$code" in 0|1) ;; *) return 1 ;; esac
+  jq -cse --argjson code "$code" '
+    if length == 1 and
+      (.[0] | type == "object" and .error == null and .exit_code == $code)
+    then .[0] else empty end
+  ' <<<"$response"
+}
+
+refs_document() {
+  local response
+  response=$(broker_document "$1" refs) || return 1
+  jq -ce 'select((.refs | type) == "array" and all(.refs[]; type == "string"))' <<<"$response"
+}
+
+# answers USER asks whether the broker answered, even when refs exits 1 for a
+# degraded store. Membership predicates additionally wait for the expected state.
+answers() { refs_document "$1" >/dev/null; }
+
+ref_served() {
+  local response
+  response=$(refs_document "$1") || return 1
+  jq -e --arg ref "$2" '.refs | index($ref) != null' <<<"$response" >/dev/null
+}
+
+ref_not_served() {
+  local response
+  response=$(refs_document "$1") || return 1
+  jq -e --arg ref "$2" '.refs | index($ref) == null' <<<"$response" >/dev/null
 }

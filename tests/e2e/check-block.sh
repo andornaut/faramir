@@ -70,8 +70,11 @@ restore_baseline() {
   rm -rf /home/op/.config/gh
   [ -n "$MADE_CLAUDE_HOME" ] && rm -rf "$CLAUDE_HOME"
   "$faramir" reload >/dev/null 2>&1 || true
-  waitfor 25 asop refs >/dev/null 2>&1 || true
-  return "$rc"
+  if ! waitfor 25 answers op; then
+    printf 'e2e: broker did not answer after restoring the block fixture\n' >&2
+    rc=1
+  fi
+  exit "$rc"
 }
 trap restore_baseline EXIT
 
@@ -413,14 +416,14 @@ chgrp "$(id -gn faramir-broker)" $LINKFILE
 chmod 640 $LINKFILE
 "$faramir" link add gh/refuse-suite $LINKFILE \
   --type yaml --key github.com/oauth_token >/dev/null 2>&1
-waitfor 25 asop refs >/dev/null 2>&1
+waitfor 25 ref_served op gh/refuse-suite || bad "timed out waiting for gh/refuse-suite to be served"
 if asop refs 2>/dev/null | grep -q 'faramir://gh/refuse-suite'; then
   ok "a link is serving beside the blocked paths"
   block add --path /etc/beside-a-link.key >/dev/null 2>&1
   grep -q 'gh/refuse-suite' $CFG \
     && ok "and block add leaves its entry in config.toml" \
     || bad "block add erased the [[secret.link]] entry"
-  waitfor 25 asop refs >/dev/null 2>&1
+  waitfor 25 ref_served op gh/refuse-suite || bad "timed out waiting for gh/refuse-suite after block add"
   asop refs 2>/dev/null | grep -q 'faramir://gh/refuse-suite' \
     && ok "and the ref is still served, so the value is still redacted" \
     || bad "the linked ref stopped being served after a block add"
