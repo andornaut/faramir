@@ -2,7 +2,7 @@
 
 Functional tests that drive a real `faramir` install: systemd units, three uids, a sops store, and an agent's account working in a project tree. `go test` covers the code; these cover what an operator gets after `faramir init`.
 
-CI runs them on a push to any branch and on a pull request against main: `fetch`, `up`, `run` over every suite, then `down`. It runs that twice, as a matrix over the two sudo implementations, so the jobs are named `E2E (sudo)` and `E2E (sudo-rs)`. A job each rather than `./e2e.sh both` inside one: a GitHub runner is two CPUs, and a stack is a privileged systemd container plus an sshd host, so the two legs take a runner each and run at the same time. Locally `make e2e` runs both at the same time instead. The Lint job beside it reads these scripts with shellcheck.
+CI runs them on a push to any branch and on a pull request against main: `fetch`, `up`, `run` over every suite, then `down`. It runs that twice, as a matrix over the two sudo implementations, so the jobs are named `E2E (sudo)` and `E2E (sudo-rs)`. A job each rather than `./e2e.sh both` inside one: a GitHub runner is two CPUs, and a stack is a private-cgroup systemd container plus an sshd host, so the two legs take a runner each and run at the same time. Locally `make e2e` runs both at the same time instead. The Lint job beside it reads these scripts with shellcheck.
 
 Run them by hand as well, against a tree you are about to release or while changing a suite, which is what the rest of this page is for.
 
@@ -24,7 +24,7 @@ Three binaries must be beside `e2e.sh` before the first `up`. The image has no n
 
 `fetch` checks what is already there against the pin rather than downloading it again, so it is safe before every `up`; delete a file to replace it. It pins x86_64 digests only, and says so on another architecture: copy the three in by hand there.
 
-`e2e.sh up` builds two more into the same directory: `faramir` from the tree two levels up, and `faramir-skew` at a version the installed one does not report. The skew binary is what the `doctor` suite swaps in to make the CLI and the running broker disagree about the build; the version is a linker variable, so `e2e.sh` stamps it with `go build -ldflags -X` and never edits the tree. It checks the stamp took: a `-X` naming a symbol that has moved does nothing and exits 0, which would leave the suite comparing a binary against itself.
+`e2e.sh up` builds two more in a Go container and copies them into the same directory: `faramir` from the tree two levels up, and `faramir-skew` at a version the installed one does not report. The skew binary is what the `doctor` suite swaps in to make the CLI and the running broker disagree about the build; the version is a linker variable, so `e2e.sh` stamps it with `go build -ldflags -X` and never edits the tree. It checks the stamp took: a `-X` naming a symbol that has moved does nothing and exits 0, which would leave the suite comparing a binary against itself.
 
 All five are gitignored. `up` refuses to build without the three you supply, rather than producing an image whose failures all look like missing tools.
 
@@ -47,7 +47,7 @@ Ubuntu ships two behind one `sudo` alternatives group, and `faramir init --allow
 SUDO=sudo-rs ./e2e.sh up && SUDO=sudo-rs ./e2e.sh run   # under sudo-rs
 ```
 
-Every container, image and network name takes a suffix from `SUDO`, so the two stacks share nothing and can be up together. `./e2e.sh both` is that pair run concurrently, two logs per arrangement (`up` and `run`) and per uid under `$TMPDIR`. Each container's systemd roots under its own `docker-<id>.scope`, so the cgroup trees do not meet even though both run `--cgroupns=host`.
+Every container, image and network name takes a suffix from `SUDO`, so the two stacks share nothing and can be up together. `./e2e.sh both` is that pair run concurrently, two logs per arrangement (`up` and `run`) and per uid under `$TMPDIR`. Each container's systemd roots under its own `docker-<id>.scope`, so the cgroup trees do not meet and each has a private cgroup namespace.
 
 `SUDO` is `sudo` or `sudo-rs`, the implementations' own names rather than labels for them, so what a CI job is called, what you type and what the docs say are one word. Unset is `sudo`, which is what the image pins, and it takes the unsuffixed names.
 
@@ -65,7 +65,7 @@ Each suite prints one line per check and exits non-zero if any failed.
 
 ## The containers
 
-`faramir-e2e` runs systemd under `--privileged --cgroupns=host`, which is what a socket-activated `Type=notify` unit needs to behave the way it does on a host. `managed-host` is a second container running sshd, on a network of their own, so the SSH relay suite reaches a real server rather than a stub.
+`faramir-e2e` runs systemd in a private cgroup namespace. The bootstrap remounts only its own subtree writable with `SYS_ADMIN`; neither host cgroups nor host devices are exposed. `NET_ADMIN` configures loopback for the keeper's private network namespace. `SYS_PTRACE` lets the root PAM helper read cross-UID ancestry under `ProtectProc=invisible`, inside the container's PID namespace. Docker's AppArmor and seccomp profiles are disabled for this container so the installed systemd units can apply their own namespaces and syscall filters, including `clone3`. The container retains normal setuid behavior for the real sudo and PAM checks. `managed-host` is a second container running sshd, on a network of their own, so the SSH relay suite reaches a real server rather than a stub.
 
 `bootstrap.sh` runs inside `faramir-e2e` and makes the install: an age key, a secrets store with known values, `faramir init`, and an operator account with an enrolled project tree.
 

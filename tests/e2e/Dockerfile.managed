@@ -1,6 +1,12 @@
 FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends openssh-server \
+COPY --from=golang:1.27 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=20 \
+      -o Acquire::https::CaInfo=/etc/ssl/certs/ca-certificates.crt \
+      -o APT::Update::Error-Mode=any update \
+    && apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=20 \
+      -o Acquire::https::CaInfo=/etc/ssl/certs/ca-certificates.crt install -y --no-install-recommends openssh-server ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/sshd \
     && useradd -m -s /bin/bash deploy \

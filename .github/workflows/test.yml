@@ -211,7 +211,7 @@ jobs:
   # the code; these cover what an operator gets after `faramir init`.
   #
   # Required rather than left to run on its own, expensive as it is: it needs
-  # Docker, a privileged container and the host's cgroup tree, and nothing else
+  # Docker and a container with its own writable cgroup subtree, and nothing else
   # here builds the image or asks doctor a question against a real install. A
   # base-image bump changes the userland every group and permission check reads,
   # so without this a bump merges on a green run that never built it.
@@ -228,7 +228,7 @@ jobs:
     #
     # A matrix rather than `./e2e.sh both`, which runs them at once: that is
     # right on a desktop and a bad bet on a 2-CPU runner, a stack being a
-    # privileged systemd container and an sshd host. Separate jobs also name
+    # private-cgroup systemd container and an sshd host. Separate jobs also name
     # which arrangement failed without reading a combined log.
     strategy:
       fail-fast: false
@@ -257,7 +257,7 @@ jobs:
         run: ./e2e.sh fetch
 
       # Builds the image, starts the containers and bootstraps an install. The
-      # container needs --privileged and --cgroupns=host, which is what a
+      # container owns a private cgroup subtree, which is what a
       # socket-activated Type=notify unit needs to behave as it does on a host.
       - name: Bring the container up
         working-directory: tests/e2e

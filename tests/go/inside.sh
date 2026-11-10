@@ -4,10 +4,9 @@
 # the setup alone, and nothing from the host is mounted writable.
 set -euo pipefail
 
-# A copy, so nothing a test writes reaches the checkout, which is mounted
-# read-only. Build output and dependencies are left behind.
-tar -C /src --exclude=./bin --exclude=./node_modules --exclude=./.git -cf - . |
-  tar -C /work -xf -
+# A tracked snapshot from stdin, so ignored local files never enter the
+# container and nothing a test writes reaches the checkout.
+tar -C /work -xf -
 chown -R tester:tester /work /go/pkg/mod /cache
 
 # Every brokered command is confined to a cgroup of its own, and the executor

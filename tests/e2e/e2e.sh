@@ -31,7 +31,7 @@
 # sops, age and age-keygen must be present beside this script: the image has no
 # network, so they are copied into the build context rather than fetched inside
 # it. `fetch` puts them there. See README.md.
-set -eu
+set -euo pipefail
 
 # Which sudo this stack's host runs, and so which arrangement `--allow-sudo`
 # installs: the two implementations take different settings out of the same
@@ -171,6 +171,10 @@ cmd_fetch() {
     echo "== sops, age and age-keygen are already here$(pins_apply && echo ", and match the pin")"
     return
   fi
+  if [ "${FARAMIR_ARTIFACT_CONTAINER:-}" != 1 ]; then
+    "$REPO/tests/artifacts.sh" fetch
+    return
+  fi
   # Only what actually downloads needs these, so a box that was given the three
   # by hand can still run the suites without curl, and on an architecture these
   # digests do not describe.
@@ -206,7 +210,7 @@ cmd_fetch() {
   fetch_to "$work/age.tgz" \
     "https://github.com/FiloSottile/age/releases/download/v$AGE_VERSION/age-v$AGE_VERSION-linux-amd64.tar.gz" \
     || die "could not download age $AGE_VERSION"
-  tar -xzf "$work/age.tgz" -C "$work" || die "the age archive would not extract"
+  tar --no-same-owner -xzf "$work/age.tgz" -C "$work" || die "the age archive would not extract"
   verified "$work/age/age" "$HERE/age" "$AGE_SHA256"
   verified "$work/age/age-keygen" "$HERE/age-keygen" "$AGE_KEYGEN_SHA256"
 }
@@ -218,6 +222,10 @@ cmd_fetch() {
 # an object file". The arrangement decides which sudo the image installs and
 # nothing about the binary, so one build serves both.
 build_binaries() {
+  if [ "${FARAMIR_ARTIFACT_CONTAINER:-}" != 1 ]; then
+    "$REPO/tests/artifacts.sh" e2e
+    return
+  fi
   echo "== building the binary from $REPO"
   ( cd "$REPO" && go build -o "$HERE/faramir" ./cmd/faramir )
   build_skew
@@ -238,26 +246,37 @@ cmd_up() {
     check_pinned "$tool"
   done
   echo "== building the image"
-  docker build -q -f "$HERE/Dockerfile.e2e" -t "$IMAGE" "$HERE" >/dev/null
+  tar -cf - -C "$HERE" Dockerfile.e2e sops age age-keygen faramir faramir-skew \
+    -C "$REPO/tests" cgroup.sh |
+    docker build -q -f Dockerfile.e2e -t "$IMAGE" - >/dev/null
   echo "== building the managed host image"
-  docker build -q -f "$HERE/Dockerfile.managed" -t "$MANAGED_IMAGE" "$HERE" >/dev/null
+  tar -C "$HERE" -cf - Dockerfile.managed |
+    docker build -q -f Dockerfile.managed -t "$MANAGED_IMAGE" - >/dev/null
   docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
   echo "== starting the containers"
   docker rm -f "$NAME" "$MANAGED" >/dev/null 2>&1 || true
   # --network-alias, so the broker dials the name the suite and the known_hosts
   # entry both use.
   docker run -d --name "$MANAGED" --network "$NETWORK" --network-alias "$MANAGED_HOST" \
+    --cpus 1 --memory 512m --memory-swap 512m --pids-limit 128 \
     "$MANAGED_IMAGE" >/dev/null
-  # Privileged with the host's cgroup namespace: systemd inside a container
-  # needs a writable cgroup tree, and a private namespace leaves it exiting 255.
+  # SYS_ADMIN permits the private cgroup remount. NET_ADMIN brings loopback up
+  # in the keeper unit's PrivateNetwork namespace, without host network access.
+  # SYS_PTRACE lets the root PAM helper walk ancestry across executor UIDs
+  # under ProtectProc=invisible, within this container's PID namespace only.
+  # No host cgroup bind or host device access is granted.
   #
   # Capped well above what the suites need. A brokered command that runs away is
   # a fault this is here to find, and without a limit the container has the whole
   # machine to take with it: the kernel's OOM killer then chooses among every
   # process on the host rather than among the ones in here.
-  docker run -d --name "$NAME" --privileged --cgroupns=host --network "$NETWORK" \
-    --memory 4g --memory-swap 4g \
-    -v /sys/fs/cgroup:/sys/fs/cgroup:rw "$IMAGE" >/dev/null
+  # systemd's per-unit task budget derives from the container PID limit.
+  docker run -d --name "$NAME" --cgroupns=private \
+    --cap-add SYS_ADMIN --cap-add NET_ADMIN --cap-add SYS_PTRACE \
+    --security-opt apparmor=unconfined --security-opt seccomp=unconfined \
+    --network "$NETWORK" --tmpfs /run --tmpfs /run/lock --tmpfs /tmp \
+    --cpus 2 --memory 4g --memory-swap 4g --pids-limit 4096 \
+    "$IMAGE" >/dev/null
   for _ in $(seq 30); do
     [ "$(docker exec "$NAME" systemctl is-system-running 2>/dev/null)" = running ] && break
     sleep 1
@@ -318,7 +337,7 @@ cmd_both() {
   # stack while the other arrangement's run log, left from a previous round,
   # still reads as a pass. Neither depends on the arrangement: that decides which
   # sudo the image installs, not what is downloaded or compiled.
-  "$0" fetch >/dev/null 2>&1
+  "$0" fetch
   build_binaries
   export E2E_PREBUILT=1
   # Under the invoking uid, /tmp being shared: another account's log of the same
@@ -338,6 +357,7 @@ cmd_both() {
     printf '\n######## %s (%s-%s-run.log)\n' "$arrangement" "$logs" "$arrangement"
     grep -E "^(==|####|e2e:)" "$logs-$arrangement-run.log" 2>/dev/null ||
       { echo "  no run log; the stack did not come up"
+        grep -E '^(Err:|W:|E:)' "$logs-$arrangement-up.log" 2>/dev/null || true
         tail -5 "$logs-$arrangement-up.log" 2>/dev/null; }
   done
   [ $status -eq 0 ] && echo "e2e: both arrangements passed" || echo "e2e: an arrangement failed"
@@ -432,6 +452,7 @@ usage() {
 
 case "${1:-}" in
   fetch) shift; cmd_fetch "$@";;
+  build) shift; build_binaries "$@";;
   up) shift; cmd_up "$@";;
   run) shift; cmd_run "$@";;
   sh) shift; cmd_sh "$@";;

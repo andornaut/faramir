@@ -68,8 +68,7 @@ all: build
 
 ## build: a static binary, stripped
 build:
-	@mkdir -p $(BIN)
-	@go build -ldflags="$(LDFLAGS)" -trimpath -o $(BIN)/faramir ./cmd/faramir
+	@tests/artifacts.sh build "$(LDFLAGS)"
 
 ## test: everything that tests this, the Go suite and the end-to-end suites
 ## alike, so that `make test` means the same here as in a repository whose
@@ -153,7 +152,7 @@ lint: shellcheck
 
 ## shellcheck: the same shellcheck run CI does
 shellcheck:
-	shellcheck tests/agents/*.sh tests/e2e/*.sh tests/go/*.sh agent/hooks/wrap.sh
+	shellcheck tests/*.sh tests/agents/*.sh tests/e2e/*.sh tests/go/*.sh agent/hooks/wrap.sh
 
 ## e2e: the functional suites, against a real install in a container: systemd
 ## units, three uids, a sops store and an agent working in a project tree. Go
