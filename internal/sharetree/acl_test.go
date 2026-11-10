@@ -100,8 +100,8 @@ func TestAccessACLReadHandlesLargerThanTheInitialBuffer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = file.Close() }()
-	acl, err := readAccessACL(file)
-	if err != nil || acl == nil || len(acl.groups) != 40 {
+	acl, present, err := readAccessACL(file)
+	if err != nil || !present || len(acl.groups) != 40 {
 		t.Fatalf("read large ACL = %v, error %v", acl, err)
 	}
 }
@@ -117,7 +117,7 @@ func TestBlockersHonorNamedGroupACLTraversalWithoutRegrouping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	initial := *info.Sys().(*syscall.Stat_t)
+	initial := *ownershipStat(t, info)
 	gid := initial.Gid + 1
 	setACL := func(mask uint16) {
 		t.Helper()
@@ -147,7 +147,7 @@ func TestBlockersHonorNamedGroupACLTraversalWithoutRegrouping(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		st := info.Sys().(*syscall.Stat_t)
+		st := ownershipStat(t, info)
 		if st.Uid != initial.Uid || st.Gid != initial.Gid {
 			t.Errorf("traversal check changed ownership of %s", path)
 		}

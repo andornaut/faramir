@@ -57,11 +57,11 @@ func TestACLSharingGrantsGroupAccessWithoutUnmaskingNamedRights(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = file.Close() }()
-		acl, err := readAccessACL(file)
-		if err != nil || acl == nil {
+		acl, present, err := readAccessACL(file)
+		if err != nil || !present {
 			t.Fatalf("read ACL on %s: %v, %v", path, acl, err)
 		}
-		return *acl
+		return acl
 	}
 	privateBefore := readACL(private).bytes()
 	group, err := user.LookupGroupId(strconv.Itoa(os.Getgid()))

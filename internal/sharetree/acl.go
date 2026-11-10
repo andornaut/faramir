@@ -33,7 +33,7 @@ type accessACL struct {
 func parseAccessACL(data []byte) (accessACL, error) {
 	acl := accessACL{mask: 7, users: map[uint32]uint16{}, groups: map[uint32]uint16{}}
 	if len(data) < 28 || (len(data)-4)%8 != 0 || binary.LittleEndian.Uint32(data) != 2 {
-		return acl, fmt.Errorf("invalid access ACL header or length")
+		return acl, errors.New("invalid access ACL header or length")
 	}
 	seen := map[uint16]bool{}
 	for offset := 4; offset < len(data); offset += 8 {
@@ -41,7 +41,7 @@ func parseAccessACL(data []byte) (accessACL, error) {
 		perm := binary.LittleEndian.Uint16(data[offset+2:])
 		id := binary.LittleEndian.Uint32(data[offset+4:])
 		if perm > 7 {
-			return acl, fmt.Errorf("invalid access ACL permissions")
+			return acl, errors.New("invalid access ACL permissions")
 		}
 		if tag == aclUser || tag == aclGroup {
 			entries := acl.users
@@ -49,13 +49,13 @@ func parseAccessACL(data []byte) (accessACL, error) {
 				entries = acl.groups
 			}
 			if _, exists := entries[id]; exists || id == aclNoID {
-				return acl, fmt.Errorf("invalid or duplicate access ACL qualifier")
+				return acl, errors.New("invalid or duplicate access ACL qualifier")
 			}
 			entries[id] = perm
 			continue
 		}
 		if seen[tag] || id != aclNoID {
-			return acl, fmt.Errorf("invalid or duplicate access ACL entry")
+			return acl, errors.New("invalid or duplicate access ACL entry")
 		}
 		seen[tag] = true
 		switch tag {
@@ -68,12 +68,12 @@ func parseAccessACL(data []byte) (accessACL, error) {
 		case aclOther:
 			acl.other = perm
 		default:
-			return acl, fmt.Errorf("unknown access ACL entry")
+			return acl, errors.New("unknown access ACL entry")
 		}
 	}
 	if !seen[aclUserObj] || !seen[aclGroupObj] || !seen[aclOther] ||
 		((len(acl.users) > 0 || len(acl.groups) > 0) && !seen[aclMask]) {
-		return acl, fmt.Errorf("missing required access ACL entry")
+		return acl, errors.New("missing required access ACL entry")
 	}
 	return acl, nil
 }
@@ -111,17 +111,17 @@ func canTraverse(who entrant, info os.FileInfo, directory *os.File) (bool, bool,
 	if !ok {
 		return false, false, errors.New("cannot read ownership")
 	}
-	acl, err := readAccessACL(directory)
+	acl, present, err := readAccessACL(directory)
 	if err != nil {
 		return false, false, err
 	}
-	if acl == nil {
+	if !present {
 		return who.canEnter(st, info.Mode().Perm()), false, nil
 	}
 	return acl.canEnter(who, st), true, nil
 }
 
-func readAccessACL(file *os.File) (*accessACL, error) {
+func readAccessACL(file *os.File) (accessACL, bool, error) {
 	// Most entries have no ACL, or an ACL fitting this small buffer. Larger
 	// values get a bounded size query; a racing enlargement fails closed.
 	data := make([]byte, 256)
@@ -129,28 +129,28 @@ func readAccessACL(file *os.File) (*accessACL, error) {
 	if errors.Is(err, unix.ERANGE) {
 		n, err = unix.Fgetxattr(int(file.Fd()), "system.posix_acl_access", nil)
 		if err != nil {
-			return nil, fmt.Errorf("read access ACL size: %w", err)
+			return accessACL{}, false, fmt.Errorf("read access ACL size: %w", err)
 		}
 		if n > 65536 || n < 0 {
-			return nil, fmt.Errorf("invalid access ACL size %d", n)
+			return accessACL{}, false, fmt.Errorf("invalid access ACL size %d", n)
 		}
 		data = make([]byte, n)
 		n, err = unix.Fgetxattr(int(file.Fd()), "system.posix_acl_access", data)
 		if err != nil {
-			return nil, fmt.Errorf("read access ACL: %w", err)
+			return accessACL{}, false, fmt.Errorf("read access ACL: %w", err)
 		}
 	}
 	if errors.Is(err, unix.ENODATA) || errors.Is(err, unix.EOPNOTSUPP) {
-		return nil, nil
+		return accessACL{}, false, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read access ACL: %w", err)
+		return accessACL{}, false, fmt.Errorf("read access ACL: %w", err)
 	}
 	acl, err := parseAccessACL(data[:n])
 	if err != nil {
-		return nil, err
+		return accessACL{}, false, err
 	}
-	return &acl, nil
+	return acl, true, nil
 }
 
 func (a accessACL) bytes() []byte {

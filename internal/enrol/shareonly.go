@@ -1,6 +1,7 @@
 package enrol
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -15,10 +16,10 @@ import (
 func ShareOnly(opts Options) (Report, error) {
 	report := Report{ClientGroup: opts.ClientGroup, DryRun: opts.DryRun}
 	if opts.Dir == "" || opts.ClientGroup == "" {
-		return report, fmt.Errorf("name a directory and a group")
+		return report, errors.New("name a directory and a group")
 	}
 	if os.Geteuid() != 0 && !opts.DryRun {
-		return report, fmt.Errorf("must run as root")
+		return report, errors.New("must run as root")
 	}
 	dir, err := sharetree.Resolve(opts.Dir)
 	if err != nil {

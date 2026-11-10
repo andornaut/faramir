@@ -22,6 +22,9 @@ func TestTraversableChecksAncestorsOutsideTheOperatorsHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent := t.TempDir()
+	if err := os.Chmod(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	tree := filepath.Join(parent, "tree")
 	if err := os.Mkdir(tree, 0o700); err != nil {
 		t.Fatal(err)
@@ -96,7 +99,7 @@ func TestModeTraversalUsesGroupAndOtherPermissions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got := groupEntrant(tc.gid).canEnter(info.Sys().(*syscall.Stat_t), info.Mode().Perm())
+			got := groupEntrant(tc.gid).canEnter(ownershipStat(t, info), info.Mode().Perm())
 			if got != tc.want {
 				t.Errorf("mode traversal(%v, gid=%d) = %v, want %v", tc.mode, tc.gid, got, tc.want)
 			}

@@ -9,6 +9,15 @@ import (
 	"time"
 )
 
+func ownershipStat(t *testing.T, info os.FileInfo) *syscall.Stat_t {
+	t.Helper()
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatal("cannot read ownership")
+	}
+	return st
+}
+
 // "g+rwX": a directory needs group execute to be entered, a file gets it only if
 // it was executable already.
 func TestGroupSharedAddsGroupAccessWithoutGrantingExecute(t *testing.T) {

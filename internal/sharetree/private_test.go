@@ -5,7 +5,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"testing"
 )
 
@@ -42,7 +41,7 @@ func TestPrivatePolicyLeavesPrivateSubtreesAndSymlinksUntouched(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		owners[path] = info.Sys().(*syscall.Stat_t).Uid
+		owners[path] = ownershipStat(t, info).Uid
 	}
 	if _, err := shareTreePolicy(true, nil, -1, nil, nil, nil, root); err != nil {
 		t.Fatal(err)
@@ -58,7 +57,7 @@ func TestPrivatePolicyLeavesPrivateSubtreesAndSymlinksUntouched(t *testing.T) {
 		if got := info.Mode().Perm(); got != want {
 			t.Errorf("%s mode = %o, want %o", path, got, want)
 		}
-		if uid, exists := owners[path]; exists && info.Sys().(*syscall.Stat_t).Uid != uid {
+		if uid, exists := owners[path]; exists && ownershipStat(t, info).Uid != uid {
 			t.Errorf("%s changed user ownership", path)
 		}
 	}
@@ -115,7 +114,7 @@ func TestStandaloneShareRegroupsPublicFilesAndPreservesOwners(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		st := info.Sys().(*syscall.Stat_t)
+		st := ownershipStat(t, info)
 		if st.Uid != uint32(os.Getuid()) {
 			t.Errorf("%s owner = %d, want %d", path, st.Uid, os.Getuid())
 		}

@@ -160,7 +160,7 @@ func Share(opts Options) (Result, error) {
 		return result, err
 	}
 	defer func() { _ = rootFile.Close() }()
-	rootACL, err := readAccessACL(rootFile)
+	rootACL, rootACLPresent, err := readAccessACL(rootFile)
 	if err != nil {
 		return result, err
 	}
@@ -169,13 +169,14 @@ func Share(opts Options) (Result, error) {
 		return result, err
 	}
 	rootACLChanged := false
+	var rootACLUpdate *accessACL
 	if opts.PreservePrivate {
 		rootMode = groupShared(rootInfo.Mode())
 	}
-	if rootACL != nil {
-		mode, updated := sharedAccessACL(rootMode|os.ModeDir, *rootACL)
+	if rootACLPresent {
+		mode, updated := sharedAccessACL(rootMode|os.ModeDir, rootACL)
 		rootACLChanged = !bytes.Equal(rootACL.bytes(), updated.bytes())
-		rootMode, rootACL = mode, &updated
+		rootMode, rootACLUpdate = mode, &updated
 	}
 	// One per path, not one per operation: a path needing both a regroup and a
 	// widen is still one path.
@@ -183,7 +184,7 @@ func Share(opts Options) (Result, error) {
 		chmodBits(rootInfo.Mode()) != chmodBits(rootMode) {
 		result.Changed++
 	}
-	if err := applySharing(uid, gid, rootMode, rootACL, rootFile); err != nil {
+	if err := applySharing(uid, gid, rootMode, rootACLUpdate, rootFile); err != nil {
 		return result, err
 	}
 	changed, err := shareTreePolicy(opts.PreservePrivate, opts.Exclude, gid, keep, sticky, opts.Progress, dir)
@@ -238,6 +239,8 @@ func shareTreePolicy(preservePrivate bool, exclude func(string) bool, gid int, k
 		return 0, err
 	}
 	defer func() { _ = dir.Close() }()
+	sharing := treeSharing{root: root, dir: dir, gid: gid, keep: keep, sticky: sticky,
+		preservePrivate: preservePrivate, exclude: exclude}
 
 	changed, walked := 0, 0
 	reported := time.Now()
@@ -250,96 +253,114 @@ func shareTreePolicy(preservePrivate bool, exclude func(string) bool, gid int, k
 			progress(walked)
 			reported = time.Now()
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		// Chowning a symlink would follow it out of the tree.
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil
-		}
-		private := preservePrivate && path != root &&
-			(info.Mode().Perm()&0o040 == 0 || strings.HasPrefix(entry.Name(), "."))
-		if private || (exclude != nil && exclude(path)) {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		// Root's names are relative to it, and the root itself is ".".
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		// Only regular files and directories carry the ACL sharing path. Other
-		// entry types retain the existing metadata-only operations below.
-		var file *os.File
-		var acl *accessACL
-		if info.IsDir() || info.Mode().IsRegular() {
-			file, err = dir.OpenFile(rel, os.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW, 0)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = file.Close() }()
-			info, err = file.Stat()
-			if err != nil {
-				return err
-			}
-			acl, err = readAccessACL(file)
-			if err != nil {
-				return err
-			}
-			privateACL := acl != nil && acl.group&acl.mask&4 == 0
-			if preservePrivate && path != root && (info.Mode().Perm()&0o040 == 0 || privateACL) {
-				if info.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-		}
-		// Asked before either operation and counted once: this is one path whether
-		// it needs a regroup, a widen, or both.
-		regroup := wouldRegroup(info, gid)
-		want := stickyIf(groupShared(info.Mode()), info.IsDir() && sticky[rel])
-		aclChanged := false
-		if acl != nil && !keep[rel] {
-			mode, updated := sharedAccessACL(want, *acl)
-			aclChanged = !bytes.Equal(acl.bytes(), updated.bytes())
-			want, acl = mode, &updated
-		}
-		widen := !keep[rel] && chmodBits(want) != chmodBits(info.Mode())
-		if regroup || widen || aclChanged {
+		altered, err := sharing.shareEntry(path, entry)
+		if altered {
 			changed++
 		}
-		// A path already shared needs only metadata checks, without reapplying
-		// its ownership, mode or ACL.
-		if file != nil {
-			if regroup || widen || aclChanged {
-				if keep[rel] {
-					want = info.Mode()
-				}
-				return applySharing(-1, gid, want, acl, file)
-			}
-			return nil
-		}
-		if regroup {
-			if err := dir.Lchown(rel, -1, gid); err != nil {
-				return err
-			}
-		}
-		// Regrouped but not widened: its writer chose that mode, and widening it
-		// here is a mode the writer narrows again on the next run.
-		if keep[rel] {
-			return nil
-		}
-		// After a regroup whatever the mode said: chown clears setuid and setgid
-		// on a file, and this chmod is what restores them.
-		if widen || regroup {
-			return dir.Chmod(rel, want)
-		}
-		return nil
+		return err
 	})
 	return changed, err
+}
+
+type treeSharing struct {
+	root            string
+	dir             *os.Root
+	gid             int
+	keep, sticky    map[string]bool
+	preservePrivate bool
+	exclude         func(string) bool
+}
+
+func skipSharedEntry(info os.FileInfo) error {
+	if info.IsDir() {
+		return filepath.SkipDir
+	}
+	return nil
+}
+
+func (s treeSharing) shareEntry(path string, entry os.DirEntry) (bool, error) {
+	info, err := entry.Info()
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false, nil
+	}
+	private := s.preservePrivate && path != s.root &&
+		(info.Mode().Perm()&0o040 == 0 || strings.HasPrefix(entry.Name(), "."))
+	if private || (s.exclude != nil && s.exclude(path)) {
+		return false, skipSharedEntry(info)
+	}
+	rel, err := filepath.Rel(s.root, path)
+	if err != nil {
+		return false, err
+	}
+	if info.IsDir() || info.Mode().IsRegular() {
+		return s.shareFile(path, rel)
+	}
+	return s.shareSpecial(info, rel)
+}
+
+func (s treeSharing) shareFile(path, rel string) (bool, error) {
+	file, err := s.dir.OpenFile(rel, os.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return false, err
+	}
+	observed, present, err := readAccessACL(file)
+	if err != nil {
+		return false, err
+	}
+	privateACL := present && observed.group&observed.mask&4 == 0
+	if s.preservePrivate && path != s.root && (info.Mode().Perm()&0o040 == 0 || privateACL) {
+		return false, skipSharedEntry(info)
+	}
+	var acl *accessACL
+	if present {
+		acl = &observed
+	}
+	regroup := wouldRegroup(info, s.gid)
+	keep := s.keep[rel]
+	want := stickyIf(groupShared(info.Mode()), info.IsDir() && s.sticky[rel])
+	aclChanged := false
+	if present && !keep {
+		mode, updated := sharedAccessACL(want, observed)
+		aclChanged = !bytes.Equal(observed.bytes(), updated.bytes())
+		want, acl = mode, &updated
+	}
+	widen := !keep && chmodBits(want) != chmodBits(info.Mode())
+	if !regroup && !widen && !aclChanged {
+		return false, nil
+	}
+	if keep {
+		want = info.Mode()
+	}
+	return true, applySharing(-1, s.gid, want, acl, file)
+}
+
+// Special entries retain metadata-only operations, so sharing never opens an
+// IPC endpoint or waits for a peer.
+func (s treeSharing) shareSpecial(info os.FileInfo, rel string) (bool, error) {
+	regroup := wouldRegroup(info, s.gid)
+	want := stickyIf(groupShared(info.Mode()), info.IsDir() && s.sticky[rel])
+	widen := !s.keep[rel] && chmodBits(want) != chmodBits(info.Mode())
+	changed := regroup || widen
+	if regroup {
+		if err := s.dir.Lchown(rel, -1, s.gid); err != nil {
+			return changed, err
+		}
+	}
+	if s.keep[rel] {
+		return changed, nil
+	}
+	if widen || regroup {
+		return changed, s.dir.Chmod(rel, want)
+	}
+	return false, nil
 }
 
 // stickyDirs are the directories under the tree that hold a file an enrolment
