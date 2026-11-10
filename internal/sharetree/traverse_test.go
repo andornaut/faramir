@@ -268,6 +268,11 @@ func TestComponentsStopAboveTheLastElement(t *testing.T) {
 // one it cannot reach, and hands the operator a chgrp that changes nothing.
 func TestAnAccountIsAskedAboutEveryGroupItIsIn(t *testing.T) {
 	dir := t.TempDir()
+	directory, err := os.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = directory.Close() }()
 	var st syscall.Stat_t
 	if err := syscall.Stat(dir, &st); err != nil {
 		t.Fatal(err)
@@ -286,13 +291,13 @@ func TestAnAccountIsAskedAboutEveryGroupItIsIn(t *testing.T) {
 	mine := int(st.Gid)
 
 	// Asked about a group that does not own it, this is a blocker.
-	if got, err := traversalAction(info, groupEntrant(foreign)); err != nil || got == leaveAlone {
-		t.Errorf("traversalAction for a foreign group = %v (%v), want it reported", got, err)
+	if got, _, err := canTraverse(groupEntrant(foreign), info, directory); err != nil || got {
+		t.Errorf("traversal for a foreign group = %v (%v), want denied", got, err)
 	}
 	// Asked about an account that is in the owning group, it is not.
 	who := entrant{uid: -1, gids: []int{foreign, mine}}
-	if got, err := traversalAction(info, who); err != nil || got != leaveAlone {
-		t.Errorf("traversalAction for an account in the owning group = %v (%v), want leaveAlone", got, err)
+	if got, _, err := canTraverse(who, info, directory); err != nil || !got {
+		t.Errorf("traversal for an account in the owning group = %v (%v), want allowed", got, err)
 	}
 	// And the owner's own execute bit answers for the owner.
 	if err := os.Chmod(dir, 0o700); err != nil {
@@ -302,8 +307,8 @@ func TestAnAccountIsAskedAboutEveryGroupItIsIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner := entrant{uid: int(st.Uid), gids: []int{foreign}}
-	if got, err := traversalAction(info, owner); err != nil || got != leaveAlone {
-		t.Errorf("traversalAction for the owner = %v (%v), want leaveAlone", got, err)
+	if got, _, err := canTraverse(owner, info, directory); err != nil || !got {
+		t.Errorf("traversal for the owner = %v (%v), want allowed", got, err)
 	}
 }
 
@@ -314,6 +319,11 @@ func TestAnAccountIsAskedAboutEveryGroupItIsIn(t *testing.T) {
 // an enrolment reported a tree reachable that the executor met with EACCES.
 func TestTheOwningGroupIsAnsweredByItsOwnBits(t *testing.T) {
 	dir := t.TempDir()
+	directory, err := os.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = directory.Close() }()
 	var st syscall.Stat_t
 	if err := syscall.Stat(dir, &st); err != nil {
 		t.Fatal(err)
@@ -326,13 +336,13 @@ func TestTheOwningGroupIsAnsweredByItsOwnBits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := traversalAction(info, groupEntrant(int(st.Gid))); err != nil || got == leaveAlone {
-		t.Errorf("traversalAction for the owning group = %v (%v), want it reported: "+
+	if got, _, err := canTraverse(groupEntrant(int(st.Gid)), info, directory); err != nil || got {
+		t.Errorf("traversal for the owning group = %v (%v), want denied: "+
 			"the group bits are empty and the group is what was asked about", got, err)
 	}
 	// A group that does not own it is answered by the other bits, which are open.
 	const foreign = 1
-	if got, err := traversalAction(info, groupEntrant(foreign)); err != nil || got != leaveAlone {
-		t.Errorf("traversalAction for a foreign group = %v (%v), want leaveAlone", got, err)
+	if got, _, err := canTraverse(groupEntrant(foreign), info, directory); err != nil || !got {
+		t.Errorf("traversal for a foreign group = %v (%v), want allowed", got, err)
 	}
 }

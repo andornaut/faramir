@@ -97,17 +97,6 @@ func TestShareReportsWhatItAltered(t *testing.T) {
 	if err != nil {
 		t.Skip("cannot name this account's group")
 	}
-	// The only test here that drives the exported Share, which grants traversal
-	// from the agent account's home down to the tree. With TMPDIR inside the home,
-	// that is the real home: a 0700 one becomes 0710, and one whose group is not
-	// the primary group is regrouped and loses its group bits. An environment
-	// guard, not a skip on the branch that would have failed.
-	if home, err := Resolve(me.HomeDir); err == nil {
-		if tmp, err := Resolve(os.TempDir()); err == nil && within(home, tmp) {
-			t.Skipf("TMPDIR (%s) is inside %s, and this grants traversal from the "+
-				"home down: running it here would chmod the real home", tmp, home)
-		}
-	}
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
 		t.Fatal(err)
@@ -323,15 +312,6 @@ func TestKeptCountsTheFilesFoundNotTheList(t *testing.T) {
 	group, err := user.LookupGroupId(me.Gid)
 	if err != nil {
 		t.Skip("cannot name this account's group")
-	}
-	// The same environment guard TestShareReportsWhatItAltered carries: Share
-	// grants traversal from the home down, so a TMPDIR inside it would chmod the
-	// real home.
-	if home, err := Resolve(me.HomeDir); err == nil {
-		if tmp, err := Resolve(os.TempDir()); err == nil && within(home, tmp) {
-			t.Skipf("TMPDIR (%s) is inside %s, and this grants traversal from the "+
-				"home down: running it here would chmod the real home", tmp, home)
-		}
 	}
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {

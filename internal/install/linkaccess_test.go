@@ -47,9 +47,9 @@ func secondGroup(t *testing.T) int {
 // linkRunner is an install run that checks the paths given, with the caller's
 // own second group standing in for the broker's.
 //
-// The paths a test hands it are under t.TempDir, outside every home, which is
-// where sharetree.Traversable stops: the file's own ownership and mode are what
-// these exercise, and the directories above it have their own tests.
+// The caller stands in for the broker account and owns the temporary ancestors,
+// so these fixtures exercise file group grants without requiring a host service
+// account. Directory traversal has separate tests.
 func linkRunner(t *testing.T, gid int, paths ...string) *runner {
 	t.Helper()
 	current, err := osuser.Current()
@@ -62,7 +62,7 @@ func linkRunner(t *testing.T, gid int, paths ...string) *runner {
 	}
 	return &runner{
 		opts:      Options{AgentUser: current.Username, links: linksFor(paths), linksSet: true},
-		layout:    hostlayout.Layout{BrokerUser: "faramir-broker", ClientGroup: group.Name},
+		layout:    hostlayout.Layout{BrokerUser: current.Username, ClientGroup: group.Name},
 		brokerGID: gid,
 	}
 }
