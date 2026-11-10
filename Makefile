@@ -16,9 +16,8 @@ LDFLAGS := -s -w
 # interpreter runs on a host whose Python is older than 3.11.
 export CGO_ENABLED := 0
 .DEFAULT_GOAL := check
-CHECK_TASKS := lint test build
 override COMMAND := $(value COMMAND)
-export CHECK_TASKS COMMAND
+export COMMAND
 
 # QUIET renders a -v run as a quiet one. -v is the only way a skip is reported
 # at all, and it also repeats everything a passing test wrote, which here is the
@@ -66,17 +65,13 @@ REPORT := awk ' \
 # GoReleaser will actually build. Linux only: the broker is systemd units, PAM
 # and cgroups.
 
-.PHONY: all build check check-info clean coverage e2e exec fmt fuzz install lint release release-check shellcheck test test-go uninstall
+.PHONY: all build check clean coverage e2e exec fmt fuzz install lint release release-check shellcheck test test-go uninstall
 
 all: build
 
 ## check: the complete isolated lint, test and build gates
 check:
 	@tests/container/run check
-
-## check-info: the versioned check categories consumed by automation
-check-info:
-	@tests/container/run info
 
 ## exec: run COMMAND against an isolated writable source copy
 exec:

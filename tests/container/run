@@ -4,23 +4,9 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd -P)
 action=${1:-check}
 if [ "$#" -gt 0 ]; then shift; fi
-read -r -a tasks <<< "${CHECK_TASKS:-lint test build}"
-declare -A declared=()
-for category in "${tasks[@]}"; do
-  case "$category" in lint|test|build) ;; *) echo 'tests: invalid check category' >&2; exit 2;; esac
-  [ -z "${declared[$category]+present}" ] || { echo 'tests: duplicate check category' >&2; exit 2; }
-  declared[$category]=1
-done
-[ "${#tasks[@]}" -gt 0 ] || { echo 'tests: no check categories declared' >&2; exit 2; }
 case "$action" in
-  info)
-    printf '{"version":1,"checks":['
-    separator=
-    for category in "${tasks[@]}"; do printf '%s"%s"' "$separator" "$category"; separator=,; done
-    printf ']}\n'
-    exit;;
   check)
-    for category in "${tasks[@]}"; do "$0" "$category"; done
+    for category in lint test build; do "$0" "$category"; done
     exit;;
   test)
     "$0" e2e

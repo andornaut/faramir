@@ -376,8 +376,7 @@ Doc | Covers
 
 Target | Does
 --- | ---
-`make`, `make check` | All declared lint, test and build gates, in that order
-`make check-info` | Versioned JSON describing the declared check categories
+`make`, `make check` | All lint, test and build gates, in that order
 `make build` | A static binary into `bin/`
 `make test` | Both sudo E2E arrangements, then the race-enabled Go suite
 `make test-go` | Dependency verification, module tidy check, build, race-enabled Go tests and `bin/coverage.txt`
