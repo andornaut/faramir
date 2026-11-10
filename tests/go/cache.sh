@@ -1,6 +1,17 @@
 # shellcheck shell=bash
 # Docker-owned caches hold dependencies and compiler outputs, never test state.
 # Go keys compiler entries by toolchain, inputs and build flags.
+go_node_version() {
+  local root=$1 version
+  [ -f "$root/.nvmrc" ] && [ ! -L "$root/.nvmrc" ] || {
+    echo 'tests: Node version input must be a regular file' >&2; return 1
+  }
+  version=$(cat "$root/.nvmrc")
+  [[ "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    echo 'tests: Node version must be pinned to a numeric release' >&2; return 1
+  }
+  printf '%s\n' "${version#v}"
+}
 cache_volume() {
   local kind=$1 name=$2 expected
   expected="io.faramir.cache=$kind-v1"

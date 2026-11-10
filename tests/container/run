@@ -71,13 +71,13 @@ fi
 "$root/tests/source.sh" > "$scratch/source.tar"
 chmod 0444 "$scratch/source.tar"
 digest=$(sha256sum "$scratch/source.tar" | cut -d ' ' -f1)
-node_version=$(cat "$root/.nvmrc")
+# shellcheck source=../go/cache.sh
+source "$root/tests/go/cache.sh"
+node_version=$(go_node_version "$root")
 tar -C "$root" -cf - tests/container/Dockerfile tests/container/check |
   docker build -q -t faramir-check:local --iidfile "$scratch/image.id" \
     --build-arg "NODE_VERSION=${node_version#v}" -f tests/container/Dockerfile - >/dev/null
 image=$(cat "$scratch/image.id")
-# shellcheck source=../go/cache.sh
-source "$root/tests/go/cache.sh"
 go_cache_mounts
 args=(--user 19001:19001 --group-add "$(stat -c %g "$root")" --cpus 4 --memory 4g --pids-limit 512
   --cap-drop ALL --security-opt no-new-privileges
