@@ -41,6 +41,7 @@ while IFS='|' read -r label predicate readiness_status expected readiness_payloa
   if (
     # Only this subshell replaces the external command. The actual predicates
     # and jq parse the response and process status together.
+    # shellcheck disable=SC2329  # Called indirectly by broker_document in lib.sh.
     runuser() { printf '%s\n' "$readiness_payload"; return "$readiness_status"; }
     "$predicate" op target/ref >/dev/null 2>&1
   ); then actual=0; fi
