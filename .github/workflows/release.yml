@@ -16,6 +16,8 @@ jobs:
   source:
     name: Verify release source
     runs-on: ubuntu-latest
+    # Capped well under the six-hour default: a release job still running at
+    # fifteen minutes has hung rather than failed.
     timeout-minutes: 15
     steps:
       - name: Require the validated event revision
