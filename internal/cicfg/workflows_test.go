@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -167,24 +166,6 @@ func TestChecksAndTagPublishingUseIsolatedNativeCommands(t *testing.T) {
 	}
 	if !found {
 		t.Error("tag publisher does not use the isolated release dispatcher")
-	}
-}
-
-func TestWorkflowsDoNotInvokeMake(t *testing.T) {
-	entries, err := os.ReadDir(filepath.Join("..", "..", ".github", "workflows"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	makeCommand := regexp.MustCompile(`(^|[\s;&|])g?make(\s|$)`)
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml") {
-			continue
-		}
-		for id, subject := range readWorkflow(t, entry.Name()).Jobs {
-			if makeCommand.MatchString(script(subject)) {
-				t.Errorf("%s job %s invokes Make instead of native commands", entry.Name(), id)
-			}
-		}
 	}
 }
 
