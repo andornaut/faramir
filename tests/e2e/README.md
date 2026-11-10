@@ -24,9 +24,11 @@ Three binaries must be beside `e2e.sh` before the first `up`. The image has no n
 
 `fetch` checks what is already there against the pin rather than downloading it again, so it is safe before every `up`; delete a file to replace it. It pins x86_64 digests only, and says so on another architecture: copy the three in by hand there.
 
-`e2e.sh up` builds two more in a Go container and copies them into the same directory: `faramir` from the tree two levels up, and `faramir-skew` at a version the installed one does not report. The skew binary is what the `doctor` suite swaps in to make the CLI and the running broker disagree about the build; the version is a linker variable, so `e2e.sh` stamps it with `go build -ldflags -X` and never edits the tree. It checks the stamp took: a `-X` naming a symbol that has moved does nothing and exits 0, which would leave the suite comparing a binary against itself.
+`e2e.sh up` prepares two more in an isolated Go container: `faramir` from tracked source and `faramir-skew` reporting `9.9.9-skew`. The producer verifies their versions inside the container. The skew version differs from every supported normal version, including a `9.9.9` release.
 
-All five are gitignored. `up` refuses to build without the three you supply, rather than producing an image whose failures all look like missing tools.
+The producer also writes `binaries.manifest`, binding the source revision, canonical source digest, version, dirty state and both binary digests. `E2E_PREBUILT=1 ./e2e.sh up` consumes that bundle after verification. CI prepares it once per exact source SHA and gives the same bundle to both fresh sudo stacks. `FARAMIR_BUILD_VERSION` defaults to `dev`; a version-tag producer and its consumers explicitly name the tag version without `v`. Tagged checks cannot consume a dev bundle.
+
+All five binaries and the manifest are gitignored. `up` verifies a prebuilt bundle before it starts a stack and refuses missing or mismatched inputs.
 
 ## Running
 
@@ -51,7 +53,7 @@ Every container, image and network name takes a suffix from `SUDO`, so the two s
 
 `SUDO` is `sudo` or `sudo-rs`, the implementations' own names rather than labels for them, so what a CI job is called, what you type and what the docs say are one word. Unset is `sudo`, which is what the image pins, and it takes the unsuffixed names.
 
-`make e2e` from the repository root is `fetch` and `both` in one command, and `make test` is that plus the Go suite. The linters are `make lint`. CI runs the same linters as separate steps of its own job.
+`make e2e` from the repository root fetches inputs and runs `both`, refusing to replace existing stacks. `make test` adds the race-enabled Go suite. Local and CI linters share `make lint`.
 
 `up` is idempotent and rebuilds the binary from the current tree, so it is how you pick up a change. `run` copies each script in fresh, so editing a suite needs no rebuild.
 

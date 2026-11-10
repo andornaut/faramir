@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Commands in this file execute only inside the isolated tool containers.
+set -euo pipefail
+shell_checks() {
+  shellcheck -x -P SCRIPTDIR tests/*.sh tests/agents/*.sh tests/e2e/*.sh tests/go/*.sh \
+    tests/container/run tests/container/check agent/hooks/wrap.sh
+}
+case "${1:?check category required}" in
+  lint)
+    golangci-lint config verify
+    golangci-lint run --concurrency=4
+    formatted=$(golangci-lint fmt --diff)
+    [ -z "$formatted" ] || { printf '%s\n' "$formatted"; exit 1; }
+    shell_checks
+    markdownlint-cli2
+    goreleaser check
+    ;;
+  shellcheck) shell_checks;;
+  test-go)
+    [ -w /sys/fs/cgroup/faramir-test/cgroup.procs ] &&
+      grep -q faramir-test /proc/self/cgroup || {
+        echo 'tests: cgroup delegation failed; executor coverage would be skipped' >&2; exit 1
+      }
+    go mod verify
+    go mod tidy -diff
+    go build ./...
+    go test -v -race -count=1 -p=1 -parallel=4 -coverprofile=/out/coverage.txt -covermode=atomic ./...
+    ;;
+  command)
+    [ -n "${COMMAND:-}" ] || { echo 'tests: COMMAND is required' >&2; exit 2; }
+    exec bash -ec "$COMMAND"
+    ;;
+  release) goreleaser release --clean --parallelism 4;;
+  release-check) goreleaser release --snapshot --clean --skip=publish --parallelism 4;;
+  *) echo 'tests: unknown container check' >&2; exit 2;;
+esac
+if [ "$1" = release ] || [ "$1" = release-check ]; then
+  cp -R dist /out/dist
+fi

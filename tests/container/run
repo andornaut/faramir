@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Host orchestration keeps Docker outside the containers that execute checks.
+set -euo pipefail
+root=$(cd "$(dirname "$0")/../.." && pwd -P)
+action=${1:-check}
+if [ "$#" -gt 0 ]; then shift; fi
+read -r -a tasks <<< "${CHECK_TASKS:-lint test build}"
+declare -A declared=()
+for category in "${tasks[@]}"; do
+  case "$category" in lint|test|build) ;; *) echo 'tests: invalid check category' >&2; exit 2;; esac
+  [ -z "${declared[$category]+present}" ] || { echo 'tests: duplicate check category' >&2; exit 2; }
+  declared[$category]=1
+done
+[ "${#tasks[@]}" -gt 0 ] || { echo 'tests: no check categories declared' >&2; exit 2; }
+case "$action" in
+  info)
+    printf '{"version":1,"checks":['
+    separator=
+    for category in "${tasks[@]}"; do printf '%s"%s"' "$separator" "$category"; separator=,; done
+    printf ']}\n'
+    exit;;
+  check)
+    for category in "${tasks[@]}"; do "$0" "$category"; done
+    exit;;
+  test)
+    "$0" e2e
+    exec "$0" test-go;;
+  build) exec "$root/tests/artifacts.sh" build "${FARAMIR_BUILD_LDFLAGS:--s -w}";;
+  e2e)
+    for name in faramir-e2e faramir-e2e-rs managed-host managed-host-rs; do
+      [ -z "$(docker ps -a --filter "name=^/$name$" --format '{{.Names}}')" ] || {
+        echo 'tests: existing E2E stacks are not owned by this check; refusing to replace them' >&2; exit 1
+      }
+    done
+    exec "$root/tests/e2e/e2e.sh" both;;
+  test-go)
+    "$root/tests/e2e/e2e.sh" fetch
+    export CGO_ENABLED=1 FARAMIR_TEST_OUT="$root/bin"
+    exec "$root/tests/go/run.sh" bash tests/container/check test-go;;
+  lint|shellcheck|command|release|release-check) ;;
+  *) echo 'tests: unknown check action' >&2; exit 2;;
+esac
+
+scratch=$(mktemp -d)
+name=faramir-check-$$
+owned=0
+cleanup() {
+  if [ "$owned" = 1 ]; then docker rm -f "$name" >/dev/null 2>&1 || true; fi
+  find "$scratch" -depth -delete
+}
+trap cleanup EXIT
+[ -z "$(docker ps -a --filter "name=^/$name$" --format '{{.Names}}')" ] || {
+  echo 'tests: container name already exists' >&2; exit 1
+}
+revision=$(git -C "$root" rev-parse HEAD)
+source_state=$(git -C "$root" status --porcelain --untracked-files=all)
+if [ "$action" = release ] || [ "$action" = release-check ]; then
+  [ -z "$source_state" ] || { echo 'tests: publishing checks require clean committed source' >&2; exit 1; }
+  [ "$(git -C "$root" rev-parse --is-shallow-repository)" = false ] || {
+    echo 'tests: publishing needs reachable release history and version tags' >&2; exit 1
+  }
+fi
+if [ "$action" = release ]; then
+  [ "${GITHUB_ACTIONS:-}" = true ] && [ "${GITHUB_SHA:-}" = "$revision" ] &&
+    [[ "${GITHUB_REF:-}" =~ ^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ -n "${GITHUB_TOKEN+x}" ] || {
+      echo 'tests: release requires the authorized exact-tag CI publisher' >&2; exit 1
+    }
+  [ "$(git -C "$root" rev-parse "${GITHUB_REF}^{commit}")" = "$revision" ] || {
+    echo 'tests: release tag does not name the source commit' >&2; exit 1
+  }
+fi
+"$root/tests/source.sh" > "$scratch/source.tar"
+chmod 0444 "$scratch/source.tar"
+digest=$(sha256sum "$scratch/source.tar" | cut -d ' ' -f1)
+node_version=$(cat "$root/.nvmrc")
+tar -C "$root" -cf - tests/container/Dockerfile tests/container/check |
+  docker build -q -t faramir-check:local --iidfile "$scratch/image.id" \
+    --build-arg "NODE_VERSION=${node_version#v}" -f tests/container/Dockerfile - >/dev/null
+image=$(cat "$scratch/image.id")
+# shellcheck source=../go/cache.sh
+source "$root/tests/go/cache.sh"
+go_cache_mounts
+args=(--user 19001:19001 --group-add "$(stat -c %g "$root")" --cpus 4 --memory 4g --pids-limit 512
+  --cap-drop ALL --security-opt no-new-privileges
+  --mount "type=bind,source=$scratch/source.tar,target=/source.tar,readonly"
+  "${GO_CACHE_MOUNTS[@]}" --tmpfs /work:exec,uid=19001,gid=19001,mode=0700 --tmpfs /tmp:exec
+  --env HOME=/tmp --env GOCACHE=/cache/go-build --env GOMODCACHE=/go/pkg/mod
+  --env GOTOOLCHAIN=local --env GOMAXPROCS=4 --env GOFLAGS=-p=1 --env CGO_ENABLED=0
+  --workdir /work)
+program='tar --no-same-owner -xf /source.tar -C /work; exec bash /opt/check/run "$@"'
+if [ "$action" = command ]; then export COMMAND; args+=(--env COMMAND); fi
+if [ "$action" = release ] || [ "$action" = release-check ]; then
+  tags=()
+  while IFS= read -r tag; do
+    [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && tags+=("refs/tags/$tag")
+  done < <(git -C "$root" tag --merged "$revision")
+  git -C "$root" bundle create "$scratch/release.bundle" HEAD "${tags[@]}"
+  chmod 0444 "$scratch/release.bundle"
+  args+=(--mount "type=bind,source=$scratch/release.bundle,target=/release.bundle,readonly"
+    --env "CHECK_REVISION=$revision" --env "GITHUB_REPOSITORY=${GITHUB_REPOSITORY:-fixture/project}"
+    --env "GITHUB_SERVER_URL=${GITHUB_SERVER_URL:-https://github.com}")
+  if [ "$action" = release ]; then
+    args+=(--env GITHUB_TOKEN --env GITHUB_ACTIONS --env GITHUB_REF --env GITHUB_SHA)
+  fi
+  program='git clone --quiet --no-checkout /release.bundle /work
+    git update-ref --no-deref HEAD "$CHECK_REVISION"
+    git read-tree "$CHECK_REVISION"
+    tar --no-same-owner -xf /source.tar -C /work
+    git remote set-url origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+    test -z "$(git status --porcelain --untracked-files=all)"
+    exec bash /opt/check/run "$@"'
+fi
+docker create --name "$name" "${args[@]}" --entrypoint bash "$image" -ec "$program" _ "$action" >/dev/null
+owned=1
+status=0
+docker start -ai "$name" || status=$?
+after=$("$root/tests/source.sh" | sha256sum | cut -d ' ' -f1)
+if [ "$(git -C "$root" rev-parse HEAD)" != "$revision" ] ||
+  [ "$(git -C "$root" status --porcelain --untracked-files=all)" != "$source_state" ] || [ "$after" != "$digest" ]; then
+  echo 'tests: source changed during verification; discarding result' >&2
+  exit 125
+fi
+if { [ "$action" = release ] || [ "$action" = release-check ]; } && [ "$status" = 0 ]; then
+  [ ! -L "$root/dist" ] || { echo 'tests: release output is a symlink' >&2; exit 1; }
+  docker cp "$name:/out/dist" "$root/dist"
+fi
+exit "$status"

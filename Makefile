@@ -15,6 +15,10 @@ LDFLAGS := -s -w
 # CGO_ENABLED=0 is the point of the port: a static binary with no libc and no
 # interpreter runs on a host whose Python is older than 3.11.
 export CGO_ENABLED := 0
+.DEFAULT_GOAL := check
+CHECK_TASKS := lint test build
+override COMMAND := $(value COMMAND)
+export CHECK_TASKS COMMAND
 
 # QUIET renders a -v run as a quiet one. -v is the only way a skip is reported
 # at all, and it also repeats everything a passing test wrote, which here is the
@@ -62,13 +66,25 @@ REPORT := awk ' \
 # GoReleaser will actually build. Linux only: the broker is systemd units, PAM
 # and cgroups.
 
-.PHONY: all build clean coverage e2e fmt fuzz install lint shellcheck test uninstall
+.PHONY: all build check check-info clean coverage e2e exec fmt fuzz install lint release release-check shellcheck test test-go uninstall
 
 all: build
 
+## check: the complete isolated lint, test and build gates
+check:
+	@tests/container/run check
+
+## check-info: the versioned check categories consumed by automation
+check-info:
+	@tests/container/run info
+
+## exec: run COMMAND against an isolated writable source copy
+exec:
+	@tests/container/run command
+
 ## build: a static binary, stripped
 build:
-	@tests/artifacts.sh build "$(LDFLAGS)"
+	@FARAMIR_BUILD_LDFLAGS="$(LDFLAGS)" tests/container/run build
 
 ## test: everything that tests this, the Go suite and the end-to-end suites
 ## alike, so that `make test` means the same here as in a repository whose
@@ -91,8 +107,12 @@ build:
 ## pipefail, so that the skip report still runs when the suite failed: a run
 ## that fails is not one that checked everything else.
 test: e2e
+	@$(MAKE) --no-print-directory test-go
+
+## test-go: dependency checks, build, race detection and delegated-cgroup tests
+test-go:
 	@mkdir -p $(BIN)
-	@tests/go/run.sh 2>&1 \
+	@tests/container/run test-go 2>&1 \
 		| tee $(BIN)/test.log | $(QUIET); \
 	  status=$${PIPESTATUS[0]}; \
 	  $(REPORT) $(BIN)/test.log; \
@@ -105,7 +125,7 @@ test: e2e
 ## $(BIN)/coverage.txt, the one directory a run's output is copied out to.
 coverage:
 	CGO_ENABLED=1 FARAMIR_TEST_OUT=$(BIN) tests/go/run.sh sh -c \
-	  'go test -race -coverprofile=/out/coverage.txt -covermode=atomic ./... && \
+	  'go test -race -count=1 -p=1 -parallel=4 -coverprofile=/out/coverage.txt -covermode=atomic ./... && \
 	   go tool cover -func=/out/coverage.txt'
 
 ## fuzz: run every fuzz target for FUZZTIME each, one package at a time.
@@ -138,21 +158,18 @@ fmt:
 	golangci-lint fmt
 
 ## lint: golangci-lint and ShellCheck, so that `make lint` covers the shell as
-## well as the Go and means here what it means in a repository holding no shell.
-## `make shellcheck` still runs that alone. CI's Lint job also runs markdownlint
-## and `goreleaser check`, which need tooling this repository does not otherwise
-## ask for, so they are left to CI.
+## well as the Go. Markdown and release configuration use the same container
+## tools locally and in CI. `make shellcheck` still runs that check alone.
 ##
 ## `run` accepts an unknown key inside `linters.settings` and exits 0, which
 ## leaves that setting disabled while CI stays green, so `config verify` is what
 ## rejects a misspelled one.
-lint: shellcheck
-	golangci-lint config verify
-	golangci-lint run
+lint:
+	@tests/container/run lint
 
 ## shellcheck: the same shellcheck run CI does
 shellcheck:
-	shellcheck tests/*.sh tests/agents/*.sh tests/e2e/*.sh tests/go/*.sh agent/hooks/wrap.sh
+	@tests/container/run shellcheck
 
 ## e2e: the functional suites, against a real install in a container: systemd
 ## units, three uids, a sops store and an agent working in a project tree. Go
@@ -169,7 +186,15 @@ shellcheck:
 ## them. They run at the same time, on stacks that share nothing. `SUDO=sudo-rs
 ## ./e2e.sh up` is one of them alone.
 e2e:
-	cd tests/e2e && ./e2e.sh fetch && ./e2e.sh both
+	@tests/container/run e2e
+
+## release: the authorized exact-tag CI publisher, isolated from host credentials
+release:
+	@tests/container/run release
+
+## release-check: compile snapshot archives without publishing or credentials
+release-check:
+	@tests/container/run release-check
 
 ## install: build, then copy the binaries to $(BINPREFIX). Only the copy runs
 ## as root: the build is a prerequisite, so the compiler runs as whoever typed

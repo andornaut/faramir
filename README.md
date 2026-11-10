@@ -376,20 +376,28 @@ Doc | Covers
 
 Target | Does
 --- | ---
+`make`, `make check` | All declared lint, test and build gates, in that order
+`make check-info` | Versioned JSON describing the declared check categories
 `make build` | A static binary into `bin/`
-`make test` | Everything: the Go suite and the end-to-end suites
+`make test` | Both sudo E2E arrangements, then the race-enabled Go suite
+`make test-go` | Dependency verification, module tidy check, build, race-enabled Go tests and `bin/coverage.txt`
 `make e2e` | The end-to-end suites alone, against a real install in a container
 `make coverage` | Race-enabled Go suite plus per-function report
 `make fuzz` | Every fuzz target, `FUZZTIME` each (default 30s). Time-boxed rather than exhaustive, so it is run by hand rather than by CI
 `make fmt` | Apply the import and format rules CI checks
-`make lint` | golangci-lint and ShellCheck. CI's Lint job also runs markdownlint and `goreleaser check`, which need no tooling from this tree
+`make lint` | Containerized Go lint and formatting checks, ShellCheck, Markdown and release configuration checks
 `make shellcheck` | The shell scripts alone, as CI checks them
+`make exec COMMAND='...'` | A command against an isolated writable copy of tracked source
+`make release-check` | Snapshot release archives from clean source, without publishing or credentials
+`make release` | The authorized exact-tag CI publisher, using an isolated GoReleaser container
 `make install`, `make uninstall` | Copy the binary to `/usr/local/bin` and remove it. Both use sudo
 `make clean` | Remove `bin/` and `dist/`, which hold every build, test log, coverage profile and fuzz crasher the targets write
+
+The check launcher is [tests/container/run](tests/container/run). Docker owns the module and compiler caches; source snapshots and test state are isolated per run. Tests use `-count=1`, so compiler reuse does not reuse a previous test result. Checks never mount a Docker socket or host credentials. The E2E target refuses to replace stacks that already exist.
 
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/`, with `README.md` and `LICENSE`, is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. Operator documentation goes in `docs/`, which ships. Developer documentation goes beside what it covers, such as `tests/e2e/README.md`, which does not.
 - Tests live beside the logic they cover. Most of what the broker does is decide, so `internal/broker` substitutes the executor. `internal/execclient` drives a real child, because the PTY and the streaming redactor cannot be tested against synthetic bytes, and tests the rune and truncation rules directly. A test that needs a cgroup does not run everywhere.
 - The Go suite runs under one uid, so it never covers the uid boundary. That boundary exists only on a host, which is what `sudo faramir doctor` and [tests/e2e](tests/e2e/README.md) are for. Adversarial exfiltration is asserted nowhere, as [Not prevented](#not-prevented) says.
-- The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, since every brokered command is confined to its own. `make test` runs the Go suite in a private-cgroup container ([tests/go/run.sh](tests/go/run.sh)) that owns one, with a tracked working-tree snapshot copied into scratch. Without such a cgroup about two dozen tests skip, and the run ends by naming what it did not check. [The test workflow](.github/workflows/test.yml) delegates one to its runner instead. cgroup v1 is unsupported.
+- The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, since every brokered command is confined to its own. Local and CI Go gates use a private-cgroup container ([tests/go/run.sh](tests/go/run.sh)) with a tracked source snapshot copied into scratch. The canonical gate refuses to proceed without delegation. Running Go directly without such a cgroup skips about two dozen tests. cgroup v1 is unsupported.
 - The suite needs `sops` on `PATH`. `internal/sopstest` builds its encrypted fixtures by running it, not by linking it, so the sops libraries are absent from the module as well as from the binary. The keeper execs sops, and linking it anywhere would add the AWS, GCP, Azure and Vault SDKs as dependencies. A missing binary fails the suites that need one rather than skipping them. Those suites hold sops' own resolution of a creation rule, which guards against a `.sops.yaml` planted in the agent's tree. `cmd/faramir/nosops_test.go` asserts that `go.mod` requires no getsops module, which covers the binary too: nothing can be linked without its module being required.
 - The shipped logic that is not Go is the plugin opencode and Kilo Code load, Pi's extension, and the shell of `wrap.sh` and the PAM helper. Node drives the two rendered files against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed. Skipped where node is absent. ShellCheck covers the shell, and [tests/e2e](tests/e2e/README.md) runs all of it against a real install. No test covers a running opencode, Kilo Code or Pi, or Bun.
