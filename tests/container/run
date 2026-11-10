@@ -74,7 +74,8 @@ digest=$(sha256sum "$scratch/source.tar" | cut -d ' ' -f1)
 # shellcheck source=../go/cache.sh
 source "$root/tests/go/cache.sh"
 node_version=$(go_node_version "$root")
-tar -C "$root" -cf - tests/container/Dockerfile tests/container/check |
+tar -C "$root" -cf - tests/container/Dockerfile tests/container/check \
+  tests/container/package.json tests/container/package-lock.json |
   docker build -q -t faramir-check:local --iidfile "$scratch/image.id" \
     --build-arg "NODE_VERSION=${node_version#v}" -f tests/container/Dockerfile - >/dev/null
 image=$(cat "$scratch/image.id")
