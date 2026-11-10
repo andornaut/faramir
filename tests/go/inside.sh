@@ -4,10 +4,16 @@
 # the setup alone, and nothing from the host is mounted writable.
 set -euo pipefail
 
-# A tracked snapshot from stdin, so ignored local files never enter the
-# container and nothing a test writes reaches the checkout.
-tar -C /work -xf -
-chown -R tester:tester /work /go/pkg/mod /cache
+# Only cache roots need ownership setup: their contents are written by tester.
+chown tester:tester /work /go/pkg/mod /cache
+checkout_gid=${FARAMIR_CHECKOUT_GID:?}
+[[ "$checkout_gid" =~ ^[0-9]+$ ]] || { echo 'tests/go: invalid checkout group' >&2; exit 1; }
+checkout_group=$(getent group "$checkout_gid" | cut -d: -f1 || true)
+if [ -z "$checkout_group" ]; then
+  groupadd -g "$checkout_gid" checkout
+  checkout_group=checkout
+fi
+usermod -a -G "$checkout_group" tester
 
 # Every brokered command is confined to a cgroup of its own, and the executor
 # refuses to run where it cannot make one, so this shell moves into a cgroup the
@@ -28,4 +34,5 @@ fi
 
 cd /work
 exec setpriv --reuid=tester --regid=tester --init-groups \
-  env HOME=/home/tester GOCACHE=/cache/go-build GOMODCACHE=/go/pkg/mod "$@"
+  env HOME=/tmp GOCACHE=/cache/go-build GOMODCACHE=/go/pkg/mod \
+  bash -ec 'tar --no-same-owner -xf - -C /work; exec "$@"' _ "$@"

@@ -11,6 +11,7 @@ coverage.txt
 # The suites copy these into the image's build context; see tests/e2e/README.md.
 /tests/e2e/faramir
 /tests/e2e/faramir-skew
+/tests/e2e/binaries.manifest
 /tests/e2e/sops
 /tests/e2e/age
 /tests/e2e/age-keygen

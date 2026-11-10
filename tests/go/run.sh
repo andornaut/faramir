@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs a command, by default the Go suite, in a container that can write to
 # nothing on the host: tracked working-tree files are streamed into a
-# tmpfs, the module and build caches are Docker volumes, and the tests run as
+# tmpfs, reusable module and build caches are Docker volumes, and tests run as
 # uid 19001, which owns nothing on the host.
 #
 #   tests/go/run.sh                      go test -v ./...
@@ -20,13 +20,14 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 name=faramir-go-test-$$
-image=$name
-modules=$name-modules
-cache=$name-cache
+# shellcheck source=cache.sh
+source "$here/cache.sh"
+go_cache_mounts
+scratch=$(mktemp -d)
+owned=0
 trap '
-  docker rm -f "$name" >/dev/null 2>&1 || true
-  docker volume rm "$modules" "$cache" >/dev/null 2>&1 || true
-  docker image rm "$image" >/dev/null 2>&1 || true
+  if [ "$owned" = 1 ]; then docker rm -f "$name" >/dev/null 2>&1 || true; fi
+  find "$scratch" -depth -delete
 ' EXIT
 sops=$root/tests/e2e/sops
 
@@ -34,30 +35,43 @@ sops=$root/tests/e2e/sops
   echo "tests/go: $sops is missing; tests/e2e/e2e.sh fetch downloads it" >&2
   exit 1
 }
-[ $# -gt 0 ] || set -- go test -v ./...
+[ $# -gt 0 ] || set -- go test -v -count=1 -p=1 -parallel=4 ./...
+[ -z "$(docker ps -a --filter "name=^/$name$" --format '{{.Names}}')" ] || {
+  echo 'tests/go: container name already exists' >&2; exit 1
+}
+revision=$(git -C "$root" rev-parse HEAD)
+source_state=$(git -C "$root" status --porcelain --untracked-files=all)
+"$root/tests/source.sh" > "$scratch/source.tar"
+digest=$(sha256sum "$scratch/source.tar" | cut -d ' ' -f1)
 
 tar -C "$root" -cf - tests/go/Dockerfile tests/go/inside.sh tests/cgroup.sh |
-  docker build -q -t "$image" -f tests/go/Dockerfile - >/dev/null
+  docker build -q -t faramir-go-test:local --iidfile "$scratch/image.id" -f tests/go/Dockerfile - >/dev/null
+image=$(cat "$scratch/image.id")
 args=(-i --cgroupns=private --cap-add SYS_ADMIN
   --security-opt apparmor=unconfined --security-opt seccomp=unconfined
   --cpus 2 --memory 4g --pids-limit 512
   -e CGO_ENABLED="${CGO_ENABLED:-0}"
   -e GOMAXPROCS=2 -e GOFLAGS=-p=2
+  -e "FARAMIR_CHECKOUT_GID=$(stat -c %g "$root")"
   --mount "type=bind,source=$sops,target=/usr/local/bin/sops,readonly"
-  -v "$modules:/go/pkg/mod" -v "$cache:/cache"
-  --tmpfs "/work:exec,size=4g" --tmpfs "/tmp:exec,size=4g")
+  "${GO_CACHE_MOUNTS[@]}"
+  --tmpfs "/work:exec,size=4g,uid=19001,gid=19001,mode=0700" --tmpfs "/tmp:exec,size=4g")
 
-# Each run owns its container, image tag and disposable scratch volumes.
-if [ -z "${FARAMIR_TEST_OUT:-}" ]; then
-  "$root/tests/source.sh" | docker run --rm --name "$name" "${args[@]}" "$image" "$@"
-  exit
+if [ -n "${FARAMIR_TEST_OUT:-}" ]; then
+  mkdir -p "$FARAMIR_TEST_OUT"
+  args+=(-e FARAMIR_OUT=1)
 fi
-
-# A container kept after it stops, so /out can be copied from it, and named
-# after this process so concurrent runs do not collide.
-mkdir -p "$FARAMIR_TEST_OUT"
+docker create --name "$name" "${args[@]}" "$image" "$@" >/dev/null
+owned=1
 status=0
-"$root/tests/source.sh" |
-  docker run --name "$name" -e FARAMIR_OUT=1 "${args[@]}" "$image" "$@" || status=$?
-docker cp -q "$name":/out/. "$FARAMIR_TEST_OUT" || { [ "$status" -ne 0 ] || status=1; }
+docker start -ai "$name" < "$scratch/source.tar" || status=$?
+if [ -n "${FARAMIR_TEST_OUT:-}" ]; then
+  docker cp -q "$name":/out/. "$FARAMIR_TEST_OUT" || { [ "$status" -ne 0 ] || status=1; }
+fi
+after=$("$root/tests/source.sh" | sha256sum | cut -d ' ' -f1)
+if [ "$(git -C "$root" rev-parse HEAD)" != "$revision" ] ||
+  [ "$(git -C "$root" status --porcelain --untracked-files=all)" != "$source_state" ] || [ "$after" != "$digest" ]; then
+  echo 'tests/go: source changed during verification; discarding result' >&2
+  exit 125
+fi
 exit "$status"

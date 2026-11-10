@@ -84,20 +84,6 @@ AGE_KEYGEN_SHA256=e279f64ccd11347e57b8d28304e3e358ae1a5ef4f19107e7a1f9c9156fdcad
 die() { printf 'e2e: %s\n' "$1" >&2; exit 1; }
 running() { [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = true ]; }
 
-# build_skew produces a second binary reporting a version the first one does
-# not, which is what the doctor suite swaps in to make the broker and the CLI
-# disagree. The version is a linker variable, so a stamp is the whole job and
-# the tree is never edited to build it.
-build_skew() {
-  ( cd "$REPO" && go build \
-      -ldflags "-X github.com/andornaut/faramir/internal/version.Version=9.9.9" \
-      -o "$HERE/faramir-skew" ./cmd/faramir )
-  # A -X naming a symbol that moved does nothing and exits 0, which would leave
-  # the doctor suite comparing a binary against itself and passing on nothing.
-  "$HERE/faramir-skew" --version | grep -q '9\.9\.9' ||
-    die "the version stamp did not take: build_skew names the wrong symbol"
-}
-
 # digest_of is the sha256 of a file, or empty where there is none.
 digest_of() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
 
@@ -222,22 +208,17 @@ cmd_fetch() {
 # an object file". The arrangement decides which sudo the image installs and
 # nothing about the binary, so one build serves both.
 build_binaries() {
-  if [ "${FARAMIR_ARTIFACT_CONTAINER:-}" != 1 ]; then
-    "$REPO/tests/artifacts.sh" e2e
-    return
-  fi
-  echo "== building the binary from $REPO"
-  ( cd "$REPO" && go build -o "$HERE/faramir" ./cmd/faramir )
-  build_skew
+  "$REPO/tests/artifacts.sh" e2e
 }
 
 cmd_up() {
   # Built before the fork where cmd_both is what called this.
-  if [ -n "${E2E_PREBUILT:-}" ]; then
-    echo "== using the binary built before the arrangements forked"
-  else
-    build_binaries
-  fi
+  case "${E2E_PREBUILT:-}" in
+    1) echo "== using the verified exact-source E2E bundle";;
+    '') build_binaries;;
+    *) die "E2E_PREBUILT must be unset or 1";;
+  esac
+  "$REPO/tests/artifacts.sh" verify-e2e
   # Checked here as well as in fetch, this being what decides what goes into the
   # image: `up` can be run on its own, and a tool nobody can name again makes a
   # passing run unrepeatable.
