@@ -100,7 +100,8 @@ if [ "$action" = release ] || [ "$action" = release-check ]; then
     --env "CHECK_REVISION=$revision" --env "GITHUB_REPOSITORY=${GITHUB_REPOSITORY:-fixture/project}"
     --env "GITHUB_SERVER_URL=${GITHUB_SERVER_URL:-https://github.com}")
   if [ "$action" = release ]; then
-    args+=(--env GITHUB_TOKEN --env GITHUB_ACTIONS --env GITHUB_REF --env GITHUB_SHA)
+    args+=(--env GITHUB_TOKEN --env GITHUB_ACTIONS --env GITHUB_REF --env GITHUB_SHA
+      --env "GORELEASER_CURRENT_TAG=${GITHUB_REF#refs/tags/}")
   fi
   # shellcheck disable=SC2016 # These variables belong to the isolated publisher environment.
   program='git clone --quiet --no-checkout /release.bundle /work
@@ -113,7 +114,7 @@ if [ "$action" = release ] || [ "$action" = release-check ]; then
     test -z "$(git status --porcelain --untracked-files=all)"
     exec bash /opt/check/run "$@"'
 fi
-docker create --name "$name" "${args[@]}" --entrypoint bash "$image" -ec "$program" _ "$action" >/dev/null
+docker create --name "$name" "${args[@]}" --entrypoint bash "$image" -euo pipefail -c "$program" _ "$action" >/dev/null
 owned=1
 status=0
 docker start -ai "$name" || status=$?
