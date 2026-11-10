@@ -1,17 +1,12 @@
 name: Test
 
-# Every branch, not just main and pull requests: work lands on main directly as
-# often as it arrives through one, so a check that only runs on main is a check
-# that runs after the fact.
+# One event entrypoint validates each source revision before publishing it.
 on:
   push:
     branches: ["**"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
   pull_request:
     branches: [main]
-  # Called by the release workflow, so that nothing is published that this has
-  # not passed. Workflows do not wait on each other, so a green Test run beside
-  # a release says nothing about whether the release waited for it.
-  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -22,8 +17,6 @@ permissions:
 # cancelled run leaves its check runs on the head commit, and GitHub counts
 # those against the required checks, so a push and its pull request cancelling
 # each other would block the merge.
-# Keyed by the calling workflow as well, so the run started by a push and the
-# run the release workflow calls do not cancel each other.
 # Qualified by the repository the branch lives in, since a fork names its
 # branches itself: two pull requests from different forks would otherwise share
 # a group whenever they pick the same branch name.
@@ -32,179 +25,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  attribution-scan:
+    uses: ./.github/workflows/ai-attributions.yml
+
+  ai-attributions:
+    name: AI attributions
+    needs: attribution-scan
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check the attribution scan
+        run: '[ "${{ needs.attribution-scan.result }}" = success ]'
+
   # Linux only: the broker reads peer credentials with SO_PEERCRED and the
   # executor allocates PTYs with TIOCGPTN, neither of which exists on macOS.
   test:
     name: Test
     runs-on: ubuntu-latest
-    # Capped well under the six-hour default: nothing here runs longer than
-    # eight minutes, so a job still going at fifteen has hung rather than
-    # failed.
-    timeout-minutes: 15
-
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v7.0.1
         with:
-          # Nothing in this job uses the token, so it is not left
-          # in .git/config for a later step to read.
           persist-credentials: false
+          ref: ${{ github.sha }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      # The opencode and Kilo Code plugins are JavaScript that node runs, and the
-      # tests exercise the shipped file rather than a description of it. Without
-      # node those tests skip, which is a silent loss of the whole plugin suite:
-      # pinned here rather than relying on what the runner image happens to ship.
-      - name: Set up Node.js
-        uses: actions/setup-node@v7.1.0
-        with:
-          node-version-file: .nvmrc
-
-      # The suite builds its encrypted fixtures by running sops rather than by
-      # linking its libraries, which keeps every cloud KMS SDK out of the module
-      # as well as out of the binary, so the whole Go suite needs one installed.
-      # A missing binary fails those tests rather than skipping them: they hold
-      # how sops itself resolves and matches a creation rule, which is the guard
-      # against a .sops.yaml planted in the agent's tree writing managed values
-      # in cleartext.
-      #
-      # The version and digest are read out of e2e.sh rather than restated here,
-      # so a bump moves both at once: two copies with nothing tying them together
-      # is CI testing one binary while the suites test another, and no run says so.
-      - name: Install sops
-        run: |
-          eval "$(grep -E '^SOPS_(VERSION|SHA256)=' tests/e2e/e2e.sh)"
-          test -n "${SOPS_VERSION}" && test -n "${SOPS_SHA256}"
-          curl -sSfLo /tmp/sops \
-            "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
-          echo "${SOPS_SHA256}  /tmp/sops" | sha256sum -c -
-          sudo install -m 0755 /tmp/sops /usr/local/bin/sops
-          sops --version --disable-version-check
-
-      - name: Verify dependencies
-        run: go mod verify
-
-      # verify checks the downloaded modules against go.sum, and says nothing
-      # about whether go.mod still describes what the code imports: a dependency
-      # that became direct keeps its // indirect marker until someone runs tidy,
-      # and the next contributor to run it finds a dirty tree.
-      - name: The module file must be tidy
-        run: go mod tidy -diff
-
-      - name: Build
-        run: go build -v ./...
-
-      # Every brokered command is confined to its own cgroup and reaped there,
-      # with no process-group fallback, so the executor refuses to run where it
-      # cannot make a cgroup, and the tests exercise that real path rather than a
-      # weaker one. The GitHub runner is unprivileged and sits in a root-owned
-      # service cgroup it cannot subdivide, so hand it one it owns (exactly as
-      # `init` grants the executor unit Delegate= on a real host) and move this
-      # shell into it: `go test` inherits it and confinement runs for real.
-      - name: Delegate a cgroup to the runner, then run tests
-        run: |
-          CG=/sys/fs/cgroup/faramir-test
-          sudo mkdir -p "$CG"
-          sudo chown -R "$(id -u):$(id -g)" "$CG"
-          echo $$ | sudo tee "$CG/cgroup.procs" > /dev/null
-          # Prove it took. Without a delegated cgroup the executor refuses every
-          # command and a couple of dozen tests skip, which is a green run that
-          # checked none of the confinement or the executor.
-          test -w "$CG/cgroup.procs" && grep -q faramir-test /proc/self/cgroup \
-            || { echo "cgroup delegation failed; the executor tests would all skip"; exit 1; }
-          go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+      - name: Verify, build and test Go
+        run: make test-go
 
       - name: Upload coverage
         uses: actions/upload-artifact@v7.0.2
         with:
           name: coverage
-          path: coverage.txt
+          path: bin/coverage.txt
+          if-no-files-found: error
 
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v7.0.1
         with:
-          # Nothing in this job uses the token, so it is not left
-          # in .git/config for a later step to read.
           persist-credentials: false
+          ref: ${{ github.sha }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9.3.0
-        with:
-          version: v2.15.0
-          # Verification fetches a JSONSchema from golangci-lint.run on every
-          # run, so this step depends on that host being reachable. Kept on
-          # regardless: `run` accepts an unknown key inside `linters.settings`
-          # and exits 0, which leaves that setting disabled while CI stays
-          # green, and only `config verify` rejects it. An unknown linter name
-          # is caught either way.
-          verify: true
-
-      # -x follows a `source` into the file it names and -P SCRIPTDIR looks for
-      # it beside the script doing the sourcing, which shellcheck cannot resolve
-      # on its own. Set everywhere rather than only where something sources
-      # today, so a script that starts to is already covered.
-      #
-      # node_modules is skipped because a Lint job that installs dependencies
-      # would otherwise answer for shell a dependency ships.
-      - name: Run ShellCheck
-        # Followed at the commit rather than at the 2.0.0 tag, which is the newest
-        # the action has: it has had no release since 2023, so nothing upstream
-        # would notice the tag being moved. The tag is named beside the sha so a
-        # reader can tell which release this is.
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
-        env:
-          SHELLCHECK_OPTS: -x -P SCRIPTDIR
-        with:
-          # Pinned rather than the action's `stable` default, which names a
-          # moving release the action downloads at run time: without this a
-          # ShellCheck release turns every one of these gates red on a commit
-          # that did not touch them. Dependabot does not read an action input,
-          # so this moves by hand.
-          version: v0.11.0
-          ignore_paths: node_modules
-          scandir: "."
-
-      # The release config, checked here rather than at the tag. goreleaser
-      # validates it as `release` starts, which is after the tag is pushed and
-      # protect-release-tags has no bypass to take one back with. Held to the
-      # same version constraint as the release job, since a check run against a
-      # different goreleaser says nothing about the one that will publish, and
-      # floating is the point: a deprecation lands on a push here rather than
-      # on the one run that cannot be repeated.
-      - name: Check the release config
-        uses: goreleaser/goreleaser-action@v7.3.0
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: check
-
-      # The action bundles markdownlint-cli2, so its own tag is the tool pin and
-      # Dependabot proposes the bump through the github-actions ecosystem. It
-      # fetches nothing at run time, so a slow host cannot turn this red.
-      - name: Run markdownlint
-        uses: DavidAnson/markdownlint-cli2-action@v25.0.0
-        with:
-          # Empty on purpose. The action defaults this to `*.{md,markdown}`,
-          # which is the repository root only, and anything passed here outranks
-          # the `globs` in .markdownlint-cli2.yaml. Empty leaves the config file
-          # deciding, so this gate and a local `markdownlint-cli2` read one list.
-          globs: ""
+      - name: Check source and documentation
+        run: make lint
 
   # The functional suites, against a real install in a container: systemd units,
   # three uids, a sops store and an agent working in a project tree. Go covers
@@ -215,13 +84,52 @@ jobs:
   # here builds the image or asks doctor a question against a real install. A
   # base-image bump changes the userland every group and permission check reads,
   # so without this a bump merges on a green run that never built it.
+  prepare-e2e:
+    name: Prepare E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Select the binary version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          build_version=dev
+          if [ "$REF_TYPE" = tag ]; then
+            build_version="${REF_NAME#v}"
+          fi
+          echo "version=$build_version" >> "$GITHUB_OUTPUT"
+
+      - name: Build the E2E binaries
+        run: tests/artifacts.sh e2e
+        env:
+          FARAMIR_BUILD_VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Upload the E2E binaries
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-binaries-${{ github.sha }}
+          path: |
+            tests/e2e/faramir
+            tests/e2e/faramir-skew
+            tests/e2e/binaries.manifest
+          if-no-files-found: error
+
   e2e:
     name: E2E
+    needs: prepare-e2e
     runs-on: ubuntu-latest
-    # Capped well under the six-hour default: nothing here runs longer than
-    # nine minutes, so a job still going at fifteen has hung rather than
-    # failed.
-    timeout-minutes: 15
+    # Includes cold package installation and the complete arrangement's suites.
+    timeout-minutes: 20
     # Both sudo implementations: they take different settings out of the same
     # /etc/sudoers.d, so `--allow-sudo` installs a different arrangement for each
     # and only one of them is exercised by a run that does not say which.
@@ -236,6 +144,8 @@ jobs:
         sudo: [sudo, sudo-rs]
     env:
       SUDO: ${{ matrix.sudo }}
+      E2E_PREBUILT: "1"
+      FARAMIR_BUILD_VERSION: ${{ needs.prepare-e2e.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7.0.1
@@ -243,12 +153,16 @@ jobs:
           # Nothing in this job uses the token, so it is not left
           # in .git/config for a later step to read.
           persist-credentials: false
+          ref: ${{ github.sha }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v7.0.0
+      - name: Download the E2E binaries
+        uses: actions/download-artifact@v8.0.2
         with:
-          go-version-file: go.mod
-          cache: true
+          name: e2e-binaries-${{ github.sha }}
+          path: tests/e2e
+
+      - name: Restore executable modes
+        run: chmod 0755 tests/e2e/faramir tests/e2e/faramir-skew
 
       # sops, age and age-keygen, pinned by version and sha256 in e2e.sh. The
       # image has no network, so it installs what it finds in the build context.
@@ -282,10 +196,91 @@ jobs:
     name: E2E
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: e2e
+    needs: [prepare-e2e, e2e]
     if: always()
     steps:
       - name: Every arrangement passed
         run: |
-          echo "e2e matrix result: ${{ needs.e2e.result }}"
+          [ "${{ needs.prepare-e2e.result }}" = success ]
           [ "${{ needs.e2e.result }}" = success ]
+
+  build-platform:
+    runs-on: ubuntu-latest
+    # Capped well under the six-hour default: nothing here runs longer than
+    # six minutes, so a job still going at fifteen has hung rather than failed.
+    timeout-minutes: 15
+
+    # The platforms .goreleaser.yaml builds for a tag. Linux only: the broker
+    # reads peer credentials with SO_PEERCRED and the executor allocates PTYs
+    # with TIOCGPTN. CGO_ENABLED=0 makes every one of these a cross-compile the
+    # runner can do on its own.
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            asset_arch: x86_64
+          - goos: linux
+            goarch: arm64
+            asset_arch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+        with:
+          # Nothing in this job uses the token, so it is not left
+          # in .git/config for a later step to read.
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Build
+        run: make build
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+
+      # Named and laid out like the archives goreleaser publishes for a tag, so
+      # what installs a tagged release installs a dev one by changing the URL
+      # and nothing else. An asset whose name does not carry its platform is one
+      # a consumer has to be told about out of band.
+      - name: Archive
+        run: |
+          cp README.md LICENSE bin/
+          tar -czf faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz -C bin .
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}
+          path: faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
+
+  # A matrix leg reports as `build-platform (linux, amd64, x86_64)`, a name that
+  # changes whenever the matrix does, and a required check that stops reporting
+  # blocks every pull request forever. This job reports under one stable name,
+  # so branch protection has a single check to require no matter how the matrix
+  # grows.
+  #
+  # `always()` and not `!cancelled()`, which looks tidier and is a hole: a
+  # cancelled run would skip this job, and GitHub counts a skipped required
+  # check as passing, so an unverified commit becomes mergeable. Failing closed
+  # costs a red check on runs that were cancelled anyway.
+  build:
+    name: Build
+    needs: build-platform
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check that every platform built
+        run: '[ "${{ needs.build-platform.result }}" = success ]'
+
+  publish:
+    needs: [test, lint, e2e-result, build, ai-attributions]
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+    uses: ./.github/workflows/release.yml
+    permissions:
+      contents: write
+    with:
+      source_sha: ${{ github.sha }}

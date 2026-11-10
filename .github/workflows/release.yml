@@ -1,131 +1,31 @@
 name: Release
 
-# Every branch, not just main and pull requests: work lands on main directly as
-# often as it arrives through one, so a check that only runs on main is a check
-# that runs after the fact.
+# Publishing is called only after the canonical validation DAG succeeds.
 on:
-  push:
-    branches: ["**"]
-    # Release versions only, the same set protect-release-tags guards.
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: The source revision validated by the calling workflow
+        required: true
+        type: string
 
-# Write access is granted only to the jobs that create releases
 permissions:
   contents: read
 
-# Keyed on the branch rather than the ref, so a re-push to one branch cancels
-# its own earlier run and not another branch's. Keyed by the event as well: a
-# cancelled run leaves its check runs on the head commit, and GitHub counts
-# those against the required checks, so a push and its pull request cancelling
-# each other would block the merge.
-# Qualified by the repository the branch lives in, since a fork names its
-# branches itself: two pull requests from different forks would otherwise share
-# a group whenever they pick the same branch name.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
-
 jobs:
-  # Publishing waits on the scan as well: a release is a durable artifact, and
-  # taking an attribution back off after one is cut means rewriting history that
-  # has already been published. Called only where a release can follow, since
-  # the scan workflow already runs on every push and pull request of its own
-  # accord.
-  attributions:
-    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
-    uses: ./.github/workflows/ai-attributions.yml
-
-  # Publishing waits on the same suite that guards main, rather than on the
-  # build alone: something that compiles everywhere still ships whatever the
-  # tests would have caught. Called only where a release can follow, since the
-  # Test workflow already runs on every push and pull request of its own
-  # accord, and the jobs below are gated the same way.
-  test:
-    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
-    uses: ./.github/workflows/test.yml
-
-  build-platform:
+  source:
+    name: Verify release source
     runs-on: ubuntu-latest
-    # Capped well under the six-hour default: nothing here runs longer than
-    # six minutes, so a job still going at fifteen has hung rather than failed.
     timeout-minutes: 15
-
-    # The platforms .goreleaser.yaml builds for a tag. Linux only: the broker
-    # reads peer credentials with SO_PEERCRED and the executor allocates PTYs
-    # with TIOCGPTN. CGO_ENABLED=0 makes every one of these a cross-compile the
-    # runner can do on its own.
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            asset_arch: x86_64
-          - goos: linux
-            goarch: arm64
-            asset_arch: arm64
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7.0.1
-        with:
-          # Nothing in this job uses the token, so it is not left
-          # in .git/config for a later step to read.
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build
-        run: make build
+      - name: Require the validated event revision
         env:
-          CGO_ENABLED: 0
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-
-      # Named and laid out like the archives goreleaser publishes for a tag, so
-      # what installs a tagged release installs a dev one by changing the URL
-      # and nothing else. An asset whose name does not carry its platform is one
-      # a consumer has to be told about out of band.
-      - name: Archive
-        run: |
-          cp README.md LICENSE bin/
-          tar -czf faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz -C bin .
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v7.0.2
-        with:
-          name: faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}
-          path: faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
-
-  # A matrix leg reports as `build-platform (linux, amd64, x86_64)`, a name that
-  # changes whenever the matrix does, and a required check that stops reporting
-  # blocks every pull request forever. This job reports under one stable name,
-  # so branch protection has a single check to require no matter how the matrix
-  # grows.
-  #
-  # `always()` and not `!cancelled()`, which looks tidier and is a hole: a
-  # cancelled run would skip this job, and GitHub counts a skipped required
-  # check as passing, so an unverified commit becomes mergeable. Failing closed
-  # costs a red check on runs that were cancelled anyway.
-  build:
-    name: Build
-    needs: build-platform
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Check that every platform built
-        run: '[ "${{ needs.build-platform.result }}" = success ]'
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EVENT_SHA: ${{ github.sha }}
+        run: '[ "$SOURCE_SHA" = "$EVENT_SHA" ]'
 
   goreleaser:
-    needs: [build, test, attributions]
+    needs: source
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
@@ -137,24 +37,25 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
+          # The compiler container receives Git metadata without checkout credentials.
+          persist-credentials: false
+          ref: ${{ inputs.source_sha }}
 
-      - name: Set up Go
-        uses: actions/setup-go@v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Verify the validated source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          [ "$SOURCE_SHA" = "$EVENT_SHA" ]
+          [ "$(git rev-parse HEAD)" = "$SOURCE_SHA" ]
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7.3.0
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
+      - name: Publish the versioned release
+        run: make release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   dev-release:
-    needs: [build, test, attributions]
+    needs: source
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -164,6 +65,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+
+      - name: Verify the validated source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          [ "$SOURCE_SHA" = "$EVENT_SHA" ]
+          [ "$(git rev-parse HEAD)" = "$SOURCE_SHA" ]
 
       # Matched by name, not merged blindly: `files: artifacts/*` publishes
       # whatever lands here, so the coverage artifact the called test workflow
