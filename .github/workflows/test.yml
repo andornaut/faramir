@@ -52,7 +52,10 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Verify, build and test Go
-        run: make test-go
+        run: |
+          tests/e2e/e2e.sh fetch
+          CGO_ENABLED=1 FARAMIR_TEST_OUT=bin tests/go/run.sh \
+            bash tests/container/check test-go
 
       - name: Upload coverage
         uses: actions/upload-artifact@v7.0.2
@@ -73,7 +76,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Check source and documentation
-        run: make lint
+        run: tests/container/run lint
 
   # The functional suites, against a real install in a container: systemd units,
   # three uids, a sops store and an agent working in a project tree. Go covers
@@ -234,7 +237,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Build
-        run: make build
+        run: tests/artifacts.sh build '-s -w'
         env:
           CGO_ENABLED: 0
           GOOS: ${{ matrix.goos }}

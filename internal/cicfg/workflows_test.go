@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -126,29 +127,64 @@ func TestValidationHasOneEventEntrypointWithEveryRequiredCheck(t *testing.T) {
 	}
 }
 
-func TestChecksAndTagPublishingUseTheIsolatedMakeTargets(t *testing.T) {
+func TestChecksAndTagPublishingUseIsolatedNativeCommands(t *testing.T) {
 	validation := readWorkflow(t, "test.yml")
 	for _, check := range []struct {
-		id, target string
-	}{{"test", "make test-go"}, {"lint", "make lint"}} {
-		if got := strings.TrimSpace(script(validation.Jobs[check.id])); got != check.target {
-			t.Errorf("%s bypasses the shared check target: %q", check.id, got)
+		id, command string
+	}{
+		{"test", "tests/e2e/e2e.sh fetch\nCGO_ENABLED=1 FARAMIR_TEST_OUT=bin tests/go/run.sh \\\n  bash tests/container/check test-go"},
+		{"lint", "tests/container/run lint"},
+	} {
+		if got := strings.TrimSpace(script(validation.Jobs[check.id])); got != check.command {
+			t.Errorf("%s does not run the isolated native checks: %q", check.id, got)
 		}
+	}
+	foundBuild := false
+	for _, command := range validation.Jobs["build-platform"].Steps {
+		foundBuild = foundBuild || command.Run == "tests/artifacts.sh build '-s -w'"
+	}
+	if !foundBuild {
+		t.Error("platform build does not use the isolated artifact builder")
 	}
 	release := readWorkflow(t, "release.yml")
 	found := false
+	foundCheckout := false
 	for _, command := range release.Jobs["goreleaser"].Steps {
-		if strings.HasPrefix(command.Uses, "actions/checkout@") &&
-			(command.With["persist-credentials"].Value != "false" || command.With["fetch-depth"].Value != "0") {
-			t.Error("tag compiler requires full credential-free source history")
+		if strings.HasPrefix(command.Uses, "actions/checkout@") {
+			foundCheckout = true
+			if command.With["persist-credentials"].Value != "false" || command.With["fetch-depth"].Value != "0" ||
+				command.With["ref"].Value != "${{ inputs.source_sha }}" {
+				t.Error("tag compiler requires full credential-free history at the validated revision")
+			}
 		}
 		if strings.HasPrefix(command.Uses, "goreleaser/goreleaser-action@") {
-			t.Error("tag publisher compiles outside the isolated Make target")
+			t.Error("tag publisher compiles outside the isolated release container")
 		}
-		found = found || command.Run == "make release"
+		found = found || command.Run == "tests/container/run release"
+	}
+	if !foundCheckout {
+		t.Error("tag publisher does not check out its validated source")
 	}
 	if !found {
-		t.Error("tag publisher does not use the isolated release target")
+		t.Error("tag publisher does not use the isolated release dispatcher")
+	}
+}
+
+func TestWorkflowsDoNotInvokeMake(t *testing.T) {
+	entries, err := os.ReadDir(filepath.Join("..", "..", ".github", "workflows"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	makeCommand := regexp.MustCompile(`(^|[\s;&|])g?make(\s|$)`)
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		for id, subject := range readWorkflow(t, entry.Name()).Jobs {
+			if makeCommand.MatchString(script(subject)) {
+				t.Errorf("%s job %s invokes Make instead of native commands", entry.Name(), id)
+			}
+		}
 	}
 }
 

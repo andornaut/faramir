@@ -392,6 +392,8 @@ Target | Does
 `make install`, `make uninstall` | Copy the binary to `/usr/local/bin` and remove it. Both use sudo
 `make clean` | Remove `bin/` and `dist/`, which hold every build, test log, coverage profile and fuzz crasher the targets write
 
+CI calls the project dispatchers directly: Go checks use `tests/go/run.sh`, lint uses `tests/container/run lint`, builds use `tests/artifacts.sh build`, and tagged releases use `tests/container/run release`. The dispatchers run native tools inside the same project images used by Make.
+
 The check launcher is [tests/container/run](tests/container/run). Docker owns the module and compiler caches; source snapshots and test state are isolated per run. Tests use `-count=1`, so compiler reuse does not reuse a previous test result. Checks never mount a Docker socket or host credentials. The E2E target refuses to replace stacks that already exist.
 
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/`, with `README.md` and `LICENSE`, is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. Operator documentation goes in `docs/`, which ships. Developer documentation goes beside what it covers, such as `tests/e2e/README.md`, which does not.

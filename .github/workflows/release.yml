@@ -52,7 +52,7 @@ jobs:
           [ "$(git rev-parse HEAD)" = "$SOURCE_SHA" ]
 
       - name: Publish the versioned release
-        run: make release
+        run: tests/container/run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
