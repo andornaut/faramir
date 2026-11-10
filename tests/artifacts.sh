@@ -97,7 +97,7 @@ trap cleanup EXIT
 "$root/tests/source.sh" > "$scratch/source.tar"
 digest=$(sha256sum "$scratch/source.tar" | cut -d ' ' -f1)
 docker create --name "$name" --cpus 2 --memory 3g --pids-limit 256 \
-  --cap-drop ALL --security-opt no-new-privileges \
+  --cap-drop ALL --cap-add CHOWN --cap-add SETUID --cap-add SETGID --security-opt no-new-privileges \
   --mount "type=bind,source=$scratch/source.tar,target=/source.tar,readonly" \
   "${GO_CACHE_MOUNTS[@]}" --tmpfs /work:exec,uid=19001,gid=19001,mode=0700 \
   --env FARAMIR_ARTIFACT_CONTAINER=1 --env CGO_ENABLED=0 --env HOME=/tmp \
@@ -110,7 +110,9 @@ docker create --name "$name" --cpus 2 --memory 3g --pids-limit 256 \
     mkdir -p /out
     chown 19001:19001 /go/pkg/mod /cache /out
     exec setpriv --reuid=19001 --regid=19001 --groups="$FARAMIR_CHECKOUT_GID" \
-      bash -ec '\''tar --no-same-owner -xf /source.tar -C /work
+      bash -ec '\''test "$(id -u)" = 19001
+        grep -qE "^CapEff:[[:space:]]+0+$" /proc/self/status
+        tar --no-same-owner -xf /source.tar -C /work
         exec bash tests/artifacts-inside.sh "$@"'\'' _ "$@"
   ' _ "$mode" >/dev/null
 owned=1
