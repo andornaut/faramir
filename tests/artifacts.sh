@@ -23,6 +23,20 @@ if [ "$dirty" = true ]; then build+=-modified; fi
 if [ "$version" != dev ]; then build=; fi
 
 source_digest() { "$root/tests/source.sh" | sha256sum | cut -d ' ' -f1; }
+output_directory() {
+  local directory=$1 parent
+  parent=$(dirname "$directory")
+  [ "$(realpath -e "$parent")" = "$parent" ] || {
+    echo 'artifacts: output parent contains a symlink' >&2; return 1
+  }
+  if [ -e "$directory" ] || [ -L "$directory" ]; then
+    [ -d "$directory" ] && [ ! -L "$directory" ] && [ "$(realpath -e "$directory")" = "$directory" ] || {
+      echo 'artifacts: output directory contains a symlink' >&2; return 1
+    }
+  fi
+}
+output_directory "$root/tests/e2e"
+if [ "$mode" = build ]; then output_directory "$root/bin"; fi
 verify_e2e() {
   local key value field expected
   local -A manifest=()
@@ -111,5 +125,8 @@ case "$mode" in
   e2e) paths=(tests/e2e/faramir tests/e2e/faramir-skew tests/e2e/binaries.manifest);;
   build) mkdir -p "$root/bin"; paths=(bin/faramir);;
 esac
-for path in "${paths[@]}"; do docker cp "$name:/out/$path" "$root/$path"; done
+for path in "${paths[@]}"; do
+  [ ! -L "$root/$path" ] || { echo 'artifacts: output file is a symlink' >&2; exit 1; }
+  docker cp "$name:/out/$path" "$root/$path"
+done
 if [ "$mode" = e2e ]; then verify_e2e; fi
