@@ -7,6 +7,7 @@ shell_checks() {
 }
 case "${1:?check category required}" in
   lint)
+    [ "$(node --version)" = "$(cat .nvmrc)" ] || { echo 'tests: Node version does not match .nvmrc' >&2; exit 1; }
     golangci-lint config verify
     golangci-lint run --concurrency=4
     formatted=$(golangci-lint fmt --diff)
@@ -17,10 +18,10 @@ case "${1:?check category required}" in
     ;;
   shellcheck) shell_checks;;
   test-go)
-    [ -w /sys/fs/cgroup/faramir-test/cgroup.procs ] &&
-      grep -q faramir-test /proc/self/cgroup || {
-        echo 'tests: cgroup delegation failed; executor coverage would be skipped' >&2; exit 1
-      }
+    if [ ! -w /sys/fs/cgroup/faramir-test/cgroup.procs ] || ! grep -q faramir-test /proc/self/cgroup; then
+      echo 'tests: cgroup delegation failed; executor coverage would be skipped' >&2; exit 1
+    fi
+    [ "$(node --version)" = "$(cat .nvmrc)" ] || { echo 'tests: Node version does not match .nvmrc' >&2; exit 1; }
     go mod verify
     go mod tidy -diff
     go build ./...

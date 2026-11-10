@@ -388,7 +388,7 @@ Target | Does
 `make lint` | Containerized Go lint and formatting checks, ShellCheck, Markdown and release configuration checks
 `make shellcheck` | The shell scripts alone, as CI checks them
 `make exec COMMAND='...'` | A command against an isolated writable copy of tracked source
-`make release-check` | Snapshot release archives from clean source, without publishing or credentials
+`make release-check` | Snapshot release archives from clean source, without publishing or credentials, into a fresh directory under `dist/`
 `make release` | The authorized exact-tag CI publisher, using an isolated GoReleaser container
 `make install`, `make uninstall` | Copy the binary to `/usr/local/bin` and remove it. Both use sudo
 `make clean` | Remove `bin/` and `dist/`, which hold every build, test log, coverage profile and fuzz crasher the targets write

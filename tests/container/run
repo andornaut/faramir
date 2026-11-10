@@ -44,11 +44,10 @@ esac
 scratch=$(mktemp -d)
 name=faramir-check-$$
 owned=0
-cleanup() {
+trap '
   if [ "$owned" = 1 ]; then docker rm -f "$name" >/dev/null 2>&1 || true; fi
   find "$scratch" -depth -delete
-}
-trap cleanup EXIT
+' EXIT
 [ -z "$(docker ps -a --filter "name=^/$name$" --format '{{.Names}}')" ] || {
   echo 'tests: container name already exists' >&2; exit 1
 }
@@ -83,10 +82,11 @@ go_cache_mounts
 args=(--user 19001:19001 --group-add "$(stat -c %g "$root")" --cpus 4 --memory 4g --pids-limit 512
   --cap-drop ALL --security-opt no-new-privileges
   --mount "type=bind,source=$scratch/source.tar,target=/source.tar,readonly"
-  "${GO_CACHE_MOUNTS[@]}" --tmpfs /work:exec,uid=19001,gid=19001,mode=0700 --tmpfs /tmp:exec
+  "${GO_CACHE_MOUNTS[@]}" --tmpfs "/work:exec,uid=19001,gid=19001,mode=0700" --tmpfs /tmp:exec
   --env HOME=/tmp --env GOCACHE=/cache/go-build --env GOMODCACHE=/go/pkg/mod
   --env GOTOOLCHAIN=local --env GOMAXPROCS=4 --env GOFLAGS=-p=1 --env CGO_ENABLED=0
   --workdir /work)
+# shellcheck disable=SC2016 # The container shell expands its own positional arguments.
 program='tar --no-same-owner -xf /source.tar -C /work; exec bash /opt/check/run "$@"'
 if [ "$action" = command ]; then export COMMAND; args+=(--env COMMAND); fi
 if [ "$action" = release ] || [ "$action" = release-check ]; then
@@ -102,10 +102,13 @@ if [ "$action" = release ] || [ "$action" = release-check ]; then
   if [ "$action" = release ]; then
     args+=(--env GITHUB_TOKEN --env GITHUB_ACTIONS --env GITHUB_REF --env GITHUB_SHA)
   fi
+  # shellcheck disable=SC2016 # These variables belong to the isolated publisher environment.
   program='git clone --quiet --no-checkout /release.bundle /work
     git update-ref --no-deref HEAD "$CHECK_REVISION"
     git read-tree "$CHECK_REVISION"
     tar --no-same-owner -xf /source.tar -C /work
+    git ls-files -z | git update-index --skip-worktree -z --stdin
+    bash tests/source.sh --list | git update-index --no-skip-worktree -z --stdin
     git remote set-url origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
     test -z "$(git status --porcelain --untracked-files=all)"
     exec bash /opt/check/run "$@"'
@@ -122,6 +125,9 @@ if [ "$(git -C "$root" rev-parse HEAD)" != "$revision" ] ||
 fi
 if { [ "$action" = release ] || [ "$action" = release-check ]; } && [ "$status" = 0 ]; then
   [ ! -L "$root/dist" ] || { echo 'tests: release output is a symlink' >&2; exit 1; }
-  docker cp "$name:/out/dist" "$root/dist"
+  mkdir -p "$root/dist"
+  destination=$(mktemp -d "$root/dist/$action-${revision:0:12}.XXXXXXXX")
+  docker cp "$name:/out/dist/." "$destination"
+  printf 'release artifacts: %s\n' "$destination"
 fi
 exit "$status"
