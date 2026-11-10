@@ -21,12 +21,27 @@ if [ "$FARAMIR_BUILD_DIRTY" = true ]; then build+=-modified; fi
 if [ "$version" != dev ]; then build=; fi
 stamp="-X github.com/andornaut/faramir/internal/version.Version=$version -X github.com/andornaut/faramir/internal/version.Build=$build"
 flags="${FARAMIR_BUILD_LDFLAGS:-} $stamp"
+verify_static() {
+  local path=$1 id=$2 info
+  info=$(go version -m "$path")
+  grep -qF 'CGO_ENABLED=0' <<< "$info" || { echo 'artifacts: binary was not built with CGO disabled' >&2; return 1; }
+  # Trimpath omits linker arguments from build info; a dev ID must be linked.
+  if [ -n "$id" ] && ! LC_ALL=C grep -aqF -- "$id" "$path"; then
+    echo 'artifacts: dev build identity was not linked into the binary' >&2
+    return 1
+  fi
+}
+verify_version() {
+  [ "$("$1" --version)" = "faramir $2" ] || { echo 'artifacts: runtime version stamp does not match' >&2; return 1; }
+}
 
 if [ "$mode" = build ]; then
   mkdir -p bin
   go build -trimpath -ldflags "$flags" -o bin/faramir ./cmd/faramir
-  info=$(go version -m bin/faramir)
-  grep -qF "internal/version.Version=$version" <<< "$info"
+  verify_static bin/faramir "$build"
+  if [ "$(go env GOOS)" = "$(go env GOHOSTOS)" ] && [ "$(go env GOARCH)" = "$(go env GOHOSTARCH)" ]; then
+    verify_version bin/faramir "$version"
+  fi
   export_artifacts bin/faramir
   exit
 fi
@@ -39,10 +54,10 @@ go build -trimpath -ldflags "$flags" -o tests/e2e/faramir ./cmd/faramir
 skew=9.9.9-skew
 go build -trimpath -ldflags "${FARAMIR_BUILD_LDFLAGS:-} -X github.com/andornaut/faramir/internal/version.Version=$skew" \
   -o tests/e2e/faramir-skew ./cmd/faramir
-[ "$(tests/e2e/faramir --version)" = "faramir $version" ]
-[ "$(tests/e2e/faramir-skew --version)" = "faramir $skew" ]
-info=$(go version -m tests/e2e/faramir)
-grep -qF "internal/version.Build=$build" <<< "$info"
+verify_version tests/e2e/faramir "$version"
+verify_version tests/e2e/faramir-skew "$skew"
+verify_static tests/e2e/faramir "$build"
+verify_static tests/e2e/faramir-skew ''
 
 {
   printf 'format=1\nrevision=%s\nsource_sha256=%s\nversion=%s\nbuild=%s\ndirty=%s\nskew_version=%s\n' \

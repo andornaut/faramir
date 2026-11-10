@@ -60,6 +60,18 @@ args=(-i --cgroupns=private --cap-add SYS_ADMIN
   --tmpfs "/work:exec,size=4g,uid=19001,gid=19001,mode=0700" --tmpfs "/tmp:exec,size=4g")
 
 if [ -n "${FARAMIR_TEST_OUT:-}" ]; then
+  case "$FARAMIR_TEST_OUT" in
+    /*) ;;
+    *) FARAMIR_TEST_OUT=$root/$FARAMIR_TEST_OUT;;
+  esac
+  destination=$(realpath -m "$FARAMIR_TEST_OUT")
+  [ "$destination" = "$FARAMIR_TEST_OUT" ] || {
+    echo 'tests/go: export destination contains a symlink or noncanonical component' >&2; exit 1
+  }
+  [ ! -L "$destination" ] || { echo 'tests/go: export destination is a symlink' >&2; exit 1; }
+  if [ -e "$destination" ] && [ -n "$(find "$destination" -type l -print -quit)" ]; then
+    echo 'tests/go: export destination contains a symlink' >&2; exit 1
+  fi
   mkdir -p "$FARAMIR_TEST_OUT"
   args+=(-e FARAMIR_OUT=1)
 fi
