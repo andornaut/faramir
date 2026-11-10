@@ -89,6 +89,7 @@ chmod 600 $NPMRC
 # The broker's own group, which holds one account: naming a value is not
 # permission to read the file it came from.
 brokergroup=$(id -gn faramir-broker)
+clientgroup=$(stat -c %G /run/faramir/broker.sock)
 
 # --------------------------------------------------------------------------
 head_ "1. what is refused before anything is touched"
@@ -134,32 +135,38 @@ grep -q "chgrp $brokergroup" <<<"$out" && grep -q 'chmod g+r' <<<"$out" \
   && ok "and it arranged nothing itself" \
   || bad "the refused add altered the file: $(stat -c %U:%G/%a $GH)"
 
-# The other way the broker cannot read it: the file is arranged and a directory
-# above it is not. The check above this one walks a home, so a credential kept
-# outside one reaches the read instead, and what came back was the helper's own
-# "permission denied" -- an operator who has just applied the group and mode the
-# refusal asked for meets the same errno with nothing new in it.
+# A linked file outside a home needs traversal through every ancestor. Both
+# private directories must be reported with their own group-access remedies.
 SHUT=/opt/shut
-rm -rf $SHUT; install -d -m 0700 $SHUT/inner
+rm -rf $SHUT; install -d -m 0700 $SHUT $SHUT/inner
 cp $GH $SHUT/inner/hosts.yml
 chgrp "$brokergroup" $SHUT/inner/hosts.yml; chmod 0640 $SHUT/inner/hosts.yml
 out=$(addlink gh/shut $SHUT/inner/hosts.yml --type yaml --key github.com/oauth_token)
-grep -q "cannot enter $SHUT" <<<"$out" \
+grep -qF "cannot enter $SHUT (" <<<"$out" \
   && ok "a directory that blocks the walk is named" \
   || bad "the refusal does not say which directory refuses: ${out:0:140}"
-grep -q "chmod g+x $SHUT" <<<"$out" \
-  && ok "  with the command that opens that directory" \
+grep -qxF "  sudo chgrp $clientgroup $SHUT && sudo chmod g=x $SHUT" <<<"$out" \
+  && ok "  with the group and traversal grant that opens that directory" \
   || bad "  the refusal offers no way to open it: ${out:0:140}"
+grep -qxF "  sudo chgrp $clientgroup $SHUT/inner && sudo chmod g=x $SHUT/inner" <<<"$out" \
+  && ok "  and a separate remedy for the private inner directory" \
+  || bad "  the refusal does not arrange the inner directory: ${out:0:140}"
 grep -q 'gh/shut' $CFG && bad "  and the entry was written anyway" \
   || ok "  and no entry was written"
+[ "$(stat -c '%U:%G %a' $SHUT)" = "root:root 700" ] \
+  && [ "$(stat -c '%U:%G %a' $SHUT/inner)" = "root:root 700" ] \
+  && ok "  and the refusal left both directories unchanged" \
+  || bad "  the refusal changed a private ancestor"
 # Each step names the outermost that still refuses, so opening the one it named
 # moves on to the next rather than repeating itself.
-chgrp "$brokergroup" $SHUT && chmod g+x $SHUT
+chgrp "$clientgroup" $SHUT && chmod g=x $SHUT
 out=$(addlink gh/shut $SHUT/inner/hosts.yml --type yaml --key github.com/oauth_token)
-grep -q "cannot enter $SHUT/inner" <<<"$out" \
+grep -qF "cannot enter $SHUT/inner (" <<<"$out" \
   && ok "  and the next one down after that is opened" \
   || bad "  the second refusal does not name $SHUT/inner: ${out:0:140}"
-chgrp "$brokergroup" $SHUT/inner && chmod g+x $SHUT/inner
+grep -q 'gh/shut' $CFG && bad "  the remaining private ancestor did not stop the link" \
+  || ok "  and the link remains absent while the inner directory is private"
+chgrp "$clientgroup" $SHUT/inner && chmod g=x $SHUT/inner
 out=$(addlink gh/shut $SHUT/inner/hosts.yml --type yaml --key github.com/oauth_token)
 grep -q 'gh/shut' $CFG \
   && ok "  and the link is taken once the walk is open" \
