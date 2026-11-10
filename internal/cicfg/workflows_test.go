@@ -64,7 +64,7 @@ func dependencies(t *testing.T, subject job) []string {
 }
 
 func script(subject job) string {
-	var commands []string
+	commands := make([]string, 0, len(subject.Steps))
 	for _, command := range subject.Steps {
 		commands = append(commands, command.Run)
 	}
