@@ -31,7 +31,7 @@ const (
 // answer is about. Only on a permission error, and only to add a sentence: what
 // the exec reported is still what is returned.
 //
-// The advice to enrol the tree is for a command that runs in it as this
+// The advice to grant filesystem access is for a command that runs in it as this
 // account. A sudo the broker can have approved never gets it: the broker starts
 // that one in / and passes the tree with -D, which root enters after the
 // approval, or starts a login shell in / as sent.
@@ -72,7 +72,9 @@ func startFailure(program, cwd string, err error) (code, detail string) {
 	// The program may be perfectly runnable; what failed is getting to where it
 	// was to run. Not the shell's 126, which is about the program.
 	return codeExecFailed, fmt.Sprintf("%s not started: %s cannot enter %s\n"+
-		"  run `sudo faramir enrol` in the tree", program, whoRuns(), cwd)
+		"  grant this account traversal through the directory and its ancestors, and access to the files it needs\n"+
+		"  enrollment is not required; the operator can use `sudo faramir share --group NAME DIR` for group access",
+		program, whoRuns(), cwd)
 }
 
 // whoRuns names the account a brokered command runs as, which is this process's

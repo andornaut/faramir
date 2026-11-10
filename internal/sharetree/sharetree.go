@@ -31,6 +31,13 @@ type Options struct {
 	Dir      string
 	Operator string
 	Group    string
+	// PreservePrivate leaves hidden and non-group-readable descendants and their
+	// contents untouched. The explicitly named root is still shared.
+	PreservePrivate bool
+	// PreserveOwner leaves the root's uid unchanged, as descendants always do.
+	PreserveOwner bool
+	// Exclude retains matching paths and prunes matching directories.
+	Exclude func(string) bool
 	// Keep names paths, relative to Dir, whose mode is not to be widened: the
 	// files an enrolment writes into the tree. They are still regrouped, so the
 	// group can read them at the mode their writer chose; what they must not
@@ -119,6 +126,12 @@ func Share(opts Options) (Result, error) {
 	}
 	uid, _ := strconv.Atoi(owner.Uid)
 	gid, _ := strconv.Atoi(group.Gid)
+	if opts.PreserveOwner {
+		uid = -1
+	}
+	if opts.Exclude != nil && opts.Exclude(dir) {
+		return result, fmt.Errorf("refusing to share protected path %s", dir)
+	}
 
 	if err := os.MkdirAll(dir, 0o2770); err != nil {
 		return result, err
@@ -138,8 +151,11 @@ func Share(opts Options) (Result, error) {
 	}
 	// Asked before each operation, and the operation still made unconditionally:
 	// what is counted is whether this run altered the host.
-	const rootMode = 0o2770 | os.ModeSetgid
+	rootMode := os.FileMode(0o2770) | os.ModeSetgid
 	if info, err := os.Stat(dir); err == nil {
+		if opts.PreservePrivate {
+			rootMode = groupShared(info.Mode())
+		}
 		// One per path, not one per operation: a path needing both a regroup and a
 		// widen is still one path.
 		if wouldRegroup(info, gid) || wouldReown(info, uid) ||
@@ -155,7 +171,7 @@ func Share(opts Options) (Result, error) {
 	if err := os.Chmod(dir, rootMode); err != nil {
 		return result, err
 	}
-	changed, err := shareTree(dir, gid, keep, sticky, opts.Progress)
+	changed, err := shareTreePolicy(opts.PreservePrivate, opts.Exclude, gid, keep, sticky, opts.Progress, dir)
 	result.Changed += changed
 	if err != nil {
 		return result, err
@@ -219,6 +235,10 @@ func within(home, dir string) bool {
 // os.Lchown is already symlink-safe; it is inside the root for the confinement
 // rather than for the follow.
 func shareTree(root string, gid int, keep, sticky map[string]bool, progress func(int)) (int, error) {
+	return shareTreePolicy(false, nil, gid, keep, sticky, progress, root)
+}
+
+func shareTreePolicy(preservePrivate bool, exclude func(string) bool, gid int, keep, sticky map[string]bool, progress func(int), root string) (int, error) {
 	dir, err := os.OpenRoot(root)
 	if err != nil {
 		return 0, err
@@ -242,6 +262,14 @@ func shareTree(root string, gid int, keep, sticky map[string]bool, progress func
 		}
 		// Chowning a symlink would follow it out of the tree.
 		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		private := preservePrivate && path != root &&
+			(info.Mode().Perm()&0o040 == 0 || strings.HasPrefix(entry.Name(), "."))
+		if private || (exclude != nil && exclude(path)) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		// Root's names are relative to it, and the root itself is ".".

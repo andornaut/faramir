@@ -208,8 +208,12 @@ func (p *project) warnMissingBinary(binary string) {
 // decides what the operator's next login runs. Blocked rather than warned
 // about, the walk not being reversible.
 func RefuseOversharing(dir, operator string) error {
+	return refuseOversharing("enrol", operator, dir)
+}
+
+func refuseOversharing(operation, operator, dir string) error {
 	tooBig := func(what string) error {
-		return fmt.Errorf("refusing to enrol %s: it is %s\n  name the project directory instead", dir, what)
+		return fmt.Errorf("refusing to %s %s: it is %s\n  name the project directory instead", operation, dir, what)
 	}
 	switch dir {
 	case "/":
@@ -273,6 +277,10 @@ var systemRoots = []string{
 // names what an install puts inside them, and reaches a --config-dir moved
 // under a home, which no fixed list can name.
 func RefuseInstallDirs(dir, configDir string) error {
+	return refuseInstallDirs("enrol", configDir, dir)
+}
+
+func refuseInstallDirs(operation, configDir, dir string) error {
 	// BinDir with them: it holds the binary every hook and plugin execs, and
 	// group write there is a brokered command replacing what the agent runs.
 	//
@@ -293,8 +301,8 @@ func RefuseInstallDirs(dir, configDir string) error {
 		case !holds:
 			relation = "is inside"
 		}
-		return fmt.Errorf("refusing to enrol %s: it %s %s, a faramir directory\n  name the project directory instead",
-			dir, relation, installed)
+		return fmt.Errorf("refusing to %s %s: it %s %s, a faramir directory\n  name the project directory instead",
+			operation, dir, relation, installed)
 	}
 	return nil
 }

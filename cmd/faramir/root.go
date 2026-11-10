@@ -154,6 +154,7 @@ func newRootCmd() *cobra.Command {
 		newLogsCmd(),
 		newReaderCmd(),
 		newReloadCmd(),
+		newShareCmd(),
 		newSudoCmd(),
 		newUnenrolCmd(),
 		newUninstallCmd(),

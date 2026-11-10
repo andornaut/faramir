@@ -87,7 +87,7 @@ The section says what the deny rules cannot: why they refuse, and what to do ins
 
 ## Sharing a working tree
 
-**The enrolled tree is the only place faramir changes ownership and modes.** Everywhere else it checks and reports. The directories above the tree are not part of it, so the operator grants the traversal `faramir-exec` needs through a `0700` home:
+**Enrollment and `share` change filesystem ownership and permissions only inside the named tree.** Everywhere else they check and report. `share` grants access without agent configuration or an enrollment record and retains private descendants and user ownership. The directories above the tree are not part of it, so the operator grants the traversal `faramir-exec` needs through a `0700` home:
 
 - Every directory from the home down must be enterable by the client group (execute only), so those uids can pass through without listing what they pass. `enrol` refuses to share a tree it cannot reach, and names each directory and the `chgrp` and `chmod` that open it.
 - Never `chmod o+x`. That grants the same to every account on the machine.

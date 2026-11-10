@@ -362,9 +362,10 @@ func TestStartFailureBlamesTheProgramWhenTheDirectoryIsOnlyTraversable(t *testin
 	if !strings.Contains(got, "cannot enter") {
 		t.Errorf("startFailure = %q, want it to name the directory", got)
 	}
-	// A command that runs in the tree as this account is the one enrolling fixes.
-	if !strings.Contains(got, "faramir enrol` in the tree") {
-		t.Errorf("startFailure = %q, want it to say how to share the tree", got)
+	if !strings.Contains(got, "enrollment is not required") ||
+		!strings.Contains(got, "faramir share --group NAME DIR") ||
+		!strings.Contains(got, "ancestors") {
+		t.Errorf("startFailure = %q, want filesystem access advice without enrollment", got)
 	}
 	// Not 126: the program may be perfectly runnable, and what failed is
 	// getting to where it was to run.

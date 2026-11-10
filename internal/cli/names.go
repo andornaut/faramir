@@ -35,6 +35,7 @@ var Operator = []string{
 	"refs",
 	"reload",
 	"run",
+	"share",
 	"status",
 	"sudo approve",
 	"sudo ls",

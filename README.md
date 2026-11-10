@@ -227,6 +227,17 @@ Every `block` command is idempotent, previews with `--dry-run` and reports what 
 
 What to run in an enrolled tree: [below](#running-commands).
 
+Enrollment is optional for broker commands. To grant filesystem access alone,
+run `sudo faramir share --group NAME DIR`. The directory gains group read/write,
+traversal and setgid. Only already group-readable, non-hidden descendants are
+shared. Hidden entries, private files and directories, configured blocked or
+linked paths, the broker's SSH key and symlinks are left alone. User ownership
+is preserved. Name only the source, dependency or build subtree the command
+needs; name a required hidden subtree directly. Ancestors must already permit
+traversal. `--dry-run` previews without
+writing; `--json` reports changes. No agent configuration or enrollment record
+is written.
+
 Per-tool recipes, the `faramir link` types and selectors, SSH keys, and a worked Ansible example: [docs/integrations.md](docs/integrations.md).
 
 ### Unenrolling a project
@@ -318,7 +329,7 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 
 Group | Commands
 --- | ---
-The install | `doctor`, `enrol`, `init`, `reload`, `unenrol`, `uninstall`
+The install | `doctor`, `enrol`, `init`, `reload`, `share`, `unenrol`, `uninstall`
 The managed store | `vault add`, `vault edit`, `vault ls`, `vault rm`
 Who can decrypt it | `reader add`, `reader ls`, `reader reseal`, `reader rm`
 A secret another tool owns | `link add`, `link ls`, `link rm`
