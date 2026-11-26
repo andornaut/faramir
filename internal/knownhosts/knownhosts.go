@@ -119,7 +119,8 @@ func validKey(algorithm, encoded string) bool {
 	_, err = ssh.ParsePublicKey(blob)
 	// Unknown formats remain forward compatible. Their envelope is checked,
 	// but only the OpenSSH version using the file can validate their payload.
-	return err == nil || err.Error() == "ssh: unknown key algorithm: "+algorithm
+	// The parser has no typed error for an unknown algorithm.
+	return err == nil || err.Error() == fmt.Sprintf("ssh: unknown key algorithm: %q", algorithm)
 }
 
 func hasPrefixIn(s string, prefixes []string) bool {
