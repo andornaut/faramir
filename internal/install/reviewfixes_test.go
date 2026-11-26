@@ -30,8 +30,8 @@ func TestUnitConfigDirReadsDropIns(t *testing.T) {
 	}
 	write(filepath.Join(dir, unit),
 		"[Service]\nEnvironment=FARAMIR_CONFIG=/etc/faramir/config.toml\n")
-	if got := hostunit.ConfigDir(unit); got != "/etc/faramir" {
-		t.Fatalf("the unit alone: got %q", got)
+	if got, err := hostunit.ConfigDir(unit); err != nil || got != "/etc/faramir" {
+		t.Fatalf("the unit alone: got %q, %v", got, err)
 	}
 
 	// Later drop-ins win, in name order.
@@ -39,8 +39,8 @@ func TestUnitConfigDirReadsDropIns(t *testing.T) {
 		"[Service]\nEnvironment=FARAMIR_CONFIG=/srv/one/config.toml\n")
 	write(filepath.Join(dir, unit+".d", "20-second.conf"),
 		"[Service]\nEnvironment=FARAMIR_CONFIG=/srv/two/config.toml\n")
-	if got := hostunit.ConfigDir(unit); got != "/srv/two" {
-		t.Errorf("a drop-in overriding the config directory was ignored: got %q", got)
+	if got, err := hostunit.ConfigDir(unit); err != nil || got != "/srv/two" {
+		t.Errorf("a drop-in overriding the config directory was ignored: got %q, %v", got, err)
 	}
 
 	// And the consequence: init must see that as a move.
@@ -48,6 +48,30 @@ func TestUnitConfigDirReadsDropIns(t *testing.T) {
 	if err := run.refuseRepoint(); err == nil {
 		t.Error("re-provisioning /etc/faramir while the daemons load /srv/two was " +
 			"allowed, which moves them without saying so")
+	}
+}
+
+func TestConfigDiscoveryErrorsStopRepointAndReload(t *testing.T) {
+	original := hostunit.SystemUnitDir
+	hostunit.SystemUnitDir = t.TempDir()
+	t.Cleanup(func() { hostunit.SystemUnitDir = original })
+	unit := hostunit.Path(hostunit.BrokerUnit)
+	if err := os.WriteFile(unit, []byte("[Service]\nEnvironment=FARAMIR_CONFIG=/etc/faramir/config.toml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(unit+".d", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(unit+".d", "10-unreadable.conf")
+	if err := os.Symlink(t.TempDir(), bad); err != nil {
+		t.Fatal(err)
+	}
+	run := &runner{layout: hostlayout.Layout{ConfigDir: "/etc/faramir"}}
+	if err := run.refuseRepoint(); err == nil || !strings.Contains(err.Error(), bad) {
+		t.Errorf("repoint error = %v; want the unreadable drop-in", err)
+	}
+	if err := parseInstalledConfig(); err == nil || !strings.Contains(err.Error(), bad) {
+		t.Errorf("reload error = %v; want the unreadable drop-in before any subprocess", err)
 	}
 }
 

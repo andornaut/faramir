@@ -114,7 +114,10 @@ func (r *runner) preflight() error {
 // A flag-less re-run never reaches this: init resolves the config directory
 // from the running broker and then from the unit.
 func (r *runner) refuseRepoint() error {
-	installed := hostunit.ConfigDir(hostunit.BrokerUnit)
+	installed, err := hostunit.ConfigDir(hostunit.BrokerUnit)
+	if err != nil {
+		return err
+	}
 	if installed == "" || installed == r.layout.ConfigDir {
 		return nil
 	}

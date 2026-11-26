@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,10 +18,10 @@ import (
 var brokerUnit = hostunit.Path(hostunit.BrokerUnit)
 
 // unitConfigFile reads the config path out of the broker's unit and its
-// drop-ins, or "" when neither is readable or names one: what the broker was
-// installed to load, which is the answer left when it is not running. The same
-// reader init refuses a config move against.
-func unitConfigFile() string {
+// drop-ins, or "" when no unit or assignment names one. Unreadable files and
+// unsupported declarations are errors, so discovery cannot silently select
+// another install. The same reader guards init against a config move.
+func unitConfigFile() (string, error) {
 	return hostunit.ConfigFile(brokerUnit)
 }
 
@@ -37,7 +38,11 @@ func configFileFrom(st brokerclient.Status) (string, error) {
 	if st.ConfigDir != "" {
 		return config.FileIn(st.ConfigDir), nil
 	}
-	if path := unitConfigFile(); path != "" {
+	path, err := unitConfigFile()
+	if err != nil {
+		return "", err
+	}
+	if path != "" {
 		return path, nil
 	}
 	return "", errNoInstall
@@ -109,12 +114,16 @@ func installedConfigDir(socketPath string) (string, error) {
 // It is a variable an operator exports for a shell and `sudo -E` carries
 // through, and a leftover from an earlier command must not be what decides
 // where a host is provisioned.
-func initConfigDir(explicit, socketPath string) string {
+func initConfigDir(explicit, socketPath string) (string, error) {
 	if explicit != "" {
-		return explicit
+		return explicit, nil
 	}
-	if path, err := configFileFrom(brokerclient.AskStatus(socketPath)); err == nil {
-		return filepath.Dir(path)
+	path, err := configFileFrom(brokerclient.AskStatus(socketPath))
+	if err == nil {
+		return filepath.Dir(path), nil
 	}
-	return hostlayout.DefaultConfigDir
+	if !errors.Is(err, errNoInstall) {
+		return "", err
+	}
+	return hostlayout.DefaultConfigDir, nil
 }

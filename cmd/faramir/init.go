@@ -199,6 +199,11 @@ func runInit(f initFlags) error {
 		seconds[flag] = got
 	}
 
+	configDir, err := initConfigDir(f.configDir, socketDefault())
+	if err != nil {
+		reportErr("init", err)
+		return codeErr(1)
+	}
 	opts := install.Options{
 		// The accounts this run is naming as well as the ones already installed:
 		// `init` is what writes the units, so on a first install there are none to
@@ -212,7 +217,7 @@ func runInit(f initFlags) error {
 		BrokerUser:    f.brokerUser,
 		KeeperUser:    f.keeperUser,
 		ExecUser:      f.execUser,
-		ConfigDir:     initConfigDir(f.configDir, socketDefault()),
+		ConfigDir:     configDir,
 		SSHKey:        f.sshKey,
 		KnownHosts:    f.knownHosts,
 		Agents:        f.initAgents,

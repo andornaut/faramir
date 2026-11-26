@@ -110,11 +110,11 @@ func TestInitConfigDirFallsBackToTheDefault(t *testing.T) {
 	pointBrokerUnit(t, "")
 	t.Setenv("FARAMIR_CONFIG", "")
 	missing := filepath.Join(t.TempDir(), "absent.sock")
-	if got := initConfigDir("", missing); got != hostlayout.DefaultConfigDir {
-		t.Errorf("initConfigDir = %q, want %q", got, hostlayout.DefaultConfigDir)
+	if got, err := initConfigDir("", missing); err != nil || got != hostlayout.DefaultConfigDir {
+		t.Errorf("initConfigDir = %q, %v, want %q", got, err, hostlayout.DefaultConfigDir)
 	}
-	if got := initConfigDir("/etc/elsewhere", missing); got != "/etc/elsewhere" {
-		t.Errorf("initConfigDir = %q, want the flag to win", got)
+	if got, err := initConfigDir("/etc/elsewhere", missing); err != nil || got != "/etc/elsewhere" {
+		t.Errorf("initConfigDir = %q, %v, want the flag to win", got, err)
 	}
 }
 
@@ -135,8 +135,8 @@ func TestTheUnitReaderTakesTheDropInTheDaemonsLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := unitConfigFile(); got != "/srv/faramir/config.toml" {
-		t.Errorf("unitConfigFile = %q, want the drop-in's path", got)
+	if got, err := unitConfigFile(); err != nil || got != "/srv/faramir/config.toml" {
+		t.Errorf("unitConfigFile = %q, %v, want the drop-in's path", got, err)
 	}
 	t.Setenv("FARAMIR_CONFIG", "")
 	missing := filepath.Join(t.TempDir(), "absent.sock")

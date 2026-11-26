@@ -96,7 +96,10 @@ func (r *runner) stepSystemd() error {
 // rather than a reason to refuse a restart.
 func parseInstalledConfig() error {
 	unit := hostunit.Path(hostunit.BrokerUnit)
-	configFile := hostunit.ConfigFile(unit)
+	configFile, err := hostunit.ConfigFile(unit)
+	if err != nil {
+		return err
+	}
 	if configFile == "" {
 		configFile = config.FileIn(hostlayout.DefaultConfigDir)
 	}

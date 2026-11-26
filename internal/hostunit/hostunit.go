@@ -13,6 +13,7 @@ package hostunit
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -99,12 +100,16 @@ func Path(name string) string {
 // as operators would then not refuse the account the executor actually runs as.
 //
 // An empty assignment is systemd's way of unsetting, so it clears what an
-// earlier file said rather than being passed over, as UnitConfigFile treats one.
+// earlier file said rather than being passed over, as ConfigFile treats one.
 func User(name string) (string, error) {
 	unit := Path(name)
 	account := ""
 	read := false
-	for _, path := range files(unit) {
+	paths, err := files(unit)
+	if err != nil {
+		paths = []string{unit}
+	}
+	for _, path := range paths {
 		body, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -128,51 +133,24 @@ func User(name string) (string, error) {
 	return account, nil
 }
 
-// ConfigFile is the config file the unit at this path loads, or "" when
-// there is no unit or it names none. Read from the unit rather than asked of a
-// running broker: a host whose daemons are down still has an install.
-//
-// Drop-ins as well as the unit, in the order systemd reads them: a
-// <unit>.d/*.conf setting Environment=FARAMIR_CONFIG is what the daemons load,
-// so reading the main file alone would see no move where there is one.
-//
-// Exported because every caller that resolves this host's install has to get
-// the same answer.
-func ConfigFile(unit string) string {
-	file := ""
-	for _, path := range files(unit) {
-		body, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		for line := range strings.SplitSeq(string(body), "\n") {
-			if value, ok := strings.CutPrefix(strings.TrimSpace(line),
-				"Environment=FARAMIR_CONFIG="); ok {
-				// An empty assignment is systemd's way of unsetting, so it clears what
-				// an earlier file said rather than being skipped as "names none".
-				file = strings.TrimSpace(value)
-			}
-		}
+// ConfigDir is the directory of ConfigFile for the installed unit of this name.
+func ConfigDir(name string) (string, error) {
+	file, err := ConfigFile(Path(name))
+	if err != nil || file == "" {
+		return "", err
 	}
-	return file
-}
-
-// ConfigDir is UnitConfigFile's directory, for the installed unit of this
-// name.
-func ConfigDir(name string) string {
-	file := ConfigFile(Path(name))
-	if file == "" {
-		return ""
-	}
-	return filepath.Dir(file)
+	return filepath.Dir(file), nil
 }
 
 // files is a unit and its drop-ins, in the order systemd applies them: the
 // unit first, then <unit>.d/*.conf sorted by name, later winning.
-func files(unit string) []string {
+func files(unit string) ([]string, error) {
 	entries, err := os.ReadDir(unit + ".d")
 	if err != nil {
-		return []string{unit}
+		if errors.Is(err, os.ErrNotExist) {
+			return []string{unit}, nil
+		}
+		return nil, err
 	}
 	var dropIns []string
 	for _, entry := range entries {
@@ -183,7 +161,7 @@ func files(unit string) []string {
 	slices.Sort(dropIns)
 	files := make([]string, 0, 1+len(dropIns))
 	files = append(files, unit)
-	return append(files, dropIns...)
+	return append(files, dropIns...), nil
 }
 
 // Property reads one property off a unit through `systemctl show`, trimmed.

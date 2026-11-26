@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/brokerclient"
@@ -122,4 +123,38 @@ func withUnit(t *testing.T, body string) {
 	// A socket nothing is listening on, so the unit is what is left and a live
 	// install on the host cannot decide this.
 	t.Setenv("FARAMIR_SOCKET", filepath.Join(t.TempDir(), "absent.sock"))
+}
+
+func TestConfigDiscoveryDoesNotFallBackPastAnUnreadableDropIn(t *testing.T) {
+	withUnit(t, "[Service]\nEnvironment=FARAMIR_CONFIG=/etc/faramir/config.toml\n")
+	if err := os.Mkdir(brokerUnit+".d", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(brokerUnit+".d", "10-unreadable.conf")
+	if err := os.Symlink(t.TempDir(), bad); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := configFileFrom(brokerclient.Status{}); err == nil || path != "" ||
+		!strings.Contains(err.Error(), bad) {
+		t.Errorf("configFileFrom = %q, %v; want the drop-in error", path, err)
+	}
+	if dir, err := initConfigDir("", socketDefault()); err == nil || dir != "" ||
+		!strings.Contains(err.Error(), bad) {
+		t.Errorf("initConfigDir = %q, %v; want the drop-in error rather than the default", dir, err)
+	}
+}
+
+func TestConfigDiscoveryKeepsItsExplicitAndBrokerPrecedence(t *testing.T) {
+	withUnit(t, "[Service]\nEnvironment=\"FARAMIR_CONFIG=/unterminated\n")
+	const want = "/from/broker/config.toml"
+	if got, err := configFileFrom(brokerclient.Status{ConfigDir: filepath.Dir(want)}); err != nil || got != want {
+		t.Errorf("configFileFrom = %q, %v; want the broker's answer", got, err)
+	}
+	t.Setenv("FARAMIR_CONFIG", want)
+	if got, err := findConfigFile(brokerclient.Status{}); err != nil || got != want {
+		t.Errorf("findConfigFile = %q, %v; want the explicit environment", got, err)
+	}
+	if got, err := initConfigDir("/explicit", socketDefault()); err != nil || got != "/explicit" {
+		t.Errorf("initConfigDir = %q, %v; want the explicit flag", got, err)
+	}
 }
