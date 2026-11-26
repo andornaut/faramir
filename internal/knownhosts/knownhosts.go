@@ -8,9 +8,12 @@ package knownhosts
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // GlobalFile is the file ssh consults before any account's own, so one
@@ -19,8 +22,8 @@ import (
 const GlobalFile = "/etc/ssh/ssh_known_hosts"
 
 // keyTypes are the algorithm prefixes a host key line can carry.
-// Prefixes rather than an exact list: a type a later OpenSSH adds is still a
-// host key.
+// Prefixes rather than an exact list: future formats retain envelope validation
+// even when their algorithm-specific payload is not understood here.
 var keyTypes = []string{"ssh-", "ecdsa-", "sk-", "webauthn-"}
 
 // Read reads a known_hosts file and reports how many host keys it
@@ -53,10 +56,16 @@ func parse(data []byte) (entries, bad int) {
 		}
 		// @cert-authority and @revoked qualify the name that follows them.
 		if strings.HasPrefix(fields[0], "@") {
+			if fields[0] != "@cert-authority" && fields[0] != "@revoked" {
+				if bad == 0 {
+					bad = i + 1
+				}
+				continue
+			}
 			fields = fields[1:]
 		}
 		// A hashed entry is still name, type and key; only the name is opaque.
-		if len(fields) < 3 || !hasPrefixIn(fields[1], keyTypes) {
+		if len(fields) < 3 || !validHosts(fields[0]) || !validKey(fields[1], fields[2]) {
 			if bad == 0 {
 				bad = i + 1
 			}
@@ -65,6 +74,52 @@ func parse(data []byte) (entries, bad int) {
 		entries++
 	}
 	return entries, bad
+}
+
+// Host patterns permit wildcards, negation, address lists and bracketed ports.
+// Hashed names use OpenSSH's version 1 HMAC-SHA1 format (20-byte salt and hash).
+func validHosts(hosts string) bool {
+	if strings.HasPrefix(hosts, "|") {
+		parts := strings.Split(hosts, "|")
+		if len(parts) != 4 || parts[1] != "1" {
+			return false
+		}
+		for _, part := range parts[2:] {
+			decoded, err := base64.StdEncoding.DecodeString(part)
+			if err != nil || len(decoded) != 20 {
+				return false
+			}
+		}
+		return true
+	}
+	for _, pattern := range strings.Split(hosts, ",") {
+		pattern = strings.TrimPrefix(pattern, "!")
+		if pattern == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func validKey(algorithm, encoded string) bool {
+	if !hasPrefixIn(algorithm, keyTypes) {
+		return false
+	}
+	blob, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return false
+	}
+	var envelope struct {
+		Algorithm string
+		Body      []byte `ssh:"rest"`
+	}
+	if err := ssh.Unmarshal(blob, &envelope); err != nil || envelope.Algorithm != algorithm || len(envelope.Body) == 0 {
+		return false
+	}
+	_, err = ssh.ParsePublicKey(blob)
+	// Unknown formats remain forward compatible. Their envelope is checked,
+	// but only the OpenSSH version using the file can validate their payload.
+	return err == nil || err.Error() == "ssh: unknown key algorithm: "+algorithm
 }
 
 func hasPrefixIn(s string, prefixes []string) bool {
@@ -76,10 +131,11 @@ func hasPrefixIn(s string, prefixes []string) bool {
 	return false
 }
 
-// Count reports how many host keys ssh would take from a file, and
-// zero for one that is absent. Lenient where Read refuses: ssh
-// ignores a line it cannot parse, so the entries either side of a bad one still
-// verify their hosts.
+// Count reports how many validated host key entries a file contains, and
+// zero for one that is absent. Future key formats receive envelope validation
+// only; their usability depends on the installed OpenSSH. Lenient where Read
+// refuses: ssh ignores a line it cannot parse, so the entries either side of a
+// bad one still verify their hosts.
 func Count(path string) int {
 	data, err := os.ReadFile(path)
 	if err != nil {

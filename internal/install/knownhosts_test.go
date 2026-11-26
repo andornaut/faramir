@@ -1,6 +1,10 @@
 package install
 
 import (
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"encoding/base64"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -10,16 +14,26 @@ import (
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/knownhosts"
+	"golang.org/x/crypto/ssh"
 )
+
+func knownHostPublicKey(t *testing.T, key any) string {
+	t.Helper()
+	public, err := ssh.NewPublicKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(public.Marshal())
+}
 
 // The flag takes a path from the operator and what it names is copied into the
 // account brokered commands run as, so a file that is not a known_hosts file is
 // refused before anything is written rather than pinned as though it were one.
 func TestReadKnownHostsCountsEntriesAndRefusesAnythingElse(t *testing.T) {
-	const (
-		ed25519 = "AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampleEx"
-		ecdsa   = "AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBExampleExample"
-	)
+	ed25519Key := knownHostPublicKey(t, ed25519.PublicKey(make([]byte, 32)))
+	curve := elliptic.P256()
+	ecdsaKey := knownHostPublicKey(t, &ecdsa.PublicKey{Curve: curve, X: curve.Params().Gx, Y: curve.Params().Gy})
+	hash := base64.StdEncoding.EncodeToString(make([]byte, 20))
 	for _, tc := range []struct {
 		name string
 		body string
@@ -29,21 +43,21 @@ func TestReadKnownHostsCountsEntriesAndRefusesAnythingElse(t *testing.T) {
 	}{
 		{
 			name: "plain entries, comments and blank lines",
-			body: "# the fleet\n\nhost.example.com ssh-ed25519 " + ed25519 +
-				"\nhost.example.com ecdsa-sha2-nistp256 " + ecdsa + "\n",
+			body: "# the fleet\n\nhost.example.com ssh-ed25519 " + ed25519Key +
+				"\nhost.example.com ecdsa-sha2-nistp256 " + ecdsaKey + "\n",
 			want: 2,
 		},
 		{
 			// HashKnownHosts is on by default, so this is what most operators hold.
 			name: "hashed entries",
-			body: "|1|Zm9vYmFyYmF6cXV1eA==|cXV1eGZvb2Jhcg== ssh-ed25519 " + ed25519 + "\n",
+			body: "|1|" + hash + "|" + hash + " ssh-ed25519 " + ed25519Key + "\n",
 			want: 1,
 		},
 		{
 			// The name is qualified by the marker, so the key type is one field along.
 			name: "markers and a bracketed port",
-			body: "@cert-authority *.example.com ssh-ed25519 " + ed25519 +
-				"\n@revoked [host.example.com]:2222 ssh-ed25519 " + ed25519 + "\n",
+			body: "@cert-authority *.example.com ssh-ed25519 " + ed25519Key +
+				"\n@revoked [host.example.com]:2222 ssh-ed25519 " + ed25519Key + "\n",
 			want: 2,
 		},
 		{
@@ -63,7 +77,7 @@ func TestReadKnownHostsCountsEntriesAndRefusesAnythingElse(t *testing.T) {
 		{
 			// Reversed fields: the key comes first, so nothing names a host.
 			name:    "an authorized_keys file",
-			body:    "ssh-ed25519 " + ed25519 + " operator@example.com\n",
+			body:    "ssh-ed25519 " + ed25519Key + " operator@example.com\n",
 			refuses: "line 1",
 		},
 		{
@@ -121,7 +135,7 @@ func TestStepKnownHostsIsSilentWithoutTheFlag(t *testing.T) {
 // see that what was pinned is what they named.
 func TestStepKnownHostsReportsWhatWasPinnedAndFromWhere(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "known_hosts")
-	body := "host.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExample\n"
+	body := "host.example.com ssh-ed25519 " + knownHostPublicKey(t, ed25519.PublicKey(make([]byte, 32))) + "\n"
 	if err := os.WriteFile(source, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +191,7 @@ func TestStepKnownHostsWarnsWhenTheFilePinsNothing(t *testing.T) {
 	}
 }
 
-// The three ways --known-hosts names the wrong file, asked where the answer
+// Invalid --known-hosts inputs are checked where the answer
 // costs nothing. stepKnownHosts runs after the age key, the sops rule, the
 // binary, the config and the SSH key are written, so the same refusal raised
 // there is a host part way provisioned for a path typed wrong.
@@ -192,11 +206,16 @@ func TestKnownHostsIsJudgedBeforeAnythingIsWritten(t *testing.T) {
 	if err := os.WriteFile(prose, []byte("just some prose\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	malformed := filepath.Join(dir, "malformed-hosts")
+	if err := os.WriteFile(malformed, []byte("host.example.com ssh-ed25519 YWJj\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, tc := range []struct{ name, path, wantErr string }{
 		{"a file that is not there", filepath.Join(dir, "gone"), "no such file"},
 		{"the private key rather than the host keys", privateKey, "holds a private key"},
 		{"a file that is not known_hosts at all", prose, "is not a known_hosts entry"},
+		{"a malformed public host key", malformed, "is not a known_hosts entry"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Through preflight rather than the reader it calls, so what this
