@@ -40,10 +40,18 @@ jobs:
 
   # Linux only: the broker reads peer credentials with SO_PEERCRED and the
   # executor allocates PTYs with TIOCGPTN, neither of which exists on macOS.
-  test:
-    name: Test
-    runs-on: ubuntu-latest
+  test-go:
+    name: Test Go
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            coverage: coverage
+          - runner: ubuntu-24.04-arm
+            coverage: coverage-arm64
     steps:
       - name: Checkout code
         uses: actions/checkout@v7.0.1
@@ -60,9 +68,19 @@ jobs:
       - name: Upload coverage
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: coverage
+          name: ${{ matrix.coverage }}
           path: bin/coverage.txt
           if-no-files-found: error
+
+  test:
+    name: Test
+    needs: test-go
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check that every architecture passed
+        run: '[ "${{ needs.test-go.result }}" = success ]'
 
   lint:
     name: Lint

@@ -11,7 +11,7 @@ Run them by hand as well, against a tree you are about to release or while chang
 Three binaries must be beside `e2e.sh` before the first `up`. The image has no network, so it installs what it finds in the build context.
 
 ```sh
-./e2e.sh fetch              # downloads all three, x86_64
+./e2e.sh fetch              # downloads all three on x86_64 and arm64
 ```
 
 | File | Where it comes from |
@@ -22,7 +22,7 @@ Three binaries must be beside `e2e.sh` before the first `up`. The image has no n
 
 `fetch` takes upstream's own builds, which are static, so the image needs no libc to match. Both the version and the sha256 are pinned in `e2e.sh`: these are what the suites decrypt and generate keys with, so a run that says a release is fit to ship says it about a tool named there. A digest that does not match is refused and nothing is written. Bumping a version means changing its digest too, which the refusal prints.
 
-`fetch` checks what is already there against the pin rather than downloading it again, so it is safe before every `up`; delete a file to replace it. It pins x86_64 digests only, and says so on another architecture: copy the three in by hand there.
+`fetch` checks what is already there against the pin rather than downloading it again, so it is safe before every `up`; delete a file to replace it. It pins x86_64 and arm64 digests. On other architectures, supply the three binaries by hand.
 
 `e2e.sh up` prepares two more in an isolated Go container: `faramir` from tracked source and `faramir-skew` reporting `9.9.9-skew`. The producer verifies their versions inside the container. The skew version differs from every supported normal version, including a `9.9.9` release.
 

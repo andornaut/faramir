@@ -76,10 +76,22 @@ SUITES=(init project config disclose plugin guard wrap leak stream exec logs ssh
 # says it about a tool named here. Bumping one means changing its digest too,
 # which `fetch` prints when it refuses.
 SOPS_VERSION=3.13.3
-SOPS_SHA256=e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
 AGE_VERSION=1.1.1
-AGE_SHA256=0c6ddc31c276f55e9414fe27af4aada4579ce2fb824c1ec3f207873a77a49752
-AGE_KEYGEN_SHA256=e279f64ccd11347e57b8d28304e3e358ae1a5ef4f19107e7a1f9c9156fdcad91
+case "$(uname -m)" in
+  x86_64)
+    TOOL_ARCH=amd64
+    SOPS_SHA256=e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
+    AGE_SHA256=0c6ddc31c276f55e9414fe27af4aada4579ce2fb824c1ec3f207873a77a49752
+    AGE_KEYGEN_SHA256=e279f64ccd11347e57b8d28304e3e358ae1a5ef4f19107e7a1f9c9156fdcad91
+    ;;
+  aarch64)
+    TOOL_ARCH=arm64
+    SOPS_SHA256=53b0abacd38ef1b12a66d6c100956691b9cefce018d91f81e73ddf7438b94d77
+    AGE_SHA256=ed2e7ea49aaf9192fe7972cbcac6b866b5df776a1e48c671ae102513404908f1
+    AGE_KEYGEN_SHA256=5376e684ffbbc1596e6e6386531102e809ae2c98aaded8055866959d9c4c0881
+    ;;
+  *) TOOL_ARCH=;;
+esac
 
 die() { printf 'e2e: %s\n' "$1" >&2; exit 1; }
 running() { [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = true ]; }
@@ -97,9 +109,7 @@ pinned_digest() {
 }
 
 # pins_apply reports whether the digests above describe this machine's binaries.
-# They name one architecture's builds, so on any other the operator supplies the
-# three by hand and there is nothing here to check them against.
-pins_apply() { [ "$(uname -m)" = x86_64 ]; }
+pins_apply() { [ -n "$TOOL_ARCH" ]; }
 
 # verified puts a downloaded file in place, and only the one pinned above. A
 # digest that does not match is a different binary whatever the reason, and the
@@ -164,7 +174,7 @@ cmd_fetch() {
   # Only what actually downloads needs these, so a box that was given the three
   # by hand can still run the suites without curl, and on an architecture these
   # digests do not describe.
-  pins_apply || die "these digests are x86_64 builds and this is $(uname -m); copy$missing in beside this script by hand"
+  pins_apply || die "no download digests for $(uname -m); copy$missing in beside this script by hand"
   for tool in curl tar sha256sum install; do
     command -v $tool >/dev/null || die "$tool is needed to download$missing, and is not installed"
   done
@@ -180,7 +190,7 @@ cmd_fetch() {
   else
     echo "== fetching sops $SOPS_VERSION"
     fetch_to "$work/sops" \
-      "https://github.com/getsops/sops/releases/download/v$SOPS_VERSION/sops-v$SOPS_VERSION.linux.amd64" \
+      "https://github.com/getsops/sops/releases/download/v$SOPS_VERSION/sops-v$SOPS_VERSION.linux.$TOOL_ARCH" \
       || die "could not download sops $SOPS_VERSION"
     verified "$work/sops" "$HERE/sops" "$SOPS_SHA256"
   fi
@@ -194,7 +204,7 @@ cmd_fetch() {
   # One archive carries both, so both are taken from it rather than one being
   # left at whatever version was already here.
   fetch_to "$work/age.tgz" \
-    "https://github.com/FiloSottile/age/releases/download/v$AGE_VERSION/age-v$AGE_VERSION-linux-amd64.tar.gz" \
+    "https://github.com/FiloSottile/age/releases/download/v$AGE_VERSION/age-v$AGE_VERSION-linux-$TOOL_ARCH.tar.gz" \
     || die "could not download age $AGE_VERSION"
   tar --no-same-owner -xzf "$work/age.tgz" -C "$work" || die "the age archive would not extract"
   verified "$work/age/age" "$HERE/age" "$AGE_SHA256"
