@@ -332,6 +332,7 @@ func (p *project) resolveGroup() error {
 		}
 		return fmt.Errorf("cannot read %s: %w\n  run `sudo faramir init`, or set FARAMIR_CONFIG", configFile, err)
 	}
+	p.installedSudo = cfg.Sudo.ExecUser != ""
 	// The grant is this host's, and says nothing about a tree shared with a group
 	// this host's socket does not admit: that names another install, whose
 	// escalation arrangement is its own.

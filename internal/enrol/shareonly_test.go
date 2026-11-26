@@ -69,8 +69,21 @@ func TestShareOnlyDryRunWritesNoEnrollmentOrAgentConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(report.Warnings) != 1 || !strings.Contains(report.Warnings[0], "effective unit") {
+		t.Errorf("standalone sharing did not report the conditional executor advisory: %v", report.Warnings)
+	}
 	if report.Changed || !report.DryRun {
 		t.Errorf("dry run reported %+v", report)
+	}
+	sudoReport, err := ShareOnly(Options{
+		Dir: root, AgentUser: me.Username, ClientGroup: group.Name,
+		ConfigDir: installedConfig(t, sudoGranted()), DryRun: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sudoReport.Warnings) != 0 {
+		t.Errorf("sudo install received a strict-unit advisory: %v", sudoReport.Warnings)
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil || len(entries) != 0 {

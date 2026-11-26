@@ -61,6 +61,7 @@ func ShareOnly(opts Options) (Report, error) {
 	}
 	report.LogTo(opts.Log)
 	if opts.DryRun {
+		warnExecutorWrites(&report, cfg.Sudo.ExecUser != "", dir)
 		report.Skip("share tree", fmt.Sprintf("%s with group %s", dir, opts.ClientGroup))
 		return report, nil
 	}
@@ -71,6 +72,9 @@ func ShareOnly(opts Options) (Report, error) {
 	report.Record("share tree", result.Changed > 0,
 		fmt.Sprintf("%s with group %s, %d path(s) changed; private descendants and owners retained",
 			dir, opts.ClientGroup, result.Changed))
+	if err == nil {
+		warnExecutorWrites(&report, cfg.Sudo.ExecUser != "", dir)
+	}
 	return report, err
 }
 

@@ -54,6 +54,9 @@ func newShareCmd() *cobra.Command {
 				return codeErr(1)
 			}
 			if !asJSON {
+				for _, warning := range report.Warnings {
+					fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
+				}
 				verb := "shared"
 				if dryRun {
 					verb = "dry run: would share"

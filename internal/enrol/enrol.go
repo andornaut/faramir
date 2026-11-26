@@ -157,12 +157,12 @@ type project struct {
 	report Report
 	uid    int
 	gid    int
-	// allowSudo is whether this host was installed with --allow-sudo, read off
-	// the config beside the client group, and decides one paragraph of the
-	// credentials section. False for an enrolment that named --client-group and
-	// so never read a config: the section then says nothing about escalations,
-	// which is the safe direction.
+	// allowSudo enables escalation prose only when this tree uses the
+	// installed client group, whose broker serves that escalation arrangement.
 	allowSudo bool
+	// installedSudo describes the generated executor unit even when the chosen
+	// client group belongs to another install. Operator drop-ins may differ.
+	installedSudo bool
 	// agentHome is the operator's own home, which auto consults for an agent that
 	// keeps nothing beside a project. Empty where the account does not resolve,
 	// which leaves such an agent to be named rather than found.

@@ -117,6 +117,9 @@ func TestANamedGroupTakesTheSudoGrantOnlyFromTheSameInstall(t *testing.T) {
 			if run.report.ClientGroup != tc.group {
 				t.Errorf("group = %q, want the one that was named", run.report.ClientGroup)
 			}
+			if !run.installedSudo {
+				t.Error("the installed sudo arrangement was lost when selecting a client group")
+			}
 			if run.allowSudo != tc.want {
 				t.Errorf("allowSudo = %v, want %v", run.allowSudo, tc.want)
 			}

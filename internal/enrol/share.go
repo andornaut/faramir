@@ -6,7 +6,6 @@ package enrol
 import (
 	"fmt"
 
-	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/sharetree"
 	"github.com/andornaut/faramir/internal/steps"
 )
@@ -31,6 +30,7 @@ func (p *project) keepModes() []string {
 
 func (p *project) shareTree() error {
 	if p.opts.DryRun {
+		warnExecutorWrites(&p.report, p.installedSudo, p.opts.Dir)
 		p.step("share tree", false, fmt.Sprintf("%s with group %s",
 			p.opts.Dir, p.report.ClientGroup))
 		return nil
@@ -45,13 +45,7 @@ func (p *project) shareTree() error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", p.opts.Dir, err)
 	}
-	// The executor runs under ProtectSystem=strict with /home as its only
-	// writable tree, so a tree outside it takes the group and then refuses every
-	// write with EROFS.
-	if hostlayout.HomeOf(p.opts.Dir) == "" {
-		p.warnf("%s is outside /home, so brokered writes there fail with EROFS\n"+
-			"  add it to ReadWritePaths= in a faramir-exec.service drop-in", p.opts.Dir)
-	}
+	warnExecutorWrites(&p.report, p.installedSudo, p.opts.Dir)
 	// What it altered, not whether it ran: the first run rewrites the ownership
 	// and mode of every file in the tree, and reporting that as no change would
 	// tell anything reading Changed that a regrouped tree was left alone.
