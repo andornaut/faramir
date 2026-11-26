@@ -11,8 +11,9 @@ A redaction failure returns a non-zero status and withholds text that the broker
 
 - Evidence: [Shell wrapper](../../../agent/hooks/wrap.sh) and [wrapper check](../../../tests/e2e/check-wrap.sh)
   cover withholding the captured result if redaction fails.
-- Evidence: [CLI entry point](../../../cmd/faramir/redact.go), [broker client](../../../internal/brokerclient/brokerclient.go),
-  and [stream tests](../../../internal/brokerclient/redactstream_test.go) cover withholding unredacted output
-  and preserving chunks already emitted.
+- Evidence: [CLI entry point](../../../cmd/faramir/redact.go) and [broker client](../../../internal/brokerclient/brokerclient.go)
+  implement the streaming path.
+- Evidence: [Stream tests](../../../internal/brokerclient/redactstream_test.go) cover withholding
+  unredacted output and preserving chunks already emitted.
 
 See [how the shell rewrite works](../../design.md#how-the-rewrite-works) for capture and streaming details.
