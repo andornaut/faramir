@@ -58,8 +58,8 @@ func configEnvironment(file, body string) (string, error) {
 			continue
 		}
 		line = continued + line
-		if strings.HasSuffix(line, "\\") {
-			continued = strings.TrimSuffix(line, "\\") + " "
+		if prefix, ok := strings.CutSuffix(line, "\\"); ok {
+			continued = prefix + " "
 			continue
 		}
 		continued = ""

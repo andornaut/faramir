@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/base64"
 	"os"
 	"os/user"
@@ -11,10 +12,11 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/andornaut/faramir/internal/hostfs"
 	"github.com/andornaut/faramir/internal/hostlayout"
 	"github.com/andornaut/faramir/internal/knownhosts"
-	"golang.org/x/crypto/ssh"
 )
 
 func knownHostPublicKey(t *testing.T, key any) string {
@@ -31,8 +33,11 @@ func knownHostPublicKey(t *testing.T, key any) string {
 // refused before anything is written rather than pinned as though it were one.
 func TestReadKnownHostsCountsEntriesAndRefusesAnythingElse(t *testing.T) {
 	ed25519Key := knownHostPublicKey(t, ed25519.PublicKey(make([]byte, 32)))
-	curve := elliptic.P256()
-	ecdsaKey := knownHostPublicKey(t, &ecdsa.PublicKey{Curve: curve, X: curve.Params().Gx, Y: curve.Params().Gy})
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ecdsaKey := knownHostPublicKey(t, key.Public())
 	hash := base64.StdEncoding.EncodeToString(make([]byte, 20))
 	for _, tc := range []struct {
 		name string
