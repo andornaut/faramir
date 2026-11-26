@@ -39,7 +39,9 @@ Statuses are `ok`, `warn`, `failed` and `n/a`. `n/a` is a check whose subject th
 
 **Without the agent's account**, most boundary checks cannot run: `access(2)` answers "no" for an account that cannot be named, which is the same answer a holding boundary gives. From a root shell or cron, `doctor` takes the account from `$FARAMIR_OPERATOR`, then `SUDO_USER`, then the calling account, then `[server] agent_user`, refusing root and faramir's own accounts at each step. Those checks report as unasked only when none of the four names an account, which means `init` has not finished: `faramir init --agent-user` records it, and `doctor` has no such flag.
 
-**Finding the install.** `doctor`, `enrol`, `unenrol`, `uninstall`, `link`, `block`, `vault add`, `vault edit`, `vault ls`, `vault rm`, `reader` and `logs` all act on an existing install. None of them takes the path as a flag. They find it in this order, whether they need the directory or the file:
+### Finding the install
+
+`doctor`, `enrol`, `unenrol`, `share`, `uninstall`, `link`, `block`, `vault add`, `vault edit`, `vault ls`, `vault rm`, `reader` and `logs` all act on an existing install. They resolve its path in this order:
 
 Order | Source
 --- | ---
