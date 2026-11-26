@@ -108,9 +108,7 @@ Wrapper | State | Output
 inline `{ <cmd>; } >"$f" 2>&1` | kept | complete
 `source wrap.sh '<cmd>'` | kept | complete
 
-Every failure fails closed. Without `XDG_RUNTIME_DIR` the command does not run, because there is nowhere private to capture its output. Output that was captured but not redacted is withheld. Both cases say so on stderr and return non-zero, so a withheld output cannot be mistaken for a command that printed nothing.
-
-`faramir redact` fails the same way in both its forms. One thing is not withheld: the part of a stream that was already redacted when the broker died part way through. Those chunks were already redacted, and withholding them would need an unbounded buffer for a guarantee they already meet.
+Without `XDG_RUNTIME_DIR` the command does not run, because there is nowhere private to capture its output. This writes a diagnostic to stderr and returns non-zero. Once the command runs, the [redaction failure rule](design/output-handling/redaction-failures.md#rule-withhold-unredacted-output) governs what reaches the caller.
 
 Commands left alone rather than rewritten:
 

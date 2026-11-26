@@ -359,18 +359,7 @@ There is no command allowlist. A brokered command is bounded by the executor's u
 
 ## Documentation
 
-Doc | Covers
---- | ---
-[docs/integrations.md](docs/integrations.md) | Wiring a tool to the broker: per-tool recipes, linked credentials, SSH, and Ansible end to end
-[docs/configuration.md](docs/configuration.md) | Every setting, which flag sets it, what `--check` fails on
-[docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what it gives up
-[docs/coding-agents.md](docs/coding-agents.md) | What varies between the agents, how the rules reach each, what enrolling one costs
-[docs/installing.md](docs/installing.md) | Every `init` flag, what a re-run adopts, where the config directory may not go
-[docs/layout.md](docs/layout.md) | Every path the install creates, with its mode and owner
-[docs/escalation.md](docs/escalation.md) | Granting `sudo` to a brokered command, answering a question, what the grant costs
-[docs/operating.md](docs/operating.md) | Checking an install, every operator command, [the rules a command does not state](docs/operating.md#rules-a-command-does-not-state), adding an age recipient
-[docs/protocol.md](docs/protocol.md) | Request and response shapes on the socket
-[docs/redaction.md](docs/redaction.md) | What the redactor covers, and what it cannot
+See the [documentation index](docs/README.md) for installation, operation, and design.
 
 ## Developing
 
