@@ -131,7 +131,7 @@ func TestChecksAndTagPublishingUseIsolatedNativeCommands(t *testing.T) {
 	for _, check := range []struct {
 		id, command string
 	}{
-		{"test", "tests/e2e/e2e.sh fetch\nCGO_ENABLED=1 FARAMIR_TEST_OUT=bin tests/go/run.sh \\\n  bash tests/container/check test-go"},
+		{"test-go", "tests/e2e/e2e.sh fetch\nCGO_ENABLED=1 FARAMIR_TEST_OUT=bin tests/go/run.sh \\\n  bash tests/container/check test-go"},
 		{"lint", "tests/container/run lint"},
 	} {
 		if got := strings.TrimSpace(script(validation.Jobs[check.id])); got != check.command {
@@ -222,7 +222,7 @@ func TestPublicationRequiresEveryCheckAndRejectsAnotherSourceRevision(t *testing
 func TestRequiredAggregatesFailForEveryUnsuccessfulDependency(t *testing.T) {
 	validation := readWorkflow(t, "test.yml")
 	required := requiredJobs(t, validation)
-	for _, name := range []string{"AI attributions", "Build", "E2E"} {
+	for _, name := range []string{"AI attributions", "Test", "Build", "E2E"} {
 		t.Run(name, func(t *testing.T) {
 			aggregate := validation.Jobs[required[name]]
 			if aggregate.If != "always()" {
