@@ -119,6 +119,7 @@ test-go:
 ## the container for the reason `make test` is; the profile is written to
 ## $(BIN)/coverage.txt, the one directory a run's output is copied out to.
 coverage:
+	@tests/e2e/e2e.sh fetch
 	CGO_ENABLED=1 FARAMIR_TEST_OUT=$(BIN) tests/go/run.sh sh -c \
 	  'go test -race -count=1 -p=1 -parallel=4 -coverprofile=/out/coverage.txt -covermode=atomic ./... && \
 	   go tool cover -func=/out/coverage.txt'
@@ -142,6 +143,7 @@ coverage:
 ## not, since a failing run is the one that wrote a crasher.
 FUZZTIME ?= 30s
 fuzz:
+	@tests/e2e/e2e.sh fetch
 	@rm -rf $(BIN)/fuzz; \
 	  FARAMIR_TEST_OUT=$(BIN)/fuzz tests/go/run.sh tests/go/fuzz.sh $(FUZZTIME); \
 	  status=$$?; \
