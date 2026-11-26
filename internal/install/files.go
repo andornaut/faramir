@@ -212,13 +212,22 @@ func (r *runner) installDocs() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := r.fs.EnsureDir(r.layout.DocDir, 0o755, 0, 0, true); err != nil {
-		return false, err
-	}
-	if _, err := r.fs.EnsureDir(filepath.Join(r.layout.DocDir, "docs"), 0o755, 0, 0, true); err != nil {
-		return false, err
+	docRoot := filepath.Clean(r.layout.DocDir)
+	dirs := map[string]bool{docRoot: true, filepath.Join(docRoot, "docs"): true}
+	for _, target := range targets {
+		for dir := filepath.Dir(target); !dirs[dir]; dir = filepath.Dir(dir) {
+			dirs[dir] = true
+		}
 	}
 	changed := false
+	// The sorted paths put every parent before its children.
+	for _, dir := range slices.Sorted(maps.Keys(dirs)) {
+		made, err := r.fs.EnsureDir(dir, 0o755, 0, 0, true)
+		if err != nil {
+			return false, err
+		}
+		changed = changed || made
+	}
 	for _, asset := range slices.Sorted(maps.Keys(targets)) {
 		made, err := r.writeAsset(asset, targets[asset], 0o644)
 		if err != nil {
@@ -238,17 +247,13 @@ func docTargets(layout hostlayout.Layout) (map[string]string, error) {
 		// belongs.
 		"LICENSE": filepath.Join(layout.DocDir, "LICENSE"),
 	}
-	entries, err := fs.ReadDir(faramir.Assets, "docs")
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
+	err := fs.WalkDir(faramir.Assets, "docs", func(asset string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() && strings.HasSuffix(asset, ".md") {
+			targets[asset] = filepath.Join(layout.DocDir, filepath.FromSlash(asset))
 		}
-		targets["docs/"+entry.Name()] = filepath.Join(layout.DocDir, "docs", entry.Name())
-	}
-	return targets, nil
+		return err
+	})
+	return targets, err
 }
 
 // writeAsset copies an embedded file out verbatim.

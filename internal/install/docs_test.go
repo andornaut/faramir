@@ -26,20 +26,20 @@ func TestTheDocsInstallNestedUnderDocs(t *testing.T) {
 				name, got, want)
 		}
 	}
-	entries, err := fs.ReadDir(faramir.Assets, "docs")
-	if err != nil {
-		t.Fatal(err)
-	}
 	shipped := 0
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
+	err = fs.WalkDir(faramir.Assets, "docs", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".md") {
+			return err
 		}
 		shipped++
-		want := "/usr/local/share/doc/faramir/docs/" + entry.Name()
-		if got := targets["docs/"+entry.Name()]; got != want {
-			t.Errorf("%s installs to %q, want %q", entry.Name(), got, want)
+		want := filepath.Join("/usr/local/share/doc/faramir", filepath.FromSlash(path))
+		if got := targets[path]; got != want {
+			t.Errorf("%s installs to %q, want %q", path, got, want)
 		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if shipped == 0 {
 		t.Fatal("no docs are embedded, so this asserts nothing")
@@ -135,7 +135,7 @@ func TestTheShippedDocsLinkToWhatIsThere(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		pages[filepath.Base(path)] = body
+		pages[path] = body
 		return nil
 	})
 	if err != nil {
@@ -148,14 +148,17 @@ func TestTheShippedDocsLinkToWhatIsThere(t *testing.T) {
 	for name, body := range pages {
 		for _, part := range strings.Split(string(body), "](")[1:] {
 			link, _, found := strings.Cut(part, ")")
-			// Only links to a sibling document: a URL, an anchor within this page,
-			// and a path back into the checkout are not this test's business.
+			// Validate relative Markdown links inside the shipped docs tree.
 			if !found || !strings.HasSuffix(strings.SplitN(link, "#", 2)[0], ".md") ||
-				strings.Contains(link, "://") || strings.HasPrefix(link, "../") {
+				strings.Contains(link, "://") {
 				continue
 			}
 			file, anchor, _ := strings.Cut(link, "#")
-			target, ok := pages[file]
+			resolved := filepath.ToSlash(filepath.Join(filepath.Dir(name), filepath.FromSlash(file)))
+			if !strings.HasPrefix(resolved, "docs/") {
+				continue
+			}
+			target, ok := pages[resolved]
 			if !ok {
 				t.Errorf("%s links to %s, which is not a shipped document", name, file)
 				continue
@@ -164,8 +167,8 @@ func TestTheShippedDocsLinkToWhatIsThere(t *testing.T) {
 			if anchor == "" {
 				continue
 			}
-			if !slices.Contains(headingSlugs(string(target)), anchor) {
-				t.Errorf("%s links to %s#%s, and %s has no such heading", name, file, anchor, file)
+			if !slices.Contains(docAnchors(string(target)), anchor) {
+				t.Errorf("%s links to %s#%s, and %s has no such anchor", name, file, anchor, file)
 			}
 		}
 	}
@@ -174,10 +177,17 @@ func TestTheShippedDocsLinkToWhatIsThere(t *testing.T) {
 	}
 }
 
-// headingSlugs is every heading in a document, as a renderer would anchor it.
-func headingSlugs(body string) []string {
+// docAnchors lists Markdown heading slugs and explicit anchors.
+func docAnchors(body string) []string {
 	var out []string
 	for line := range strings.SplitSeq(body, "\n") {
+		for _, prefix := range []string{`<a id="`, `<a name="`} {
+			if rest, ok := strings.CutPrefix(strings.TrimSpace(line), prefix); ok {
+				if anchor, ok := strings.CutSuffix(rest, `"></a>`); ok {
+					out = append(out, anchor)
+				}
+			}
+		}
 		if !strings.HasPrefix(line, "#") {
 			continue
 		}
