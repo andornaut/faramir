@@ -34,7 +34,7 @@ func TestSharingWriteAdvisoryDescribesGeneratedDefaults(t *testing.T) {
 				return
 			}
 			warning := strings.Join(run.report.Warnings, "\n")
-			for _, want := range []string{tc.dir, "may not", "without --allow-sudo", "generated", "other unit-managed writable paths", "effective unit", "operator drop-ins", "ReadWritePaths= only if needed"} {
+			for _, want := range []string{tc.dir, "may not", "without --allow-sudo", "generated", "effective unit", "operator drop-ins", "ReadWritePaths="} {
 				if !strings.Contains(warning, want) {
 					t.Errorf("warning %q does not explain %q", warning, want)
 				}

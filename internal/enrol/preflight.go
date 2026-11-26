@@ -337,7 +337,7 @@ func (p *project) resolveGroup() error {
 	// this host's socket does not admit: that names another install, whose
 	// escalation arrangement is its own.
 	if p.opts.ClientGroup == "" || cfg.Server.AllowedGroup == p.opts.ClientGroup {
-		p.allowSudo = cfg.Sudo.ExecUser != ""
+		p.allowSudo = p.installedSudo
 	}
 	if p.opts.ClientGroup != "" {
 		p.report.ClientGroup = p.opts.ClientGroup

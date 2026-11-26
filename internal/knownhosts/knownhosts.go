@@ -92,7 +92,7 @@ func validHosts(hosts string) bool {
 		}
 		return true
 	}
-	for _, pattern := range strings.Split(hosts, ",") {
+	for pattern := range strings.SplitSeq(hosts, ",") {
 		pattern = strings.TrimPrefix(pattern, "!")
 		if pattern == "" {
 			return false
