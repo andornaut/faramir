@@ -59,7 +59,7 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 - Request a pipeline explicitly as `["bash", "-lc", "…"]`. The broker never hands a string to a shell.
 - A bare command name is looked up on `[command.env] PATH`. Add venv, pipx and shim directories there.
 - A tool that decrypts sops itself cannot be onboarded. Give it named values instead.
-- Finish with `cd <tree> && sudo faramir enrol`. It shares the tree so a brokered command can run in it, and configures the agents it detects (Codex from your home).
+- Use `sudo faramir enrol <tree>` to share the tree and configure the agents it detects (Codex from your home). If only broker execution needs access, use `sudo faramir share --group NAME <tree>` instead: it changes no agent configuration and writes no enrollment record. Neither injection nor ref listing requires enrollment.
 
 ## Linking a credential another tool owns
 
@@ -134,7 +134,7 @@ Setting | Why
 `sudo faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True` | Host key checking for Ansible, whatever a project's `ansible.cfg` says. Not in the shipped `[command.env]`. With checking off, the broker offers its credentials to whatever host answers at that address
 `sudo faramir init --known-hosts ~/.ssh/known_hosts` | `faramir-exec` has its own `known_hosts`, and it starts empty. A play whose hosts are trusted only in the operator's file fails verification before the key is offered
 
-`faramir doctor` reports how many host keys the executor can verify against. `--command-env`: [configuration.md](configuration.md#what-a-flag-sets); `--known-hosts`: [installing.md](installing.md#what-each-flag-sets). Which login a bare `ssh host` uses, which files it verifies against, and how to pin host keys across a fleet: [operating.md](operating.md#rules-a-command-does-not-state).
+`faramir doctor` counts validated host-key entries. Future key formats receive envelope validation only, so the count does not establish OpenSSH compatibility or connectivity. `--command-env`: [configuration.md](configuration.md#what-a-flag-sets). `--known-hosts`: [installing.md](installing.md#what-each-flag-sets). Which login a bare `ssh host` uses, which files it verifies against, and how to pin host keys across a fleet: [operating.md](operating.md#rules-a-command-does-not-state).
 
 ## Worked example: Ansible
 

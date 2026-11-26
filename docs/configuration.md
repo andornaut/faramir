@@ -1,6 +1,6 @@
 # Configuration
 
-There is one config file, `<config-dir>/config.toml`, and faramir owns it. `faramir init` renders it from [etc/config.toml.tmpl](../etc/config.toml.tmpl) on every run. There are no drop-in files: every value is set by a flag, written by `faramir link` or `faramir block`, or derived from the install.
+There is one config file, `<config-dir>/config.toml`, and faramir owns it. `faramir init` renders it from [etc/config.toml.tmpl](../etc/config.toml.tmpl) on every run. Faramir has no config drop-ins: every value is set by a flag, written by `faramir link` or `faramir block`, or derived from the install.
 
 ## What bounds a brokered command
 
@@ -156,7 +156,7 @@ Step 4 needs a running broker, and `link add` refuses rather than skipping it. A
 Path | Has to be
 --- | ---
 The linked file | Owned by the broker's group and group-readable, and readable by nobody else. The owner and the owner bits are the operator's choice. That group holds one account, which keeps the executor out. Never a symlink: `link add` resolves one before it writes the entry, and an entry that names one anyway, written by hand or pointed at a file that became a link afterwards, is refused with the target named
-Every directory above it, down from the home | Enterable by the client group. Traversal is not read access. Never `chmod o+x`, which grants the same to every account on the machine
+Every ancestor from the filesystem root | Enterable by the broker account through its mode or access ACL. Traversal is not read access. Never `chmod o+x`, which grants the same to every account on the machine
 
 Why it is designed this way (one ref per entry rather than a whole-file flatten, the broker reading these rather than the keeper, and modes rather than an ACL) is in [design.md](design.md#linked-secrets-are-read-by-the-broker).
 
@@ -333,7 +333,7 @@ Injectable by ref | Yes | No
 sudo -u faramir-broker faramir broker --check
 ```
 
-The broker takes no config flag. It reads `$FARAMIR_CONFIG`, and the default path when that is unset, which it is here because sudo clears the environment. For a config elsewhere, put the variable after sudo: `sudo -u faramir-broker env FARAMIR_CONFIG=FILE faramir broker --check`. Run as root it reads what the broker cannot, and the `allowed_user` check is skipped, since every name compares unequal from root.
+The broker takes no config flag. It reads `$FARAMIR_CONFIG`, or discovers it from the installed unit and sorted drop-ins. It does not fall back to a default path. To select a file explicitly, put the variable after sudo: `sudo -u faramir-broker env FARAMIR_CONFIG=FILE faramir broker --check`. [Discovery rules](operating.md#finding-the-install). Run as root it reads what the broker cannot, and the `allowed_user` check is skipped, since every name compares unequal from root.
 
 Fails on | Because
 --- | ---

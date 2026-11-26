@@ -21,11 +21,10 @@ There is one binary. The three daemons are that binary under three units, and th
 ```json
 {"version": "<this daemon's>",
  "error": {"code": "bad_request",
-           "message": "the caller names faramir <the caller's> and this is faramir <this daemon's>:
-                       restart it with `sudo faramir reload`"}}
+           "message": "the caller names faramir <the caller's> and this is faramir <this daemon's>: restart it with `sudo faramir reload`"}}
 ```
 
-Every error response from the broker carries `version`, the build that answered. A version refusal is the one case where the caller cannot learn the version from an op, since the refusal comes before the op is read. [`doctor`](operating.md#checking-an-install) uses this to report version skew.
+Every error response from the broker carries `version`, the version that answered. A version refusal is the one case where the caller cannot learn the version from an op, since the refusal comes before the op is read. [`doctor`](operating.md#checking-an-install) uses this to report version skew.
 
 `status` also carries `build`. Every unstamped build reports the version `dev`, so `build` is what distinguishes two such binaries: the commit, plus `-modified` for a tree with uncommitted edits. It is empty for a release, whose version already names the build. `doctor` compares `build` when the versions match. `build` is not part of `version`, so a rebuild does not trigger the refusal above; only a release does.
 
@@ -184,10 +183,10 @@ The peer uid is checked against `[keeper] allowed_user` on top of the socket mod
 {"values": {"home/router/admin": "…"},
  "state": [{"path": "/etc/faramir/secrets/x.sops.yml",
             "mtime_unix_nano": 1743160000000000000, "size": 812}],
- "errors": [], "unresolved_patterns": [], "shadowed_refs": []}
+ "errors": [], "unresolved_patterns": [], "shadowed_refs": {}}
 ```
 
-`get_values` returns every managed value, never a subset. The redactor is built from the whole value set, because a managed host can print a credential no command injected. `state` is the fingerprint of each file this decrypt read. It is returned with the values so both describe the same moment; fetched separately, it could fingerprint a file edited after the decrypt, and that edit would never be noticed.
+`get_values` returns every managed value, never a subset. The redactor is built from the whole value set, because a managed host can print a credential no command injected. The keeper samples `state` before decrypting. Returning those fingerprints with the values makes a file edited during decryption stale on the next check. Sampling after decryption could instead mark old values as current and miss the edit.
 
 ```json
 {"op": "get_state", "version": "…"}
@@ -204,8 +203,7 @@ The peer uid is checked against `[keeper] allowed_user` on top of the socket mod
 
 ```json
 {"error": {"code": "unsupported",
-           "message": "unsupported op \"get_age_key\"; the keeper serves
-                       'get_values' and 'get_state' only"}}
+           "message": "unsupported op \"get_age_key\"; the keeper serves 'get_values' and 'get_state' only"}}
 ```
 
 ## The executor socket

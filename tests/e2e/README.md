@@ -2,7 +2,7 @@
 
 Functional tests that drive a real `faramir` install: systemd units, three uids, a sops store, and an agent's account working in a project tree. `go test` covers the code; these cover what an operator gets after `faramir init`.
 
-CI runs them on a push to any branch and on a pull request against main: `fetch`, `up`, `run` over every suite, then `down`. It runs that twice, as a matrix over the two sudo implementations, so the jobs are named `E2E (sudo)` and `E2E (sudo-rs)`. A job each rather than `./e2e.sh both` inside one: a GitHub runner is two CPUs, and a stack is a private-cgroup systemd container plus an sshd host, so the two legs take a runner each and run at the same time. Locally `make e2e` runs both at the same time instead. The Lint job beside it reads these scripts with shellcheck.
+CI runs them on branch pushes, version-tag pushes, pull requests against main and manual dispatch: `fetch`, `up`, `run` over every suite, then `down`. A matrix gives each sudo implementation a separate runner, with jobs named `E2E (sudo)` and `E2E (sudo-rs)`. Each stack has a private-cgroup systemd container and an sshd host. Locally `make e2e` runs both stacks concurrently on one host. The Lint job checks these scripts with ShellCheck.
 
 Run them by hand as well, against a tree you are about to release or while changing a suite, which is what the rest of this page is for.
 
@@ -53,9 +53,9 @@ Every container, image and network name takes a suffix from `SUDO`, so the two s
 
 `SUDO` is `sudo` or `sudo-rs`, the implementations' own names rather than labels for them, so what a CI job is called, what you type and what the docs say are one word. Unset is `sudo`, which is what the image pins, and it takes the unsuffixed names.
 
-`make e2e` from the repository root fetches inputs and runs `both`, refusing to replace existing stacks. `make test` adds the race-enabled Go suite. Local and CI linters share `make lint`.
+`make e2e` from the repository root fetches inputs and runs `both`, refusing to replace existing stacks. `make test` adds the race-enabled Go suite. Local `make lint` and CI's `tests/container/run lint` use the same tool image and checks.
 
-`up` is idempotent and rebuilds the binary from the current tree, so it is how you pick up a change. `run` copies each script in fresh, so editing a suite needs no rebuild.
+`up` is idempotent and rebuilds the binaries from the current tree unless `E2E_PREBUILT=1` selects a verified bundle. Run it to pick up a source change. `run` copies each script in fresh, so editing a suite needs no rebuild.
 
 **`run` is single-shot.** The suites share one install and mutate it: a sudo grant is installed, agent configuration is written into the operator's home, and the last suite uninstalls the host. A second `run` without an `up` measures those leftovers and reports failures that are not regressions. `up` stamps a marker that `run` consumes, so a run against an already-used box warns and says what the failures below may be. `up` is the clean baseline.
 
@@ -93,7 +93,7 @@ In run order, which is what the prefix rule above is about: a set named to `run`
 | `check-escalation.sh` | the `--allow-sudo` escalation channel |
 | `check-secrets.sh` | the secret lifecycle: edit, reseal, the `.sops.yaml` shapes that seal a store to the wrong people, and a store that will not open |
 | `check-link.sh` | `[[secret.link]]`: a value read out of a file another tool maintains, and the grant that lets the broker read it and nobody else |
-| `check-block.sh` | `[[secret.block]]`: a path, a name or a command blocked from the agent, the listing that shows the built-in rules beside them, and the two costs of never reading it: the mode is left alone and the value is absent from the redactor |
+| `check-block.sh` | `[[secret.block]]`: a path or command blocked from the agent, the listing that shows the built-in rules beside them, and the two costs of never reading it: the mode is left alone and the value is absent from the redactor |
 | `check-uninstall.sh` | `faramir uninstall`, and what it is right to leave behind |
 
 ## Writing a check

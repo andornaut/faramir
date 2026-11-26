@@ -53,7 +53,7 @@ An `~/.npmrc` token and a `gh` OAuth token belong to their tools. Copying them i
 
 **The broker reads them, not the keeper.** The keeper holds the age key, which decrypts every managed file retroactively, so it runs with the homes removed and at most one `BindReadOnlyPaths`. A linked file needs no key. Putting links behind the keeper would widen the reach of the account that should stay narrowest, and would make every link change a unit re-render. The broker already holds every plaintext value, already reads key material at rest for `[ssh] key`, and has no `ProtectHome=` because it has to stat a request's cwd. The file's own mode bounds it.
 
-**The arrangement is modes and ownership. Faramir checks it and does not apply it.** The file must belong to the broker's group, be group-readable and no more. The directories above it must be enterable by the client group. Both are the operator's paths, and faramir changes no path it does not own: `link add`, `init` and `doctor` report what is wrong and the command that fixes it, and whoever manages the host's permissions applies it. Why modes rather than an ACL:
+**The file's access is set by modes and ownership. Faramir checks it and does not apply it.** The file must belong to the broker's group, be group-readable and no more. Every ancestor from the filesystem root must permit the broker account's traversal, through modes or access ACLs. Both are the operator's paths, and faramir changes no path it does not own: `link add`, `init` and `doctor` report what is wrong and the command that fixes it, and whoever manages the host's permissions applies it. Why the file needs modes rather than an ACL:
 
 Rejected | Why
 --- | ---

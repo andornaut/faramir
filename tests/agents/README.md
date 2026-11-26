@@ -220,5 +220,6 @@ from one implementation, and what differs is what each harness does with the
 answer. A second run against the same agent after an instruction change measures
 whether the change landed.
 
-Nothing here is a regression gate. The verdicts are a person's reading of an
-afternoon's work, and two runs will not produce the same table.
+The agent's verdicts require human review: two runs will not produce the same
+table. The collector's canary leak scan is a separate gate and fails a round
+when a canary value appears in its output.

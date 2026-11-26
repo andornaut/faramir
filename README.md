@@ -156,7 +156,7 @@ sudo ./bin/faramir init
 
 ### What init does
 
-`init` creates the accounts and groups, generates the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. It is idempotent, so it is also the upgrade. A re-run that leaves a flag out keeps the value the install already uses rather than reverting to the default.
+`init` creates the accounts and groups, generates the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. It is idempotent, so it is also the upgrade. Omitted flags keep the installed settings, except `--allow-sudo`: omitting it removes the sudo grant and notifier.
 
 Every flag, what a re-run adopts, and where the config directory may not go: [docs/installing.md](docs/installing.md).
 
@@ -164,12 +164,12 @@ Every flag, what a re-run adopts, and where the config directory may not go: [do
 
 From a bare host to a redacted command in seven steps.
 
-1. **Install the binary**, from [an archive](#pre-compiled-binary) or [a build](#compile-from-source). `init` puts it in `/usr/local/bin` itself.
-2. **Provision the host** with `sudo faramir init`. [What it does](#what-init-does), and [every flag](docs/installing.md). Log out and back in afterwards: `init` adds you to the group the broker socket admits, and an open session does not pick that up.
+1. **Install and provision the host**, from [an archive](#pre-compiled-binary) or [a build](#compile-from-source). Both examples run `init`, which puts the binary in `/usr/local/bin`. [What it does](#what-init-does), and [every flag](docs/installing.md).
+2. **Log out and back in.** `init` adds you to the group the broker socket admits, and an open session does not pick that up.
 3. **Check it** with `sudo faramir doctor`. It reports whether the install works and, as root, what each account can reach. Without root it still runs, and reports what it could not check as unasked rather than as passing. [What it checks](docs/operating.md#checking-an-install).
 4. **Declare what this machine should block.** A fresh install refuses only its own files, so your SSH key stays readable to your agent until you declare it. [Below](#declaring-blocked-paths-and-commands).
 5. **Write a value** with `sudo faramir vault add svc`. A document holding `token` under `svc` serves `faramir://svc/token`. [Writing the values](#onboarding-a-project).
-6. **Enrol a tree** with `cd <tree> && sudo faramir enrol`, in each tree where managed credentials are used. [What an enrolment writes, and the steps before it](#onboarding-a-project).
+6. **Enrol a tree if you want agent setup**, with `sudo faramir enrol <tree>`. Enrollment configures routing and shares filesystem access. Broker commands also work without it. [What an enrolment writes, and how to share access alone](#onboarding-a-project).
 7. **Run something.** `faramir refs` lists what the broker serves, and `faramir run` injects one into a command:
 
 ```bash
@@ -214,7 +214,7 @@ That refuses `ls` and `chmod` as well as `cat`, so nothing can rotate the file. 
 
 `faramir block ls` lists everything in force, including the rules faramir carries itself. It runs without root, as do `reader ls`, `link ls` and `doctor`, which reports less without root.
 
-Every `block` command is idempotent, previews with `--dry-run` and reports what changed with `--json`, so a configuration manager can declare the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
+`block add` and `block rm` are idempotent, preview with `--dry-run` and report what changed with `--json`, so a configuration manager can declare the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
 
 ## Usage
 
@@ -234,11 +234,11 @@ shared. Hidden entries, private files and directories, configured blocked or
 linked paths, the broker's SSH key and symlinks are left alone. User ownership
 is preserved. Existing ACLs grant the owning group the requested access while
 retaining every named user's and group's effective permissions. Name only the
-source, dependency or build subtree the command
-needs; name a required hidden subtree directly. Ancestors must already permit
-traversal. `--dry-run` previews without
-writing; `--json` reports changes. No agent configuration or enrollment record
-is written.
+source, dependency or build subtree the command needs. Name a required hidden
+subtree directly. Ancestors must already permit traversal. Group access alone
+may not permit writes through the [executor's service sandbox](docs/layout.md#sharing-a-working-tree).
+`--dry-run` previews without writing. `--json` reports changes. No agent
+configuration or enrollment record is written.
 
 Per-tool recipes, the `faramir link` types and selectors, SSH keys, and a worked Ansible example: [docs/integrations.md](docs/integrations.md).
 

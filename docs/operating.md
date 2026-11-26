@@ -45,11 +45,13 @@ Order | Source
 --- | ---
 1 | `$FARAMIR_CONFIG`, which skips the rest
 2 | the running broker's own answer, asked at `$FARAMIR_SOCKET`, else `/run/faramir/broker.sock`
-3 | the `FARAMIR_CONFIG=` line in the broker's unit, which covers a host whose config moved and whose broker is down
+3 | `FARAMIR_CONFIG` in the broker unit's `[Service] Environment=` assignments and sorted drop-ins, which covers a host whose config moved and whose broker is down
 
 If nothing answers, the command fails and names both places it asked. It does not fall back to the compiled-in default: acting on the wrong install is worse than an error. A config file the ladder named but did not find fails the command that reads it, and `doctor` reports it as a failed `config` check. `$FARAMIR_CONFIG` is the override, and the only setting an operator needs to give. It names the config **file**, not its directory; a directory value is refused.
 
-`init` is the exception and takes `--config-dir`: a host with no install has no broker to ask and no unit to read, and `init`'s caller decides where the config goes. It asks the broker and reads the unit like the other commands, then falls back to `/etc/faramir`, and prints its choice before writing. `init` ignores `$FARAMIR_CONFIG`: it is a shell variable that `sudo -E` carries through, and a leftover from an earlier command must not decide where a host is provisioned.
+Unit discovery handles quoted assignments, continuations and C-style escapes. Later assignments override earlier ones. An empty `Environment=` resets them. An unreadable file or malformed declaration stops discovery. The config path must be absolute: `%%` means a literal percent, but dynamic systemd specifiers are unsupported. Discovery does not read `EnvironmentFile=` contents. Use `$FARAMIR_CONFIG` explicitly if that is how the unit receives its path.
+
+`init` is the exception and takes `--config-dir`: a host with no install has no broker to ask and no unit to read, and `init`'s caller decides where the config goes. It asks the broker and reads the unit like the other commands, then falls back to `/etc/faramir` only if no install was found, not after a discovery error. It prints its choice before writing. `init` ignores `$FARAMIR_CONFIG`: it is a shell variable that `sudo -E` carries through, and a leftover from an earlier command must not decide where a host is provisioned.
 
 `enrol --dry-run` is the other exception. It runs without an install: it writes nothing, so it has no wrong install to act on, and reporting on a tree from an unprovisioned host is what it is for.
 
@@ -176,6 +178,8 @@ values. `--force` skips the question, never the change check.
 - **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config wherever `--config-dir` puts it, like the age key. `--ssh-key` adopts one.
 - **A brokered `ssh` logs in as the executor.** `ssh host` with no user asks for `faramir-exec`, which is nobody's account on a managed host. Give the login (`ssh deploy@host.example.com`), or write one `User` per host into `/var/lib/faramir-exec/.ssh/config` as root; that directory is the child's `HOME`. Ansible needs neither: `ansible_user` is in the inventory.
 - **A brokered `ssh` verifies against `/etc/ssh/ssh_known_hosts` and the executor's own file**; either is enough. The executor's file starts empty and nothing can prompt you to add to it, so a host trusted only in your `~/.ssh/known_hosts` is refused before the broker's key is offered. `init --known-hosts PATH` pins a file for the executor, replaced whole on each run. The system-wide file is the alternative and covers every account. An entry is filed under the name ssh dials, with the port in brackets when it is not 22 (`[host.example.com]:2222`).
+
+  The import rejects malformed entries, unknown markers, empty host patterns and malformed version-1 hashed names. It checks the base64 key's algorithm envelope and parses known key formats. Future algorithms with an accepted prefix receive envelope validation only. Their usability depends on the installed OpenSSH. `doctor` counts entries that pass these checks, not hosts it has contacted or keys it has authenticated with.
 
   ```bash
   sudo ssh-keygen -R host.example.com -f /etc/ssh/ssh_known_hosts

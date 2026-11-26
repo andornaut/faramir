@@ -46,7 +46,7 @@ Every path the install creates, what owns it, and what each account can reach th
 
 ```text
 <any file you link>             group-readable by <broker's group>, and by nobody else
-<the directories above it>      enterable by <client-group>, from filesystem root
+<the directories above it>      enterable by the broker account, from filesystem root
 ```
 
 `init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>`, and a missing parent is `0700`. A file that already exists keeps its owner and group; a rule file, hook or plugin loses any bit outside `0640` and is never widened, and an instructions file keeps its mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
@@ -95,3 +95,5 @@ The section says what the deny rules cannot: why they refuse, and what to do ins
 - An already traversable directory is accepted as it is, using the kernel's owner, named-user, group and other precedence. Neither command tightens an ancestor the operator left open.
 - Membership is a permission, not a mount, so an encrypted home still unmounts at logout. A brokered command running at the time holds it open.
 - Enrollment gives the tree itself `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. That covers the whole tree, so a `.env` or `.pem` in the checkout is shared along with the code. The agent settings faramir manages are regrouped but deliberately not made group-writable. `enrol` reports how many paths it changed, how many it left at their own mode, and how many directories it closed to unlink by anyone but their owner.
+
+Group access does not change the executor's service sandbox. Without `--allow-sudo`, the generated unit uses `ProtectSystem=strict` and permits working-tree writes beneath `/home`. Both commands warn when sharing elsewhere on such an install. Check the effective unit and operator drop-ins before changing `ReadWritePaths=`: an existing override may already permit the path.

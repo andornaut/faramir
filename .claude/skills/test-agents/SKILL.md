@@ -51,10 +51,10 @@ mv /tmp/faramir-agent-reports /tmp/faramir-agent-reports.prev-$(date +%m%d-%H%M)
 tests/agents/run.sh all <enrolled-tree>
 ```
 
-An agent that dies in the first minute has hit its provider rather than
-faramir, which the README's model section covers. Once the provider side is
-fixed, re-run that one alone: it writes only its own pair, so it can run beside
-the rest of the round.
+Check stderr for provider refusals before treating an early exit as a faramir
+failure. The README's model section covers model access. After fixing a provider
+failure, re-run that agent alone: it writes only its own pair, so it can run
+beside the rest of the round.
 
 ```sh
 tests/agents/run.sh <agent> <enrolled-tree>
