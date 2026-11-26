@@ -12,6 +12,12 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+  - package-ecosystem: "npm"
+    directory: "/tests/container"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
   # The images the isolated checks build. A gomod entry at "/" does not
   # reach a Dockerfile, and a docker entry at "/" does not reach a subdirectory.
   - package-ecosystem: "docker"
